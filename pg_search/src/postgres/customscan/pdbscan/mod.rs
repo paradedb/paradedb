@@ -253,6 +253,16 @@ impl PdbScan {
         debug_log!("🔍 [EXTRACT_QUALS] Base extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
                    uses_tantivy_to_query, indexed_quals);
 
+        // CRITICAL: Check for problematic cross-table OR expressions FIRST, regardless of uses_tantivy_to_query
+        // If we have OR expressions that mix search predicates with cross-table predicates,
+        // we cannot handle them effectively with search queries (they become "match all")
+        if let Some(ref quals) = indexed_quals {
+            if contains_problematic_cross_table_or_expressions(quals) {
+                debug_log!("🚫 [EXTRACT_QUALS] Detected problematic cross-table OR expressions - skipping custom scan");
+                return (None, ri_type, restrict_info);
+            }
+        }
+
         // If we found any search operators, we proceed with the unified approach
         if uses_tantivy_to_query {
             debug_log!(
@@ -268,18 +278,23 @@ impl PdbScan {
             if let Some(ref quals) = indexed_quals {
                 has_pushdown_expressions = quals.contains_search_operators();
                 has_non_pushdown_expressions = contains_non_pushdown_expressions(quals);
+                debug_log!("🔍 [DEBUG] has_pushdown_expressions: {}, has_non_pushdown_expressions: {}", has_pushdown_expressions, has_non_pushdown_expressions);
             }
             
             let has_mixed_expressions = has_pushdown_expressions && has_non_pushdown_expressions;
+            debug_log!("🔍 [DEBUG] has_mixed_expressions: {}", has_mixed_expressions);
 
             if has_mixed_expressions {
 
                 // Extract the entire expression as a node string for heap filtering
                 // This ensures we preserve the complete boolean logic
                 if let Some(node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
+                    debug_log!("🎯 [DEBUG] Setting heap_filter_node_string: {}", node_string);
                     builder
                         .custom_private()
                         .set_heap_filter_node_string(Some(node_string));
+                } else {
+                    debug_log!("⚠️  [DEBUG] extract_restrictinfo_string returned None for mixed expressions");
                 }
 
                 // Phase 4: Smart base query optimization for mixed expressions
@@ -319,7 +334,62 @@ impl PdbScan {
         );
 
         if join_uses_tantivy_to_query {
-            return (join_indexed_quals, RestrictInfoType::Join, joinri);
+            debug_log!(
+                "🔍 [EXTRACT_QUALS] Found search operators in JOIN predicates, combining with base quals if any"
+            );
+
+            // Combine base quals and join quals if both exist
+            let combined_quals = if let Some(base_quals) = indexed_quals {
+                debug_log!("🔍 [EXTRACT_QUALS] Combining base quals with JOIN quals");
+                Some(match join_indexed_quals {
+                    Some(join_quals) => Qual::And(vec![base_quals, join_quals]),
+                    None => base_quals,
+                })
+            } else {
+                join_indexed_quals
+            };
+
+            // Check if we have mixed expressions (pushdown-able + non-pushdown-able expressions)
+            let mut has_pushdown_expressions = false;
+            let mut has_non_pushdown_expressions = false;
+            
+            if let Some(ref quals) = combined_quals {
+                has_pushdown_expressions = quals.contains_search_operators();
+                has_non_pushdown_expressions = contains_non_pushdown_expressions(quals);
+            }
+            
+            let has_mixed_expressions = has_pushdown_expressions && has_non_pushdown_expressions;
+
+            if has_mixed_expressions {
+                debug_log!("🔍 [EXTRACT_QUALS] Combined predicates have mixed expressions - applying optimization");
+
+                // For heap filtering, use the joinri since it contains the cross-table predicates
+                let combined_restrict_info = &joinri;
+
+                // Extract the entire expression as a node string for heap filtering
+                if let Some(node_string) = extract_restrictinfo_string(combined_restrict_info, rti, root) {
+                    builder
+                        .custom_private()
+                        .set_heap_filter_node_string(Some(node_string));
+                }
+
+                // Phase 4: Smart base query optimization for mixed expressions
+                let optimized_base_qual = optimize_base_query_for_unified_evaluation(
+                    &combined_quals,
+                    combined_restrict_info,
+                    root,
+                    rti,
+                    anyelement_query_input_opoid(),
+                    RestrictInfoType::Join,
+                    schema,
+                    builder,
+                );
+
+                return (optimized_base_qual, RestrictInfoType::Join, joinri);
+            } else {
+                // For pure search expressions, use the combined quals
+                return (combined_quals, RestrictInfoType::Join, joinri);
+            }
         }
 
         // No search operators found anywhere, can't use custom scan
@@ -2784,13 +2854,65 @@ unsafe fn expression_is_mixed(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) ->
 }
 
 /// Check if a Qual tree contains expressions that cannot be pushed down to Tantivy
+/// IMPORTANT: Only consider own-table predicates for mixed expression detection.
+/// Cross-table predicates (ExternalExpr/ExternalVar) should be handled by 
+/// replace_cross_relation_expressions_with_true(), not by unified evaluation.
 fn contains_non_pushdown_expressions(qual: &Qual) -> bool {
     match qual {
-        Qual::ExternalExpr | Qual::ExternalVar | Qual::NonIndexedExpr => true,
+        // Consider NonIndexedExpr (predicates on non-indexed fields of our own table)
+        Qual::NonIndexedExpr => true,
+        // TEMPORARILY also consider ExternalExpr as non-pushdown expressions
+        // TODO: Fix the qual extraction to properly classify same-table non-fast field predicates as NonIndexedExpr
+        // instead of ExternalExpr
+        Qual::ExternalExpr => true,
         Qual::And(quals) | Qual::Or(quals) => {
             quals.iter().any(|q| contains_non_pushdown_expressions(q))
         }
         Qual::Not(qual) => contains_non_pushdown_expressions(qual),
+        _ => false,
+    }
+}
+
+/// Check if a Qual tree contains cross-table predicates in OR expressions that would
+/// make search queries ineffective. When ExternalVar/ExternalExpr appears in OR with
+/// search predicates, the OR becomes "match everything" which defeats filtering.
+/// 
+/// IMPORTANT: This should only trigger for cases where we can't extract useful search predicates
+/// for the current table. If the table has its own search predicates that can be extracted,
+/// we should allow custom scan for scoring purposes.
+fn contains_problematic_cross_table_or_expressions(qual: &Qual) -> bool {
+    match qual {
+        Qual::Or(quals) => {
+            // Check if this is a TOP-LEVEL OR that mixes search and cross-table predicates
+            // AND has no other useful search predicates for this table
+            let has_search_predicates = quals.iter().any(|q| q.contains_search_operators());
+            let has_cross_table_predicates = quals.iter().any(|q| matches!(q, Qual::ExternalVar | Qual::ExternalExpr));
+            
+            if has_search_predicates && has_cross_table_predicates {
+                // Check if ALL search predicates are cross-table (no own-table search predicates)
+                let own_table_search_predicates = quals.iter().filter(|q| {
+                    q.contains_search_operators() && !matches!(q, Qual::ExternalVar | Qual::ExternalExpr)
+                }).count();
+                
+                if own_table_search_predicates == 0 {
+                    // Only cross-table search predicates - this would create a useless "All" query
+                    pgrx::warning!("🚫 [CROSS_TABLE_OR] Found OR with only cross-table search predicates - falling back to PostgreSQL");
+                    return true;
+                }
+                
+                // If we have own-table search predicates, we can still use custom scan for scoring
+                // Let PostgreSQL handle the complete filtering logic
+                // pgrx::warning!("⚠️ [CROSS_TABLE_OR] Found mixed OR expression, but proceeding with custom scan for scoring");
+            }
+            
+            // Recursively check nested OR expressions
+            quals.iter().any(|q| contains_problematic_cross_table_or_expressions(q))
+        }
+        Qual::And(quals) => {
+            // Check nested expressions
+            quals.iter().any(|q| contains_problematic_cross_table_or_expressions(q))
+        }
+        Qual::Not(qual) => contains_problematic_cross_table_or_expressions(qual),
         _ => false,
     }
 }

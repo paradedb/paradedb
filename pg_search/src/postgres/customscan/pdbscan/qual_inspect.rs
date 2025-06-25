@@ -963,6 +963,7 @@ unsafe fn extract_quals_original(
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
                 if let Some(search_field) = schema.search_field(field.attname()) {
                     // Only fast fields can support Exists queries in Tantivy for IS NOT NULL / IS NULL
+                    // For non-fast indexed fields, we return None so they get handled as mixed expressions
                     if search_field.is_fast() {
                         if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                             return Some(Qual::PushdownIsNotNull { field });

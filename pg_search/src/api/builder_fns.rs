@@ -616,8 +616,8 @@ pub unsafe fn terms_with_operator(
         } else {
             (pg_sys::Datum::null(), true)
         };
-        let anyelement = AnyElement::from_polymorphic_datum(datum, is_null, array_type).expect("datum should be a valid AnyElement");
-        term_with_operator(field.clone(), operator.clone(), anyelement).expect("term_with_operator should return a valid SearchQueryInput")
+        let anyelement = AnyElement::from_polymorphic_datum(datum, is_null, array_type).expect("should be a valid AnyElement");
+        term_with_operator(field.clone(), operator.clone(), anyelement).expect("should return a valid SearchQueryInput")
     }).collect::<Vec<_>>();
 
     if use_or {

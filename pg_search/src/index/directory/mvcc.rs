@@ -189,10 +189,6 @@ impl MVCCDirectory {
     pub(crate) fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
         self.all_entries.lock().clone()
     }
-
-    pub(crate) fn indexrel(&self) -> &PgSearchRelation {
-        &self.indexrel
-    }
 }
 
 impl Directory for MVCCDirectory {

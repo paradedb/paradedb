@@ -71,7 +71,7 @@ use crate::postgres::customscan::{self, CustomScan, CustomScanState};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::query::AsHumanReadable;
+
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -256,51 +256,55 @@ impl PdbScan {
         // If we found any search operators, we proceed with the unified approach
         if uses_tantivy_to_query {
             debug_log!(
-                "🔍 [EXTRACT_QUALS] Found search operators, proceeding with unified approach"
+                "🔍 [EXTRACT_QUALS] Found search operators, checking if mixed expression"
             );
 
-            // Extract the entire expression as a node string for heap filtering
-            // This ensures we preserve the complete boolean logic
-            if let Some(node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
-                debug_log!(
-                    "🔍 [EXTRACT_QUALS] Extracted node string for heap filter: {}",
-                    node_string
-                );
-                builder
-                    .custom_private()
-                    .set_heap_filter_node_string(Some(node_string));
-            } else {
-                debug_log!("🔍 [EXTRACT_QUALS] Failed to extract node string for heap filter");
+            // Check if we have mixed expressions (pushdown-able + non-pushdown-able expressions)
+            // We need to check if any expressions cannot be fully pushed down to Tantivy
+            let mut has_pushdown_expressions = false;
+            let mut has_non_pushdown_expressions = false;
+            
+            // Check if the indexed_quals contains any ExternalExpr or similar non-pushdown expressions
+            if let Some(ref quals) = indexed_quals {
+                has_pushdown_expressions = quals.contains_search_operators();
+                has_non_pushdown_expressions = contains_non_pushdown_expressions(quals);
             }
+            
+            let has_mixed_expressions = has_pushdown_expressions && has_non_pushdown_expressions;
 
-            // Phase 4: Smart base query optimization
-            // Create an optimized base query that reduces the document set
-            debug_log!("🔍 [EXTRACT_QUALS] Calling optimize_base_query_for_unified_evaluation");
-            let optimized_base_qual = optimize_base_query_for_unified_evaluation(
-                &indexed_quals,
-                &restrict_info,
-                root,
-                rti,
-                pdbopoid,
-                ri_type,
-                schema,
-                builder, // Pass the builder so we can directly set the optimized SearchQueryInput
-            );
+            if has_mixed_expressions {
 
-            debug_log!(
-                "🔍 [EXTRACT_QUALS] Optimized base qual: {:?}",
-                optimized_base_qual
-            );
-            return (optimized_base_qual, ri_type, restrict_info);
+                // Extract the entire expression as a node string for heap filtering
+                // This ensures we preserve the complete boolean logic
+                if let Some(node_string) = extract_restrictinfo_string(&restrict_info, rti, root) {
+                    builder
+                        .custom_private()
+                        .set_heap_filter_node_string(Some(node_string));
+                }
+
+                // Phase 4: Smart base query optimization for mixed expressions
+                let optimized_base_qual = optimize_base_query_for_unified_evaluation(
+                    &indexed_quals,
+                    &restrict_info,
+                    root,
+                    rti,
+                    pdbopoid,
+                    ri_type,
+                    schema,
+                    builder, // Pass the builder so we can directly set the optimized SearchQueryInput
+                );
+
+                return (optimized_base_qual, ri_type, restrict_info);
+            } else {
+                // For pure search expressions, use the normal path without heap filter
+                return (indexed_quals, ri_type, restrict_info);
+            }
         }
 
-        debug_log!(
-            "🔍 [EXTRACT_QUALS] No search operators in base restrictions, checking join clauses"
-        );
+
 
         // If we have no search operators, try to extract from join clauses
         let joinri: PgList<pg_sys::RestrictInfo> = PgList::from_pg(builder.args().rel().joininfo);
-        debug_log!("🔍 [EXTRACT_QUALS] Join clauses count: {}", joinri.len());
 
         let mut join_uses_tantivy_to_query = false;
         let (join_indexed_quals, _join_all_quals) = extract_quals_with_non_indexed(
@@ -314,18 +318,11 @@ impl PdbScan {
             &mut join_uses_tantivy_to_query,
         );
 
-        debug_log!("🔍 [EXTRACT_QUALS] Join extraction result: uses_tantivy_to_query={}, indexed_quals={:?}", 
-                   join_uses_tantivy_to_query, join_indexed_quals);
-
         if join_uses_tantivy_to_query {
-            debug_log!(
-                "🔍 [EXTRACT_QUALS] Found search operators in join clauses, using join quals"
-            );
             return (join_indexed_quals, RestrictInfoType::Join, joinri);
         }
 
         // No search operators found anywhere, can't use custom scan
-        debug_log!("🔍 [EXTRACT_QUALS] No search operators found anywhere, returning None");
         (None, ri_type, restrict_info)
     }
 
@@ -386,21 +383,14 @@ impl CustomScan for PdbScan {
         let restrict_info = unsafe {
             PgList::<pg_sys::RestrictInfo>::from_pg((*builder.args().rel).baserestrictinfo)
         };
-        debug_log!("🎯 [PDBSCAN] rel_pathlist_callback called for table={}, rti={}, {} restriction clauses", 
-                   table_name, builder.args().rti, restrict_info.len());
+
 
         unsafe {
             let (restrict_info, ri_type) = builder.restrict_info();
-            debug_log!(
-                "🎯 [PDBSCAN] restrict_info type: {:?}, count: {}",
-                ri_type,
-                restrict_info.len()
-            );
 
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // for us to do anything
-                debug_log!("🎯 [PDBSCAN] No restrictions found, returning None");
                 return None;
             }
 
@@ -412,36 +402,19 @@ impl CustomScan for PdbScan {
                 if rte.rtekind != pg_sys::RTEKind::RTE_RELATION
                     && rte.rtekind != pg_sys::RTEKind::RTE_JOIN
                 {
-                    debug_log!(
-                        "🎯 [PDBSCAN] Unsupported RTE kind: {:?}, returning None",
-                        rte.rtekind
-                    );
                     return None;
                 }
 
                 // and we only work on plain relations
                 let relkind = pg_sys::get_rel_relkind(rte.relid) as u8;
                 if relkind != pg_sys::RELKIND_RELATION && relkind != pg_sys::RELKIND_MATVIEW {
-                    debug_log!(
-                        "🎯 [PDBSCAN] Unsupported relation kind: {}, returning None",
-                        relkind
-                    );
                     return None;
                 }
 
                 // and that relation must have a `USING bm25` index
                 let (table, bm25_index) = match rel_get_bm25_index(rte.relid) {
-                    Some(result) => {
-                        debug_log!("🎯 [PDBSCAN] Found BM25 index for table {}", table_name);
-                        result
-                    }
-                    None => {
-                        debug_log!(
-                            "🎯 [PDBSCAN] No BM25 index found for table {}, returning None",
-                            table_name
-                        );
-                        return None;
-                    }
+                    Some(result) => result,
+                    None => return None,
                 };
 
                 (table, bm25_index)
@@ -1050,28 +1023,30 @@ impl CustomScan for PdbScan {
             }
         }
 
-        // Show heap filter expression if present using proper deparse context
-        if let Some(ref heap_filter_node_string) = state.custom_state().heap_filter_node_string {
-            unsafe {
-                let human_readable_filter = create_human_readable_filter_text(
-                    heap_filter_node_string,
-                    explainer,
-                    state.custom_state().execution_rti,
-                );
-                explainer.add_text("Heap Filter", &human_readable_filter);
-            }
-        }
-
+        // Show query information based on whether we have mixed expressions
+        let has_heap_filter = state.custom_state().heap_filter_node_string.is_some();
         let mut json_value = state
             .custom_state()
             .query_to_json()
             .expect("query should serialize to json");
-        // Remove the oid from the with_index object
-        // This helps to reduce the variability of the explain output used in regression tests
         Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
         let updated_json_query =
             serde_json::to_string(&json_value).expect("updated query should serialize to json");
-        explainer.add_text("Tantivy Query", &updated_json_query);
+
+        if has_heap_filter {
+            // Mixed expression: show unified query tree (the heap filter contains both Tantivy and PostgreSQL parts)
+            unsafe {
+                let human_readable_filter = create_human_readable_filter_text(
+                    state.custom_state().heap_filter_node_string.as_ref().unwrap(),
+                    explainer,
+                    state.custom_state().execution_rti,
+                );
+                explainer.add_text("Query", &human_readable_filter);
+            }
+        } else {
+            // Pure Tantivy query: show Tantivy query only
+            explainer.add_text("Tantivy Query", &updated_json_query);
+        }
 
         if explainer.is_verbose() {
             explainer.add_text(
@@ -2582,14 +2557,11 @@ unsafe fn optimize_base_query_for_unified_evaluation(
         // Try to parse it and build a universal expression tree
         let heap_filter_expr = create_heap_filter_expr(&heap_filter_node_string);
         if !heap_filter_expr.is_null() {
-            debug_log!("🔧 [OPTIMIZE] Successfully parsed heap filter expression, building UniversalReader");
-
             // Extract the raw node from the heap filter expression
             let heap_filter_node = heap_filter_expr.cast::<pg_sys::Node>();
 
             // CRITICAL FIX: Use the heap filter expression directly for extraction
             // The heap filter contains the original un-decomposed expression
-            debug_log!("🔧 [OPTIMIZE] Trying to extract from heap filter expression directly");
 
             match ExpressionTreeOptimizer::build_search_query_from_expression(
                 heap_filter_node,
@@ -2597,14 +2569,8 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                 pdbopoid,
             ) {
                 Ok(search_query_input) => {
-                    debug_log!(
-                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput from heap filter: {:?}",
-                        search_query_input.as_human_readable()
-                    );
-
                     match search_query_input {
                         SearchQueryInput::All => {
-                            debug_log!("🔧 [OPTIMIZE] Heap filter requires ALL query for unified evaluation, stopping optimization");
                             // CRITICAL FIX: When heap filter returns SearchQueryInput::All, this means we have
                             // a mixed expression that requires unified evaluation. We should use this directly
                             // and not try to optimize further.
@@ -2613,33 +2579,17 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                         }
                         _ => {
                             // We have a proper Tantivy query from the heap filter
-                            debug_log!(
-                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from heap filter: {:?}",
-                                search_query_input.as_human_readable()
-                            );
-
-                            // Set the optimized SearchQueryInput directly
-                            builder.custom_private().set_query(search_query_input);
-
-                            // TODO: Create Universal Reader at execution time when we have access to the indexrel
-
-                            // Return a synthetic Qual to indicate we handled the optimization
-                            return Some(Qual::All);
+                            // For pure Tantivy queries, don't override - let the normal path handle it
+                            // This avoids the unified evaluation overhead
+                            return None;
                         }
                     }
                 }
-                Err(e) => {
-                    debug_log!(
-                        "🔧 [OPTIMIZE] Failed to build SearchQueryInput from heap filter: {}",
-                        e
-                    );
+                Err(_e) => {
+                    // Failed to build SearchQueryInput from heap filter
                 }
             }
-        } else {
-            debug_log!("🔧 [OPTIMIZE] Failed to parse heap filter expression");
         }
-    } else {
-        debug_log!("🔧 [OPTIMIZE] No heap filter node string available");
     }
 
     // FALLBACK: Check the original expressions from restrict_info (before decomposition)
@@ -2656,7 +2606,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
         // Check if this original expression contains search operators
         if expression_contains_search_operators(cleaned_original, pdbopoid) {
-            debug_log!("🔧 [OPTIMIZE] Found expression with search operators in original clause, building optimal SearchQueryInput");
 
             // CRITICAL: Use the cleaned original expression (not the decomposed version)
             // This preserves the NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))
@@ -2667,11 +2616,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                 pdbopoid,
             ) {
                 Ok(search_query_input) => {
-                    debug_log!(
-                        "🔧 [OPTIMIZE] Successfully built SearchQueryInput from original: {:?}",
-                        search_query_input.as_human_readable()
-                    );
-
                     // CRITICAL FIX: For mixed expressions, we need to check if the original expression
                     // contains both search operators AND non-search predicates.
                     // If so, we must use SearchQueryInput::All for proper unified evaluation.
@@ -2683,7 +2627,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                         SearchQueryInput::All => {
                             // CRITICAL FIX: Even if we get SearchQueryInput::All, if the original expression contains
                             // search operators, we still want a custom scan for unified evaluation and scoring
-                            debug_log!("🔧 [OPTIMIZE] Original expression requires ALL query but contains search operators");
                             // Set ALL query for unified evaluation
                             builder.custom_private().set_query(search_query_input);
                             return Some(Qual::All);
@@ -2693,31 +2636,19 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                                 // CRITICAL FIX: For mixed expressions like (name @@@ 'Apple' AND category = 'Electronics'),
                                 // even though we can extract a Tantivy query like "name:(Apple)", we must use
                                 // SearchQueryInput::All to ensure proper unified evaluation of both parts
-                                debug_log!("🔧 [OPTIMIZE] Mixed expression detected, using ALL query for unified evaluation");
                                 builder.custom_private().set_query(SearchQueryInput::All);
                                 return Some(Qual::All);
                             } else {
-                                // Pure Tantivy query - set it directly in the builder
-                                debug_log!(
-                                    "🔧 [OPTIMIZE] Pure Tantivy expression, setting optimized SearchQueryInput: {:?}",
-                                    search_query_input.as_human_readable()
-                                );
-
-                                // Set the optimized SearchQueryInput directly in the PrivateData
-                                // This bypasses the Qual -> SearchQueryInput conversion that defaults to All
-                                builder.custom_private().set_query(search_query_input);
-
-                                // Return a synthetic Qual to indicate we handled the optimization
-                                return Some(Qual::All);
+                                // Pure Tantivy query - use normal path
+                                // For pure Tantivy queries, don't override - let the normal path handle it
+                                // This avoids the unified evaluation overhead
+                                return None;
                             }
                         }
                     }
                 }
-                Err(e) => {
-                    debug_log!(
-                        "🔧 [OPTIMIZE] Failed to build SearchQueryInput from original: {}",
-                        e
-                    );
+                Err(_e) => {
+                    // Failed to build SearchQueryInput from original
                 }
             }
         }
@@ -2726,7 +2657,6 @@ unsafe fn optimize_base_query_for_unified_evaluation(
     // FALLBACK: Use the original approach if the new method didn't work
 
     // First, check if we have direct indexed predicates
-    debug_log!("🔧 [OPTIMIZE] No suitable expressions found, returning None");
     // If no expressions with search operators found, return None to indicate
     // that we can't handle this query with the custom scan
     None
@@ -2743,22 +2673,13 @@ unsafe fn optimize_not_expression_with_mixed_predicates(
     _pdbopoid: pg_sys::Oid,
     _schema: &SearchIndexSchema,
 ) -> Option<Qual> {
-    debug_log!(
-        "🔧 [NOT_OPT] Analyzing qual for NOT optimization: {:?}",
-        indexed_qual
-    );
-
     match indexed_qual {
         // Handle: And([Not(search_pred), ExternalExpr])
         // This represents: NOT (search_pred OR non_search_pred)
         Qual::And(and_clauses) if and_clauses.len() == 2 => {
-            debug_log!("🔧 [NOT_OPT] Found AND with 2 clauses, checking for NOT pattern");
-
             // Look for pattern: [Not(search_pred), ExternalExpr]
             if let (Qual::Not(not_clause), Qual::ExternalExpr) = (&and_clauses[0], &and_clauses[1])
             {
-                debug_log!("🔧 [NOT_OPT] Found NOT + ExternalExpr pattern, optimizing");
-
                 // CRITICAL FIX: Return the NOT qualifier directly
                 // The Not conversion logic in qual_inspect.rs already handles search operators correctly:
                 // - If the inner expression contains search operators, it creates Boolean { must: [], must_not: [...] }
@@ -2770,13 +2691,10 @@ unsafe fn optimize_not_expression_with_mixed_predicates(
             // Also check the reverse order: [ExternalExpr, Not(search_pred)]
             if let (Qual::ExternalExpr, Qual::Not(not_clause)) = (&and_clauses[0], &and_clauses[1])
             {
-                debug_log!("🔧 [NOT_OPT] Found ExternalExpr + NOT pattern, optimizing");
                 return Some(Qual::Not(Box::new((**not_clause).clone())));
             }
         }
-        _ => {
-            debug_log!("🔧 [NOT_OPT] Qual doesn't match NOT optimization pattern");
-        }
+        _ => {}
     }
 
     None
@@ -2863,4 +2781,86 @@ unsafe fn expression_contains_non_search_operators(
 unsafe fn expression_is_mixed(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> bool {
     expression_contains_search_operators(node, pdbopoid) 
         && expression_contains_non_search_operators(node, pdbopoid)
+}
+
+/// Check if a Qual tree contains expressions that cannot be pushed down to Tantivy
+fn contains_non_pushdown_expressions(qual: &Qual) -> bool {
+    match qual {
+        Qual::ExternalExpr | Qual::ExternalVar | Qual::NonIndexedExpr => true,
+        Qual::And(quals) | Qual::Or(quals) => {
+            quals.iter().any(|q| contains_non_pushdown_expressions(q))
+        }
+        Qual::Not(qual) => contains_non_pushdown_expressions(qual),
+        _ => false,
+    }
+}
+
+/// Check if an expression contains references to fields that are not indexed in the BM25 schema
+unsafe fn expression_contains_non_indexed_fields(
+    node: *mut pg_sys::Node,
+    schema: &SearchIndexSchema,
+    heaprelid: pg_sys::Oid,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_Var => {
+            let var = node.cast::<pg_sys::Var>();
+            let attno = (*var).varattno;
+            
+            // Get the field name from the attribute number using the heap relation
+            if let Some(field_name) = get_field_name_from_attno(heaprelid, var, attno) {
+                // Check if this field is indexed in the BM25 schema
+                if schema.search_field(&field_name).is_none() {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+            for arg in args.iter_ptr() {
+                if expression_contains_non_indexed_fields(arg, schema, heaprelid) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            for arg in args.iter_ptr() {
+                if expression_contains_non_indexed_fields(arg, schema, heaprelid) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_NullTest => {
+            let null_test = node.cast::<pg_sys::NullTest>();
+            let arg = (*null_test).arg.cast::<pg_sys::Node>();
+            return expression_contains_non_indexed_fields(arg, schema, heaprelid);
+        }
+        _ => false,
+    }
+}
+
+/// Get field name from attribute number by looking up the relation's attribute name
+unsafe fn get_field_name_from_attno(
+    heaprelid: pg_sys::Oid, 
+    var: *mut pg_sys::Var, 
+    attno: pg_sys::AttrNumber
+) -> Option<String> {
+    use crate::postgres::var::fieldname_from_var;
+    
+    // Return None for system attributes (attno <= 0)
+    if attno <= 0 {
+        return None;
+    }
+    
+    // Use the existing fieldname_from_var function
+    fieldname_from_var(heaprelid, var, attno).map(|field_name| field_name.to_string())
 }

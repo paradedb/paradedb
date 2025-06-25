@@ -148,6 +148,8 @@ impl ExpressionTreeOptimizer {
             return Ok(SearchQueryInput::All);
         }
 
+
+
         match (*node).type_ {
             pg_sys::NodeTag::T_BoolExpr => {
                 let bool_expr = node.cast::<pg_sys::BoolExpr>();
@@ -263,12 +265,17 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = node.cast::<pg_sys::OpExpr>();
+                debug_log!("🔧 [EXTRACT_TANTIVY] Found OpExpr, opno: {}, pdbopoid: {}, match: {}", (*op_expr).opno, pdbopoid, (*op_expr).opno == pdbopoid);
                 if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - extract the SearchQueryInput from it
-                    Self::extract_search_query_input_from_op_expr(op_expr)
+                    debug_log!("🔧 [EXTRACT_TANTIVY] Extracting SearchQueryInput from @@@ operator");
+                    let result = Self::extract_search_query_input_from_op_expr(op_expr);
+                    debug_log!("🔧 [EXTRACT_TANTIVY] Result: {:?}", result.as_ref().map(|r| r.as_human_readable()));
+                    result
                 } else {
                     // This is a non-search operator (non-indexed field)
                     // Return All to indicate it needs PostgreSQL evaluation
+                    debug_log!("🔧 [EXTRACT_TANTIVY] Non-search operator, returning All");
                     Ok(SearchQueryInput::All)
                 }
             }
@@ -392,6 +399,8 @@ impl ExpressionTreeOptimizer {
         let _lhs = args.get_ptr(0).ok_or("Missing left-hand side argument")?;
         let rhs = args.get_ptr(1).ok_or("Missing right-hand side argument")?;
 
+        debug_log!("🔧 [EXTRACT_SEARCH_QUERY] Processing @@@ operator, RHS node type: {:?}", (*rhs).type_);
+
         // Extract SearchQueryInput from the right-hand side (the query)
         if (*rhs).type_ == pg_sys::NodeTag::T_Const {
             let const_node = rhs.cast::<pg_sys::Const>();
@@ -399,15 +408,20 @@ impl ExpressionTreeOptimizer {
                 return Err("Query argument is null");
             }
 
+            debug_log!("🔧 [EXTRACT_SEARCH_QUERY] Extracting SearchQueryInput from constant");
+
             // Extract the SearchQueryInput from the constant
             if let Some(search_query) =
                 SearchQueryInput::from_datum((*const_node).constvalue, (*const_node).constisnull)
             {
+                debug_log!("🔧 [EXTRACT_SEARCH_QUERY] Successfully extracted: {:?}", search_query.as_human_readable());
                 Ok(search_query)
             } else {
+                debug_log!("🔧 [EXTRACT_SEARCH_QUERY] Failed to extract SearchQueryInput from constant");
                 Err("Failed to extract SearchQueryInput from constant")
             }
         } else {
+            debug_log!("🔧 [EXTRACT_SEARCH_QUERY] RHS is not a constant, type: {:?}", (*rhs).type_);
             Err("Right-hand side of @@@ operator must be a constant")
         }
     }

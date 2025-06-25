@@ -5,6 +5,11 @@
 -- Load the pg_search extension
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+
 -- Setup test table
 DROP TABLE IF EXISTS products;
 
@@ -23,8 +28,9 @@ CREATE TABLE products (
 
 -- Insert test data
 INSERT INTO products (name, description, price, category_id, category_name, in_stock, rating, tags) VALUES
-('Apple iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
+('Apple iPhone 14', 'Latest Apple smartphone with great camera', 799.99, 1, 'Casual', true, 4.5, null),
 ('MacBook Pro', 'Powerful Apple laptop for professionals', 2499.99, 1, 'Electronics', true, 4.8, ARRAY['laptop', 'apple']),
+-- ('Apple iPhone 13', 'Latest Apple smartphone with medium camera', 899.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
 ('Nike Air Max', 'Comfortable running shoes for athletes', 149.99, 2, 'Footwear', true, 4.2, ARRAY['shoes', 'running']),
 ('Samsung Galaxy', 'Android smartphone with excellent display', 899.99, 1, 'Electronics', false, 4.3, ARRAY['smartphone', 'android']),
 ('Adidas Ultraboost', 'Premium running shoes with boost technology', 179.99, 2, 'Footwear', true, 4.6, ARRAY['shoes', 'running', 'premium']),
@@ -32,9 +38,8 @@ INSERT INTO products (name, description, price, category_id, category_name, in_s
 ('Apple Watch', 'Smartwatch with health tracking features', 399.99, 1, 'Electronics', true, 4.4, ARRAY['watch', 'apple']),
 ('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
 ('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
-('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
+('Budget Phone', 'Affordable smartphone for basic technology needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
 ('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Garbage', false, 3.5, NULL);
-
 
 -- Create BM25 index that only includes some columns (name, description)
 -- Note: price, category_id, category_name, in_stock, rating, tags are NOT in the BM25 index
@@ -305,6 +310,35 @@ WHERE description @@@ 'smartphone'
   )
 ORDER BY score DESC;
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'smartphone'
+  AND (
+    (price < 800.00 AND in_stock = true) OR 
+    (price > 800.00 AND category_name = 'Electronics')
+  )
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'smartphone'
+  AND (
+    (price < 800.00 AND in_stock = true) OR 
+    (price > 800.00 AND category_name = 'Electronics')
+  )
+ORDER BY score DESC;
+
 -- Test Case 8: Real number (REAL) filtering
 -- Tests heap filtering with floating-point comparisons
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -337,7 +371,7 @@ SELECT
     tags,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name @@@ 'iphone'
   AND tags IS NULL
 ORDER BY score DESC;
 
@@ -347,7 +381,7 @@ SELECT
     tags,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name @@@ 'iphone'
   AND tags IS NULL
 ORDER BY score DESC;
 
@@ -358,7 +392,7 @@ SELECT
     tags,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name @@@ 'iphone'
   OR tags IS NULL
 ORDER BY score DESC;
 
@@ -368,7 +402,7 @@ SELECT
     tags,
     paradedb.score(id) as score
 FROM products 
-WHERE name @@@ 'phone'
+WHERE name @@@ 'iphone'
   OR tags IS NULL
 ORDER BY score DESC;
 

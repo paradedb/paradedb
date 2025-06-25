@@ -17,6 +17,7 @@
 
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{FieldName, HashMap};
+use crate::debug_log;
 use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::u64_to_item_pointer;
@@ -147,11 +148,11 @@ pub fn register_callback(expression: &str, callback: ExternalFilterCallback) {
     if let Ok(mut registry) = CALLBACK_REGISTRY.lock() {
         // Only register if not already present to avoid duplicate registrations
         if !registry.contains_key(expression) {
-            pgrx::warning!("Registering callback for expression: {}", expression);
+            debug_log!("Registering callback for expression: {}", expression);
             registry.insert(expression.to_string(), callback);
-            pgrx::warning!("Registry now has {} callbacks", registry.len());
+            debug_log!("Registry now has {} callbacks", registry.len());
         } else {
-            pgrx::warning!("Callback already exists for expression, skipping registration");
+            debug_log!("Callback already exists for expression, skipping registration");
         }
     }
 }
@@ -160,8 +161,8 @@ pub fn register_callback(expression: &str, callback: ExternalFilterCallback) {
 pub fn get_callback(expression: &str) -> Option<ExternalFilterCallback> {
     if let Ok(registry) = CALLBACK_REGISTRY.lock() {
         let result = registry.get(expression).cloned();
-        pgrx::warning!("Looking for callback for expression: {}", expression);
-        pgrx::warning!(
+        debug_log!("Looking for callback for expression: {}", expression);
+        debug_log!(
             "Registry has {} callbacks, found: {}",
             registry.len(),
             result.is_some()
@@ -177,7 +178,7 @@ pub fn clear_callbacks() {
     if let Ok(mut registry) = CALLBACK_REGISTRY.lock() {
         let count = registry.len();
         registry.clear();
-        pgrx::warning!("🔥 Cleared {} callbacks from registry", count);
+        debug_log!("🔥 Cleared {} callbacks from registry", count);
     }
 }
 
@@ -185,7 +186,7 @@ pub fn clear_callbacks() {
 pub fn clear_callback(expression: &str) {
     if let Ok(mut registry) = CALLBACK_REGISTRY.lock() {
         if registry.remove(expression).is_some() {
-            pgrx::warning!("🔥 Removed callback for expression from registry");
+            debug_log!("🔥 Removed callback for expression from registry");
         }
     }
 }
@@ -244,7 +245,7 @@ impl CallbackManager {
         }
 
         self.expr_context = Some(expr_context);
-        pgrx::warning!("🔥 Successfully initialized callback manager expression context");
+        debug_log!("🔥 Successfully initialized callback manager expression context");
         Ok(())
     }
 
@@ -266,14 +267,14 @@ impl CallbackManager {
         // Create a heap filter expression from the PostgreSQL node string
         let heap_filter_expr = self.create_heap_filter_expr(&self.expression);
         if heap_filter_expr.is_null() {
-            pgrx::warning!("🔥 Failed to create heap filter expression");
+            debug_log!("🔥 Failed to create heap filter expression");
             return false;
         }
 
         // Initialize expression context if not already done
         if self.expr_context.is_none() {
             if let Err(e) = self.initialize() {
-                pgrx::warning!("🔥 Failed to initialize expression context: {}", e);
+                debug_log!("🔥 Failed to initialize expression context: {}", e);
                 return false;
             }
         }
@@ -283,14 +284,14 @@ impl CallbackManager {
         // Initialize the expression state for this specific expression
         let expr_state = pg_sys::ExecInitExpr(heap_filter_expr, std::ptr::null_mut());
         if expr_state.is_null() {
-            pgrx::warning!("🔥 Failed to initialize expression state");
+            debug_log!("🔥 Failed to initialize expression state");
             return false;
         }
 
         // Create a mock tuple slot with the field values
         let mock_slot = self.create_mock_tuple_slot(field_values);
         if mock_slot.is_null() {
-            pgrx::warning!("🔥 Failed to create mock tuple slot");
+            debug_log!("🔥 Failed to create mock tuple slot");
             return false;
         }
 
@@ -309,16 +310,16 @@ impl CallbackManager {
         match result {
             Ok(datum) => {
                 if isnull {
-                    pgrx::warning!("🔥 Expression evaluation returned NULL");
+                    debug_log!("🔥 Expression evaluation returned NULL");
                     false
                 } else {
                     let bool_result = bool::from_datum(datum, false).unwrap_or(false);
-                    pgrx::warning!("🔥 Expression evaluation result: {}", bool_result);
+                    debug_log!("🔥 Expression evaluation result: {}", bool_result);
                     bool_result
                 }
             }
             Err(_) => {
-                pgrx::warning!("🔥 Expression evaluation panicked, returning false");
+                debug_log!("🔥 Expression evaluation panicked, returning false");
                 false
             }
         }
@@ -337,7 +338,7 @@ impl CallbackManager {
 
     /// Create a heap filter expression from a PostgreSQL node string
     unsafe fn create_heap_filter_expr(&self, heap_filter_node_string: &str) -> *mut pg_sys::Expr {
-        pgrx::warning!(
+        debug_log!(
             "🔥 Creating heap filter expression from: {}",
             heap_filter_node_string
         );
@@ -367,7 +368,7 @@ impl CallbackManager {
                 if !clause_node.is_null() {
                     args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
                 } else {
-                    pgrx::warning!("🔥 Failed to parse clause string: {}", clause_str);
+                    debug_log!("🔥 Failed to parse clause string: {}", clause_str);
                     return std::ptr::null_mut();
                 }
             }
@@ -387,7 +388,7 @@ impl CallbackManager {
 
                 bool_expr.cast::<pg_sys::Expr>()
             } else {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Failed to parse any clauses: {}",
                     heap_filter_node_string
                 );
@@ -402,7 +403,7 @@ impl CallbackManager {
             if !node.is_null() {
                 node.cast::<pg_sys::Expr>()
             } else {
-                pgrx::warning!("🔥 Failed to deserialize node: {}", heap_filter_node_string);
+                debug_log!("🔥 Failed to deserialize node: {}", heap_filter_node_string);
                 std::ptr::null_mut()
             }
         }
@@ -414,7 +415,7 @@ impl CallbackManager {
         &self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> *mut pg_sys::TupleTableSlot {
-        pgrx::warning!(
+        debug_log!(
             "🔥 Creating mock tuple slot with {} field values",
             field_values.len()
         );
@@ -424,7 +425,7 @@ impl CallbackManager {
 
         // Get the maximum attribute number we need to support
         let max_attno = self.attno_map.keys().max().copied().unwrap_or(1);
-        pgrx::warning!("🔥 Maximum attribute number needed: {}", max_attno);
+        debug_log!("🔥 Maximum attribute number needed: {}", max_attno);
 
         // Create a tuple descriptor with enough attributes
         let tupdesc = pg_sys::CreateTemplateTupleDesc(max_attno as i32);
@@ -541,7 +542,7 @@ impl CallbackManager {
                             isnull[array_index] = true;
                         }
                         _ => {
-                            pgrx::warning!(
+                            debug_log!(
                                 "🔥 Unsupported value type for field {}: {:?}",
                                 field_name,
                                 value
@@ -558,7 +559,7 @@ impl CallbackManager {
         (*slot).tts_nvalid = natts as i16;
         (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
 
-        pgrx::warning!(
+        debug_log!(
             "🔥 Successfully created mock tuple slot with {} attributes",
             natts
         );
@@ -588,11 +589,11 @@ pub fn create_postgres_callback(
     expression: String,
     attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
 ) -> ExternalFilterCallback {
-    pgrx::warning!(
+    debug_log!(
         "Creating PostgreSQL callback for expression: {}",
         expression
     );
-    pgrx::warning!("Callback will handle {} fields", attno_map.len());
+    debug_log!("Callback will handle {} fields", attno_map.len());
 
     let manager = Arc::new(Mutex::new(CallbackManager::new(
         expression.clone(),
@@ -601,26 +602,26 @@ pub fn create_postgres_callback(
 
     Arc::new(
         move |doc_id: DocId, field_values: &HashMap<FieldName, OwnedValue>| {
-            pgrx::warning!(
+            debug_log!(
                 "🔥 CALLBACK INVOKED! Evaluating expression for doc_id: {}",
                 doc_id
             );
-            pgrx::warning!("🔥 Field values provided: {:?}", field_values);
+            debug_log!("🔥 Field values provided: {:?}", field_values);
 
             // Use the proper callback manager to evaluate the PostgreSQL expression
             if let Ok(mut mgr) = manager.lock() {
                 unsafe {
                     if !mgr.is_initialized() {
-                        pgrx::warning!("🔥 Initializing callback manager for first use");
+                        debug_log!("🔥 Initializing callback manager for first use");
                         if let Err(e) = mgr.initialize() {
-                            pgrx::warning!("🔥 Failed to initialize callback manager: {}", e);
+                            debug_log!("🔥 Failed to initialize callback manager: {}", e);
                             return ExternalFilterResult::matches_with_default_score(false);
                         }
                     }
 
                     let (matches, score) =
                         mgr.evaluate_expression_with_postgres_and_score(field_values);
-                    pgrx::warning!(
+                    debug_log!(
                         "🔥 PostgreSQL expression evaluation result: matches={}, score={}",
                         matches,
                         score
@@ -628,7 +629,7 @@ pub fn create_postgres_callback(
                     return ExternalFilterResult::new(matches, score);
                 }
             } else {
-                pgrx::warning!("🔥 Failed to acquire callback manager lock");
+                debug_log!("🔥 Failed to acquire callback manager lock");
                 return ExternalFilterResult::matches_with_default_score(false);
             }
         },
@@ -703,7 +704,7 @@ impl ExternalFilterQuery {
 
 impl Query for ExternalFilterQuery {
     fn weight(&self, _enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
-        pgrx::warning!("ExternalFilterQuery::weight called - creating ExternalFilterWeight");
+        debug_log!("ExternalFilterQuery::weight called - creating ExternalFilterWeight");
         Ok(Box::new(ExternalFilterWeight {
             config: self.config.clone(),
             callback: self.callback.clone(),
@@ -719,7 +720,7 @@ struct ExternalFilterWeight {
 
 impl Weight for ExternalFilterWeight {
     fn scorer(&self, reader: &SegmentReader, _boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        pgrx::warning!("ExternalFilterWeight::scorer called - creating ExternalFilterScorer");
+        debug_log!("ExternalFilterWeight::scorer called - creating ExternalFilterScorer");
 
         // Get heap relation OID from the global context
         let heaprel_oid = get_heap_relation_oid().unwrap_or(pg_sys::Oid::INVALID);
@@ -730,7 +731,7 @@ impl Weight for ExternalFilterWeight {
             self.callback.clone(),
             heaprel_oid,
         );
-        pgrx::warning!(
+        debug_log!(
             "🔥 Created ExternalFilterScorer with max_doc: {}, size_hint: {}",
             scorer.max_doc,
             scorer.size_hint()
@@ -995,15 +996,15 @@ struct IndexedWithFilterWeight {
 
 impl Weight for IndexedWithFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        pgrx::warning!("🔥 IndexedWithFilterWeight::scorer called - creating combined scorer");
-        pgrx::warning!("🔥 Segment ID: {:?}", reader.segment_id());
-        pgrx::warning!("🔥 Max doc in segment: {}", reader.max_doc());
+        debug_log!("🔥 IndexedWithFilterWeight::scorer called - creating combined scorer");
+        debug_log!("🔥 Segment ID: {:?}", reader.segment_id());
+        debug_log!("🔥 Max doc in segment: {}", reader.max_doc());
 
         // Count how many times this is called
         static SCORER_CALL_COUNT: std::sync::atomic::AtomicUsize =
             std::sync::atomic::AtomicUsize::new(0);
         let call_count = SCORER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        pgrx::warning!("🔥 IndexedWithFilterWeight::scorer call #{}", call_count);
+        debug_log!("🔥 IndexedWithFilterWeight::scorer call #{}", call_count);
 
         // Debug: Check if this is the segment containing Apple iPhone 14 (ctid=1)
         let debug_ctid_ff =
@@ -1011,7 +1012,7 @@ impl Weight for IndexedWithFilterWeight {
         for doc_id in 0..reader.max_doc() {
             let ctid = debug_ctid_ff.as_u64(doc_id).unwrap_or(0);
             if ctid == 1 {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 FOUND Apple iPhone 14 (ctid=1) in segment {:?} as doc_id {}",
                     reader.segment_id(),
                     doc_id
@@ -1031,7 +1032,7 @@ impl Weight for IndexedWithFilterWeight {
 
         // Get the callback for the external filter
         let external_filter_callback = get_callback(&self.external_filter_config.expression);
-        pgrx::warning!(
+        debug_log!(
             "🔥 IndexedWithFilterWeight::scorer - callback found: {}",
             external_filter_callback.is_some()
         );
@@ -1207,21 +1208,19 @@ impl IndexedWithFilterScorer {
     fn advance_to_next_valid(&mut self) -> DocId {
         loop {
             let indexed_doc = self.indexed_scorer.advance();
-            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - indexed_scorer.advance() returned: {}", indexed_doc);
+            debug_log!("🔥 IndexedWithFilterScorer::advance_to_next_valid - indexed_scorer.advance() returned: {}", indexed_doc);
             if indexed_doc == tantivy::TERMINATED {
-                pgrx::warning!(
-                    "🔥 IndexedWithFilterScorer::advance_to_next_valid - no more documents"
-                );
+                debug_log!("🔥 IndexedWithFilterScorer::advance_to_next_valid - no more documents");
                 return tantivy::TERMINATED;
             }
 
             // Check if this document passes the external filter
-            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - evaluating external filter for doc_id: {}", indexed_doc);
+            debug_log!("🔥 IndexedWithFilterScorer::advance_to_next_valid - evaluating external filter for doc_id: {}", indexed_doc);
             if self.evaluate_external_filter(indexed_doc) {
-                pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} PASSES external filter", indexed_doc);
+                debug_log!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} PASSES external filter", indexed_doc);
                 return indexed_doc;
             }
-            pgrx::warning!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} FAILS external filter, continuing", indexed_doc);
+            debug_log!("🔥 IndexedWithFilterScorer::advance_to_next_valid - doc_id {} FAILS external filter, continuing", indexed_doc);
             // Continue to next indexed document if the document was filtered out
         }
     }
@@ -1315,42 +1314,42 @@ impl IndexedWithFilterScorer {
             let field_value = if let Ok(Some(value)) =
                 heap_tuple.get_by_name::<String>(&field_name.root())
             {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = '{}' (String)",
                     field_name.root(),
                     value
                 );
                 OwnedValue::Str(value)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i32>(&field_name.root()) {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = {} (i32)",
                     field_name.root(),
                     value
                 );
                 OwnedValue::I64(value as i64)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i64>(&field_name.root()) {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = {} (i64)",
                     field_name.root(),
                     value
                 );
                 OwnedValue::I64(value)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f32>(&field_name.root()) {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = {} (f32->f64)",
                     field_name.root(),
                     value
                 );
                 OwnedValue::F64(value as f64)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f64>(&field_name.root()) {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = {} (f64)",
                     field_name.root(),
                     value
                 );
                 OwnedValue::F64(value)
             } else if let Ok(Some(value)) = heap_tuple.get_by_name::<bool>(&field_name.root()) {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Extracted field '{}' = {} (bool)",
                     field_name.root(),
                     value
@@ -1362,7 +1361,7 @@ impl IndexedWithFilterScorer {
                 match value.try_into() {
                     Ok(f) => {
                         let f: f64 = f;
-                        pgrx::warning!(
+                        debug_log!(
                             "🔥 Extracted field '{}' = {} (NUMERIC->f64)",
                             field_name.root(),
                             f
@@ -1370,7 +1369,7 @@ impl IndexedWithFilterScorer {
                         OwnedValue::F64(f)
                     }
                     Err(_) => {
-                        pgrx::warning!(
+                        debug_log!(
                             "🔥 Failed to convert NUMERIC to f64 for field '{}'",
                             field_name.root()
                         );
@@ -1378,7 +1377,7 @@ impl IndexedWithFilterScorer {
                     }
                 }
             } else {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Failed to extract field '{}': unsupported type",
                     field_name.root()
                 );

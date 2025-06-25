@@ -28,6 +28,7 @@ mod solve_expr;
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
+use crate::debug_log;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
@@ -266,7 +267,7 @@ impl PdbScan {
         let expr_node = pg_sys::stringToNode(expression_cstr.as_ptr());
 
         if expr_node.is_null() {
-            pgrx::warning!("Failed to parse external filter expression: {}", expression);
+            debug_log!("Failed to parse external filter expression: {}", expression);
             return;
         }
 
@@ -361,12 +362,12 @@ impl PdbScan {
             &mut uses_tantivy_to_query,
         );
 
-        pgrx::warning!("DEBUG: indexed_quals = {:?}", indexed_quals);
-        pgrx::warning!("DEBUG: all_quals = {:?}", all_quals);
+        debug_log!("DEBUG: indexed_quals = {:?}", indexed_quals);
+        debug_log!("DEBUG: all_quals = {:?}", all_quals);
 
         if indexed_quals.is_some() {
             // All predicates can be indexed, no external filtering needed
-            pgrx::warning!("DEBUG: Using indexed quals");
+            debug_log!("DEBUG: Using indexed quals");
             return (indexed_quals, ri_type, restrict_info);
         }
 
@@ -374,7 +375,7 @@ impl PdbScan {
         if all_quals.is_some() {
             // We have some indexed and some non-indexed predicates
             // Use the external filter approach which handles both indexed and non-indexed predicates
-            pgrx::warning!("DEBUG: Using all quals (including external filters)");
+            debug_log!("DEBUG: Using all quals (including external filters)");
             return (all_quals, ri_type, restrict_info);
         }
 
@@ -1112,7 +1113,7 @@ impl CustomScan for PdbScan {
             let exec_method = state.custom_state_mut().exec_method_mut();
 
             // get the next matching document from our search results and look for it in the heap
-            pgrx::warning!("🔥 exec_custom_scan: calling exec_method.next()");
+            debug_log!("🔥 exec_custom_scan: calling exec_method.next()");
             match exec_method.next(state.custom_state_mut()) {
                 // reached the end of the SearchResults
                 ExecState::Eof => {
@@ -1125,7 +1126,7 @@ impl CustomScan for PdbScan {
                     score,
                     doc_address,
                 } => {
-                    pgrx::warning!(
+                    debug_log!(
                         "🔥 exec_custom_scan: RequiresVisibilityCheck for ctid={}",
                         ctid
                     );
@@ -1253,7 +1254,7 @@ impl CustomScan for PdbScan {
 
                 ExecState::Virtual { slot } => unsafe {
                     state.custom_state_mut().virtual_tuple_count += 1;
-                    pgrx::warning!("🔥 exec_custom_scan: Virtual tuple returned");
+                    debug_log!("🔥 exec_custom_scan: Virtual tuple returned");
                     return slot;
                 },
             }

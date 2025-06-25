@@ -17,6 +17,7 @@
 
 use crate::api::FieldName;
 use crate::api::HashMap;
+use crate::debug_log;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
@@ -374,7 +375,7 @@ impl SearchIndexReader {
             .iter()
             .enumerate()
             .map(move |(segment_ord, segment_reader)| {
-                pgrx::warning!(
+                debug_log!(
                     "🔥 Creating ScorerIter for segment {} (ID: {:?})",
                     segment_ord,
                     segment_reader.segment_id()
@@ -736,6 +737,7 @@ fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
 }
 
 mod scorer_iter {
+    use crate::debug_log;
     use crate::index::reader::index::enable_scoring;
     use std::sync::OnceLock;
     use tantivy::query::{Query, Scorer};
@@ -862,7 +864,7 @@ mod scorer_iter {
                 }
 
                 // this doc isn't alive, move to the next doc and loop around
-                pgrx::warning!(
+                debug_log!(
                     "🔥 ScorerIter::next - doc_id {} is not alive, advancing",
                     doc_id
                 );

@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, HashMap};
+use crate::debug_log;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -624,7 +625,7 @@ impl From<&Qual> for SearchQueryInput {
                     .iter()
                     .any(|q| matches!(q, Qual::NonIndexedExpr | Qual::FilterExpression { .. }));
 
-                pgrx::warning!(
+                debug_log!(
                     "Qual::And processing: has_indexed={}, has_non_indexed={}, total_quals={}",
                     has_indexed,
                     has_non_indexed,
@@ -633,7 +634,7 @@ impl From<&Qual> for SearchQueryInput {
 
                 if has_non_indexed {
                     // Mixed predicates - create IndexedWithFilter query
-                    pgrx::warning!("Creating IndexedWithFilter query for mixed predicates");
+                    debug_log!("Creating IndexedWithFilter query for mixed predicates");
 
                     // Separate indexed and non-indexed predicates
                     let indexed_quals: Vec<_> = quals
@@ -649,7 +650,7 @@ impl From<&Qual> for SearchQueryInput {
                         })
                         .collect();
 
-                    pgrx::warning!(
+                    debug_log!(
                         "Indexed quals: {}, Non-indexed quals: {}",
                         indexed_quals.len(),
                         non_indexed_quals.len()
@@ -726,11 +727,11 @@ impl From<&Qual> for SearchQueryInput {
                         referenced_fields,
                     };
 
-                    pgrx::warning!("Created IndexedWithFilter query: {:?}", result);
+                    debug_log!("Created IndexedWithFilter query: {:?}", result);
                     result
                 // } else if has_non_indexed {
                 //     // Only non-indexed predicates
-                //     pgrx::warning!("Creating ExternalFilter query for non-indexed predicates only");
+                //     debug_log!("Creating ExternalFilter query for non-indexed predicates only");
 
                 //     // Extract the actual filter expressions and referenced fields
                 //     let mut all_referenced_fields = std::collections::HashSet::new();
@@ -785,7 +786,7 @@ impl From<&Qual> for SearchQueryInput {
                 //     }
                 } else {
                     // Regular boolean AND logic for indexed predicates
-                    pgrx::warning!("Creating regular Boolean query for indexed predicates only");
+                    debug_log!("Creating regular Boolean query for indexed predicates only");
                     let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
                     let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
                         for i in 0..vec.len() {
@@ -1159,7 +1160,7 @@ unsafe fn extract_quals_internal(
                 .to_string_lossy()
                 .into_owned();
             pg_sys::pfree(node_string.cast());
-            pgrx::warning!(
+            debug_log!(
                 "🔥 Processing BoolExpr: {} (op: {:?})",
                 rust_string,
                 (*boolexpr).boolop
@@ -1372,7 +1373,7 @@ unsafe fn try_create_filter_expression(
         .to_string_lossy()
         .into_owned();
     pg_sys::pfree(node_string.cast());
-    pgrx::warning!(
+    debug_log!(
         "🔥 try_create_filter_expression called with: {}",
         rust_string
     );

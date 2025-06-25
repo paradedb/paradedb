@@ -179,8 +179,8 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Seq Scan on documents d
@@ -192,9 +192,8 @@ ORDER BY invoice_file_count DESC, d.id;
                        Index: files_search
                        Exec Method: NormalScanExecState
                        Scores: false
-                       Heap Filter: (((content = 'Invoice Receipt'::text) OR (content = 'Invoice PDF'::text)) AND (title = d.id))
-                       Tantivy Query: {"boolean":{"must":[{"boolean":{"should":["all","all"]}},{}]}}
-(13 rows)
+                       Query: (((content = 'Invoice Receipt'::text) OR (content = 'Invoice PDF'::text)) AND (title = d.id))
+(12 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

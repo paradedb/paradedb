@@ -282,9 +282,15 @@ impl PdbScan {
             }
             
             let has_mixed_expressions = has_pushdown_expressions && has_non_pushdown_expressions;
-            debug_log!("🔍 [DEBUG] has_mixed_expressions: {}", has_mixed_expressions);
+            
+            // Special case: if we have non-pushdown expressions but no search operators,
+            // we still need heap filtering when ExternalExpr creates an "All" query
+            let needs_heap_filtering = has_mixed_expressions || 
+                (has_non_pushdown_expressions && !has_pushdown_expressions && uses_tantivy_to_query);
+            
+            debug_log!("🔍 [DEBUG] has_mixed_expressions: {}, needs_heap_filtering: {}", has_mixed_expressions, needs_heap_filtering);
 
-            if has_mixed_expressions {
+            if needs_heap_filtering {
 
                 // Extract the entire expression as a node string for heap filtering
                 // This ensures we preserve the complete boolean logic

@@ -54,7 +54,7 @@ use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
 pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXTEND_BY;
 
 /// Describes how a [`MvccDirectory`] should resolve segment visibility.  Note that
-/// this enum is purposely not clone-able.  Wrap it with an [`Arc`] if you need that.  Because of
+/// this enum is purposely non-cloneable.  Wrap it with an [`Arc`] if you need that.  Because of
 /// the [`MvccSatisfies::ParallelWorker`] variant, cloning could be incredibly expensive when
 /// an index has many (thousands!) of segments.
 #[derive(Debug, PartialEq, Eq)]

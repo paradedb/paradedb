@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3855ecc02c3b0637290da9ce4b694fce6977bcd31d92990b3af63d2a9d093d33 # shrinks to expr = ScalarArrayExpr { column_type: Boolean, operator: Le, quantifier: Any, tokenizer: Default, use_in_syntax: false }

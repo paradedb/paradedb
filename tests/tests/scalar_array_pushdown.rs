@@ -116,6 +116,7 @@ impl ScalarArrayExpr {
                 "'banana'".to_string(),
                 "'cherry'".to_string(),
                 "'date'".to_string(),
+                "NULL".to_string(),
             ],
             ColumnType::Integer => vec![
                 "1".to_string(),
@@ -123,18 +124,23 @@ impl ScalarArrayExpr {
                 "3".to_string(),
                 "42".to_string(),
                 "100".to_string(),
+                "NULL".to_string(),
             ],
-            ColumnType::Boolean => vec!["true".to_string(), "false".to_string()],
+            ColumnType::Boolean => {
+                vec!["true".to_string(), "false".to_string(), "NULL".to_string()]
+            }
             ColumnType::Timestamp => vec![
                 "'2023-01-01 00:00:00'::timestamp".to_string(),
                 "'2023-06-15 12:30:00'::timestamp".to_string(),
                 "'2024-01-01 00:00:00'::timestamp".to_string(),
+                "NULL".to_string(),
             ],
             ColumnType::Uuid => vec![
                 "'550e8400-e29b-41d4-a716-446655440000'::uuid".to_string(),
                 "'6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid".to_string(),
                 "'6ba7b811-9dad-11d1-80b4-00c04fd430c8'::uuid".to_string(),
                 "'12345678-1234-5678-9abc-123456789abc'::uuid".to_string(),
+                "NULL".to_string(),
             ],
         }
     }
@@ -183,7 +189,13 @@ INSERT INTO scalar_array_test (text_col, int_col, bool_col, ts_col, uuid_col) VA
     ('elderberry', 100, true, '2024-06-01 09:15:00', '550e8400-e29b-41d4-a716-446655440001'),
     ('fig', 1, false, '2023-03-15 14:20:00', '6ba7b810-9dad-11d1-80b4-00c04fd430c9'),
     ('grape', 2, true, '2023-09-30 20:45:00', '6ba7b811-9dad-11d1-80b4-00c04fd430c9'),
-    ('honeydew', 3, false, '2024-02-14 11:30:00', '12345678-1234-5678-9abc-123456789abd');
+    ('honeydew', 3, false, '2024-02-14 11:30:00', '12345678-1234-5678-9abc-123456789abd'),
+    -- Rows with NULL values
+    (NULL, 4, true, '2024-03-01 10:00:00', '550e8400-e29b-41d4-a716-446655440002'),
+    ('kiwi', NULL, false, '2024-04-01 11:00:00', '6ba7b810-9dad-11d1-80b4-00c04fd430ca'),
+    ('lemon', 5, NULL, '2024-05-01 12:00:00', '6ba7b811-9dad-11d1-80b4-00c04fd430ca'),
+    ('mango', 6, true, NULL, '12345678-1234-5678-9abc-123456789abe'),
+    ('orange', 7, false, '2024-07-01 14:00:00', NULL);
 
 -- Create BM25 index with configurable tokenizer
 CREATE INDEX idx_scalar_array_test ON scalar_array_test
@@ -389,7 +401,7 @@ async fn test_scalar_array_pushdown_with_results(database: Db) {
             bm25_query,
             &mut pool.pull(),
             |query, conn| {
-                let mut rows = query.fetch::<(i64, String)>(conn);
+                let mut rows = query.fetch::<(i64, Option<String>)>(conn);
                 rows.sort();
                 rows
             },
@@ -486,6 +498,14 @@ async fn test_scalar_array_edge_cases(database: Db) {
         "bool_col <> ANY(ARRAY[false])",
         // Timestamp comparisons
         "ts_col <= ALL(ARRAY['2024-01-01'::timestamp, '2024-12-31'::timestamp])",
+        // NULL values in arrays
+        "text_col = ANY(ARRAY['apple', NULL])",
+        "int_col = ANY(ARRAY[1, 2, NULL])",
+        "bool_col = ANY(ARRAY[true, NULL])",
+        "uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, NULL])",
+        // IS NULL / IS NOT NULL with arrays containing NULLs
+        "text_col IS NULL AND 'apple' = ANY(ARRAY['apple', 'banana'])",
+        "int_col IS NOT NULL AND int_col = ANY(ARRAY[1, 2, NULL])",
     ];
 
     for edge_case in edge_cases {

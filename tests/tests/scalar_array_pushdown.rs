@@ -417,7 +417,7 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
         |_| {},
     );
 
-    // Test specific IN syntax variations that should be equivalent
+    // Test specific IN/NOT IN syntax variations that should be equivalent
     let test_cases = vec![
         (
             "text_col = ANY(ARRAY['apple', 'banana'])",
@@ -432,6 +432,19 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
             "uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid])",
             "uuid_col IN ('550e8400-e29b-41d4-a716-446655440000'::uuid, '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid)",
         ),
+        (
+            "text_col <> ALL(ARRAY['apple', 'banana'])",
+            "text_col NOT IN ('apple', 'banana')",
+        ),
+        ("int_col <> ALL(ARRAY[1, 2, 3])", "int_col NOT IN (1, 2, 3)"),
+        (
+            "bool_col <> ALL(ARRAY[true, false])",
+            "bool_col NOT IN (true, false)",
+        ),
+        (
+            "uuid_col <> ALL(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid])",
+            "uuid_col NOT IN ('550e8400-e29b-41d4-a716-446655440000'::uuid, '6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid)",
+        ),
     ];
 
     for (array_syntax, in_syntax) in test_cases {
@@ -439,12 +452,15 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
         eprintln!("Setup SQL:\n{}", setup_sql);
 
         let pg_query_array = format!(
-            "SELECT COUNT(*) FROM scalar_array_test WHERE {}",
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
             array_syntax
         );
-        let pg_query_in = format!("SELECT COUNT(*) FROM scalar_array_test WHERE {}", in_syntax);
+        let pg_query_in = format!(
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
+            in_syntax
+        );
         let bm25_query = format!(
-            "SELECT COUNT(*) FROM scalar_array_test WHERE {}",
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
             array_syntax
         );
 
@@ -453,11 +469,8 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
 
         // First verify that array and IN syntax give same results in plain Postgres
         "SET paradedb.enable_custom_scan TO OFF;".execute(&mut pool.pull());
-        let array_result = pg_query_array
-            .clone()
-            .fetch_one::<(i64,)>(&mut pool.pull())
-            .0;
-        let in_result = pg_query_in.fetch_one::<(i64,)>(&mut pool.pull()).0;
+        let array_result = pg_query_array.clone().fetch::<(i64,)>(&mut pool.pull());
+        let in_result = pg_query_in.fetch::<(i64,)>(&mut pool.pull());
 
         assert_eq!(
             array_result, in_result,
@@ -470,7 +483,7 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
             pg_query_array,
             bm25_query,
             &mut pool.pull(),
-            |query, conn| query.fetch_one::<(i64,)>(conn).0,
+            |query, conn| query.fetch::<(i64,)>(conn),
         )
         .unwrap();
     }
@@ -503,13 +516,19 @@ async fn test_scalar_array_edge_cases(database: Db) {
     ];
 
     for edge_case in edge_cases {
-        let pg_query = format!("SELECT COUNT(*) FROM scalar_array_test WHERE {}", edge_case);
-        let bm25_query = format!("SELECT COUNT(*) FROM scalar_array_test WHERE {}", edge_case);
+        let pg_query = format!(
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
+            edge_case
+        );
+        let bm25_query = format!(
+            "SELECT id FROM scalar_array_test WHERE {} ORDER BY id",
+            edge_case
+        );
 
         eprintln!("Testing edge case: {}", edge_case);
 
         compare_scalar_array(pg_query, bm25_query, &mut pool.pull(), |query, conn| {
-            query.fetch_one::<(i64,)>(conn).0
+            query.fetch::<(i64,)>(conn)
         })
         .unwrap();
     }

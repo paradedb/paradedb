@@ -140,7 +140,7 @@ impl SerialIndexWriter {
             mvcc_satisfies
         );
 
-        let directory = mvcc_satisfies.clone().directory(index_relation);
+        let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
         let schema = SearchIndexSchema::open(index_relation)?;
         setup_tokenizers(index_relation, &mut index)?;

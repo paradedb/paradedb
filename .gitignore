@@ -31,3 +31,6 @@ pgvector/
 
 # Env files
 .env
+
+# samply
+profile.json*

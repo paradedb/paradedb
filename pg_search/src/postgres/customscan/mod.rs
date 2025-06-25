@@ -30,6 +30,7 @@ mod hook;
 mod path;
 mod scan;
 
+pub mod debug;
 mod explainer;
 pub mod pdbscan;
 

@@ -453,12 +453,6 @@ impl ExpressionTreeOptimizer {
             }
             pg_sys::NodeTag::T_OpExpr => {
                 let op_expr = expr.cast::<pg_sys::OpExpr>();
-                pgrx::warning!(
-                    "🔧 [OP_EXPR] Found OpExpr with opno: {}, pdbopoid: {}, match: {}",
-                    (*op_expr).opno,
-                    pdbopoid,
-                    (*op_expr).opno == pdbopoid
-                );
                 if (*op_expr).opno == pdbopoid {
                     // This is a @@@ operator - create a Tantivy leaf
                     match Self::extract_tantivy_field_query(op_expr) {
@@ -474,11 +468,7 @@ impl ExpressionTreeOptimizer {
                                 consolidated_leaf,
                             ))
                         }
-                        Err(e) => {
-                            pgrx::warning!(
-                                "⚠️ [TANTIVY_LEAF] Failed to extract Tantivy field query: {}, falling back to PostgreSQL leaf",
-                                e
-                            );
+                        Err(_) => {
                             // Fallback to PostgreSQL leaf if extraction fails
                             Ok(OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf {
                                 expr,
@@ -487,7 +477,6 @@ impl ExpressionTreeOptimizer {
                     }
                 } else {
                     // This is a regular operator - create a PostgreSQL leaf
-                    pgrx::warning!("🔧 [POSTGRES_LEAF] Creating PostgreSQL leaf for non-search operator");
                     Ok(OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf {
                         expr,
                     }))
@@ -646,6 +635,7 @@ impl ExpressionTreeOptimizer {
     ) -> OptimizedExpressionNode {
         let mut tantivy_queries = Vec::new();
         let mut postgres_children = Vec::new();
+        let original_child_count = children.len();
 
         for child in children {
             match child {
@@ -669,7 +659,8 @@ impl ExpressionTreeOptimizer {
         }
 
         // If we have Tantivy queries, create a consolidated leaf
-        if !tantivy_queries.is_empty() {
+        let had_tantivy_queries = !tantivy_queries.is_empty();
+        if had_tantivy_queries {
             let consolidated_leaf = ConsolidatedTantivyLeaf {
                 boolean_query: TantivyBooleanQuery {
                     must: tantivy_queries,
@@ -685,9 +676,13 @@ impl ExpressionTreeOptimizer {
         }
 
         // Return the appropriate structure
-        if postgres_children.len() == 1 {
+        // CRITICAL FIX: If we started with multiple children, we should preserve the structure
+        // even if consolidation results in a single child, to ensure proper evaluation
+        if postgres_children.len() == 1 && original_child_count == 1 {
+            // Only return single child if we started with a single child (no consolidation needed)
             postgres_children.into_iter().next().unwrap()
         } else {
+            // Return BooleanOperation when we started with multiple children or performed consolidation
             OptimizedExpressionNode::BooleanOperation {
                 op: BooleanOperator::And,
                 children: postgres_children,
@@ -1076,6 +1071,25 @@ impl<'a> OptimizedExpressionTreeEvaluator<'a> {
     }
 }
 
+/// Create an AND BoolExpr combining two expressions
+unsafe fn create_and_bool_expr(left: *mut pg_sys::Node, right: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    use pgrx::pg_sys;
+    
+    // Create a new BoolExpr for AND operation
+    let bool_expr = pgrx::PgMemoryContexts::CurrentMemoryContext.palloc_struct::<pg_sys::BoolExpr>();
+    (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+    (*bool_expr).boolop = pg_sys::BoolExprType::AND_EXPR;
+    (*bool_expr).location = -1;
+    
+    // Create a list with both expressions
+    let mut args = std::ptr::null_mut();
+    args = pgrx::pg_sys::lappend(args, left as *mut std::ffi::c_void);
+    args = pgrx::pg_sys::lappend(args, right as *mut std::ffi::c_void);
+    (*bool_expr).args = args;
+    
+    bool_expr as *mut pg_sys::Node
+}
+
 /// Main entry point for optimized unified heap filter evaluation
 pub unsafe fn apply_optimized_unified_heap_filter(
     search_reader: &SearchIndexReader,
@@ -1089,25 +1103,48 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     pdbopoid: pg_sys::Oid,
 ) -> Result<OptimizedEvaluationResult, &'static str> {
     // Parse the heap filter expression into a PostgreSQL node tree
-    let parsed_expr =
+    // Handle AND_CLAUSE_SEPARATOR for mixed expressions
+    pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Checking for AND_CLAUSE_SEPARATOR in node string (length={})", heap_filter_node_string.len());
+    let parsed_expr = if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Found AND_CLAUSE_SEPARATOR, splitting expression");
+        // Split the expression by AND_CLAUSE_SEPARATOR and create an AND expression
+        let parts: Vec<&str> = heap_filter_node_string.split("|||AND_CLAUSE_SEPARATOR|||").collect();
+        if parts.len() != 2 {
+            pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Invalid AND_CLAUSE_SEPARATOR format: {} parts", parts.len());
+            return Err("Invalid AND_CLAUSE_SEPARATOR format");
+        }
+        
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Parsing left part (length={})", parts[0].len());
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Parsing right part (length={})", parts[1].len());
+        
+        // Parse each part separately
+        let left_expr = crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(parts[0]);
+        let right_expr = crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(parts[1]);
+        
+        if left_expr.is_null() || right_expr.is_null() {
+            pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Failed to parse parts: left={:?}, right={:?}", left_expr.is_null(), right_expr.is_null());
+            return Err("Failed to parse AND_CLAUSE_SEPARATOR parts");
+        }
+        
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Successfully parsed both parts, creating AND expression");
+        // Create an AND BoolExpr combining both parts
+        create_and_bool_expr(left_expr, right_expr)
+    } else {
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] No AND_CLAUSE_SEPARATOR found, parsing as single expression");
+        // Single expression, parse normally
         crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(
             heap_filter_node_string,
-        );
+        )
+    };
+    
     if parsed_expr.is_null() {
+        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Final parsed expression is null!");
         return Err("Failed to parse heap filter expression");
     }
-
-    // Parse and optimize the expression tree - use the method that accepts pdbopoid
-    let search_query =
-        ExpressionTreeOptimizer::build_search_query_from_expression(parsed_expr, schema, pdbopoid)
-            .map_err(|_| "Failed to build search query from expression")?;
-
-    // CRITICAL FIX: Instead of treating SearchQueryInput::All as pure PostgreSQL,
-    // we need to properly decompose mixed expressions to preserve Tantivy scores.
-    // This is the core of the Universal Reader approach!
-    let optimized_tree = if matches!(search_query, SearchQueryInput::All) {
-        // SearchQueryInput::All means we have mixed indexed/non-indexed expressions
-        // We need to decompose the expression tree to extract Tantivy parts
+    // CRITICAL FIX: For expressions with AND_CLAUSE_SEPARATOR, we need to use the unified approach
+    // regardless of what build_search_query_from_expression returns
+    let optimized_tree = if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+        // For mixed expressions, always decompose the tree to preserve both Tantivy and PostgreSQL parts
         match ExpressionTreeOptimizer::from_postgres_node(parsed_expr, pdbopoid) {
             Ok(decomposed_tree) => decomposed_tree,
             Err(_) => {
@@ -1116,26 +1153,38 @@ pub unsafe fn apply_optimized_unified_heap_filter(
             }
         }
     } else {
-        // Pure Tantivy query - create a Tantivy leaf
-        OptimizedExpressionNode::ConsolidatedTantivyLeaf(ConsolidatedTantivyLeaf {
-            boolean_query: TantivyBooleanQuery {
-                must: vec![TantivyFieldQuery {
-                    field: "name".to_string(), // Default field for now
-                    query: search_query.as_human_readable(),
-                    search_query_input: search_query,
-                }],
-                should: vec![],
-                must_not: vec![],
-            },
-        })
+        // For single expressions, use the original logic
+        let search_query =
+            ExpressionTreeOptimizer::build_search_query_from_expression(parsed_expr, schema, pdbopoid)
+                .map_err(|_| "Failed to build search query from expression")?;
+
+        if matches!(search_query, SearchQueryInput::All) {
+            // SearchQueryInput::All means we have mixed indexed/non-indexed expressions
+            // We need to decompose the expression tree to extract Tantivy parts
+            match ExpressionTreeOptimizer::from_postgres_node(parsed_expr, pdbopoid) {
+                Ok(decomposed_tree) => decomposed_tree,
+                Err(_) => {
+                    // Fallback: if decomposition fails, treat as pure PostgreSQL
+                    OptimizedExpressionNode::PostgreSQLLeaf(PostgreSQLLeaf { expr: parsed_expr })
+                }
+            }
+        } else {
+            // Pure Tantivy query - create a Tantivy leaf
+            OptimizedExpressionNode::ConsolidatedTantivyLeaf(ConsolidatedTantivyLeaf {
+                boolean_query: TantivyBooleanQuery {
+                    must: vec![TantivyFieldQuery {
+                        field: "name".to_string(), // Default field for now
+                        query: search_query.as_human_readable(),
+                        search_query_input: search_query,
+                    }],
+                    should: vec![],
+                    must_not: vec![],
+                },
+            })
+        }
     };
 
     // Create the optimized evaluator with the current score for mixed expressions
-    pgrx::warning!(
-        "🔧 [HEAP_FILTER] Creating evaluator with current_score: {}, decomposed_tree: {:?}",
-        current_score,
-        optimized_tree
-    );
     let evaluator = OptimizedExpressionTreeEvaluator::new_with_score(
         search_reader,
         schema,

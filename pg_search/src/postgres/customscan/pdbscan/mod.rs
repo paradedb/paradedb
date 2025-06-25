@@ -2604,14 +2604,12 @@ unsafe fn optimize_base_query_for_unified_evaluation(
 
                     match search_query_input {
                         SearchQueryInput::All => {
-                            debug_log!("🔧 [OPTIMIZE] Heap filter expression contains search operators but requires ALL query for unified evaluation");
-                            // CRITICAL FIX: Even if we get SearchQueryInput::All, if the expression contains
-                            // search operators, we still want a custom scan for unified evaluation and scoring
-                            if expression_contains_search_operators(heap_filter_node, pdbopoid) {
-                                // Set ALL query for unified evaluation
-                                builder.custom_private().set_query(search_query_input);
-                                return Some(Qual::All);
-                            }
+                            debug_log!("🔧 [OPTIMIZE] Heap filter requires ALL query for unified evaluation, stopping optimization");
+                            // CRITICAL FIX: When heap filter returns SearchQueryInput::All, this means we have
+                            // a mixed expression that requires unified evaluation. We should use this directly
+                            // and not try to optimize further.
+                            builder.custom_private().set_query(search_query_input);
+                            return Some(Qual::All);
                         }
                         _ => {
                             // We have a proper Tantivy query from the heap filter
@@ -2674,10 +2672,13 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                         search_query_input.as_human_readable()
                     );
 
-                    // CRITICAL FIX: For Test 2.2 and unified execution approach
-                    // For Test 2.2: NOT ((name @@@ 'Apple' AND category = 'Electronics') OR (category = 'Furniture'))
-                    // This should create NOT(name @@@ 'Apple') as the Tantivy query
-                    // and let the heap filter handle the complete expression
+                    // CRITICAL FIX: For mixed expressions, we need to check if the original expression
+                    // contains both search operators AND non-search predicates.
+                    // If so, we must use SearchQueryInput::All for proper unified evaluation.
+                    
+                    // Check if the original expression is a mixed expression
+                    let is_mixed_expression = expression_is_mixed(cleaned_original, pdbopoid);
+                    
                     match search_query_input {
                         SearchQueryInput::All => {
                             // CRITICAL FIX: Even if we get SearchQueryInput::All, if the original expression contains
@@ -2688,18 +2689,27 @@ unsafe fn optimize_base_query_for_unified_evaluation(
                             return Some(Qual::All);
                         }
                         _ => {
-                            // We have a proper Tantivy query - set it directly in the builder
-                            debug_log!(
-                                "🔧 [OPTIMIZE] Setting optimized SearchQueryInput from original directly: {:?}",
-                                search_query_input.as_human_readable()
-                            );
+                            if is_mixed_expression {
+                                // CRITICAL FIX: For mixed expressions like (name @@@ 'Apple' AND category = 'Electronics'),
+                                // even though we can extract a Tantivy query like "name:(Apple)", we must use
+                                // SearchQueryInput::All to ensure proper unified evaluation of both parts
+                                debug_log!("🔧 [OPTIMIZE] Mixed expression detected, using ALL query for unified evaluation");
+                                builder.custom_private().set_query(SearchQueryInput::All);
+                                return Some(Qual::All);
+                            } else {
+                                // Pure Tantivy query - set it directly in the builder
+                                debug_log!(
+                                    "🔧 [OPTIMIZE] Pure Tantivy expression, setting optimized SearchQueryInput: {:?}",
+                                    search_query_input.as_human_readable()
+                                );
 
-                            // Set the optimized SearchQueryInput directly in the PrivateData
-                            // This bypasses the Qual -> SearchQueryInput conversion that defaults to All
-                            builder.custom_private().set_query(search_query_input);
+                                // Set the optimized SearchQueryInput directly in the PrivateData
+                                // This bypasses the Qual -> SearchQueryInput conversion that defaults to All
+                                builder.custom_private().set_query(search_query_input);
 
-                            // Return a synthetic Qual to indicate we handled the optimization
-                            return Some(Qual::All);
+                                // Return a synthetic Qual to indicate we handled the optimization
+                                return Some(Qual::All);
+                            }
                         }
                     }
                 }
@@ -2808,4 +2818,49 @@ unsafe fn expression_contains_search_operators(
         }
         _ => false,
     }
+}
+
+/// Check if a PostgreSQL expression contains non-search operators (regular predicates)
+unsafe fn expression_contains_non_search_operators(
+    node: *mut pg_sys::Node,
+    pdbopoid: pg_sys::Oid,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            if (*op_expr).opno != pdbopoid {
+                // This is a non-search operator
+                return true;
+            }
+            // Check arguments recursively for search operators
+            let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+            for arg in args.iter_ptr() {
+                if expression_contains_non_search_operators(arg, pdbopoid) {
+                    return true;
+                }
+            }
+            false
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            for arg in args.iter_ptr() {
+                if expression_contains_non_search_operators(arg, pdbopoid) {
+                    return true;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Check if a PostgreSQL expression is mixed (contains both search and non-search operators)
+unsafe fn expression_is_mixed(node: *mut pg_sys::Node, pdbopoid: pg_sys::Oid) -> bool {
+    expression_contains_search_operators(node, pdbopoid) 
+        && expression_contains_non_search_operators(node, pdbopoid)
 }

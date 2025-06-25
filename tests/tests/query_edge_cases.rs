@@ -5,6 +5,25 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+fn select_everything(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value text
+    );
+    INSERT INTO test_table (value) VALUES ('beer'), ('wine'), ('cheese');
+    CREATE INDEX test_index ON test_table USING bm25 (id, value) WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    r#"set paradedb.enable_custom_scan to off; set max_parallel_workers_per_gather = 0;"#
+        .execute(&mut conn);
+    let (count,) = r#"SELECT count(*) FROM test_table WHERE id @@@ paradedb.all() OR id > 0"#
+        .fetch_one::<(i64,)>(&mut conn);
+    assert_eq!(count, 3);
+}
+
+#[rstest]
 fn query_empty_table(mut conn: PgConnection) {
     r#"
     DROP TABLE IF EXISTS test_table;

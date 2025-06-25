@@ -64,9 +64,30 @@ pub fn with_index(index: PgRelation, query: SearchQueryInput) -> SearchQueryInpu
     }
 }
 
+enum CacheEntry {
+    All,
+    Set(HashSet<TantivyValue>),
+}
+
+impl FromIterator<TantivyValue> for CacheEntry {
+    fn from_iter<T: IntoIterator<Item = TantivyValue>>(iter: T) -> Self {
+        let set = iter.into_iter().collect();
+        Self::Set(set)
+    }
+}
+
+impl CacheEntry {
+    fn contains(&self, value: &TantivyValue) -> bool {
+        match self {
+            CacheEntry::All => true,
+            CacheEntry::Set(set) => set.contains(value),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Cache {
-    by_query: HashMap<Vec<u8>, (PgOid, HashSet<TantivyValue>)>,
+    by_query: HashMap<Vec<u8>, (PgOid, CacheEntry)>,
 }
 
 /// Allows us to have a UDF with an argument of type `anyelement` but not do any pgrx-related
@@ -137,10 +158,21 @@ pub fn search_with_query_input(
     };
 
     let (element_oid, matches) = cache.by_query.entry(key).or_insert_with(|| {
+        let element_oid = PgOid::from_untagged(unsafe { pg_getarg_type(fcinfo, 0) });
         let search_query_input = unsafe {
             SearchQueryInput::from_datum(query_datum, query_datum.is_null())
                 .expect("the query argument cannot be NULL")
         };
+
+        // optimize the case where the user asked for literally every matching document to avoid
+        // making a copy of every primary key in ram
+        {
+            let is_paradedb_all = matches!(&search_query_input, SearchQueryInput::WithIndex { query, .. } if matches!(query.as_ref(), &SearchQueryInput::All))
+                || matches!(&search_query_input, SearchQueryInput::All);
+            if is_paradedb_all {
+                return (element_oid, CacheEntry::All);
+            }
+        }
 
         let index_oid = search_query_input
             .index_oid()
@@ -174,9 +206,8 @@ pub fn search_with_query_input(
                     .expect("key_field value should not be null")
             })
             .collect();
-        let element_oid = unsafe { pg_getarg_type(fcinfo, 0) };
 
-        (PgOid::from_untagged(element_oid), matches)
+        (element_oid, matches)
     });
 
     // finally, see if the value on the lhs of the @@@ operator (which should always be our "key_field")

@@ -110,6 +110,10 @@ impl ScorerIter {
             segment_reader,
         }
     }
+
+    pub fn segment_ord(&self) -> SegmentOrdinal {
+        self.segment_ord
+    }
 }
 
 impl Iterator for ScorerIter {

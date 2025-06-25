@@ -270,7 +270,7 @@ impl SearchIndexOptions {
 
         let inet_configs = data.inet_configs();
         for (field_name, config) in &inet_configs {
-            validate_field_config(field_name, &key_field_name, config, indexrel.oid(), |t| {
+            validate_field_config(field_name, &key_field_name, config, indexrel, |t| {
                 matches!(t, SearchFieldType::Inet(_))
             });
         }

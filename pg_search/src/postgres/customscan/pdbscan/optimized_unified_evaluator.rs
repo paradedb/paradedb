@@ -1104,33 +1104,32 @@ pub unsafe fn apply_optimized_unified_heap_filter(
 ) -> Result<OptimizedEvaluationResult, &'static str> {
     // Parse the heap filter expression into a PostgreSQL node tree
     // Handle AND_CLAUSE_SEPARATOR for mixed expressions
-    pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Checking for AND_CLAUSE_SEPARATOR in node string (length={})", heap_filter_node_string.len());
     let parsed_expr = if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Found AND_CLAUSE_SEPARATOR, splitting expression");
         // Split the expression by AND_CLAUSE_SEPARATOR and create an AND expression
         let parts: Vec<&str> = heap_filter_node_string.split("|||AND_CLAUSE_SEPARATOR|||").collect();
-        if parts.len() != 2 {
-            pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Invalid AND_CLAUSE_SEPARATOR format: {} parts", parts.len());
-            return Err("Invalid AND_CLAUSE_SEPARATOR format");
+        if parts.len() < 2 {
+            return Err("Invalid AND_CLAUSE_SEPARATOR format: too few parts");
         }
-        
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Parsing left part (length={})", parts[0].len());
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Parsing right part (length={})", parts[1].len());
         
         // Parse each part separately
-        let left_expr = crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(parts[0]);
-        let right_expr = crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(parts[1]);
-        
-        if left_expr.is_null() || right_expr.is_null() {
-            pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Failed to parse parts: left={:?}, right={:?}", left_expr.is_null(), right_expr.is_null());
-            return Err("Failed to parse AND_CLAUSE_SEPARATOR parts");
+        let mut parsed_parts = Vec::new();
+        for part in parts.iter() {
+            let parsed_part = crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(part);
+            if parsed_part.is_null() {
+                return Err("Failed to parse AND_CLAUSE_SEPARATOR part");
+            }
+            parsed_parts.push(parsed_part);
         }
         
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Successfully parsed both parts, creating AND expression");
-        // Create an AND BoolExpr combining both parts
-        create_and_bool_expr(left_expr, right_expr)
+        // Create a nested AND expression combining all parts
+        // For multiple parts: (((part1 AND part2) AND part3) AND part4) etc.
+        let mut result = parsed_parts[0];
+        for part in parsed_parts.iter().skip(1) {
+            result = create_and_bool_expr(result, *part);
+        }
+        
+        result
     } else {
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] No AND_CLAUSE_SEPARATOR found, parsing as single expression");
         // Single expression, parse normally
         crate::postgres::customscan::pdbscan::unified_evaluator::parse_heap_filter_expression(
             heap_filter_node_string,
@@ -1138,7 +1137,6 @@ pub unsafe fn apply_optimized_unified_heap_filter(
     };
     
     if parsed_expr.is_null() {
-        pgrx::warning!("🔧 [HEAP_FILTER_PARSE] Final parsed expression is null!");
         return Err("Failed to parse heap filter expression");
     }
     // CRITICAL FIX: For expressions with AND_CLAUSE_SEPARATOR, we need to use the unified approach

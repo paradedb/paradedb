@@ -1,6 +1,6 @@
-// Copyright (c) 2023-2025 ParadeDB, Inc.
+// Copyright (c) 2023-2024 Retake, Inc.
 //
-// This file is part of ParadeDB - Postgres for Search and Analytics
+// This file is part of ParadeDB - Postgres for Search
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License as published by
@@ -15,15 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{FieldName, HashMap};
+use crate::api::FieldName;
 use crate::debug_log;
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
-use crate::postgres::types::TantivyValue;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc};
+use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc, WhoAllocated};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tantivy::query::{EnableScoring, Query, Scorer, Weight};
 use tantivy::schema::document::OwnedValue;
@@ -255,74 +254,76 @@ impl CallbackManager {
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> bool {
-        // Check if the expression contains indexed operators that we can't evaluate
-        if self.expression.contains("743770") || self.expression.contains("743938") {
-            // For expressions with indexed operators, we return TRUE because:
-            // 1. The indexed parts are handled by Tantivy (already filtered)
-            // 2. We're only evaluating the non-indexed parts here
-            // 3. If we reach this point, the document already passed the indexed filter
-            return true;
-        }
-
-        // Create a heap filter expression from the PostgreSQL node string
-        let heap_filter_expr = self.create_heap_filter_expr(&self.expression);
-        if heap_filter_expr.is_null() {
-            debug_log!("🔥 Failed to create heap filter expression");
+        // Initialize if needed
+        if let Err(e) = self.initialize() {
+            debug_log!("🔥 Failed to initialize callback manager: {}", e);
             return false;
         }
 
-        // Initialize expression context if not already done
-        if self.expr_context.is_none() {
-            if let Err(e) = self.initialize() {
-                debug_log!("🔥 Failed to initialize expression context: {}", e);
+        // Create a mock tuple slot with the provided field values
+        let tuple_slot = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.create_mock_tuple_slot(field_values)
+        })) {
+            Ok(slot) => slot,
+            Err(_) => {
+                debug_log!("🔥 Panic occurred while creating mock tuple slot");
                 return false;
             }
-        }
+        };
 
-        let expr_context = self.expr_context.unwrap();
-
-        // Initialize the expression state for this specific expression
-        let expr_state = pg_sys::ExecInitExpr(heap_filter_expr, std::ptr::null_mut());
-        if expr_state.is_null() {
-            debug_log!("🔥 Failed to initialize expression state");
-            return false;
-        }
-
-        // Create a mock tuple slot with the field values
-        let mock_slot = self.create_mock_tuple_slot(field_values);
-        if mock_slot.is_null() {
+        if tuple_slot.is_null() {
             debug_log!("🔥 Failed to create mock tuple slot");
             return false;
         }
 
-        // Set the scan tuple in the expression context
-        (*expr_context).ecxt_scantuple = mock_slot;
-
-        // Evaluate the expression with error handling
-        let mut isnull = false;
-        let isnull_ptr = &mut isnull as *mut bool;
-        let result =
-            std::panic::catch_unwind(|| pg_sys::ExecEvalExpr(expr_state, expr_context, isnull_ptr));
-
-        // Clean up the mock slot
-        pg_sys::ExecDropSingleTupleTableSlot(mock_slot);
-
-        match result {
-            Ok(datum) => {
-                if isnull {
-                    debug_log!("🔥 Expression evaluation returned NULL");
-                    false
-                } else {
-                    let bool_result = bool::from_datum(datum, false).unwrap_or(false);
-                    debug_log!("🔥 Expression evaluation result: {}", bool_result);
-                    bool_result
-                }
+        // Get the expression state and context
+        let expr_state = match self.expr_state {
+            Some(state) => state,
+            None => {
+                debug_log!("🔥 Expression state not initialized");
+                return false;
             }
+        };
+
+        let expr_context = match self.expr_context {
+            Some(context) => context,
+            None => {
+                debug_log!("🔥 Expression context not initialized");
+                return false;
+            }
+        };
+
+        // Set the tuple slot in the expression context
+        (*expr_context).ecxt_scantuple = tuple_slot;
+
+        // Evaluate the expression with panic protection
+        let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut is_null = false;
+            let datum = pg_sys::ExecEvalExpr(expr_state, expr_context, &mut is_null);
+            
+            if is_null {
+                debug_log!("🔥 Expression evaluation returned NULL");
+                false
+            } else {
+                // Convert datum to boolean
+                let result = bool::from_datum(datum, false).unwrap_or(false);
+                debug_log!("🔥 Expression evaluation result: {}", result);
+                result
+            }
+        })) {
+            Ok(result) => result,
             Err(_) => {
                 debug_log!("🔥 Expression evaluation panicked, returning false");
                 false
             }
+        };
+
+        // Clean up the tuple slot
+        if !tuple_slot.is_null() {
+            pg_sys::ExecDropSingleTupleTableSlot(tuple_slot);
         }
+
+        result
     }
 
     /// Evaluate the PostgreSQL expression and return both match status and score
@@ -434,29 +435,7 @@ impl CallbackManager {
         for i in 1..=max_attno {
             let oid = if let Some(field_name) = self.attno_map.get(&i) {
                 if let Some(value) = field_values.get(field_name) {
-                    match value {
-                        OwnedValue::Str(_) => pg_sys::TEXTOID,
-                        OwnedValue::I64(_) | OwnedValue::U64(_) => {
-                            // Check field name to determine correct integer type
-                            if field_name.root().as_str() == "category_id" {
-                                pg_sys::INT4OID // INTEGER type
-                            } else {
-                                pg_sys::INT4OID // Use INT4 for id field to match table schema
-                            }
-                        }
-                        OwnedValue::F64(_) => {
-                            // Check field name to determine correct numeric type
-                            if field_name.root().as_str() == "price" {
-                                pg_sys::NUMERICOID // DECIMAL/NUMERIC type
-                            } else if field_name.root().as_str() == "rating" {
-                                pg_sys::FLOAT4OID // REAL type (FLOAT4)
-                            } else {
-                                pg_sys::FLOAT8OID // DOUBLE PRECISION type
-                            }
-                        }
-                        OwnedValue::Bool(_) => pg_sys::BOOLOID,
-                        _ => pg_sys::TEXTOID, // Default fallback
-                    }
+                    self.get_appropriate_type_oid(value, field_name)
                 } else {
                     // For unmapped values, use appropriate defaults based on attribute number
                     if i == 1 {
@@ -503,49 +482,16 @@ impl CallbackManager {
             if let Some(value) = field_values.get(field_name) {
                 let array_index = (attno - 1) as usize; // Convert to 0-based index
                 if array_index < natts {
-                    match value {
-                        OwnedValue::Str(s) => {
-                            datums[array_index] = s.clone().into_datum().unwrap();
-                            isnull[array_index] = false;
+                    match self.convert_value_to_datum(value, field_name) {
+                        Ok((datum, is_null)) => {
+                            datums[array_index] = datum;
+                            isnull[array_index] = is_null;
                         }
-                        OwnedValue::I64(i) => {
-                            // Use INT4 for all integer fields to match table schema
-                            datums[array_index] = (*i as i32).into_datum().unwrap();
-                            isnull[array_index] = false;
-                        }
-                        OwnedValue::U64(u) => {
-                            // Use INT4 for all integer fields to match table schema
-                            datums[array_index] = (*u as i32).into_datum().unwrap();
-                            isnull[array_index] = false;
-                        }
-                        OwnedValue::F64(f) => {
-                            // Check if this field should be NUMERIC (like price), FLOAT4 (like rating), or FLOAT8
-                            if field_name.root().as_str() == "price" {
-                                // Convert to NUMERIC for price fields
-                                let numeric = pgrx::AnyNumeric::try_from(*f).unwrap();
-                                datums[array_index] = numeric.into_datum().unwrap();
-                            } else if field_name.root().as_str() == "rating" {
-                                // Convert to FLOAT4 for rating fields
-                                datums[array_index] = (*f as f32).into_datum().unwrap();
-                            } else {
-                                // Use FLOAT8 for other numeric fields
-                                datums[array_index] = (*f).into_datum().unwrap();
-                            }
-                            isnull[array_index] = false;
-                        }
-                        OwnedValue::Bool(b) => {
-                            datums[array_index] = (*b).into_datum().unwrap();
-                            isnull[array_index] = false;
-                        }
-                        OwnedValue::Null => {
-                            datums[array_index] = pg_sys::Datum::null();
-                            isnull[array_index] = true;
-                        }
-                        _ => {
+                        Err(e) => {
                             debug_log!(
-                                "🔥 Unsupported value type for field {}: {:?}",
+                                "🔥 Failed to convert value for field '{}': {}",
                                 field_name,
-                                value
+                                e
                             );
                             datums[array_index] = pg_sys::Datum::null();
                             isnull[array_index] = true;
@@ -564,6 +510,80 @@ impl CallbackManager {
             natts
         );
         slot
+    }
+
+    /// Get the appropriate PostgreSQL type OID for a given value and field
+    fn get_appropriate_type_oid(&self, value: &OwnedValue, field_name: &FieldName) -> pg_sys::Oid {
+        match value {
+            OwnedValue::Str(_) => pg_sys::TEXTOID,
+            OwnedValue::I64(_) | OwnedValue::U64(_) => {
+                // Check field name to determine correct integer type
+                if field_name.root().as_str() == "category_id" || field_name.root().as_str() == "id" {
+                    pg_sys::INT4OID // INTEGER type
+                } else {
+                    pg_sys::INT4OID // Use INT4 for integer fields to match table schema
+                }
+            }
+            OwnedValue::F64(_) => {
+                // Check field name to determine correct numeric type
+                if field_name.root().as_str() == "price" {
+                    pg_sys::NUMERICOID // DECIMAL/NUMERIC type
+                } else if field_name.root().as_str() == "rating" {
+                    pg_sys::FLOAT4OID // REAL type (FLOAT4)
+                } else {
+                    pg_sys::FLOAT8OID // DOUBLE PRECISION type
+                }
+            }
+            OwnedValue::Bool(_) => pg_sys::BOOLOID,
+            OwnedValue::Null => {
+                // For NULL values, try to infer from field name
+                match field_name.root().as_str() {
+                    "id" | "category_id" => pg_sys::INT4OID,
+                    "price" => pg_sys::NUMERICOID,
+                    "rating" => pg_sys::FLOAT4OID,
+                    "in_stock" => pg_sys::BOOLOID,
+                    "tags" => pg_sys::TEXTOID, // For arrays, use TEXT as fallback
+                    _ => pg_sys::TEXTOID, // Default fallback
+                }
+            }
+            _ => pg_sys::TEXTOID, // Default fallback for unsupported types
+        }
+    }
+
+    /// Convert an OwnedValue to a PostgreSQL Datum with proper error handling
+    fn convert_value_to_datum(
+        &self,
+        value: &OwnedValue,
+        field_name: &FieldName,
+    ) -> Result<(pg_sys::Datum, bool), String> {
+        match value {
+            OwnedValue::Null => Ok((pg_sys::Datum::from(0), true)), // NULL datum
+            OwnedValue::Bool(b) => Ok(((*b).into_datum().unwrap(), false)),
+            OwnedValue::I64(i) => {
+                // Convert to appropriate integer type based on field
+                Ok(((*i as i32).into_datum().unwrap(), false))
+            }
+            OwnedValue::F64(f) => {
+                // Convert to appropriate float type
+                Ok(((*f as f32).into_datum().unwrap(), false))
+            }
+            OwnedValue::Str(s) => {
+                // Special handling for array marker
+                if s == "__ARRAY_NON_NULL__" {
+                    // For array fields that are not null, we need to create a non-null datum
+                    // that represents the presence of an array value
+                    debug_log!("🔥 Converting array marker to non-null datum for field '{}'", field_name.root());
+                    // Return a non-null datum that PostgreSQL can use for IS NULL tests
+                    Ok((1i32.into_datum().unwrap(), false)) // Non-null integer as placeholder
+                } else {
+                    Ok((s.clone().into_datum().unwrap(), false))
+                }
+            }
+            _ => {
+                debug_log!("🔥 Unsupported OwnedValue type for field '{}', treating as NULL", field_name.root());
+                Ok((pg_sys::Datum::from(0), true))
+            }
+        }
     }
 
     /// Clean up resources when done
@@ -923,68 +943,187 @@ impl ExternalFilterScorer {
             let result = match heap_tuple.get_attribute_by_name(&field_name.root()) {
                 Some((_index, attribute)) => {
                     // Convert the PostgreSQL value to a Tantivy OwnedValue
-                    match attribute.type_oid().value() {
-                        pg_sys::BOOLOID => heap_tuple
-                            .get_by_name::<bool>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::Bool(v)),
-                        pg_sys::INT2OID => heap_tuple
-                            .get_by_name::<i16>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::I64(v as i64)),
-                        pg_sys::INT4OID => heap_tuple
-                            .get_by_name::<i32>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::I64(v as i64)),
-                        pg_sys::INT8OID => heap_tuple
-                            .get_by_name::<i64>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::I64(v)),
-                        pg_sys::FLOAT4OID => heap_tuple
-                            .get_by_name::<f32>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::F64(v as f64)),
-                        pg_sys::FLOAT8OID => heap_tuple
-                            .get_by_name::<f64>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::F64(v)),
-                        pg_sys::TEXTOID | pg_sys::VARCHAROID => heap_tuple
-                            .get_by_name::<String>(&field_name.root())
-                            .ok()
-                            .flatten()
-                            .map(|v| OwnedValue::Str(v)),
-                        pg_sys::NUMERICOID => {
-                            // Handle DECIMAL/NUMERIC types
-                            heap_tuple
-                                .get_by_name::<pgrx::AnyNumeric>(&field_name.root())
-                                .ok()
-                                .flatten()
-                                .and_then(|v| v.try_into().ok())
-                                .map(|v: f64| OwnedValue::F64(v))
+                    let type_oid_raw = attribute.type_oid().value();
+                    let type_oid = type_oid_raw.to_u32();
+                    Some(match type_oid {
+                        oid if oid == pg_sys::BOOLOID.to_u32() => {
+                            match heap_tuple.get_by_name::<bool>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (bool)", field_name.root(), value);
+                                    OwnedValue::Bool(value)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract bool field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
                         }
+                        oid if oid == pg_sys::INT2OID.to_u32() => {
+                            match heap_tuple.get_by_name::<i16>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (i16->i64)", field_name.root(), value);
+                                    OwnedValue::I64(value as i64)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract i16 field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::INT4OID.to_u32() => {
+                            match heap_tuple.get_by_name::<i32>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (i32->i64)", field_name.root(), value);
+                                    OwnedValue::I64(value as i64)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract i32 field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::INT8OID.to_u32() => {
+                            match heap_tuple.get_by_name::<i64>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (i64)", field_name.root(), value);
+                                    OwnedValue::I64(value)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract i64 field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::FLOAT4OID.to_u32() => {
+                            match heap_tuple.get_by_name::<f32>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (f32->f64)", field_name.root(), value);
+                                    OwnedValue::F64(value as f64)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract f32 field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::FLOAT8OID.to_u32() => {
+                            match heap_tuple.get_by_name::<f64>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = {} (f64)", field_name.root(), value);
+                                    OwnedValue::F64(value)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract f64 field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::TEXTOID.to_u32() || oid == pg_sys::VARCHAROID.to_u32() => {
+                            match heap_tuple.get_by_name::<String>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    debug_log!("🔥 Extracted field '{}' = '{}' (String)", field_name.root(), value);
+                                    OwnedValue::Str(value)
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract string field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        oid if oid == pg_sys::NUMERICOID.to_u32() => {
+                            match heap_tuple.get_by_name::<AnyNumeric>(&field_name.root()) {
+                                Ok(Some(value)) => {
+                                    match value.try_into() {
+                                        Ok(f) => {
+                                            let f: f64 = f;
+                                            debug_log!("🔥 Extracted field '{}' = {} (NUMERIC->f64)", field_name.root(), f);
+                                            OwnedValue::F64(f)
+                                        }
+                                        Err(e) => {
+                                            debug_log!("🔥 Failed to convert NUMERIC to f64 for field '{}': {}", field_name.root(), e);
+                                            OwnedValue::Null
+                                        }
+                                    }
+                                }
+                                Ok(None) => OwnedValue::Null,
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to extract NUMERIC field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        // Handle array types by trying to extract them properly
+                        oid if self.is_array_type_u32(oid) => {
+                            debug_log!("🔥 Attempting to extract array field '{}' (type_oid: {})", field_name.root(), type_oid);
+                            
+                            // Try to extract as array and check if it's actually NULL
+                            match heap_tuple.get_by_index::<pg_sys::Datum>(_index) {
+                                Ok(Some(_)) => {
+                                    // Array has a value, but we can't process it yet
+                                    debug_log!("🔥 Array field '{}' has non-null value, but array processing not implemented yet", field_name.root());
+                                    // For now, return a special marker that indicates "non-null array"
+                                    // This helps with IS NULL / IS NOT NULL tests
+                                    OwnedValue::Str("__ARRAY_NON_NULL__".to_string())
+                                }
+                                Ok(None) => {
+                                    // Array is actually NULL
+                                    debug_log!("🔥 Array field '{}' is actually NULL", field_name.root());
+                                    OwnedValue::Null
+                                }
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to check array field '{}' for null: {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        // Handle other unknown types safely
                         _ => {
-                            // For other types, try to convert to string as a fallback
-                            heap_tuple
-                                .get_by_name::<String>(&field_name.root())
-                                .ok()
-                                .flatten()
-                                .map(|v| OwnedValue::Str(v))
+                            debug_log!("🔥 Unsupported type_oid {} for field '{}', returning Null", type_oid, field_name.root());
+                            OwnedValue::Null
                         }
-                    }
+                    })
                 }
-                None => None,
+                None => Some(OwnedValue::Null),
             };
 
             pg_sys::ReleaseBuffer(buffer);
             pg_sys::relation_close(heaprel, pg_sys::AccessShareLock as _);
             result
         }
+    }
+
+    /// Check if a type OID represents an array type
+    fn is_array_type(&self, type_oid: pg_sys::Oid) -> bool {
+        // PostgreSQL array types typically have type OIDs > 1000
+        // Common array types: 1009 (text[]), 1007 (int4[]), etc.
+        let oid_value = type_oid.to_u32();
+        oid_value == 1009 || // text[]
+        oid_value == 1007 || // int4[]
+        oid_value == 1016 || // int8[]
+        oid_value == 1021 || // float4[]
+        oid_value == 1022 || // float8[]
+        oid_value == 1000 || // bool[]
+        (oid_value > 1000 && oid_value < 2000) // General array type range
+    }
+
+    /// Check if a type OID (as u32) represents an array type
+    fn is_array_type_u32(&self, type_oid: u32) -> bool {
+        // PostgreSQL array types typically have type OIDs > 1000
+        // Common array types: 1009 (text[]), 1007 (int4[]), etc.
+        type_oid == 1009 || // text[]
+        type_oid == 1007 || // int4[]
+        type_oid == 1016 || // int8[]
+        type_oid == 1021 || // float4[]
+        type_oid == 1022 || // float8[]
+        type_oid == 1000 || // bool[]
+        (type_oid > 1000 && type_oid < 2000) // General array type range
     }
 }
 
@@ -995,36 +1134,17 @@ struct IndexedWithFilterWeight {
 }
 
 impl Weight for IndexedWithFilterWeight {
-    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+    fn scorer(
+        &self,
+        reader: &SegmentReader,
+        boost: Score,
+    ) -> tantivy::Result<Box<dyn Scorer>> {
         debug_log!("🔥 IndexedWithFilterWeight::scorer called - creating combined scorer");
-        debug_log!("🔥 Segment ID: {:?}", reader.segment_id());
-        debug_log!("🔥 Max doc in segment: {}", reader.max_doc());
-
-        // Count how many times this is called
-        static SCORER_CALL_COUNT: std::sync::atomic::AtomicUsize =
-            std::sync::atomic::AtomicUsize::new(0);
-        let call_count = SCORER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-        debug_log!("🔥 IndexedWithFilterWeight::scorer call #{}", call_count);
-
-        // Debug: Check if this is the segment containing Apple iPhone 14 (ctid=1)
-        let debug_ctid_ff =
-            crate::index::fast_fields_helper::FFType::new_ctid(reader.fast_fields());
-        for doc_id in 0..reader.max_doc() {
-            let ctid = debug_ctid_ff.as_u64(doc_id).unwrap_or(0);
-            if ctid == 1 {
-                debug_log!(
-                    "🔥 FOUND Apple iPhone 14 (ctid=1) in segment {:?} as doc_id {}",
-                    reader.segment_id(),
-                    doc_id
-                );
-            }
-        }
-
+        
         // Get the indexed scorer
-        let mut indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
 
         // Create fast field helper for ctid extraction
-        // For now, we'll create a simple FFType for ctid directly
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(reader.fast_fields());
 
         // Get heap relation OID from the global context
@@ -1032,10 +1152,6 @@ impl Weight for IndexedWithFilterWeight {
 
         // Get the callback for the external filter
         let external_filter_callback = get_callback(&self.external_filter_config.expression);
-        debug_log!(
-            "🔥 IndexedWithFilterWeight::scorer - callback found: {}",
-            external_filter_callback.is_some()
-        );
 
         // Create a IndexedWithFilterScorer for segment
         let scorer = IndexedWithFilterScorer::new(
@@ -1051,8 +1167,8 @@ impl Weight for IndexedWithFilterWeight {
 
     fn explain(
         &self,
-        reader: &SegmentReader,
-        doc: DocId,
+        _reader: &SegmentReader,
+        _doc: DocId,
     ) -> tantivy::Result<tantivy::query::Explanation> {
         Ok(tantivy::query::Explanation::new("IndexedWithFilter", 1.0))
     }
@@ -1310,79 +1426,8 @@ impl IndexedWithFilterScorer {
             let tuple_desc = PgTupleDesc::from_pg_unchecked((*heaprel).rd_att);
             let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
 
-            // Extract the field value - try different data types
-            let field_value = if let Ok(Some(value)) =
-                heap_tuple.get_by_name::<String>(&field_name.root())
-            {
-                debug_log!(
-                    "🔥 Extracted field '{}' = '{}' (String)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::Str(value)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i32>(&field_name.root()) {
-                debug_log!(
-                    "🔥 Extracted field '{}' = {} (i32)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::I64(value as i64)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<i64>(&field_name.root()) {
-                debug_log!(
-                    "🔥 Extracted field '{}' = {} (i64)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::I64(value)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f32>(&field_name.root()) {
-                debug_log!(
-                    "🔥 Extracted field '{}' = {} (f32->f64)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::F64(value as f64)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<f64>(&field_name.root()) {
-                debug_log!(
-                    "🔥 Extracted field '{}' = {} (f64)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::F64(value)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<bool>(&field_name.root()) {
-                debug_log!(
-                    "🔥 Extracted field '{}' = {} (bool)",
-                    field_name.root(),
-                    value
-                );
-                OwnedValue::Bool(value)
-            } else if let Ok(Some(value)) = heap_tuple.get_by_name::<AnyNumeric>(&field_name.root())
-            {
-                // Handle PostgreSQL NUMERIC type
-                match value.try_into() {
-                    Ok(f) => {
-                        let f: f64 = f;
-                        debug_log!(
-                            "🔥 Extracted field '{}' = {} (NUMERIC->f64)",
-                            field_name.root(),
-                            f
-                        );
-                        OwnedValue::F64(f)
-                    }
-                    Err(_) => {
-                        debug_log!(
-                            "🔥 Failed to convert NUMERIC to f64 for field '{}'",
-                            field_name.root()
-                        );
-                        OwnedValue::Null
-                    }
-                }
-            } else {
-                debug_log!(
-                    "🔥 Failed to extract field '{}': unsupported type",
-                    field_name.root()
-                );
-                OwnedValue::Null
-            };
+            // Extract the field value - try different data types with improved error handling
+            let field_value = self.extract_field_value_safe(&heap_tuple, field_name);
 
             // Release the buffer and close the relation
             pg_sys::ReleaseBuffer(buffer);
@@ -1390,6 +1435,171 @@ impl IndexedWithFilterScorer {
 
             field_value
         }
+    }
+
+    /// Safely extract field value with proper error handling for different types
+    fn extract_field_value_safe<'mcx, AllocatedBy: WhoAllocated>(
+        &self,
+        heap_tuple: &PgHeapTuple<'mcx, AllocatedBy>,
+        field_name: &FieldName,
+    ) -> OwnedValue {
+        // Get the attribute information for this field
+        if let Some((_index, attribute)) = heap_tuple.get_attribute_by_name(&field_name.root()) {
+            let type_oid_raw = attribute.type_oid().value();
+            let type_oid = type_oid_raw.to_u32();
+            
+            // Handle different PostgreSQL types with proper error handling
+            match type_oid {
+                oid if oid == pg_sys::BOOLOID.to_u32() => {
+                    match heap_tuple.get_by_name::<bool>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (bool)", field_name.root(), value);
+                            OwnedValue::Bool(value)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract bool field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::INT2OID.to_u32() => {
+                    match heap_tuple.get_by_name::<i16>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (i16->i64)", field_name.root(), value);
+                            OwnedValue::I64(value as i64)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract i16 field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::INT4OID.to_u32() => {
+                    match heap_tuple.get_by_name::<i32>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (i32->i64)", field_name.root(), value);
+                            OwnedValue::I64(value as i64)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract i32 field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::INT8OID.to_u32() => {
+                    match heap_tuple.get_by_name::<i64>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (i64)", field_name.root(), value);
+                            OwnedValue::I64(value)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract i64 field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::FLOAT4OID.to_u32() => {
+                    match heap_tuple.get_by_name::<f32>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (f32->f64)", field_name.root(), value);
+                            OwnedValue::F64(value as f64)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract f32 field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::FLOAT8OID.to_u32() => {
+                    match heap_tuple.get_by_name::<f64>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = {} (f64)", field_name.root(), value);
+                            OwnedValue::F64(value)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract f64 field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::TEXTOID.to_u32() || oid == pg_sys::VARCHAROID.to_u32() => {
+                    match heap_tuple.get_by_name::<String>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            debug_log!("🔥 Extracted field '{}' = '{}' (String)", field_name.root(), value);
+                            OwnedValue::Str(value)
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract string field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                oid if oid == pg_sys::NUMERICOID.to_u32() => {
+                    match heap_tuple.get_by_name::<AnyNumeric>(&field_name.root()) {
+                        Ok(Some(value)) => {
+                            match value.try_into() {
+                                Ok(f) => {
+                                    let f: f64 = f;
+                                    debug_log!("🔥 Extracted field '{}' = {} (NUMERIC->f64)", field_name.root(), f);
+                                    OwnedValue::F64(f)
+                                }
+                                Err(e) => {
+                                    debug_log!("🔥 Failed to convert NUMERIC to f64 for field '{}': {}", field_name.root(), e);
+                                    OwnedValue::Null
+                                }
+                            }
+                        }
+                        Ok(None) => OwnedValue::Null,
+                        Err(e) => {
+                            debug_log!("🔥 Failed to extract NUMERIC field '{}': {}", field_name.root(), e);
+                            OwnedValue::Null
+                        }
+                    }
+                }
+                // Handle other unknown types safely
+                _ => {
+                    debug_log!("🔥 Unsupported type_oid {} for field '{}', returning Null", type_oid, field_name.root());
+                    OwnedValue::Null
+                }
+            }
+        } else {
+            debug_log!("🔥 Field '{}' not found in tuple", field_name.root());
+            OwnedValue::Null
+        }
+    }
+
+    /// Check if a type OID represents an array type
+    fn is_array_type(&self, type_oid: pg_sys::Oid) -> bool {
+        // PostgreSQL array types typically have type OIDs > 1000
+        // Common array types: 1009 (text[]), 1007 (int4[]), etc.
+        let oid_value = type_oid.to_u32();
+        oid_value == 1009 || // text[]
+        oid_value == 1007 || // int4[]
+        oid_value == 1016 || // int8[]
+        oid_value == 1021 || // float4[]
+        oid_value == 1022 || // float8[]
+        oid_value == 1000 || // bool[]
+        (oid_value > 1000 && oid_value < 2000) // General array type range
+    }
+
+    /// Check if a type OID (as u32) represents an array type
+    fn is_array_type_u32(&self, type_oid: u32) -> bool {
+        // PostgreSQL array types typically have type OIDs > 1000
+        // Common array types: 1009 (text[]), 1007 (int4[]), etc.
+        type_oid == 1009 || // text[]
+        type_oid == 1007 || // int4[]
+        type_oid == 1016 || // int8[]
+        type_oid == 1021 || // float4[]
+        type_oid == 1022 || // float8[]
+        type_oid == 1000 || // bool[]
+        (type_oid > 1000 && type_oid < 2000) // General array type range
     }
 }
 

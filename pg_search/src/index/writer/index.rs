@@ -39,9 +39,14 @@ struct PendingSegment {
 }
 
 impl PendingSegment {
-    fn new(directory: MVCCDirectory, memory_budget: NonZeroUsize) -> Result<Self> {
-        let mut index = Index::open(directory.clone())?;
-        setup_tokenizers(directory.indexrel(), &mut index)?;
+    fn new(
+        indexrel: &PgSearchRelation,
+        directory: MVCCDirectory,
+        schema: &SearchIndexSchema,
+        memory_budget: NonZeroUsize,
+    ) -> Result<Self> {
+        let mut index = Index::open(directory)?;
+        setup_tokenizers(indexrel, &mut index, schema)?;
 
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
@@ -111,6 +116,7 @@ pub struct SerialIndexWriter {
     directory: MVCCDirectory,
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
+    schema: SearchIndexSchema,
 }
 
 impl SerialIndexWriter {
@@ -143,7 +149,7 @@ impl SerialIndexWriter {
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
         let schema = SearchIndexSchema::open(index_relation)?;
-        setup_tokenizers(index_relation, &mut index)?;
+        setup_tokenizers(index_relation, &mut index, &schema)?;
         let ctid_field = schema.ctid_field();
 
         Ok(Self {
@@ -155,7 +161,12 @@ impl SerialIndexWriter {
             directory,
             pending_segment: Default::default(),
             new_metas: Default::default(),
+            schema,
         })
+    }
+
+    pub fn schema(&self) -> &SearchIndexSchema {
+        &self.schema
     }
 
     pub fn insert(
@@ -219,7 +230,12 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        PendingSegment::new(self.directory.clone(), self.config.memory_budget)
+        PendingSegment::new(
+            &self.indexrel,
+            self.directory.clone(),
+            &self.schema,
+            self.config.memory_budget,
+        )
     }
 
     /// Once the memory budget is reached, we "finalize" the segment:
@@ -379,7 +395,6 @@ mod tests {
     use super::*;
     use crate::api::HashSet;
     use crate::postgres::rel::PgSearchRelation;
-    use crate::schema::SearchIndexSchema;
     use pgrx::prelude::*;
     use std::num::NonZeroUsize;
 
@@ -403,7 +418,7 @@ mod tests {
         let index_relation = PgSearchRelation::open(relation_oid);
         let mut writer =
             SerialIndexWriter::open(&index_relation, config, Default::default()).unwrap();
-        let schema = SearchIndexSchema::open(&index_relation).unwrap();
+        let schema = writer.schema();
         let ctid_field = schema.ctid_field();
         let text_field = schema.search_field("data").unwrap().field();
         let mut segment_ids = HashSet::default();

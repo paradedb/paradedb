@@ -35,7 +35,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::utils::{categorize_fields, row_to_search_document, CategorizedFieldData};
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::SearchField;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     check_for_interrupts, function_name, pg_guard, pg_sys, PgLogLevel, PgMemoryContexts,
@@ -322,8 +322,8 @@ impl WorkerBuildState {
             max_docs_per_segment,
         };
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
-        let schema = SearchIndexSchema::open(indexrel)?;
-        let categorized_fields = categorize_fields(indexrel, &schema);
+        let schema = writer.schema();
+        let categorized_fields = categorize_fields(indexrel, schema);
         let key_field_name = schema.key_field().field_name();
         Ok(Self {
             writer: Some(writer),

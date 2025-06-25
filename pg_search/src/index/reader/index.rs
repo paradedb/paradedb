@@ -259,8 +259,8 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = SearchIndexSchema::open(index_relation)?;
-        setup_tokenizers(index_relation, &mut index)?;
+        let schema = SearchIndexSchema::from_index(index_relation, &index);
+        setup_tokenizers(index_relation, &mut index, &schema)?;
 
         let reader = index
             .reader_builder()

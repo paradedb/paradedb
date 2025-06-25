@@ -31,7 +31,7 @@ use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::SearchField;
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -57,8 +57,8 @@ impl InsertState {
             config,
             Default::default(),
         )?;
-        let schema = SearchIndexSchema::open(indexrel)?;
-        let categorized_fields = categorize_fields(indexrel, &schema);
+        let schema = writer.schema();
+        let categorized_fields = categorize_fields(indexrel, schema);
         let key_field_name = schema.key_field().field_name();
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(

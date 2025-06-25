@@ -146,14 +146,17 @@ pub struct SearchIndexSchema {
 }
 
 impl SearchIndexSchema {
+    pub fn from_index(indexrel: &PgSearchRelation, index: &Index) -> Self {
+        Self {
+            schema: index.schema(),
+            relation_oid: indexrel.oid(),
+        }
+    }
+
     pub fn open(indexrel: &PgSearchRelation) -> Result<Self> {
         let directory = MVCCDirectory::snapshot(indexrel);
         let index = Index::open(directory)?;
-        let schema = index.schema().clone();
-        Ok(Self {
-            schema,
-            relation_oid: indexrel.oid(),
-        })
+        Ok(Self::from_index(indexrel, &index))
     }
 
     pub fn ctid_field(&self) -> Field {

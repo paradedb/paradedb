@@ -30,7 +30,7 @@ pub fn setup_tokenizers(
     schema: &SearchIndexSchema,
 ) -> Result<()> {
     let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
-    let categorized_fields = categorize_fields(index_relation, &schema);
+    let categorized_fields = categorize_fields(index_relation, schema);
 
     let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
     for (search_field, _) in categorized_fields {

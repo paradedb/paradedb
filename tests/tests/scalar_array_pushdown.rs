@@ -489,21 +489,15 @@ async fn test_scalar_array_edge_cases(database: Db) {
 
     // Test edge cases that might cause issues
     let edge_cases = vec![
-        // Empty arrays (should match nothing)
         "int_col = ANY(ARRAY[]::integer[])",
-        // Single element arrays
         "text_col = ANY(ARRAY['apple'])",
-        // Mixed data types in compatible contexts
         "int_col >= ALL(ARRAY[1, 2])",
         "bool_col <> ANY(ARRAY[false])",
-        // Timestamp comparisons
         "ts_col <= ALL(ARRAY['2024-01-01'::timestamp, '2024-12-31'::timestamp])",
-        // NULL values in arrays
         "text_col = ANY(ARRAY['apple', NULL])",
         "int_col = ANY(ARRAY[1, 2, NULL])",
         "bool_col = ANY(ARRAY[true, NULL])",
         "uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, NULL])",
-        // IS NULL / IS NOT NULL with arrays containing NULLs
         "text_col IS NULL AND 'apple' = ANY(ARRAY['apple', 'banana'])",
         "int_col IS NOT NULL AND int_col = ANY(ARRAY[1, 2, NULL])",
     ];

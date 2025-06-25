@@ -6,8 +6,7 @@ use tantivy::collector::TopDocs;
 use tantivy::query::{Occur, Query};
 use tantivy::{DocAddress, DocId};
 
-use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
-use crate::api::FieldName;
+// Note: Field names are extracted from SearchQueryInput which contains proper schema information
 use crate::index::reader::index::SearchIndexReader;
 
 use crate::query::{AsHumanReadable, SearchQueryInput};
@@ -521,13 +520,10 @@ impl ExpressionTreeOptimizer {
         // Extract query from right-hand side first
         let (query_string, search_query_input) = Self::extract_query_from_node(rhs)?;
 
-        // Extract field name from the SearchQueryInput instead of the left-hand side Var node
-        // This is more accurate because the SearchQueryInput contains the actual field being searched
+        // Extract field name from the SearchQueryInput - this is the authoritative source
+        // The SearchQueryInput contains the actual field being searched as parsed by ParadeDB
         let field_name = Self::extract_field_name_from_search_query_input(&search_query_input)
-            .unwrap_or_else(|| {
-                // Fallback to extracting from left-hand side if SearchQueryInput doesn't contain field info
-                Self::extract_field_name_from_node(lhs).unwrap_or_else(|| "unknown_field".to_string())
-            });
+            .ok_or("SearchQueryInput must contain field information for @@@ operators")?;
 
         Ok(TantivyFieldQuery {
             field: field_name,
@@ -548,30 +544,6 @@ impl ExpressionTreeOptimizer {
                 Self::extract_field_name_from_search_query_input(query)
             }
             _ => None,
-        }
-    }
-
-    /// Extract field name from a PostgreSQL node (typically a Var node)
-    unsafe fn extract_field_name_from_node(node: *mut pg_sys::Node) -> Option<String> {
-        if (*node).type_ == pg_sys::NodeTag::T_Var {
-            let var_node = node.cast::<pg_sys::Var>();
-            let attno = (*var_node).varattno;
-            
-            // Map attribute numbers to field names for our test table
-            // In a real implementation, we'd look up the attribute name from the relation
-            let field_name = match attno {
-                1 => "id",
-                2 => "name", 
-                3 => "description",
-                4 => "category",
-                5 => "price",
-                6 => "in_stock",
-                _ => "unknown_field",
-            };
-            
-            Some(field_name.to_string())
-        } else {
-            None
         }
     }
 

@@ -404,34 +404,6 @@ impl<'a> UnifiedExpressionEvaluator<'a> {
         }
     }
 
-    /// Phase 4: Extract field name from a PostgreSQL node (typically a Var node)
-    unsafe fn extract_field_name_from_node(&self, node: *mut pg_sys::Node) -> Option<String> {
-        if node.is_null() {
-            return None;
-        }
-
-        match (*node).type_ {
-            pg_sys::NodeTag::T_Var => {
-                let var = node.cast::<pg_sys::Var>();
-                // Try to get the field name from the schema based on varattno
-                // For now, we'll use a simple approach - this could be enhanced
-                // to properly resolve field names from the PostgreSQL catalog
-
-                // Common field names in our test cases
-                match (*var).varattno {
-                    1 => Some("id".to_string()),
-                    2 => Some("name".to_string()),
-                    3 => Some("description".to_string()),
-                    4 => Some("category".to_string()),
-                    5 => Some("price".to_string()),
-                    6 => Some("in_stock".to_string()),
-                    _ => None,
-                }
-            }
-            _ => None,
-        }
-    }
-
     /// Phase 4: Extract query string from a PostgreSQL node (typically a Const node)
     unsafe fn extract_query_string_from_node(&self, node: *mut pg_sys::Node) -> Option<String> {
         if node.is_null() {

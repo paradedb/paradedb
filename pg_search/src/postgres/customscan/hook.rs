@@ -20,6 +20,7 @@ use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
 use crate::postgres::customscan::CustomScan;
 use once_cell::sync::Lazy;
+use pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
@@ -111,5 +112,54 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS: CustomScan>(
             // add this path for consideration
             pg_sys::add_path(rel, custom_path.cast());
         }
+    }
+}
+
+pub fn register_upper_path<CS: CustomScan + 'static>(_: CS) {
+    unsafe {
+        static mut PREV_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::create_upper_paths_hook_type>,
+        > = Lazy::new(Default::default);
+
+        #[pg_guard]
+        extern "C-unwind" fn __priv_callback<CS: CustomScan + 'static>(
+            root: *mut pg_sys::PlannerInfo,
+            stage: pg_sys::UpperRelationKind::Type,
+            input_rel: *mut pg_sys::RelOptInfo,
+            output_rel: *mut pg_sys::RelOptInfo,
+            extra: *mut ::std::os::raw::c_void,
+        ) {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, stage, input_rel, output_rel, extra);
+                }
+
+                paradedb_upper_paths_callback::<CS>(root, stage, input_rel, output_rel, extra);
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+            Entry::Vacant(entry) => entry.insert(pg_sys::create_upper_paths_hook),
+        };
+
+        pg_sys::create_upper_paths_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_upper_paths_callback<CS: CustomScan>(
+    root: *mut pg_sys::PlannerInfo,
+    stage: pg_sys::UpperRelationKind::Type,
+    input_rel: *mut pg_sys::RelOptInfo,
+    output_rel: *mut pg_sys::RelOptInfo,
+    extra: *mut ::std::os::raw::c_void,
+) {
+    if stage == UPPERREL_GROUP_AGG {
+        CS::upper_path_callback(root, stage, input_rel, output_rel, extra);
     }
 }

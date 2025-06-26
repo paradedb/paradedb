@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::opexpr::OpExpr;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -443,7 +444,18 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_OpExpr => opexpr(
             root,
             rti,
-            node,
+            OpExpr::from_single(node)?,
+            pdbopoid,
+            ri_type,
+            schema,
+            convert_external_to_special_qual,
+            uses_tantivy_to_query,
+        ),
+
+        pg_sys::NodeTag::T_ScalarArrayOpExpr => opexpr(
+            root,
+            rti,
+            OpExpr::from_array(node)?,
             pdbopoid,
             ri_type,
             schema,
@@ -557,16 +569,14 @@ unsafe fn list(
 unsafe fn opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    node: *mut pg_sys::Node,
+    opexpr: OpExpr,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
-    let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
-    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
+    let args = opexpr.args();
     let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
 
@@ -615,7 +625,7 @@ unsafe fn opexpr(
             }
 
             Some(Qual::ScoreExpr {
-                opoid: (*opexpr).opno,
+                opoid: opexpr.opno(),
                 value: rhs,
             })
         }
@@ -644,7 +654,7 @@ unsafe fn node_opexpr(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     uses_tantivy_to_query: &mut bool,
-    opexpr: *mut pg_sys::OpExpr,
+    opexpr: OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
     convert_external_to_special_qual: bool,
@@ -655,7 +665,7 @@ unsafe fn node_opexpr(
 
     let rhs_as_const = nodecast!(Const, T_Const, rhs);
 
-    let is_our_operator = (*opexpr).opno == pdbopoid;
+    let is_our_operator = opexpr.opno() == pdbopoid;
 
     if rhs_as_const.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
@@ -707,7 +717,7 @@ unsafe fn node_opexpr(
             *uses_tantivy_to_query = true;
             Some(Qual::OpExpr {
                 lhs,
-                opno: (*opexpr).opno,
+                opno: opexpr.opno(),
                 val: rhs,
             })
         } else {

@@ -15,10 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
 mod range;
 mod score;
+
+use heap_field_filter::HeapFieldFilter;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
@@ -271,6 +274,11 @@ pub enum SearchQueryInput {
     PostgresExpression {
         expr: PostgresExpression,
     },
+    /// Mixed query with indexed search and heap field filters
+    IndexedWithFilter {
+        indexed_query: Box<SearchQueryInput>,
+        field_filters: Vec<HeapFieldFilter>,
+    },
 }
 
 impl SearchQueryInput {
@@ -300,6 +308,7 @@ impl SearchQueryInput {
                 disjuncts.iter().any(Self::need_scores)
             }
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
+            SearchQueryInput::IndexedWithFilter { indexed_query, .. } => Self::need_scores(indexed_query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
@@ -445,6 +454,11 @@ impl AsHumanReadable for SearchQueryInput {
                 }
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
+            SearchQueryInput::IndexedWithFilter { indexed_query, field_filters } => {
+                s.push_str(&format!("{}+HEAP_FILTERS[{}]", 
+                    indexed_query.as_human_readable(), 
+                    field_filters.len()));
+            }
 
             other => s.push_str(&format!("{:?}", other)),
         }
@@ -1718,6 +1732,19 @@ impl SearchQueryInput {
             }
             Self::WithIndex { query, .. } => {
                 query.into_tantivy_query(schema, parser, searcher, index_oid)
+            }
+            Self::IndexedWithFilter { indexed_query, field_filters } => {
+                // Convert indexed query first
+                let indexed_tantivy_query = indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
+                
+                // Create combined query with heap field filters
+                Ok(Box::new(heap_field_filter::IndexedWithHeapFilterQuery::new(
+                    indexed_tantivy_query,
+                    field_filters,
+                    // We'll need to get the relation OID from somewhere
+                    // For now, use a placeholder - this will be fixed in integration
+                    pg_sys::Oid::from(0u32),
+                )))
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }

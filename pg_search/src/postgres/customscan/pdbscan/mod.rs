@@ -1620,6 +1620,11 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+        
+        // IndexedWithFilter contains search predicates
+        SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 

@@ -56,3 +56,18 @@ impl ArrayQuantifier {
         }
     }
 }
+
+#[derive(Debug, Clone, Arbitrary)]
+pub enum ScalarArrayOperator {
+    In,
+    NotIn,
+}
+
+impl ScalarArrayOperator {
+    pub fn to_sql(&self) -> &'static str {
+        match self {
+            ScalarArrayOperator::In => "IN",
+            ScalarArrayOperator::NotIn => "NOT IN",
+        }
+    }
+}

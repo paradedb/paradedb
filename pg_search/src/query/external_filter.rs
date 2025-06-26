@@ -560,6 +560,7 @@ impl CallbackManager {
         match field_name.root().as_str() {
             "id" | "category_id" => pg_sys::INT4OID,
             "price" => pg_sys::NUMERICOID,
+            "rating" => pg_sys::FLOAT4OID, // f32 type
             "category_name" | "name" | "description" => pg_sys::TEXTOID,
             "tags" => pg_sys::TEXTARRAYOID, // Array of text
             "in_stock" => pg_sys::BOOLOID,

@@ -33,6 +33,27 @@ use pgrx::{datum::FromDatum, pg_sys, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
+/// Comparison operators for field-based filtering
+#[derive(Debug, Clone, PartialEq)]
+pub enum ComparisonOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+}
+
+/// Field values for comparison operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum FieldValue {
+    Integer(i64),
+    Float(f64),
+    Text(String),
+    Boolean(bool),
+    Null,
+}
+
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
@@ -51,8 +72,20 @@ pub enum Qual {
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
-    /// PostgreSQL expression that needs to be evaluated during query execution
-    /// This replaces the old FilterExpression approach with a cleaner design
+    /// Field-based comparison operations that can be evaluated in Tantivy
+    /// These replace PostgresEval with specific, evaluatable operations
+    FieldComparison {
+        field: FieldName,
+        operator: ComparisonOperator,
+        value: FieldValue,
+    },
+    /// Field NULL test operations
+    FieldNullTest {
+        field: FieldName,
+        is_null: bool, // true for IS NULL, false for IS NOT NULL
+    },
+    /// DEPRECATED: PostgreSQL expression that needs to be evaluated during query execution
+    /// This is kept for compatibility while migrating to field-based operations
     PostgresEval {
         expr: *mut pg_sys::Expr,
         attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
@@ -1035,8 +1068,8 @@ unsafe fn extract_quals_internal(
 
                 if has_indexed && has_non_indexed {
                     // This is a mixed OR expression - create a PostgresEval for proper parsing
-                    if let Some(postgres_eval_qual) = try_create_postgres_eval(root, rti, node) {
-                        return (None, Some(postgres_eval_qual));
+                    if let Some(field_operation_qual) = try_create_field_operation(root, rti, node) {
+                        return (None, Some(field_operation_qual));
                     }
                 }
             }
@@ -1155,7 +1188,7 @@ unsafe fn list_internal(
                 quals.push(qual);
             } else {
                 // If we can't extract this qual, try to create a PostgresEval
-                if let Some(filter_qual) = try_create_postgres_eval(root, rti, child) {
+                                    if let Some(filter_qual) = try_create_field_operation(root, rti, child) {
                     quals.push(filter_qual);
                 } else {
                     // If we can't create a postgres eval either, use NonIndexedExpr as fallback
@@ -2304,6 +2337,228 @@ unsafe fn extract_referenced_fields_recursive(
 }
 
 /// Create a PostgresEval qual for non-indexed expressions that need PostgreSQL evaluation
+/// Convert PostgreSQL expressions to field-based operations that can be evaluated in Tantivy
+unsafe fn try_create_field_operation(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+) -> Option<Qual> {
+    if node.is_null() {
+        return None;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let op_expr = node.cast::<pg_sys::OpExpr>();
+            if let Some(field_comparison) = try_create_field_comparison(op_expr, root, rti) {
+                return Some(field_comparison);
+            }
+        }
+        pg_sys::NodeTag::T_NullTest => {
+            let null_test = node.cast::<pg_sys::NullTest>();
+            if let Some(field_null_test) = try_create_field_null_test(null_test, root, rti) {
+                return Some(field_null_test);
+            }
+        }
+        _ => {}
+    }
+
+    None
+}
+
+/// Try to create a FieldComparison from a PostgreSQL OpExpr
+unsafe fn try_create_field_comparison(
+    op_expr: *mut pg_sys::OpExpr,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> Option<Qual> {
+    let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+    let args_vec: Vec<_> = args.iter_ptr().collect();
+    
+    if args_vec.len() != 2 {
+        return None;
+    }
+
+    let left = args_vec[0];
+    let right = args_vec[1];
+
+    // Check if left side is a Var (field reference)
+    if (*left).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+
+    let var = left.cast::<pg_sys::Var>();
+    if (*var).varno as pg_sys::Index != rti {
+        return None;
+    }
+
+    // Get field name from attribute number
+    let attno = (*var).varattno;
+    let field_name = get_field_name_from_attno(root, rti, attno)?;
+
+    // Check if right side is a constant
+    if (*right).type_ != pg_sys::NodeTag::T_Const {
+        return None;
+    }
+
+    let const_node = right.cast::<pg_sys::Const>();
+    if (*const_node).constisnull {
+        return None;
+    }
+
+    // Extract the value based on the constant type
+    let field_value = extract_field_value_from_const(const_node)?;
+
+    // Map operator OID to comparison operator
+    let operator = map_oid_to_comparison_operator((*op_expr).opno)?;
+
+    Some(Qual::FieldComparison {
+        field: field_name,
+        operator,
+        value: field_value,
+    })
+}
+
+/// Try to create a FieldNullTest from a PostgreSQL NullTest
+unsafe fn try_create_field_null_test(
+    null_test: *mut pg_sys::NullTest,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> Option<Qual> {
+    let arg = (*null_test).arg;
+    
+    // Check if argument is a Var (field reference)
+    if (*arg).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+
+    let var = arg.cast::<pg_sys::Var>();
+    if (*var).varno as pg_sys::Index != rti {
+        return None;
+    }
+
+    // Get field name from attribute number
+    let attno = (*var).varattno;
+    let field_name = get_field_name_from_attno(root, rti, attno)?;
+
+    let is_null = (*null_test).nulltesttype == pg_sys::NullTestType::IS_NULL;
+
+    Some(Qual::FieldNullTest {
+        field: field_name,
+        is_null,
+    })
+}
+
+/// Extract field value from a PostgreSQL Const node
+unsafe fn extract_field_value_from_const(const_node: *mut pg_sys::Const) -> Option<FieldValue> {
+    let datum = (*const_node).constvalue;
+    let type_oid = (*const_node).consttype;
+
+    match type_oid {
+        pg_sys::INT4OID => {
+            let value = i32::from_datum(datum, false)?;
+            Some(FieldValue::Integer(value as i64))
+        }
+        pg_sys::INT8OID => {
+            let value = i64::from_datum(datum, false)?;
+            Some(FieldValue::Integer(value))
+        }
+        pg_sys::FLOAT4OID => {
+            let value = f32::from_datum(datum, false)?;
+            Some(FieldValue::Float(value as f64))
+        }
+        pg_sys::FLOAT8OID => {
+            let value = f64::from_datum(datum, false)?;
+            Some(FieldValue::Float(value))
+        }
+        pg_sys::TEXTOID => {
+            let value = String::from_datum(datum, false)?;
+            Some(FieldValue::Text(value))
+        }
+        pg_sys::BOOLOID => {
+            let value = bool::from_datum(datum, false)?;
+            Some(FieldValue::Boolean(value))
+        }
+        pg_sys::NUMERICOID => {
+            // Convert NUMERIC to f64 for simplicity
+            if let Some(numeric) = pgrx::AnyNumeric::from_datum(datum, false) {
+                if let Ok(value) = f64::try_from(numeric) {
+                    return Some(FieldValue::Float(value));
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+/// Map PostgreSQL operator OID to ComparisonOperator
+unsafe fn map_oid_to_comparison_operator(opno: pg_sys::Oid) -> Option<ComparisonOperator> {
+    // Common operator OIDs for different types
+    match opno.value() {
+        // Integer operators
+        96 => Some(ComparisonOperator::Equal),      // int4eq
+        518 => Some(ComparisonOperator::NotEqual),  // int4ne
+        97 => Some(ComparisonOperator::LessThan),   // int4lt
+        523 => Some(ComparisonOperator::LessThanOrEqual), // int4le
+        521 => Some(ComparisonOperator::GreaterThan), // int4gt
+        525 => Some(ComparisonOperator::GreaterThanOrEqual), // int4ge
+        
+        // Float operators
+        1120 => Some(ComparisonOperator::Equal),    // float4eq
+        1121 => Some(ComparisonOperator::NotEqual), // float4ne
+        1122 => Some(ComparisonOperator::LessThan), // float4lt
+        1123 => Some(ComparisonOperator::LessThanOrEqual), // float4le
+        1124 => Some(ComparisonOperator::GreaterThan), // float4gt
+        1125 => Some(ComparisonOperator::GreaterThanOrEqual), // float4ge
+        
+        // Text operators
+        98 => Some(ComparisonOperator::Equal),      // texteq
+        531 => Some(ComparisonOperator::NotEqual),  // textne
+        664 => Some(ComparisonOperator::LessThan),  // textlt
+        665 => Some(ComparisonOperator::LessThanOrEqual), // textle
+        666 => Some(ComparisonOperator::GreaterThan), // textgt
+        667 => Some(ComparisonOperator::GreaterThanOrEqual), // textge
+        
+        _ => None,
+    }
+}
+
+/// Get field name from attribute number using the relation's tuple descriptor
+unsafe fn get_field_name_from_attno(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) -> Option<FieldName> {
+    let rte = pg_sys::planner_rt_fetch(rti, root);
+    if rte.is_null() {
+        return None;
+    }
+
+    let relid = (*rte).relid;
+    if relid == pg_sys::InvalidOid {
+        return None;
+    }
+
+    let rel = pg_sys::RelationIdGetRelation(relid);
+    if rel.is_null() {
+        return None;
+    }
+
+    let tupdesc = (*rel).rd_att;
+    if attno <= 0 || i32::from(attno) > (*tupdesc).natts {
+        pg_sys::RelationClose(rel);
+        return None;
+    }
+
+    let attr = (*tupdesc).attrs.as_ptr().add((attno - 1) as usize);
+    let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr());
+    let field_name = attr_name.to_string_lossy().to_string();
+    
+    pg_sys::RelationClose(rel);
+    Some(FieldName::from(field_name))
+}
+
 unsafe fn try_create_postgres_eval(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,

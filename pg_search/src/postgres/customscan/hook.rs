@@ -24,6 +24,45 @@ use pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use std::collections::hash_map::Entry;
 
+unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
+    let forced = path.flags & Flags::Force as u32 != 0;
+    path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
+
+    println!(">>> adding {path} for {rel:?}");
+
+    let mut custom_path = PgMemoryContexts::CurrentMemoryContext
+        .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+
+    if (*custom_path).path.parallel_aware {
+        // add the partial path since the user-generated plan is parallel aware
+        pg_sys::add_partial_path(rel, custom_path.cast());
+
+        // remove all the existing possible paths
+        (*rel).pathlist = std::ptr::null_mut();
+
+        // then make another copy of it, increase its costs really, really high and
+        // submit it as a regular path too, immediately after clearing out all the other
+        // existing possible paths.
+        //
+        // We don't want postgres to choose this path, but we have to have at least one
+        // non-partial path available for it to consider
+        let copy = PgMemoryContexts::CurrentMemoryContext
+            .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+        (*copy).path.parallel_aware = false;
+        (*copy).path.total_cost = 1000000000.0;
+        (*copy).path.startup_cost = 1000000000.0;
+
+        // will be added down below
+        custom_path = copy.cast();
+    } else if forced {
+        // remove all the existing possible paths
+        (*rel).pathlist = std::ptr::null_mut();
+    }
+
+    // add this path for consideration
+    pg_sys::add_path(rel, custom_path.cast());
+}
+
 pub fn register_rel_pathlist<CS>(_: CS)
 where
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
@@ -81,7 +120,7 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
             return;
         }
 
-        if let Some(mut path) = CS::create_custom_path(CustomPathBuilder::new(
+        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
             root,
             rel,
             RelPathlistHookArgs {
@@ -90,42 +129,11 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
                 rti,
                 rte,
             },
-        )) {
-            let forced = path.flags & Flags::Force as u32 != 0;
-            path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
+        )) else {
+            return;
+        };
 
-            let mut custom_path = PgMemoryContexts::CurrentMemoryContext
-                .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
-
-            if (*custom_path).path.parallel_aware {
-                // add the partial path since the user-generated plan is parallel aware
-                pg_sys::add_partial_path(rel, custom_path.cast());
-
-                // remove all the existing possible paths
-                (*rel).pathlist = std::ptr::null_mut();
-
-                // then make another copy of it, increase its costs really, really high and
-                // submit it as a regular path too, immediately after clearing out all the other
-                // existing possible paths.
-                //
-                // We don't want postgres to choose this path, but we have to have at least one
-                // non-partial path available for it to consider
-                let copy = PgMemoryContexts::CurrentMemoryContext
-                    .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
-                (*copy).path.parallel_aware = false;
-                (*copy).path.total_cost = 1000000000.0;
-                (*copy).path.startup_cost = 1000000000.0;
-
-                // will be added down below
-                custom_path = copy.cast();
-            } else if forced {
-                // remove all the existing possible paths
-                (*rel).pathlist = std::ptr::null_mut();
-            }
-
-            // add this path for consideration
-            pg_sys::add_path(rel, custom_path.cast());
-        }
+        add_path(rel, path)
     }
 }
 
@@ -180,10 +188,14 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
+    if stage != UPPERREL_GROUP_AGG {
+        return;
+    }
+
     // TODO: Add a GUC to disable.
 
-    if stage == UPPERREL_GROUP_AGG {
-        let custom_path = CS::create_custom_path(CustomPathBuilder::new(
+    unsafe {
+        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
             root,
             // TODO: Confirm that this is the correct rel to be passing here.
             output_rel,
@@ -194,8 +206,11 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
                 output_rel,
                 extra,
             },
-        ));
+        )) else {
+            return;
+        };
 
-        todo!("TODO: paradedb_upper_paths_callback for {custom_path:?}");
+        // TODO: Confirm that this is the correct rel to be passing here.
+        add_path(output_rel, path)
     }
 }

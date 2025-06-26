@@ -42,7 +42,7 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
-        todo!("TODO: create_custom_path")
+        Some(builder.build())
     }
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {

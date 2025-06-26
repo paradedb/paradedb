@@ -278,8 +278,8 @@ impl CallbackManager {
             Some(context) => context,
             None => {
                 debug_log!("🔥 Expression context not initialized");
-                return false;
-            }
+            return false;
+        }
         };
 
         // Set up the expression context with field values
@@ -298,8 +298,8 @@ impl CallbackManager {
 
         if is_null {
             debug_log!("🔥 PostgreSQL expression evaluation result: NULL");
-            false
-        } else {
+                    false
+                } else {
             let result = pg_sys::DatumGetBool(result_datum);
             debug_log!("🔥 PostgreSQL expression evaluation result: {}", result);
             result
@@ -358,7 +358,7 @@ impl CallbackManager {
                             .collect::<Vec<&str>>(),
                         pg_sys::BoolExprType::OR_EXPR,
                     )
-                } else {
+            } else {
                     // Legacy support for old CLAUSE_SEPARATOR (assume AND)
                     (
                         heap_filter_node_string
@@ -1489,7 +1489,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<i16>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (i16->i64)", field_name.root(), value);
-                            OwnedValue::I64(value as i64)
+                OwnedValue::I64(value as i64)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1515,7 +1515,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<i64>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (i64)", field_name.root(), value);
-                            OwnedValue::I64(value)
+                OwnedValue::I64(value)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1528,7 +1528,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<f32>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (f32->f64)", field_name.root(), value);
-                            OwnedValue::F64(value as f64)
+                OwnedValue::F64(value as f64)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1541,7 +1541,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<f64>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (f64)", field_name.root(), value);
-                            OwnedValue::F64(value)
+                OwnedValue::F64(value)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1566,12 +1566,12 @@ impl IndexedWithFilterScorer {
                 oid if oid == pg_sys::NUMERICOID.to_u32() => {
                     match heap_tuple.get_by_name::<AnyNumeric>(&field_name.root()) {
                         Ok(Some(value)) => {
-                            match value.try_into() {
-                                Ok(f) => {
-                                    let f: f64 = f;
+                match value.try_into() {
+                    Ok(f) => {
+                        let f: f64 = f;
                                     debug_log!("🔥 Extracted field '{}' = {} (NUMERIC->f64)", field_name.root(), f);
-                                    OwnedValue::F64(f)
-                                }
+                        OwnedValue::F64(f)
+                    }
                                 Err(e) => {
                                     debug_log!("🔥 Failed to convert NUMERIC to f64 for field '{}': {}", field_name.root(), e);
                                     OwnedValue::Null
@@ -1588,12 +1588,12 @@ impl IndexedWithFilterScorer {
                 // Handle other unknown types safely
                 _ => {
                     debug_log!("🔥 Unsupported type_oid {} for field '{}', returning Null", type_oid, field_name.root());
-                    OwnedValue::Null
+                        OwnedValue::Null
+                    }
                 }
-            }
-        } else {
+            } else {
             debug_log!("🔥 Field '{}' not found in tuple", field_name.root());
-            OwnedValue::Null
+                OwnedValue::Null
         }
     }
 

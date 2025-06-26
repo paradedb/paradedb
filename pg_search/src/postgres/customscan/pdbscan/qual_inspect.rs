@@ -273,20 +273,29 @@ unsafe fn parse_mixed_expression_tree(
                     }
                 }
                 pg_sys::BoolExprType::OR_EXPR => {
-                    // For OR expressions, extract all indexed parts
+                    // For OR expressions, we need to handle mixed indexed/non-indexed parts more carefully
                     let (indexed_parts, _non_indexed_parts) = extract_indexed_parts_recursive(expr, attno_map);
                     
-                    if indexed_parts.is_empty() {
+                    debug_log!("🔥 OR expression analysis: {} indexed parts found", indexed_parts.len());
+                    
+                    if !indexed_parts.is_empty() {
+                        // We have indexed parts - create OR query with them
+                        if indexed_parts.len() == 1 {
+                            debug_log!("🔥 Single indexed part found in OR expression");
+                            Some(indexed_parts.into_iter().next().unwrap())
+                        } else {
+                            debug_log!("🔥 Multiple indexed parts found, creating OR query");
+                            // Multiple indexed parts - combine with OR
+                            Some(SearchQueryInput::Boolean {
+                                must: vec![],
+                                should: indexed_parts,
+                                must_not: vec![],
+                            })
+                        }
+                    } else {
                         debug_log!("🔥 No indexed parts found in OR expression");
-                        return None;
+                        None
                     }
-
-                    // Convert to OR query
-                    Some(SearchQueryInput::Boolean {
-                        must: vec![],
-                        should: indexed_parts,
-                        must_not: vec![],
-                    })
                 }
                 _ => {
                     debug_log!("🔥 Unsupported BoolExpr type: {:?}", bool_type);
@@ -338,38 +347,72 @@ unsafe fn extract_indexed_parts_recursive(
     match (*expr).type_ {
         pg_sys::NodeTag::T_BoolExpr => {
             let bool_expr = expr.cast::<pg_sys::BoolExpr>();
+            let bool_type = (*bool_expr).boolop;
             let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
             let args_vec: Vec<_> = args.iter_ptr().collect();
 
-            let mut all_indexed = Vec::new();
-            let mut all_non_indexed = Vec::new();
+            debug_log!("🔥 extract_indexed_parts_recursive: BoolExpr with {} args, type: {:?}", args_vec.len(), bool_type);
 
-            for arg in args_vec {
-                let (indexed, non_indexed) = extract_indexed_parts_recursive(arg.cast(), attno_map);
-                all_indexed.extend(indexed);
-                all_non_indexed.extend(non_indexed);
+            match bool_type {
+                pg_sys::BoolExprType::OR_EXPR => {
+                    // For OR expressions, we want to extract indexed parts from each branch
+                    // and create a proper OR structure
+                    let mut all_indexed = Vec::new();
+                    let mut all_non_indexed = Vec::new();
+
+                    for arg in args_vec {
+                        let (indexed, non_indexed) = extract_indexed_parts_recursive(arg.cast(), attno_map);
+                        all_indexed.extend(indexed);
+                        all_non_indexed.extend(non_indexed);
+                    }
+
+                    debug_log!("🔥 OR expression extracted: {} indexed, {} non-indexed", all_indexed.len(), all_non_indexed.len());
+                    (all_indexed, all_non_indexed)
+                }
+                pg_sys::BoolExprType::AND_EXPR => {
+                    // For AND expressions, combine all parts
+                    let mut all_indexed = Vec::new();
+                    let mut all_non_indexed = Vec::new();
+
+                    for arg in args_vec {
+                        let (indexed, non_indexed) = extract_indexed_parts_recursive(arg.cast(), attno_map);
+                        all_indexed.extend(indexed);
+                        all_non_indexed.extend(non_indexed);
+                    }
+
+                    debug_log!("🔥 AND expression extracted: {} indexed, {} non-indexed", all_indexed.len(), all_non_indexed.len());
+                    (all_indexed, all_non_indexed)
+                }
+                _ => {
+                    debug_log!("🔥 Unsupported BoolExpr type in extraction: {:?}", bool_type);
+                    let expr_string = serialize_expression(expr);
+                    (vec![], vec![expr_string])
+                }
             }
-
-            (all_indexed, all_non_indexed)
         }
         pg_sys::NodeTag::T_OpExpr => {
             let op_expr = expr.cast::<pg_sys::OpExpr>();
             let opno = (*op_expr).opno;
 
             if is_search_operator(opno) {
+                debug_log!("🔥 Found @@@ operator in extraction");
                 // This is an indexed predicate
                 if let Some(indexed_query) = create_search_query_from_opexpr(op_expr, attno_map) {
+                    debug_log!("🔥 Successfully created indexed query from @@@ operator: {:?}", indexed_query);
                     (vec![indexed_query], vec![])
                 } else {
+                    debug_log!("🔥 Failed to create indexed query from @@@ operator");
                     (vec![], vec![])
                 }
             } else {
+                debug_log!("🔥 Found non-indexed OpExpr (opno: {})", opno);
                 // This is a non-indexed predicate
                 let expr_string = serialize_expression(expr);
                 (vec![], vec![expr_string])
             }
         }
         _ => {
+            debug_log!("🔥 Found other expression type: {:?}", (*expr).type_);
             // Other expression types are treated as non-indexed
             let expr_string = serialize_expression(expr);
             (vec![], vec![expr_string])
@@ -2067,41 +2110,9 @@ mod tests {
 
 /// Check if an operator is a search operator (@@@ family)
 unsafe fn is_search_operator(opno: pg_sys::Oid) -> bool {
-    // Check against known search operator OIDs that we've seen in the logs first
-    // This is more efficient and reliable than string parsing
-    let known_search_oids = [
-        1293198u32, // @@@ operator OID from test case 1
-        1301390u32, // @@@ operator OID from test case 2
-        1293158u32, // Related search function
-        1301350u32, // Related search function
-    ];
-    
-    if known_search_oids.contains(&opno.to_u32()) {
-        return true;
-    }
-
-    // Fallback: try to get the operator name to check if it's a search operator
-    let operator_tuple = pg_sys::SearchSysCache1(
-        pg_sys::SysCacheIdentifier::OPEROID as i32,
-        pg_sys::Datum::from(opno),
-    );
-    
-    if operator_tuple.is_null() {
-        return false;
-    }
-    
-    let operator_form = pg_sys::GETSTRUCT(operator_tuple) as *mut pg_sys::Form_pg_operator;
-    
-    // Try to access the operator name field - this might be different in different PostgreSQL versions
-    let result = {
-        // Simple approach: just check if this is likely a search operator based on context
-        // Since we already checked the known OIDs above, this is a fallback
-        false
-    };
-    
-    pg_sys::ReleaseSysCache(operator_tuple);
-    
-    result
+    // Use the dynamic operator ID function
+    use crate::api::operator::anyelement_query_input_opoid;
+    opno == anyelement_query_input_opoid()
 }
 
 /// Create a SearchQueryInput from an OpExpr that represents a @@@ operation

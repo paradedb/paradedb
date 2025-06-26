@@ -262,9 +262,7 @@ async fn test_scalar_array_pushdown_with_results(database: Db) {
             bm25_query,
             &mut pool.pull(),
             |query, conn| {
-                let mut rows = query.fetch::<(i64, Option<String>)>(conn);
-                rows.sort();
-                rows
+                query.fetch::<(i64, Option<String>)>(conn)
             },
         )?;
     });

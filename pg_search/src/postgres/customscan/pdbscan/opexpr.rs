@@ -24,11 +24,11 @@ pub(crate) enum OpExpr {
 }
 
 impl OpExpr {
-    pub unsafe fn from_scalar_array(node: *mut pg_sys::Node) -> Option<Self> {
+    pub unsafe fn from_array(node: *mut pg_sys::Node) -> Option<Self> {
         nodecast!(ScalarArrayOpExpr, T_ScalarArrayOpExpr, node).map(OpExpr::Array)
     }
 
-    pub unsafe fn from_opexpr(node: *mut pg_sys::Node) -> Option<Self> {
+    pub unsafe fn from_single(node: *mut pg_sys::Node) -> Option<Self> {
         nodecast!(OpExpr, T_OpExpr, node).map(OpExpr::Single)
     }
 

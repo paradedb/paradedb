@@ -444,7 +444,7 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_OpExpr => opexpr(
             root,
             rti,
-            OpExpr::from_opexpr(node)?,
+            OpExpr::from_single(node)?,
             pdbopoid,
             ri_type,
             schema,
@@ -455,7 +455,7 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_ScalarArrayOpExpr => opexpr(
             root,
             rti,
-            OpExpr::from_scalar_array(node)?,
+            OpExpr::from_array(node)?,
             pdbopoid,
             ri_type,
             schema,

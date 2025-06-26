@@ -21,11 +21,12 @@ use fixtures::*;
 use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
+use proptest_derive::Arbitrary;
 use rstest::*;
 use sqlx::PgConnection;
 use std::fmt::Debug;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum Operator {
     Eq, // =
     Ne, // <>
@@ -48,7 +49,7 @@ impl Operator {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum ArrayQuantifier {
     Any,
     All,
@@ -63,7 +64,7 @@ impl ArrayQuantifier {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
     Default,
     Keyword,
@@ -78,7 +79,7 @@ impl TokenizerType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub enum ColumnType {
     Text,
     Integer,
@@ -99,7 +100,7 @@ impl ColumnType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Arbitrary)]
 pub struct ScalarArrayExpr {
     column_type: ColumnType,
     operator: Operator,
@@ -268,59 +269,6 @@ where
     Ok(())
 }
 
-// Strategy for generating operators
-fn arb_operator() -> impl Strategy<Value = Operator> {
-    prop_oneof![
-        Just(Operator::Eq),
-        Just(Operator::Ne),
-        Just(Operator::Lt),
-        Just(Operator::Le),
-        Just(Operator::Gt),
-        Just(Operator::Ge),
-    ]
-}
-
-// Strategy for generating array quantifiers
-fn arb_quantifier() -> impl Strategy<Value = ArrayQuantifier> {
-    prop_oneof![Just(ArrayQuantifier::Any), Just(ArrayQuantifier::All)]
-}
-
-// Strategy for generating tokenizer types
-fn arb_tokenizer() -> impl Strategy<Value = TokenizerType> {
-    prop_oneof![Just(TokenizerType::Default), Just(TokenizerType::Keyword)]
-}
-
-// Strategy for generating column types
-fn arb_column_type() -> impl Strategy<Value = ColumnType> {
-    prop_oneof![
-        Just(ColumnType::Text),
-        Just(ColumnType::Integer),
-        Just(ColumnType::Boolean),
-        Just(ColumnType::Timestamp),
-        Just(ColumnType::Uuid),
-    ]
-}
-
-// Strategy for generating scalar array expressions
-fn arb_scalar_array_expr() -> impl Strategy<Value = ScalarArrayExpr> {
-    (
-        arb_column_type(),
-        arb_operator(),
-        arb_quantifier(),
-        arb_tokenizer(),
-        any::<bool>(), // use_in_syntax
-    )
-        .prop_map(
-            |(column_type, operator, quantifier, tokenizer, use_in_syntax)| ScalarArrayExpr {
-                column_type,
-                operator,
-                quantifier,
-                tokenizer,
-                use_in_syntax,
-            },
-        )
-}
-
 #[rstest]
 #[tokio::test]
 async fn test_scalar_array_pushdown_basic(database: Db) {
@@ -330,7 +278,7 @@ async fn test_scalar_array_pushdown_basic(database: Db) {
     );
 
     proptest!(|(
-        expr in arb_scalar_array_expr(),
+        expr in any::<ScalarArrayExpr>(),
     )| {
         let values = expr.sample_values();
         let selected_values = values.into_iter().take(2).collect::<Vec<_>>();
@@ -372,7 +320,7 @@ async fn test_scalar_array_pushdown_with_results(database: Db) {
     );
 
     proptest!(|(
-        expr in arb_scalar_array_expr(),
+        expr in any::<ScalarArrayExpr>(),
     )| {
         let values = expr.sample_values();
         let selected_values = values.into_iter().take(2).collect::<Vec<_>>();

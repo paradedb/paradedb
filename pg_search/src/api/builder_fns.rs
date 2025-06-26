@@ -596,6 +596,21 @@ pub unsafe fn term_with_operator(
     }
 }
 
+/// An internal function, not intended to be used directly by end users
+/// but instead used by our pushdown code.
+///
+/// Our pushdown code will rewrite the former into the latter.
+///
+/// ```sql
+/// SELECT * FROM mock_items WHERE rating = ANY(ARRAY[1, 2, 3]);
+/// ```
+///
+/// is equivalent to:
+///
+/// ```sql
+/// SELECT * FROM mock_items WHERE id @@@ paradedb.terms_with_operator('rating', '=', ARRAY[1, 2, 3], true);
+/// ```
+///
 #[rustfmt::skip]
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn terms_with_operator(

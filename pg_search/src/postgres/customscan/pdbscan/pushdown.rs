@@ -66,10 +66,7 @@ impl PushdownField {
 
 macro_rules! pushdown {
     ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
-        let funcexpr = match $opexpr {
-            OpExpr::Array(_) => make_scalar_array_opexpr($attname, $opexpr, $operator, $rhs),
-            OpExpr::Single(_) => make_opexpr($attname, $opexpr, $operator, $rhs),
-        };
+        let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
 
         if !is_complex(funcexpr.cast()) {
             Some(Qual::PushdownExpr { funcexpr })
@@ -210,55 +207,10 @@ unsafe fn make_opexpr(
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*paradedb_funcexpr).funcid = term_with_operator_procid();
-    (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
-    (*paradedb_funcexpr).funcretset = false;
-    (*paradedb_funcexpr).funcvariadic = false;
-    (*paradedb_funcexpr).funcformat = pg_sys::CoercionForm::COERCE_EXPLICIT_CALL;
-    (*paradedb_funcexpr).funccollid = pg_sys::InvalidOid;
-    (*paradedb_funcexpr).inputcollid = orig_opexor.inputcollid();
-    (*paradedb_funcexpr).location = orig_opexor.location();
-    (*paradedb_funcexpr).args = {
-        let fieldname = pg_sys::makeConst(
-            fieldname_typoid(),
-            -1,
-            pg_sys::InvalidOid,
-            -1,
-            field.clone().into_datum().unwrap(),
-            false,
-            false,
-        );
-        let operator = pg_sys::makeConst(
-            pg_sys::TEXTOID,
-            -1,
-            pg_sys::DEFAULT_COLLATION_OID,
-            -1,
-            operator.into_datum().unwrap(),
-            false,
-            false,
-        );
-
-        let mut args = PgList::<pg_sys::Node>::new();
-        args.push(fieldname.cast());
-        args.push(operator.cast());
-        args.push(value.cast());
-
-        args.into_pg()
+    (*paradedb_funcexpr).funcid = match orig_opexor {
+        OpExpr::Array(_) => terms_with_operator_procid(),
+        OpExpr::Single(_) => term_with_operator_procid(),
     };
-
-    paradedb_funcexpr
-}
-
-unsafe fn make_scalar_array_opexpr(
-    field: &FieldName,
-    orig_opexor: OpExpr,
-    operator: &str,
-    value: *mut pg_sys::Node,
-) -> *mut pg_sys::FuncExpr {
-    let paradedb_funcexpr: *mut pg_sys::FuncExpr =
-        pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
-    (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
-    (*paradedb_funcexpr).funcid = terms_with_operator_procid();
     (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
     (*paradedb_funcexpr).funcretset = false;
     (*paradedb_funcexpr).funcvariadic = false;
@@ -285,13 +237,17 @@ unsafe fn make_scalar_array_opexpr(
             false,
             false,
         );
-        let use_or = pg_sys::makeBoolConst(orig_opexor.use_or().unwrap(), false);
 
         let mut args = PgList::<pg_sys::Node>::new();
         args.push(fieldname.cast());
         args.push(operator.cast());
         args.push(value.cast());
-        args.push(use_or.cast());
+
+        if matches!(orig_opexor, OpExpr::Array(_)) {
+            let use_or = pg_sys::makeBoolConst(orig_opexor.use_or().unwrap(), false);
+            args.push(use_or.cast());
+        }
+
         args.into_pg()
     };
 

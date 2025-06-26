@@ -193,6 +193,10 @@ async fn generated_joins_small(database: Db) {
 ///
 /// Tests only the smallest JoinType against larger tables, with a target list, and a limit.
 ///
+/// TODO: This test is currently ignored because it occasionally generates nested loop joins which
+/// run in exponential time: https://github.com/paradedb/paradedb/issues/2733
+///
+#[ignore]
 #[rstest]
 #[tokio::test]
 async fn generated_joins_large_limit(database: Db) {

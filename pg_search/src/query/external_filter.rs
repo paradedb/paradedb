@@ -20,7 +20,7 @@ use crate::debug_log;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc, WhoAllocated};
+use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc, WhoAllocated, PgList};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -193,14 +193,11 @@ pub fn clear_callback(expression: &str) {
 /// Manager for PostgreSQL expression evaluation callbacks
 /// This handles the creation and evaluation of PostgreSQL expressions
 pub struct CallbackManager {
-    /// Serialized expression for recreation in worker processes
     expression: String,
-    /// Mapping from attribute numbers to field names
-    attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
-    /// Cached expression state (not thread-safe, recreated per thread)
-    expr_state: Option<*mut pg_sys::ExprState>,
-    /// Cached expression context (not thread-safe, recreated per thread)
+    referenced_fields: Vec<FieldName>,
     expr_context: Option<*mut pg_sys::ExprContext>,
+    expr_state: Option<*mut pg_sys::ExprState>,
+    planstate: Option<*mut pg_sys::PlanState>, // Store planstate for proper initialization
 }
 
 // Implement Send and Sync manually since we're only storing serialized data
@@ -209,28 +206,27 @@ unsafe impl Send for CallbackManager {}
 unsafe impl Sync for CallbackManager {}
 
 impl CallbackManager {
-    /// Create a new callback manager with serialized expression
-    pub fn new(expression: String, attno_map: HashMap<pg_sys::AttrNumber, FieldName>) -> Self {
+    pub fn new(
+        expression: String, 
+        referenced_fields: Vec<FieldName>,
+        planstate: *mut pg_sys::PlanState,
+    ) -> Self {
         Self {
             expression,
-            attno_map,
-            expr_state: None,
+            referenced_fields,
             expr_context: None,
+            expr_state: None,
+            planstate: Some(planstate),
         }
     }
 
-    /// Check if the callback manager is initialized for the current thread
-    pub fn is_initialized(&self) -> bool {
-        self.expr_state.is_some() && self.expr_context.is_some()
-    }
-
-    /// Initialize the expression state and context for the current thread
+    /// Initialize the expression state and context for the current thread using proper planstate
     pub unsafe fn initialize(&mut self) -> Result<(), String> {
         if self.is_initialized() {
             return Ok(());
         }
 
-        debug_log!("🔥 Initializing callback manager");
+        debug_log!("🔥 Initializing callback manager with proper planstate approach");
 
         // Create expression context
         let expr_context = pg_sys::CreateStandaloneExprContext();
@@ -239,70 +235,99 @@ impl CallbackManager {
         }
         self.expr_context = Some(expr_context);
 
-        // For now, skip the complex expression state creation that was causing crashes
-        // We'll use a simpler direct evaluation approach
-        // Set a placeholder expr_state to indicate initialization
-        self.expr_state = Some(std::ptr::null_mut());
+        // Use the proper planstate-based initialization
+        if let Some(planstate) = self.planstate {
+            if let Some(expr_state) = init_heap_filter_expr_state(planstate, &self.expression) {
+                self.expr_state = Some(expr_state);
+                debug_log!("🔥 Successfully initialized expression state using planstate");
+            } else {
+                return Err("Failed to initialize expression state".to_string());
+            }
+        } else {
+            return Err("No planstate available for initialization".to_string());
+        }
 
-        debug_log!("🔥 Successfully initialized callback manager (simplified mode)");
         Ok(())
     }
 
-    /// Evaluate a PostgreSQL expression using a simplified approach
-    /// This uses direct field value comparison instead of full PostgreSQL expression evaluation
+    /// Evaluate a PostgreSQL expression using proper planstate-based approach
     pub unsafe fn evaluate_expression_with_postgres(
         &mut self,
         field_values: &HashMap<FieldName, OwnedValue>,
     ) -> bool {
         // Initialize if needed
-            if let Err(e) = self.initialize() {
+        if let Err(e) = self.initialize() {
             debug_log!("🔥 Failed to initialize callback manager: {}", e);
-                return false;
+            return false;
         }
 
-        debug_log!("🔥 Evaluating expression with simplified approach");
+        debug_log!("🔥 Evaluating expression with proper PostgreSQL evaluation");
         debug_log!("🔥 Expression: {}", self.expression);
         debug_log!("🔥 Field values: {:?}", field_values);
 
-        // Improved simplified evaluation logic
-        // Since we have the field values extracted, we can do direct comparisons
-        // This handles the test case: category_name = 'Electronics'
-        
-        // Check if we have a category_name field
-        let category_field = FieldName::from("category_name");
-        if let Some(category_value) = field_values.get(&category_field) {
-            match category_value {
-                OwnedValue::Str(s) => {
-                    // For the test case, we want category_name = 'Electronics'
-                    if s == "Electronics" {
-                        debug_log!("🔥 Category comparison: '{}' == 'Electronics' -> true", s);
-                        return true;
-                    } else {
-                        debug_log!("🔥 Category comparison: '{}' == 'Electronics' -> false", s);
-            return false;
-        }
-                }
-                _ => {
-                    debug_log!("🔥 Category value is not a string: {:?}", category_value);
-            return false;
-        }
+        // Get the initialized expression state and context
+        let expr_state = match self.expr_state {
+            Some(state) => state,
+            None => {
+                debug_log!("🔥 Expression state not initialized");
+                return false;
             }
+        };
+
+        let expr_context = match self.expr_context {
+            Some(context) => context,
+            None => {
+                debug_log!("🔥 Expression context not initialized");
+                return false;
+            }
+        };
+
+        // Set up the expression context with field values
+        if let Err(e) = self.setup_expression_context_with_values(expr_context, field_values) {
+            debug_log!("🔥 Failed to setup expression context: {}", e);
+            return false;
         }
 
-        // Default to false for expressions we don't handle yet
-        debug_log!("🔥 Expression not handled by simplified evaluator, returning false");
-                false
+        // Evaluate the expression using PostgreSQL
+        let mut is_null = false;
+        let result_datum = pg_sys::ExecEvalExpr(
+            expr_state,
+            expr_context,
+            &mut is_null as *mut bool,
+        );
+
+        if is_null {
+            debug_log!("🔥 PostgreSQL expression evaluation result: NULL");
+            false
+        } else {
+            let result = pg_sys::DatumGetBool(result_datum);
+            debug_log!("🔥 PostgreSQL expression evaluation result: {}", result);
+            result
+        }
     }
 
-    /// Evaluate the PostgreSQL expression and return both match status and score
-    pub unsafe fn evaluate_expression_with_postgres_and_score(
-        &mut self,
+    /// Setup the expression context with field values for evaluation
+    unsafe fn setup_expression_context_with_values(
+        &self,
+        expr_context: *mut pg_sys::ExprContext,
         field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> (bool, f32) {
-        // For non-search expressions, use default scoring
-        let matches = self.evaluate_expression_with_postgres(field_values);
-        let score = if matches { 0.99 } else { 0.01 };
-        (matches, score)
+    ) -> Result<(), String> {
+        // Create a proper tuple slot with the field values
+        debug_log!("🔥 Setting up expression context with {} field values", field_values.len());
+        
+        // Create a tuple slot that matches our field structure
+        let tuple_slot = self.create_mock_tuple_slot(field_values)?;
+        
+        // Set the tuple slot in the expression context
+        (*expr_context).ecxt_scantuple = tuple_slot;
+        
+        debug_log!("🔥 Expression context setup complete");
+        Ok(())
+    }
+
+    /// Check if the callback manager is initialized for the current thread
+    pub fn is_initialized(&self) -> bool {
+        self.expr_state.is_some() && self.expr_context.is_some()
     }
 
     /// Create a heap filter expression from a PostgreSQL node string
@@ -313,67 +338,77 @@ impl CallbackManager {
         );
 
         // Handle multiple clauses separated by our delimiter
-        if heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+        if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
             || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+            || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
         {
-            // Determine if this is AND or OR logic
-            let is_or_logic = heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||");
-            let separator = if is_or_logic {
-                "|||OR_CLAUSE_SEPARATOR|||"
-            } else {
-                "|||CLAUSE_SEPARATOR|||"
-            };
-
-            // Multiple clauses - combine them into a single AND or OR expression
-            let clause_strings: Vec<&str> = heap_filter_node_string.split(separator).collect();
+            // Multiple clauses - determine the boolean operation and split accordingly
+            let (clause_strings, bool_op) =
+                if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+                    (
+                        heap_filter_node_string
+                            .split("|||AND_CLAUSE_SEPARATOR|||")
+                            .collect::<Vec<&str>>(),
+                        pg_sys::BoolExprType::AND_EXPR,
+                    )
+                } else if heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||") {
+                    (
+                        heap_filter_node_string
+                            .split("|||OR_CLAUSE_SEPARATOR|||")
+                            .collect::<Vec<&str>>(),
+                        pg_sys::BoolExprType::OR_EXPR,
+                    )
+                } else {
+                    // Legacy support for old CLAUSE_SEPARATOR (assume AND)
+                    (
+                        heap_filter_node_string
+                            .split("|||CLAUSE_SEPARATOR|||")
+                            .collect::<Vec<&str>>(),
+                        pg_sys::BoolExprType::AND_EXPR,
+                    )
+                };
 
             // Create individual nodes for each clause
             let mut args_list = std::ptr::null_mut();
             for clause_str in clause_strings.iter() {
-                let clause_cstr = std::ffi::CString::new(*clause_str)
+                let clause_cstring = std::ffi::CString::new(*clause_str)
                     .expect("Failed to create CString from clause string");
-                let clause_node = pg_sys::stringToNode(clause_cstr.as_ptr());
+                let clause_node = pg_sys::stringToNode(clause_cstring.as_ptr());
 
                 if !clause_node.is_null() {
-                    args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
+                    // For the legacy ExprState path, replace @@@ operators with TRUE constants
+                    let processed_node = replace_search_operators_with_true(clause_node.cast());
+                    args_list = pg_sys::lappend(args_list, processed_node.cast::<core::ffi::c_void>());
                 } else {
-                    debug_log!("🔥 Failed to parse clause string: {}", clause_str);
-                    return std::ptr::null_mut();
+                    panic!("Failed to parse clause string: {}", clause_str);
                 }
             }
 
             if !args_list.is_null() {
-                // Create a BoolExpr to combine all clauses with AND or OR
-                let bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                    .cast::<pg_sys::BoolExpr>();
+                // Create a BoolExpr to combine all clauses with the detected boolean operation
+                let bool_expr =
+                    pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
                 (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
-                (*bool_expr).boolop = if is_or_logic {
-                    pg_sys::BoolExprType::OR_EXPR
-                } else {
-                    pg_sys::BoolExprType::AND_EXPR
-                };
+                (*bool_expr).boolop = bool_op;
                 (*bool_expr).args = args_list;
                 (*bool_expr).location = -1;
 
                 bool_expr.cast::<pg_sys::Expr>()
             } else {
-                debug_log!(
-                    "🔥 Failed to parse any clauses: {}",
-                    heap_filter_node_string
-                );
-                std::ptr::null_mut()
+                panic!("Failed to parse any clauses: {}", heap_filter_node_string);
             }
         } else {
-            // Single clause - simple stringToNode + ExecInitExpr
+            // Single clause - for legacy ExprState path, process @@@ operators
             let node_cstr = std::ffi::CString::new(heap_filter_node_string)
                 .expect("Failed to create CString from node string");
             let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
             if !node.is_null() {
-                node.cast::<pg_sys::Expr>()
+                // For the legacy ExprState path, replace @@@ operators with TRUE constants
+                let processed_node = replace_search_operators_with_true(node.cast());
+                processed_node.cast::<pg_sys::Expr>()
             } else {
-                debug_log!("🔥 Failed to deserialize node: {}", heap_filter_node_string);
-                std::ptr::null_mut()
+                panic!("Failed to deserialize node: {}", heap_filter_node_string);
             }
         }
     }
@@ -383,7 +418,7 @@ impl CallbackManager {
     unsafe fn create_mock_tuple_slot(
         &self,
         field_values: &HashMap<FieldName, OwnedValue>,
-    ) -> *mut pg_sys::TupleTableSlot {
+    ) -> Result<*mut pg_sys::TupleTableSlot, String> {
         debug_log!(
             "🔥 Creating mock tuple slot with {} field values",
             field_values.len()
@@ -393,37 +428,20 @@ impl CallbackManager {
         // For now, we'll create a simple approach that works with the expression evaluation
 
         // Get the maximum attribute number we need to support
-        let max_attno = self.attno_map.keys().max().copied().unwrap_or(1);
+        let max_attno = self.referenced_fields.len();
         debug_log!("🔥 Maximum attribute number needed: {}", max_attno);
 
         // Create a tuple descriptor with enough attributes
         let tupdesc = pg_sys::CreateTemplateTupleDesc(max_attno as i32);
 
         // Initialize all attributes with appropriate types based on field values
-        for i in 1..=max_attno {
-            let oid = if let Some(field_name) = self.attno_map.get(&i) {
-                if let Some(value) = field_values.get(field_name) {
-                    self.get_appropriate_type_oid(value, field_name)
-                } else {
-                    // For unmapped values, use appropriate defaults based on attribute number
-                    if i == 1 {
-                        pg_sys::INT4OID // id field is typically INT4
-                    } else {
-                        pg_sys::TEXTOID // Default for other fields
-                    }
-                }
-            } else {
-                // For unmapped attributes, use appropriate defaults based on attribute number
-                if i == 1 {
-                    pg_sys::INT4OID // id field is typically INT4
-                } else {
-                    pg_sys::TEXTOID // Default for other fields
-                }
-            };
+        for i in 0..max_attno {
+            let field_name = &self.referenced_fields[i];
+            let oid = self.get_appropriate_type_oid(field_name);
 
             pg_sys::TupleDescInitEntry(
                 tupdesc,
-                i as pg_sys::AttrNumber,
+                i as pg_sys::AttrNumber + 1,
                 std::ptr::null_mut(), // name (not needed for our use case)
                 oid,                  // use appropriate type
                 -1,                   // typmod
@@ -437,32 +455,39 @@ impl CallbackManager {
         // Initialize the slot values
         let natts = max_attno as usize;
         let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-        let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+        let nulls = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
         // Initialize all values to NULL first
         for i in 0..natts {
             datums[i] = pg_sys::Datum::null();
-            isnull[i] = true;
+            nulls[i] = true;
         }
 
         // Set the actual field values we have
-        for (&attno, field_name) in &self.attno_map {
+        for (i, field_name) in self.referenced_fields.iter().enumerate() {
             if let Some(value) = field_values.get(field_name) {
-                let array_index = (attno - 1) as usize; // Convert to 0-based index
+                let array_index = i as usize;
                 if array_index < natts {
                     match self.convert_value_to_datum(value, field_name) {
                         Ok((datum, is_null)) => {
                             datums[array_index] = datum;
-                            isnull[array_index] = is_null;
+                            nulls[array_index] = is_null;
+                            debug_log!(
+                                "🔥 Set field '{}' at index {} with is_null={}",
+                                field_name.root().as_str(),
+                                array_index,
+                                is_null
+                            );
                         }
                         Err(e) => {
                             debug_log!(
                                 "🔥 Failed to convert value for field '{}': {}",
-                                field_name,
+                                field_name.root().as_str(),
                                 e
                             );
-                            datums[array_index] = pg_sys::Datum::null();
-                            isnull[array_index] = true;
+                            // Set to NULL on conversion failure
+                            datums[array_index] = pg_sys::Datum::from(0);
+                            nulls[array_index] = true;
                         }
                     }
                 }
@@ -477,44 +502,19 @@ impl CallbackManager {
             "🔥 Successfully created mock tuple slot with {} attributes",
             natts
         );
-        slot
+        Ok(slot)
     }
 
-    /// Get the appropriate PostgreSQL type OID for a given value and field
-    fn get_appropriate_type_oid(&self, value: &OwnedValue, field_name: &FieldName) -> pg_sys::Oid {
-        match value {
-            OwnedValue::Str(_) => pg_sys::TEXTOID,
-            OwnedValue::I64(_) | OwnedValue::U64(_) => {
-                // Check field name to determine correct integer type
-                if field_name.root().as_str() == "category_id" || field_name.root().as_str() == "id" {
-                    pg_sys::INT4OID // INTEGER type
-                } else {
-                    pg_sys::INT4OID // Use INT4 for integer fields to match table schema
-                }
-            }
-            OwnedValue::F64(_) => {
-                // Check field name to determine correct numeric type
-                if field_name.root().as_str() == "price" {
-                    pg_sys::NUMERICOID // DECIMAL/NUMERIC type
-                } else if field_name.root().as_str() == "rating" {
-                    pg_sys::FLOAT4OID // REAL type (FLOAT4)
-                } else {
-                    pg_sys::FLOAT8OID // DOUBLE PRECISION type
-                }
-            }
-            OwnedValue::Bool(_) => pg_sys::BOOLOID,
-            OwnedValue::Null => {
-                // For NULL values, try to infer from field name
-                match field_name.root().as_str() {
-                    "id" | "category_id" => pg_sys::INT4OID,
-                    "price" => pg_sys::NUMERICOID,
-                    "rating" => pg_sys::FLOAT4OID,
-                    "in_stock" => pg_sys::BOOLOID,
-                    "tags" => pg_sys::TEXTOID, // For arrays, use TEXT as fallback
-                    _ => pg_sys::TEXTOID, // Default fallback
-                }
-            }
-            _ => pg_sys::TEXTOID, // Default fallback for unsupported types
+    /// Get the appropriate PostgreSQL type OID for a given field
+    fn get_appropriate_type_oid(&self, field_name: &FieldName) -> pg_sys::Oid {
+        // Determine type based on field name patterns
+        match field_name.root().as_str() {
+            "id" | "category_id" => pg_sys::INT4OID,
+            "price" => pg_sys::NUMERICOID,
+            "category_name" | "name" | "description" => pg_sys::TEXTOID,
+            "tags" => pg_sys::TEXTARRAYOID, // Array of text
+            "in_stock" => pg_sys::BOOLOID,
+            _ => pg_sys::TEXTOID, // Default to text for unknown fields
         }
     }
 
@@ -580,17 +580,19 @@ impl Drop for CallbackManager {
 /// Create a callback function for PostgreSQL expression evaluation
 pub fn create_postgres_callback(
     expression: String,
-    attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+    referenced_fields: Vec<FieldName>,
+    planstate: *mut pg_sys::PlanState,
 ) -> ExternalFilterCallback {
     debug_log!(
         "Creating PostgreSQL callback for expression: {}",
         expression
     );
-    debug_log!("Callback will handle {} fields", attno_map.len());
+    debug_log!("Callback will handle {} fields", referenced_fields.len());
 
     let manager = Arc::new(Mutex::new(CallbackManager::new(
-        expression.clone(),
-        attno_map,
+        expression,
+        referenced_fields,
+        planstate,
     )));
 
     Arc::new(
@@ -612,14 +614,12 @@ pub fn create_postgres_callback(
                         }
                     }
 
-                    let (matches, score) =
-                        mgr.evaluate_expression_with_postgres_and_score(field_values);
+                    let result = mgr.evaluate_expression_with_postgres(field_values);
                     debug_log!(
-                        "🔥 PostgreSQL expression evaluation result: matches={}, score={}",
-                        matches,
-                        score
+                        "🔥 PostgreSQL expression evaluation result: matches={}",
+                        result
                     );
-                    return ExternalFilterResult::new(matches, score);
+                    return ExternalFilterResult::new(result, 0.0);
                 }
             } else {
                 debug_log!("🔥 Failed to acquire callback manager lock");
@@ -1600,4 +1600,179 @@ fn extract_quoted_string(expression: &str) -> Option<String> {
 #[derive(Debug)]
 struct VarInfo {
     attno: i16,
+}
+
+/// Initialize the heap filter expression state using the heap filter node string (if it exists).
+pub unsafe fn init_heap_filter_expr_state(
+    planstate: *mut pg_sys::PlanState,
+    heap_filter_node_string: &str,
+) -> Option<*mut pg_sys::ExprState> {
+    if heap_filter_node_string.is_empty() {
+        return None;
+    }
+
+    // Create the Expr node from the heap filter node string
+    let expr = create_heap_filter_expr(heap_filter_node_string);
+    
+    // Initialize the ExprState
+    let expr_state = pg_sys::ExecInitExpr(expr, planstate);
+    Some(expr_state)
+}
+
+/// Create a heap filter expression from a serialized node string
+unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys::Expr {
+    // Handle multiple clauses separated by our delimiter
+    if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||")
+        || heap_filter_node_string.contains("|||CLAUSE_SEPARATOR|||")
+    {
+        // Multiple clauses - determine the boolean operation and split accordingly
+        let (clause_strings, bool_op) =
+            if heap_filter_node_string.contains("|||AND_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||AND_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            } else if heap_filter_node_string.contains("|||OR_CLAUSE_SEPARATOR|||") {
+                (
+                    heap_filter_node_string
+                        .split("|||OR_CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::OR_EXPR,
+                )
+            } else {
+                // Legacy support for old CLAUSE_SEPARATOR (assume AND)
+                (
+                    heap_filter_node_string
+                        .split("|||CLAUSE_SEPARATOR|||")
+                        .collect::<Vec<&str>>(),
+                    pg_sys::BoolExprType::AND_EXPR,
+                )
+            };
+
+        // Create individual nodes for each clause
+        let mut args_list = std::ptr::null_mut();
+        for clause_str in clause_strings.iter() {
+            let clause_cstring = std::ffi::CString::new(*clause_str)
+                .expect("Failed to create CString from clause string");
+            let clause_node = pg_sys::stringToNode(clause_cstring.as_ptr());
+
+            if !clause_node.is_null() {
+                // For the legacy ExprState path, replace @@@ operators with TRUE constants
+                let processed_node = replace_search_operators_with_true(clause_node.cast());
+                args_list = pg_sys::lappend(args_list, processed_node.cast::<core::ffi::c_void>());
+            } else {
+                panic!("Failed to parse clause string: {}", clause_str);
+            }
+        }
+
+        if !args_list.is_null() {
+            // Create a BoolExpr to combine all clauses with the detected boolean operation
+            let bool_expr =
+                pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>()).cast::<pg_sys::BoolExpr>();
+            (*bool_expr).xpr.type_ = pg_sys::NodeTag::T_BoolExpr;
+            (*bool_expr).boolop = bool_op;
+            (*bool_expr).args = args_list;
+            (*bool_expr).location = -1;
+
+            bool_expr.cast::<pg_sys::Expr>()
+        } else {
+            panic!("Failed to parse any clauses: {}", heap_filter_node_string);
+        }
+    } else {
+        // Single clause - for legacy ExprState path, process @@@ operators
+        let node_cstr = std::ffi::CString::new(heap_filter_node_string)
+            .expect("Failed to create CString from node string");
+        let node = pg_sys::stringToNode(node_cstr.as_ptr());
+
+        if !node.is_null() {
+            // For the legacy ExprState path, replace @@@ operators with TRUE constants
+            let processed_node = replace_search_operators_with_true(node.cast());
+            processed_node.cast::<pg_sys::Expr>()
+        } else {
+            panic!("Failed to deserialize node: {}", heap_filter_node_string);
+        }
+    }
+}
+
+/// Replace @@@ search operators with TRUE constants for PostgreSQL evaluation
+/// This allows PostgreSQL to evaluate the non-@@@ parts of mixed expressions
+unsafe fn replace_search_operators_with_true(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if node.is_null() {
+        return node;
+    }
+
+    match (*node).type_ {
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node.cast::<pg_sys::OpExpr>();
+            
+            // Check if this is a @@@ operator (you'll need to define this check)
+            if is_search_operator_for_replacement((*opexpr).opno) {
+                // Replace with TRUE constant
+                create_true_const().unwrap_or(node)
+            } else {
+                // Recursively process arguments
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                let mut new_args = std::ptr::null_mut();
+                
+                for arg in args.iter_ptr() {
+                    let processed_arg = replace_search_operators_with_true(arg);
+                    new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
+                }
+                
+                // Create new OpExpr with processed arguments
+                let new_opexpr = pg_sys::palloc0(std::mem::size_of::<pg_sys::OpExpr>())
+                    .cast::<pg_sys::OpExpr>();
+                *new_opexpr = *opexpr; // Copy original
+                (*new_opexpr).args = new_args;
+                new_opexpr.cast()
+            }
+        }
+        pg_sys::NodeTag::T_BoolExpr => {
+            let bool_expr = node.cast::<pg_sys::BoolExpr>();
+            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+            let mut new_args = std::ptr::null_mut();
+            
+            for arg in args.iter_ptr() {
+                let processed_arg = replace_search_operators_with_true(arg);
+                new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
+            }
+            
+            // Create new BoolExpr with processed arguments
+            let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
+                .cast::<pg_sys::BoolExpr>();
+            *new_bool_expr = *bool_expr; // Copy original
+            (*new_bool_expr).args = new_args;
+            new_bool_expr.cast()
+        }
+        _ => {
+            // For other node types, return as-is
+            node
+        }
+    }
+}
+
+/// Check if an operator OID represents a search operator that should be replaced
+unsafe fn is_search_operator_for_replacement(_opno: pg_sys::Oid) -> bool {
+    // This should check for @@@ operators
+    // You'll need to implement this based on your operator OIDs
+    false // Placeholder for now
+}
+
+/// Create a TRUE constant node
+unsafe fn create_true_const() -> Option<*mut pg_sys::Node> {
+    let const_node = pg_sys::palloc0(std::mem::size_of::<pg_sys::Const>()).cast::<pg_sys::Const>();
+    (*const_node).xpr.type_ = pg_sys::NodeTag::T_Const;
+    (*const_node).consttype = pg_sys::BOOLOID;
+    (*const_node).consttypmod = -1;
+    (*const_node).constcollid = pg_sys::Oid::from(0);
+    (*const_node).constlen = 1;
+    (*const_node).constbyval = true;
+    (*const_node).constisnull = false;
+    (*const_node).constvalue = pg_sys::Datum::from(true);
+    (*const_node).location = -1;
+    
+    Some(const_node.cast())
 }

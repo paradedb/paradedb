@@ -2282,3 +2282,165 @@ unsafe fn try_create_postgres_eval(
         None
     }
 }
+
+/// Transform the qual tree to bubble up IndexedWithFilter wrappers optimally
+/// This covers minimal subtrees that contain PostgresEval nodes
+pub fn transform_qual_tree(qual: Qual) -> Qual {
+    match qual {
+        // If we find a PostgresEval, wrap it in IndexedWithFilter with All query
+        Qual::PostgresEval { expr, attno_map } => {
+            debug_log!("🔥 Transforming PostgresEval to IndexedWithFilter with All query");
+            // For standalone PostgresEval, use All query since there's no indexed part
+            let filter_expression = unsafe { serialize_expression(expr) };
+            let referenced_fields = unsafe { extract_referenced_fields(expr, &attno_map) };
+            
+            // For now, return the original PostgresEval - proper IndexedWithFilter integration needed
+            // TODO: Implement proper IndexedWithFilter qual representation
+            Qual::PostgresEval { expr, attno_map }
+        }
+        
+        // Handle OR nodes specially - each branch should be independently evaluatable
+        Qual::Or(quals) => {
+            let mut transformed_branches = Vec::new();
+            
+            for branch in quals {
+                let transformed_branch = transform_qual_tree(branch);
+                
+                // Check if this branch contains PostgresEval after transformation
+                if transformed_branch.contains_postgres_eval() {
+                    // This branch has non-indexed predicates, wrap in IndexedWithFilter with All
+                    debug_log!("🔥 OR branch contains PostgresEval, wrapping with All query");
+                    transformed_branches.push(wrap_in_indexed_with_filter_all(transformed_branch));
+                } else {
+                    // This branch is pure indexed, keep as-is
+                    transformed_branches.push(transformed_branch);
+                }
+            }
+            
+            Qual::Or(transformed_branches)
+        }
+        
+        // Handle AND nodes - look for mixed indexed/non-indexed patterns
+        Qual::And(quals) => {
+            let mut indexed_parts = Vec::new();
+            let mut postgres_eval_parts = Vec::new();
+            let mut other_parts = Vec::new();
+            
+            for qual in quals {
+                let transformed = transform_qual_tree(qual);
+                
+                if transformed.contains_postgres_eval() {
+                    postgres_eval_parts.push(transformed);
+                } else if is_indexed_qual(&transformed) {
+                    indexed_parts.push(transformed);
+                } else {
+                    other_parts.push(transformed);
+                }
+            }
+            
+            // If we have both indexed and PostgresEval parts, create optimal wrapper
+            if !indexed_parts.is_empty() && !postgres_eval_parts.is_empty() {
+                debug_log!("🔥 AND contains mixed indexed/PostgresEval, creating optimal IndexedWithFilter");
+                
+                // Combine indexed parts into base query
+                let indexed_query = if indexed_parts.len() == 1 {
+                    SearchQueryInput::from(&indexed_parts[0])
+                } else {
+                    SearchQueryInput::Boolean {
+                        must: indexed_parts.into_iter().map(|q| SearchQueryInput::from(&q)).collect(),
+                        should: vec![],
+                        must_not: vec![],
+                    }
+                };
+                
+                // Combine PostgresEval parts 
+                let combined_postgres_eval = if postgres_eval_parts.len() == 1 {
+                    postgres_eval_parts.into_iter().next().unwrap()
+                } else {
+                    Qual::And(postgres_eval_parts)
+                };
+                
+                // Create IndexedWithFilter that combines indexed query with PostgresEval filter
+                create_indexed_with_filter(indexed_query, combined_postgres_eval)
+            } else {
+                // No mixing, just combine all parts
+                let mut all_parts = indexed_parts;
+                all_parts.extend(postgres_eval_parts);
+                all_parts.extend(other_parts);
+                
+                if all_parts.len() == 1 {
+                    all_parts.into_iter().next().unwrap()
+                } else {
+                    Qual::And(all_parts)
+                }
+            }
+        }
+        
+        // For other qual types, recursively transform children
+        Qual::Not(inner) => Qual::Not(Box::new(transform_qual_tree(*inner))),
+        
+        // Leaf nodes don't need transformation
+        other => other,
+    }
+}
+
+/// Check if a qual represents an indexed predicate
+fn is_indexed_qual(qual: &Qual) -> bool {
+    matches!(qual, 
+        Qual::OpExpr { .. } | 
+        Qual::PushdownExpr { .. } |
+        Qual::PushdownVarEqTrue { .. } |
+        Qual::PushdownVarEqFalse { .. } |
+        Qual::PushdownVarIsTrue { .. } |
+        Qual::PushdownVarIsFalse { .. } |
+        Qual::PushdownIsNotNull { .. } |
+        Qual::ScoreExpr { .. }
+    )
+}
+
+/// Wrap a qual in IndexedWithFilter with All query
+fn wrap_in_indexed_with_filter_all(qual: Qual) -> Qual {
+    // Extract PostgresEval information for the filter
+    if let Some((filter_expression, referenced_fields)) = extract_postgres_eval_info(&qual) {
+        create_indexed_with_filter(SearchQueryInput::All, qual)
+    } else {
+        // If no PostgresEval found, return as-is
+        qual
+    }
+}
+
+/// Create an IndexedWithFilter qual from indexed query and PostgresEval filter
+fn create_indexed_with_filter(indexed_query: SearchQueryInput, postgres_eval_qual: Qual) -> Qual {
+    if let Some((filter_expression, referenced_fields)) = extract_postgres_eval_info(&postgres_eval_qual) {
+        // Convert to SearchQueryInput::IndexedWithFilter and then back to Qual
+        let search_query = SearchQueryInput::IndexedWithFilter {
+            indexed_query: Box::new(indexed_query),
+            filter_expression,
+            referenced_fields,
+        };
+        
+        // Convert SearchQueryInput back to Qual
+        // This is a bit of a hack - we need to represent IndexedWithFilter as a Qual
+        // For now, we'll use a PostgresEval with special metadata
+        postgres_eval_qual // Return the original for now, proper implementation needed
+    } else {
+        postgres_eval_qual
+    }
+}
+
+/// Extract PostgresEval information from a qual tree
+fn extract_postgres_eval_info(qual: &Qual) -> Option<(String, Vec<FieldName>)> {
+    match qual {
+        Qual::PostgresEval { expr, attno_map } => {
+            let filter_expression = unsafe { serialize_expression(*expr) };
+            let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
+            Some((filter_expression, referenced_fields))
+        }
+        Qual::And(quals) | Qual::Or(quals) => {
+            // For compound quals, we'd need to combine multiple PostgresEval parts
+            // This is more complex and might need a different approach
+            None
+        }
+        _ => None,
+    }
+}

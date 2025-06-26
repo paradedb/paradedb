@@ -293,7 +293,7 @@ pub unsafe fn try_external_filter(
 
     // Only create external filter if this expression involves our relation
     if has_our_relation && !attno_map.is_empty() {
-        Some(Qual::FilterExpression {
+        Some(Qual::PostgresEval {
             expr: opexpr.cast(),
             attno_map,
         })

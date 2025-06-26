@@ -51,8 +51,9 @@ pub enum Qual {
     PushdownExpr {
         funcexpr: *mut pg_sys::FuncExpr,
     },
-    /// Non-indexed expression that will be evaluated via callback during Tantivy search
-    FilterExpression {
+    /// PostgreSQL expression that needs to be evaluated during query execution
+    /// This replaces the old FilterExpression approach with a cleaner design
+    PostgresEval {
         expr: *mut pg_sys::Expr,
         attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
     },
@@ -106,7 +107,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
-            Qual::FilterExpression { .. } => false,
+            Qual::PostgresEval { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -128,7 +129,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
-            Qual::FilterExpression { .. } => false,
+            Qual::PostgresEval { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -150,7 +151,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { node, .. } => contains_exec_param(*node),
             Qual::PushdownExpr { .. } => false,
-            Qual::FilterExpression { expr, .. } => contains_exec_param((*expr).cast()),
+            Qual::PostgresEval { expr, .. } => contains_exec_param((*expr).cast()),
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -172,7 +173,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => true,
             Qual::PushdownExpr { .. } => false,
-            Qual::FilterExpression { .. } => true,
+            Qual::PostgresEval { .. } => true,
             Qual::PushdownVarEqTrue { .. } => true,
             Qual::PushdownVarEqFalse { .. } => true,
             Qual::PushdownVarIsTrue { .. } => true,
@@ -194,7 +195,7 @@ impl Qual {
             Qual::OpExpr { .. } => false,
             Qual::Expr { .. } => false,
             Qual::PushdownExpr { .. } => false,
-            Qual::FilterExpression { .. } => false,
+            Qual::PostgresEval { .. } => false,
             Qual::PushdownVarEqTrue { .. } => false,
             Qual::PushdownVarEqFalse { .. } => false,
             Qual::PushdownVarIsTrue { .. } => false,
@@ -210,7 +211,7 @@ impl Qual {
     pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
         match self {
             Qual::Expr { .. } => exprs.push(self),
-            Qual::FilterExpression { .. } => exprs.push(self),
+            Qual::PostgresEval { .. } => exprs.push(self),
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
@@ -218,13 +219,13 @@ impl Qual {
         }
     }
 
-    pub fn contains_filter_expressions(&self) -> bool {
+    pub fn contains_postgres_eval(&self) -> bool {
         match self {
-            Qual::FilterExpression { .. } => true,
+            Qual::PostgresEval { .. } => true,
             Qual::And(quals) | Qual::Or(quals) => {
-                quals.iter().any(|q| q.contains_filter_expressions())
+                quals.iter().any(|q| q.contains_postgres_eval())
             }
-            Qual::Not(qual) => qual.contains_filter_expressions(),
+            Qual::Not(qual) => qual.contains_postgres_eval(),
             _ => false,
         }
     }
@@ -389,8 +390,8 @@ impl From<&Qual> for SearchQueryInput {
                     .expect("rhs of @@@ operator Qual must not be null")
             },
             Qual::Expr { node, expr_state } => SearchQueryInput::postgres_expression(*node),
-            Qual::FilterExpression { expr, attno_map } => {
-                debug_log!("🔥 Processing FilterExpression with mixed indexed/non-indexed predicates");
+            Qual::PostgresEval { expr, attno_map } => {
+                debug_log!("🔥 Processing PostgresEval with mixed indexed/non-indexed predicates");
                 
                 // Parse the mixed expression to separate indexed and non-indexed parts
                 let indexed_query = unsafe {
@@ -499,7 +500,7 @@ impl From<&Qual> for SearchQueryInput {
             Qual::And(quals) => {
                 debug_log!("Qual::And processing: has_indexed={}, has_non_indexed={}, total_quals={}", 
                     quals.iter().any(|q| matches!(q, Qual::OpExpr { .. } | Qual::Or(_))), 
-                    quals.iter().any(|q| matches!(q, Qual::FilterExpression { .. })), 
+                    quals.iter().any(|q| matches!(q, Qual::PostgresEval { .. })), 
                     quals.len());
 
                 let mut indexed_quals = Vec::new();
@@ -515,7 +516,7 @@ impl From<&Qual> for SearchQueryInput {
                             indexed_quals.push(SearchQueryInput::from(qual));
                         }
                         // These are non-indexed predicates that need external filters
-                        Qual::FilterExpression { .. } => {
+                        Qual::PostgresEval { .. } => {
                             non_indexed_quals.push(qual);
                         }
                         // Handle nested And/Not recursively
@@ -548,7 +549,7 @@ impl From<&Qual> for SearchQueryInput {
                     // For each non-indexed qual, create a separate IndexedWithFilter
                     let mut filters = Vec::new();
                     for non_indexed_qual in non_indexed_quals {
-                        if let Qual::FilterExpression { expr, attno_map } = non_indexed_qual {
+                        if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
                             let filter_expression = unsafe { serialize_expression(*expr) };
                             let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
                             
@@ -586,7 +587,7 @@ impl From<&Qual> for SearchQueryInput {
                     // Only non-indexed quals - create external filters
                     let mut filters = Vec::new();
                     for non_indexed_qual in non_indexed_quals {
-                        if let Qual::FilterExpression { expr, attno_map } = non_indexed_qual {
+                        if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
                             let filter_expression = unsafe { serialize_expression(*expr) };
                             let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
                             
@@ -639,7 +640,7 @@ impl From<&Qual> for SearchQueryInput {
                         // Nested OR/AND structures containing only indexed predicates
                         Qual::Or(_) | Qual::And(_) => {
                             // Check if this nested structure contains any non-indexed predicates
-                            if qual.contains_filter_expressions() {
+                            if qual.contains_postgres_eval() {
                                 debug_log!("🔥 OR branch: nested structure with non-indexed predicates");
                                 // This nested structure contains non-indexed predicates,
                                 // so we need to convert it appropriately
@@ -654,7 +655,7 @@ impl From<&Qual> for SearchQueryInput {
                         }
                         
                         // Non-indexed predicates - wrap in IndexedWithFilter with All query
-                        Qual::FilterExpression { expr, attno_map } => {
+                        Qual::PostgresEval { expr, attno_map } => {
                             debug_log!("🔥 OR branch: non-indexed predicate - wrapping in IndexedWithFilter");
                             
                             let filter_expression = unsafe { serialize_expression(*expr) };
@@ -986,9 +987,9 @@ unsafe fn extract_quals_internal(
                 }
 
                 if has_indexed && has_non_indexed {
-                    // This is a mixed OR expression - create a FilterExpression for proper parsing
-                    if let Some(filter_qual) = try_create_filter_expression(root, rti, node) {
-                        return (None, Some(filter_qual));
+                    // This is a mixed OR expression - create a PostgresEval for proper parsing
+                    if let Some(postgres_eval_qual) = try_create_postgres_eval(root, rti, node) {
+                        return (None, Some(postgres_eval_qual));
                     }
                 }
             }
@@ -1084,10 +1085,10 @@ unsafe fn list_internal(
     extract_all_quals_even_non_indexed: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Vec<Qual>> {
-    let args = PgList::<pg_sys::Node>::from_pg(list);
+    let list = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
 
-    for child in args.iter_ptr() {
+    for child in list.iter_ptr() {
         if extract_all_quals_even_non_indexed {
             // When extracting all quals, try both indexed and non-indexed approaches
             let (indexed_qual, all_qual) = extract_quals_internal(
@@ -1106,11 +1107,11 @@ unsafe fn list_internal(
             if let Some(qual) = indexed_qual.or(all_qual) {
                 quals.push(qual);
             } else {
-                // If we can't extract this qual, try to create a FilterExpression
-                if let Some(filter_qual) = try_create_filter_expression(root, rti, child) {
+                // If we can't extract this qual, try to create a PostgresEval
+                if let Some(filter_qual) = try_create_postgres_eval(root, rti, child) {
                     quals.push(filter_qual);
                 } else {
-                    // If we can't create a filter expression either, use NonIndexedExpr as fallback
+                    // If we can't create a postgres eval either, use NonIndexedExpr as fallback
                     quals.push(Qual::NonIndexedExpr);
                 }
             }
@@ -1145,87 +1146,7 @@ unsafe fn list_internal(
 }
 
 /// Try to create a FilterExpression qual from a PostgreSQL node
-/// This extracts the actual expression and referenced fields for external evaluation
-unsafe fn try_create_filter_expression(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    node: *mut pg_sys::Node,
-) -> Option<Qual> {
-    use crate::postgres::var::{fieldname_from_var, find_var_relation};
 
-    if node.is_null() {
-        return None;
-    }
-
-    // Debug: log what expression we're trying to create a filter for
-    let node_string = pg_sys::nodeToString(node.cast::<core::ffi::c_void>());
-    let rust_string = std::ffi::CStr::from_ptr(node_string)
-        .to_string_lossy()
-        .into_owned();
-    pg_sys::pfree(node_string.cast());
-    debug_log!(
-        "🔥 try_create_filter_expression called with: {}",
-        rust_string
-    );
-
-    // Clean any RestrictInfo wrappers first
-    let cleaned_node = clean_restrictinfo_recursively(node);
-
-    // Walk the expression tree to find all Var nodes
-    unsafe extern "C-unwind" fn var_walker(
-        node: *mut pg_sys::Node,
-        original_context: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        let context = &mut *(original_context as *mut VarWalkerContext);
-
-        if let Some(var) = nodecast!(Var, T_Var, node) {
-            if (*var).varno as pg_sys::Index == context.rti {
-                context.has_our_relation = true;
-                let (heaprelid, varattno, _) = find_var_relation(var, context.root);
-                if heaprelid != pg_sys::Oid::INVALID {
-                    if let Some(field) = fieldname_from_var(heaprelid, var, varattno) {
-                        context.attno_map.insert((*var).varattno, field);
-                    }
-                }
-            }
-        }
-
-        pg_sys::expression_tree_walker(node, Some(var_walker), original_context)
-    }
-
-    struct VarWalkerContext {
-        root: *mut pg_sys::PlannerInfo,
-        rti: pg_sys::Index,
-        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
-        has_our_relation: bool,
-    }
-
-    let mut context = VarWalkerContext {
-        root,
-        rti,
-        attno_map: HashMap::default(),
-        has_our_relation: false,
-    };
-
-    var_walker(
-        cleaned_node,
-        (&mut context as *mut VarWalkerContext) as *mut core::ffi::c_void,
-    );
-
-    // Only create external filter if this expression involves our relation
-    if context.has_our_relation && !context.attno_map.is_empty() {
-        Some(Qual::FilterExpression {
-            expr: cleaned_node.cast(),
-            attno_map: context.attno_map,
-        })
-    } else {
-        None
-    }
-}
 
 /// Recursively clean RestrictInfo wrappers from any PostgreSQL node
 /// This handles nested RestrictInfo nodes in complex expressions like BoolExpr
@@ -2288,5 +2209,76 @@ unsafe fn extract_referenced_fields_recursive(
             // For other expression types, we might need to add more cases
             // but for now, we'll skip them
         }
+    }
+}
+
+/// Create a PostgresEval qual for non-indexed expressions that need PostgreSQL evaluation
+unsafe fn try_create_postgres_eval(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    node: *mut pg_sys::Node,
+) -> Option<Qual> {
+    use crate::postgres::var::{fieldname_from_var, find_var_relation};
+
+    if node.is_null() {
+        return None;
+    }
+
+    // Clean any RestrictInfo wrappers first
+    let cleaned_node = clean_restrictinfo_recursively(node);
+
+    // Walk the expression tree to find all Var nodes
+    unsafe extern "C-unwind" fn var_walker(
+        node: *mut pg_sys::Node,
+        original_context: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        let context = &mut *(original_context as *mut VarWalkerContext);
+
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            if (*var).varno as pg_sys::Index == context.rti {
+                context.has_our_relation = true;
+                let (heaprelid, varattno, _) = find_var_relation(var, context.root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    if let Some(field) = fieldname_from_var(heaprelid, var, varattno) {
+                        context.attno_map.insert((*var).varattno, field);
+                    }
+                }
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(var_walker), original_context)
+    }
+
+    struct VarWalkerContext {
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+        attno_map: HashMap<pg_sys::AttrNumber, FieldName>,
+        has_our_relation: bool,
+    }
+
+    let mut context = VarWalkerContext {
+        root,
+        rti,
+        attno_map: HashMap::default(),
+        has_our_relation: false,
+    };
+
+    var_walker(
+        cleaned_node,
+        (&mut context as *mut VarWalkerContext) as *mut core::ffi::c_void,
+    );
+
+    // Only create PostgresEval if this expression involves our relation
+    if context.has_our_relation && !context.attno_map.is_empty() {
+        Some(Qual::PostgresEval {
+            expr: cleaned_node.cast(),
+            attno_map: context.attno_map,
+        })
+    } else {
+        None
     }
 }

@@ -464,13 +464,39 @@ unsafe fn extract_indexed_parts_recursive(
 }
 
 impl From<&Qual> for SearchQueryInput {
-    #[track_caller]
     fn from(value: &Qual) -> Self {
+        // Apply transformation to handle mixed indexed/non-indexed queries
+        let transformed = transform_qual_tree(value.clone());
+        
+        // Convert the transformed qual to SearchQueryInput
+        Self::from_transformed_qual(&transformed)
+    }
+}
+
+impl SearchQueryInput {
+    /// Convert a qual to SearchQueryInput with relation OID for field resolution
+    pub fn from_qual_with_relation_oid(value: &Qual, relation_oid: pg_sys::Oid) -> Self {
+        // Apply transformation to handle mixed indexed/non-indexed queries
+        let transformed = transform_qual_tree(value.clone());
+        
+        // Convert the transformed qual to SearchQueryInput with relation OID
+        Self::from_transformed_qual_with_relation_oid(&transformed, relation_oid)
+    }
+
+    /// Convert a transformed qual to SearchQueryInput
+    /// This assumes the qual has already been processed by transform_qual_tree
+    fn from_transformed_qual(value: &Qual) -> Self {
+        // Call the version with InvalidOid for backward compatibility
+        Self::from_transformed_qual_with_relation_oid(value, pg_sys::InvalidOid)
+    }
+
+    /// Convert a transformed qual to SearchQueryInput with relation OID for field resolution
+    fn from_transformed_qual_with_relation_oid(value: &Qual, relation_oid: pg_sys::Oid) -> Self {
         match value {
-            Qual::All => SearchQueryInput::All,
-            Qual::ExternalVar => SearchQueryInput::All,
-            Qual::ExternalExpr => SearchQueryInput::All,
-            Qual::NonIndexedExpr => SearchQueryInput::All,
+            Qual::All => Self::All,
+            Qual::ExternalVar => Self::All,
+            Qual::ExternalExpr => Self::All,
+            Qual::NonIndexedExpr => Self::All,
             Qual::OpExpr { val, .. } => unsafe {
                 SearchQueryInput::from_datum((**val).constvalue, (**val).constisnull)
                     .expect("rhs of @@@ operator Qual must not be null")
@@ -599,7 +625,7 @@ impl From<&Qual> for SearchQueryInput {
                         | Qual::PushdownVarEqTrue { .. } | Qual::PushdownVarEqFalse { .. }
                         | Qual::PushdownVarIsTrue { .. } | Qual::PushdownVarIsFalse { .. }
                         | Qual::PushdownIsNotNull { .. } => {
-                            indexed_quals.push(SearchQueryInput::from(qual));
+                            indexed_quals.push(SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid));
                         }
                         // These are non-indexed predicates that need external filters
                         Qual::PostgresEval { .. } => {
@@ -608,11 +634,11 @@ impl From<&Qual> for SearchQueryInput {
                         // Handle nested And/Not recursively
                         Qual::And(_) | Qual::Not(_) => {
                             // For nested structures, convert and treat as indexed for now
-                            indexed_quals.push(SearchQueryInput::from(qual));
+                            indexed_quals.push(SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid));
                         }
                         // Other types - treat as indexed
                         _ => {
-                            indexed_quals.push(SearchQueryInput::from(qual));
+                            indexed_quals.push(SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid));
                         }
                     }
                 }
@@ -632,247 +658,288 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     };
 
-                    // Combine all non-indexed quals into a single external filter
-                    let mut all_referenced_fields = Vec::new();
-                    let mut filter_expressions = Vec::new();
+                    // Convert non-indexed quals to SimpleFieldFilters
+                    let mut field_filters = Vec::new();
                     
                     for non_indexed_qual in non_indexed_quals {
-                        if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
-                            let filter_expression = unsafe { serialize_expression(*expr) };
-                            let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
-                            
-                            filter_expressions.push(filter_expression);
-                            all_referenced_fields.extend(referenced_fields);
-                        }
-                    }
-
-                    // Remove duplicate referenced fields
-                    all_referenced_fields.sort();
-                    all_referenced_fields.dedup();
-
-                    // Combine all filter expressions with AND
-                    let combined_filter = if filter_expressions.len() == 1 {
-                        filter_expressions.into_iter().next().unwrap()
-                    } else {
-                        // Create a combined AND expression
-                        format!("({})", filter_expressions.join(" AND "))
-                    };
-
-                    // Create a single IndexedWithFilter with the combined external filter
-                    // FIXME: Convert to SimpleFieldFilter approach
-                    SearchQueryInput::IndexedWithFilter {
-                        indexed_query: Box::new(indexed_query),
-                        field_filters: vec![], // Temporary placeholder
-                    }
-                } else if !indexed_quals.is_empty() {
-                    // Only indexed quals
-                    SearchQueryInput::Boolean {
-                        must: indexed_quals,
-                        should: vec![],
-                        must_not: vec![],
-                    }
-                } else if !non_indexed_quals.is_empty() {
-                    // Only non-indexed quals - create a single external filter with All query
-                    let mut all_referenced_fields = Vec::new();
-                    let mut filter_expressions = Vec::new();
-                    
-                    for non_indexed_qual in non_indexed_quals {
-                        if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
-                            let filter_expression = unsafe { serialize_expression(*expr) };
-                            let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
-                            
-                            filter_expressions.push(filter_expression);
-                            all_referenced_fields.extend(referenced_fields);
-                        }
-                    }
-
-                    // Remove duplicate referenced fields
-                    all_referenced_fields.sort();
-                    all_referenced_fields.dedup();
-
-                    // Combine all filter expressions with AND
-                    let combined_filter = if filter_expressions.len() == 1 {
-                        filter_expressions.into_iter().next().unwrap()
-                    } else {
-                        // Create a combined AND expression
-                        format!("({})", filter_expressions.join(" AND "))
-                    };
-
-                    // Create a single IndexedWithFilter with All query and combined external filter
-                    // FIXME: Convert to SimpleFieldFilter approach
-                    SearchQueryInput::IndexedWithFilter {
-                        indexed_query: Box::new(SearchQueryInput::All),
-                        field_filters: vec![], // Temporary placeholder
-                    }
-                } else {
-                    // No quals - shouldn't happen but handle gracefully
-                    SearchQueryInput::All
-                }
-            }
-
-            Qual::Or(quals) => {
-                debug_log!("🔥 Processing OR with {} branches", quals.len());
-                
-                let mut or_branches = Vec::new();
-
-                for qual in quals {
-                    match qual {
-                        // Pure indexed predicates - add directly as Tantivy queries
-                        Qual::OpExpr { .. } | Qual::PushdownExpr { .. } 
-                        | Qual::PushdownVarEqTrue { .. } | Qual::PushdownVarEqFalse { .. }
-                        | Qual::PushdownVarIsTrue { .. } | Qual::PushdownVarIsFalse { .. }
-                        | Qual::PushdownIsNotNull { .. } => {
-                            debug_log!("🔥 OR branch: pure indexed predicate");
-                            let indexed_query = SearchQueryInput::from(qual);
-                            or_branches.push(indexed_query);
-                        }
-                        
-                        // Nested OR/AND structures containing only indexed predicates
-                        Qual::Or(_) | Qual::And(_) => {
-                            // Check if this nested structure contains any non-indexed predicates
-                            if qual.contains_postgres_eval() {
-                                debug_log!("🔥 OR branch: nested structure with non-indexed predicates");
-                                // This nested structure contains non-indexed predicates,
-                                // so we need to convert it appropriately
-                                let branch_query = SearchQueryInput::from(qual);
-                                or_branches.push(branch_query);
-                            } else {
-                                debug_log!("🔥 OR branch: pure indexed nested structure");
-                                // Pure indexed nested structure
-                                let indexed_query = SearchQueryInput::from(qual);
-                                or_branches.push(indexed_query);
+                        // Try to convert to SimpleFieldFilter if it's a field-based operation
+                        match non_indexed_qual {
+                            Qual::FieldComparison { field, operator, value } => {
+                                debug_log!("🔥 Converting FieldComparison to SimpleFieldFilter: {} {:?} {:?}", field.root(), operator, value);
+                                
+                                // Convert to SimpleFieldFilter
+                                let simple_op = match operator {
+                                    ComparisonOperator::Equal => crate::query::simple_field_filter::SimpleOperator::Equal,
+                                    ComparisonOperator::GreaterThan => crate::query::simple_field_filter::SimpleOperator::GreaterThan,
+                                    ComparisonOperator::LessThan => crate::query::simple_field_filter::SimpleOperator::LessThan,
+                                    _ => continue, // Skip unsupported operators for now
+                                };
+                                
+                                let simple_value = match value {
+                                    FieldValue::Integer(i) => crate::query::simple_field_filter::SimpleValue::Integer(*i),
+                                    FieldValue::Float(f) => crate::query::simple_field_filter::SimpleValue::Float(*f),
+                                    FieldValue::Text(s) => crate::query::simple_field_filter::SimpleValue::Text(s.clone()),
+                                    FieldValue::Boolean(b) => crate::query::simple_field_filter::SimpleValue::Boolean(*b),
+                                    FieldValue::Null => continue, // Skip NULL values
+                                };
+                                
+                                // Create SimpleFieldFilter with field resolution
+                                // For now, use a placeholder relation_oid - this should be passed from the calling context
+                                let relation_oid = pg_sys::InvalidOid; // TODO: Get actual relation OID
+                                if let Some(filter) = crate::query::simple_field_filter::SimpleFieldFilter::new_with_field_resolution(
+                                    field.clone(),
+                                    simple_op,
+                                    simple_value,
+                                    relation_oid,
+                                ) {
+                                    field_filters.push(filter);
+                                }
+                            }
+                            Qual::FieldNullTest { field, is_null } => {
+                                debug_log!("🔥 Converting FieldNullTest to SimpleFieldFilter: {} IS {}", field.root(), if *is_null { "NULL" } else { "NOT NULL" });
+                                
+                                let simple_op = if *is_null {
+                                    crate::query::simple_field_filter::SimpleOperator::IsNull
+                                } else {
+                                    crate::query::simple_field_filter::SimpleOperator::IsNotNull
+                                };
+                                
+                                // For NULL tests, we don't need a value
+                                let relation_oid = pg_sys::InvalidOid; // TODO: Get actual relation OID
+                                if let Some(filter) = crate::query::simple_field_filter::SimpleFieldFilter::new_with_field_resolution(
+                                    field.clone(),
+                                    simple_op,
+                                    crate::query::simple_field_filter::SimpleValue::Boolean(true), // Dummy value for NULL tests
+                                    relation_oid,
+                                ) {
+                                    field_filters.push(filter);
+                                }
+                            }
+                            _ => {
+                                debug_log!("🔥 Non-indexed qual is not field-based, skipping SimpleFieldFilter conversion");
+                                // For other types of non-indexed quals, we'd need different handling
+                                // For now, skip them
                             }
                         }
-                        
-                        // Non-indexed predicates - wrap in IndexedWithFilter with All query
-                        Qual::PostgresEval { expr, attno_map } => {
-                            debug_log!("🔥 OR branch: non-indexed predicate - wrapping in IndexedWithFilter");
-                            
-                            let filter_expression = unsafe { serialize_expression(*expr) };
-                            let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
-                            
-                            // For non-indexed predicates in OR, we use All query as the base
-                            // This means "return all documents, then filter by the non-indexed predicate"
-                            or_branches.push(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(SearchQueryInput::All),
-                                                        field_filters: vec![],
-                            });
-                        }
-                        
-                        // Other special cases
-                        Qual::NonIndexedExpr => {
-                            debug_log!("🔥 OR branch: non-indexed expression - wrapping in IndexedWithFilter");
-                            // For non-indexed expressions, create an IndexedWithFilter with All
-                            or_branches.push(                        // FIXME: Convert to SimpleFieldFilter approach
-                        SearchQueryInput::IndexedWithFilter {
-                            indexed_query: Box::new(SearchQueryInput::All),
-                            field_filters: vec![], // Temporary placeholder
-                        });
-                        }
-                        
-                        // Negation and other complex cases
-                        Qual::Not(_) => {
-                            debug_log!("🔥 OR branch: negation");
-                            let branch_query = SearchQueryInput::from(qual);
-                            or_branches.push(branch_query);
-                        }
-                        
-                        // Score expressions and other edge cases
-                        _ => {
-                            debug_log!("🔥 OR branch: other type - treating as indexed");
-                            let branch_query = SearchQueryInput::from(qual);
-                            or_branches.push(branch_query);
-                        }
                     }
-                }
 
-                // Create a Boolean OR query with all branches
-                SearchQueryInput::Boolean {
-                    must: Default::default(),
-                    should: or_branches,
-                    must_not: Default::default(),
-                }
-            }
-            Qual::Not(qual) => {
-                // Special handling for boolean fields to correctly handle NULL values
-                match qual.as_ref() {
-                    // If we're negating a PushdownVarEqTrue, we should use PushdownVarEqFalse directly
-                    // rather than using must_not, to avoid including NULLs
-                    // This follows SQL standard where NOT (field = TRUE) is equivalent to (field = FALSE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqTrue { field } => Self::from(&Qual::PushdownVarEqFalse {
-                        field: field.clone(),
-                    }),
-                    // Similarly, if we're negating a PushdownVarEqFalse, use PushdownVarEqTrue
-                    // This follows SQL standard where NOT (field = FALSE) is equivalent to (field = TRUE)
-                    // and does NOT include NULL values
-                    Qual::PushdownVarEqFalse { field } => Self::from(&Qual::PushdownVarEqTrue {
-                        field: field.clone(),
-                    }),
+                    debug_log!("🔥 Created {} SimpleFieldFilters from non-indexed quals", field_filters.len());
 
-                    // If the Qual represents a placeholder to another Var elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalVar => SearchQueryInput::All,
-
-                    // If the Qual represents a placeholder to another Expr elsewhere in the plan,
-                    // that means it's a JOIN of some kind and what we actually need to return, in its place,
-                    // is "all" rather than "NOT all"
-                    Qual::ExternalExpr => SearchQueryInput::All,
-
-                    // If the Qual represents a non-indexed expression, we should return "all"
-                    // This is because we will be using tantivy to query, and we want to be able to
-                    // use the non-indexed expression to filter the results
-                    Qual::NonIndexedExpr => SearchQueryInput::All,
-
-                    // For other types of negation, use the standard Boolean query with must_not
-                    // Note that when negating an IS operator (e.g., IS NOT TRUE), PostgreSQL handles
-                    // NULL values differently than when negating equality operators
-                    _ => {
-                        let must_not = vec![SearchQueryInput::from(qual.as_ref())];
-
+                    // Create IndexedWithFilter with actual field filters
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(indexed_query),
+                        field_filters,
+                    }
+                } else if !indexed_quals.is_empty() {
+                    // Only indexed quals, create regular Boolean query
+                    if indexed_quals.len() == 1 {
+                        indexed_quals.into_iter().next().unwrap()
+                    } else {
                         SearchQueryInput::Boolean {
-                            must: vec![SearchQueryInput::All],
-                            should: Default::default(),
-                            must_not,
+                            must: indexed_quals,
+                            should: vec![],
+                            must_not: vec![],
                         }
                     }
-                }
-            }
-            Qual::FieldComparison { field, operator, value } => {
-                // Convert field comparison to appropriate SearchQueryInput
-                // For now, convert to Term query as a placeholder
-                let owned_value = match value {
-                    FieldValue::Integer(i) => OwnedValue::I64(*i),
-                    FieldValue::Float(f) => OwnedValue::F64(*f),
-                    FieldValue::Text(s) => OwnedValue::Str(s.clone()),
-                    FieldValue::Boolean(b) => OwnedValue::Bool(*b),
-                    FieldValue::Null => OwnedValue::Null,
-                };
-                
-                // For now, map all comparisons to Term queries
-                // This is a simplification - proper implementation would need range queries for > < etc
-                SearchQueryInput::Term {
-                    field: Some(field.clone()),
-                    value: owned_value,
-                    is_datetime: false,
-                }
-            }
-            Qual::FieldNullTest { field, is_null } => {
-                if *is_null {
-                    // IS NULL - use term query with null value
-                    SearchQueryInput::Term {
-                        field: Some(field.clone()),
-                        value: OwnedValue::Null,
-                        is_datetime: false,
+                } else if !non_indexed_quals.is_empty() {
+                    // Only non-indexed quals, create All query with external filter
+                    debug_log!("🔥 Only non-indexed quals found, creating All query with external filter");
+                    
+                    // Convert non-indexed quals to SimpleFieldFilters
+                    let mut field_filters = Vec::new();
+                    
+                    for non_indexed_qual in non_indexed_quals {
+                        // Try to convert to SimpleFieldFilter if it's a field-based operation
+                        match non_indexed_qual {
+                            Qual::FieldComparison { field, operator, value } => {
+                                debug_log!("🔥 Converting FieldComparison to SimpleFieldFilter: {} {:?} {:?}", field.root(), operator, value);
+                                
+                                // Convert to SimpleFieldFilter
+                                let simple_op = match operator {
+                                    ComparisonOperator::Equal => crate::query::simple_field_filter::SimpleOperator::Equal,
+                                    ComparisonOperator::GreaterThan => crate::query::simple_field_filter::SimpleOperator::GreaterThan,
+                                    ComparisonOperator::LessThan => crate::query::simple_field_filter::SimpleOperator::LessThan,
+                                    _ => continue, // Skip unsupported operators for now
+                                };
+                                
+                                let simple_value = match value {
+                                    FieldValue::Integer(i) => crate::query::simple_field_filter::SimpleValue::Integer(*i),
+                                    FieldValue::Float(f) => crate::query::simple_field_filter::SimpleValue::Float(*f),
+                                    FieldValue::Text(s) => crate::query::simple_field_filter::SimpleValue::Text(s.clone()),
+                                    FieldValue::Boolean(b) => crate::query::simple_field_filter::SimpleValue::Boolean(*b),
+                                    FieldValue::Null => continue, // Skip NULL values
+                                };
+                                
+                                // Create SimpleFieldFilter with field resolution
+                                let relation_oid = pg_sys::InvalidOid; // TODO: Get actual relation OID
+                                if let Some(filter) = crate::query::simple_field_filter::SimpleFieldFilter::new_with_field_resolution(
+                                    field.clone(),
+                                    simple_op,
+                                    simple_value,
+                                    relation_oid,
+                                ) {
+                                    field_filters.push(filter);
+                                }
+                            }
+                            Qual::FieldNullTest { field, is_null } => {
+                                debug_log!("🔥 Converting FieldNullTest to SimpleFieldFilter: {} IS {}", field.root(), if *is_null { "NULL" } else { "NOT NULL" });
+                                
+                                let simple_op = if *is_null {
+                                    crate::query::simple_field_filter::SimpleOperator::IsNull
+                                } else {
+                                    crate::query::simple_field_filter::SimpleOperator::IsNotNull
+                                };
+                                
+                                // For NULL tests, we don't need a value
+                                let relation_oid = pg_sys::InvalidOid; // TODO: Get actual relation OID
+                                if let Some(filter) = crate::query::simple_field_filter::SimpleFieldFilter::new_with_field_resolution(
+                                    field.clone(),
+                                    simple_op,
+                                    crate::query::simple_field_filter::SimpleValue::Boolean(true), // Dummy value for NULL tests
+                                    relation_oid,
+                                ) {
+                                    field_filters.push(filter);
+                                }
+                            }
+                            _ => {
+                                debug_log!("🔥 Non-indexed qual is not field-based, skipping SimpleFieldFilter conversion");
+                                // For other types of non-indexed quals, we'd need different handling
+                                // For now, skip them
+                            }
+                        }
+                    }
+
+                    debug_log!("🔥 Created {} SimpleFieldFilters from non-indexed quals", field_filters.len());
+
+                    // Convert to SimpleFieldFilter approach
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(SearchQueryInput::All),
+                        field_filters,
                     }
                 } else {
-                    // IS NOT NULL - use exists query
+                    // No quals at all
+                    SearchQueryInput::All
+                }
+            },
+            Qual::Or(quals) => {
+                debug_log!("🔥 Processing OR with {} branches", quals.len());
+                let mut should_queries = Vec::new();
+                let mut has_mixed_predicates = false;
+                
+                for qual in quals {
+                    match qual {
+                        // Pure indexed predicates
+                        Qual::OpExpr { .. } => {
+                            debug_log!("🔥 OR branch: pure indexed predicate");
+                            let branch_query = SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid);
+                            should_queries.push(branch_query);
+                        }
+                        // Non-indexed predicates that need special handling
+                        Qual::NonIndexedExpr => {
+                            debug_log!("🔥 OR branch: NonIndexedExpr - treating as external filter");
+                            has_mixed_predicates = true;
+                            // For NonIndexedExpr in OR, we need to use All query with external filter
+                            // This is a complex case - for now, fallback to All
+                            should_queries.push(SearchQueryInput::All);
+                        }
+                        // Field-based predicates - convert to appropriate queries
+                        Qual::FieldComparison { .. } | Qual::FieldNullTest { .. } => {
+                            debug_log!("🔥 OR branch: field-based predicate");
+                            let branch_query = SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid);
+                            should_queries.push(branch_query);
+                        }
+                        // Nested compound expressions
+                        Qual::And(_) => {
+                            debug_log!("🔥 OR branch: nested AND expression");
+                            let branch_query = SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid);
+                            should_queries.push(branch_query);
+                        }
+                        _ => {
+                            debug_log!("🔥 OR branch: other predicate type");
+                            let branch_query = SearchQueryInput::from_transformed_qual_with_relation_oid(qual, relation_oid);
+                            should_queries.push(branch_query);
+                        }
+                    }
+                }
+                
+                // If we have mixed predicates in OR, this is complex - for now use Boolean OR
+                SearchQueryInput::Boolean {
+                    must: vec![],
+                    should: should_queries,
+                    must_not: vec![],
+                }
+            },
+            Qual::Not(qual) => {
+                let must_not = vec![SearchQueryInput::from_transformed_qual_with_relation_oid(qual.as_ref(), relation_oid)];
+                SearchQueryInput::Boolean {
+                    must: vec![],
+                    should: vec![],
+                    must_not,
+                }
+            },
+            // Handle new field-based operations
+            Qual::FieldComparison { field, operator, value } => {
+                debug_log!("🔥 Processing FieldComparison: {} {:?} {:?}", field.root(), operator, value);
+                
+                // Convert FieldComparison to SimpleFieldFilter and wrap in IndexedWithFilter
+                let simple_op = match operator {
+                    ComparisonOperator::Equal => crate::query::simple_field_filter::SimpleOperator::Equal,
+                    ComparisonOperator::GreaterThan => crate::query::simple_field_filter::SimpleOperator::GreaterThan,
+                    ComparisonOperator::LessThan => crate::query::simple_field_filter::SimpleOperator::LessThan,
+                    _ => {
+                        debug_log!("🔥 Unsupported operator {:?} for FieldComparison, falling back to All query", operator);
+                        return SearchQueryInput::All;
+                    }
+                };
+                
+                let simple_value = match value {
+                    FieldValue::Integer(i) => crate::query::simple_field_filter::SimpleValue::Integer(*i),
+                    FieldValue::Float(f) => crate::query::simple_field_filter::SimpleValue::Float(*f),
+                    FieldValue::Text(s) => crate::query::simple_field_filter::SimpleValue::Text(s.clone()),
+                    FieldValue::Boolean(b) => crate::query::simple_field_filter::SimpleValue::Boolean(*b),
+                    FieldValue::Null => {
+                        debug_log!("🔥 NULL value in FieldComparison, falling back to All query");
+                        return SearchQueryInput::All;
+                    }
+                };
+                
+                // Create SimpleFieldFilter with field resolution using the provided relation_oid
+                if let Some(filter) = crate::query::simple_field_filter::SimpleFieldFilter::new_with_field_resolution(
+                    field.clone(),
+                    simple_op,
+                    simple_value,
+                    relation_oid,
+                ) {
+                    debug_log!("🔥 Created SimpleFieldFilter for FieldComparison, wrapping in IndexedWithFilter");
+                    // Create IndexedWithFilter with All query and the field filter
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(SearchQueryInput::All),
+                        field_filters: vec![filter],
+                    }
+                } else {
+                    debug_log!("🔥 Failed to create SimpleFieldFilter for FieldComparison, falling back to All query");
+                    SearchQueryInput::All
+                }
+            },
+            Qual::FieldNullTest { field, is_null } => {
+                debug_log!("🔥 Processing FieldNullTest: {} IS {}", field.root(), if *is_null { "NULL" } else { "NOT NULL" });
+                
+                if *is_null {
+                    // IS NULL - check for absence of field
+                    SearchQueryInput::Boolean {
+                        must: vec![],
+                        should: vec![],
+                        must_not: vec![SearchQueryInput::Exists {
+                            field: field.clone(),
+                        }],
+                    }
+                } else {
+                    // IS NOT NULL - check for existence of field
                     SearchQueryInput::Exists {
                         field: field.clone(),
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -2387,25 +2454,50 @@ unsafe fn try_create_field_operation(
     node: *mut pg_sys::Node,
 ) -> Option<Qual> {
     if node.is_null() {
+        debug_log!("🔥 try_create_field_operation: node is null");
         return None;
     }
 
-    match (*node).type_ {
+    debug_log!("🔥 try_create_field_operation: node type = {:?}", (*node).type_);
+
+    // Handle RestrictInfo wrappers by unwrapping them
+    let actual_node = if (*node).type_ == pg_sys::NodeTag::T_RestrictInfo {
+        debug_log!("🔥 try_create_field_operation: unwrapping RestrictInfo");
+        let restrict_info = node.cast::<pg_sys::RestrictInfo>();
+        let clause = (*restrict_info).clause.cast::<pg_sys::Node>();
+        debug_log!("🔥 try_create_field_operation: unwrapped clause type = {:?}", (*clause).type_);
+        clause
+    } else {
+        node
+    };
+
+    match (*actual_node).type_ {
         pg_sys::NodeTag::T_OpExpr => {
-            let op_expr = node.cast::<pg_sys::OpExpr>();
+            debug_log!("🔥 try_create_field_operation: found OpExpr, trying field comparison");
+            let op_expr = actual_node.cast::<pg_sys::OpExpr>();
             if let Some(field_comparison) = try_create_field_comparison(op_expr, root, rti) {
+                debug_log!("🔥 try_create_field_operation: successfully created FieldComparison");
                 return Some(field_comparison);
+            } else {
+                debug_log!("🔥 try_create_field_operation: try_create_field_comparison failed");
             }
         }
         pg_sys::NodeTag::T_NullTest => {
-            let null_test = node.cast::<pg_sys::NullTest>();
+            debug_log!("🔥 try_create_field_operation: found NullTest, trying field null test");
+            let null_test = actual_node.cast::<pg_sys::NullTest>();
             if let Some(field_null_test) = try_create_field_null_test(null_test, root, rti) {
+                debug_log!("🔥 try_create_field_operation: successfully created FieldNullTest");
                 return Some(field_null_test);
+            } else {
+                debug_log!("🔥 try_create_field_operation: try_create_field_null_test failed");
             }
         }
-        _ => {}
+        _ => {
+            debug_log!("🔥 try_create_field_operation: unsupported node type {:?}", (*actual_node).type_);
+        }
     }
 
+    debug_log!("🔥 try_create_field_operation: returning None");
     None
 }
 
@@ -2415,46 +2507,78 @@ unsafe fn try_create_field_comparison(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
 ) -> Option<Qual> {
+    debug_log!("🔥 try_create_field_comparison: starting with opno = {}", (*op_expr).opno.to_u32());
+    
     let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
     let args_vec: Vec<_> = args.iter_ptr().collect();
     
     if args_vec.len() != 2 {
+        debug_log!("🔥 try_create_field_comparison: args_vec.len() = {} (expected 2)", args_vec.len());
         return None;
     }
 
     let left = args_vec[0];
     let right = args_vec[1];
 
+    debug_log!("🔥 try_create_field_comparison: left type = {:?}, right type = {:?}", (*left).type_, (*right).type_);
+
     // Check if left side is a Var (field reference)
     if (*left).type_ != pg_sys::NodeTag::T_Var {
+        debug_log!("🔥 try_create_field_comparison: left side is not T_Var");
         return None;
     }
 
     let var = left.cast::<pg_sys::Var>();
+    debug_log!("🔥 try_create_field_comparison: var.varno = {}, rti = {}", (*var).varno, rti);
     if (*var).varno as pg_sys::Index != rti {
+        debug_log!("🔥 try_create_field_comparison: varno doesn't match rti");
         return None;
     }
 
     // Get field name from attribute number
     let attno = (*var).varattno;
-    let field_name = get_field_name_from_attno(root, rti, attno)?;
+    debug_log!("🔥 try_create_field_comparison: attno = {}", attno);
+    let field_name = get_field_name_from_attno(root, rti, attno);
+    if field_name.is_none() {
+        debug_log!("🔥 try_create_field_comparison: failed to get field name for attno {}", attno);
+        return None;
+    }
+    let field_name = field_name.unwrap();
+    debug_log!("🔥 try_create_field_comparison: field_name = {:?}", field_name);
 
     // Check if right side is a constant
     if (*right).type_ != pg_sys::NodeTag::T_Const {
+        debug_log!("🔥 try_create_field_comparison: right side is not T_Const");
         return None;
     }
 
     let const_node = right.cast::<pg_sys::Const>();
     if (*const_node).constisnull {
+        debug_log!("🔥 try_create_field_comparison: const is null");
         return None;
     }
 
+    debug_log!("🔥 try_create_field_comparison: const type = {}", (*const_node).consttype);
+    
     // Extract the value based on the constant type
-    let field_value = extract_field_value_from_const(const_node)?;
+    let field_value = extract_field_value_from_const(const_node);
+    if field_value.is_none() {
+        debug_log!("🔥 try_create_field_comparison: failed to extract field value");
+        return None;
+    }
+    let field_value = field_value.unwrap();
+    debug_log!("🔥 try_create_field_comparison: field_value = {:?}", field_value);
 
     // Map operator OID to comparison operator
-    let operator = map_oid_to_comparison_operator((*op_expr).opno)?;
+    let operator = map_oid_to_comparison_operator((*op_expr).opno);
+    if operator.is_none() {
+        debug_log!("🔥 try_create_field_comparison: failed to map operator OID {}", (*op_expr).opno.to_u32());
+        return None;
+    }
+    let operator = operator.unwrap();
+    debug_log!("🔥 try_create_field_comparison: operator = {:?}", operator);
 
+    debug_log!("🔥 try_create_field_comparison: SUCCESS! Creating FieldComparison");
     Some(Qual::FieldComparison {
         field: field_name,
         operator,

@@ -557,7 +557,7 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
-            let query = SearchQueryInput::from(&quals);
+            let query = SearchQueryInput::from_qual_with_relation_oid(&quals, table.oid());
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
             } else {

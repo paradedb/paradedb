@@ -467,13 +467,18 @@ unsafe fn resolve_field_name_to_attno(
     relation_oid: pg_sys::Oid,
     field_name: &FieldName,
 ) -> Option<pg_sys::AttrNumber> {
+    pgrx::warning!("🔥 resolve_field_name_to_attno: relation_oid = {}, field_name = {}", relation_oid, field_name.root());
+    
     let relation = pg_sys::RelationIdGetRelation(relation_oid);
     if relation.is_null() {
+        pgrx::warning!("🔥 resolve_field_name_to_attno: RelationIdGetRelation returned null for oid {}", relation_oid);
         return None;
     }
 
     let tuple_desc = (*relation).rd_att;
     let field_name_str = field_name.root();
+    
+    pgrx::warning!("🔥 resolve_field_name_to_attno: searching for field '{}' in {} attributes", field_name_str, (*tuple_desc).natts);
     
     // Search through all attributes to find matching field name
     for attno in 1..=(*tuple_desc).natts {
@@ -481,13 +486,16 @@ unsafe fn resolve_field_name_to_attno(
         let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr());
         
         if let Ok(attr_name_str) = attr_name.to_str() {
+            pgrx::warning!("🔥 resolve_field_name_to_attno: checking attribute {} = '{}'", attno, attr_name_str);
             if attr_name_str == field_name_str {
+                pgrx::warning!("🔥 resolve_field_name_to_attno: FOUND field '{}' at attno {}", field_name_str, attno);
                 pg_sys::RelationClose(relation);
                 return Some(attno as pg_sys::AttrNumber);
             }
         }
     }
 
+    pgrx::warning!("🔥 resolve_field_name_to_attno: field '{}' NOT FOUND", field_name_str);
     pg_sys::RelationClose(relation);
     None
 } 

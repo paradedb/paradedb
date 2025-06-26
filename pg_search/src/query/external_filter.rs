@@ -2043,7 +2043,14 @@ impl IndexedWithSimpleFilterScorer {
         loop {
             let doc_id = self.indexed_scorer.advance();
             if doc_id == tantivy::TERMINATED {
+                self.current_doc = tantivy::TERMINATED;
                 return tantivy::TERMINATED;
+            }
+
+            // Validate doc_id bounds
+            if doc_id >= self.reader.max_doc() {
+                pgrx::warning!("indexed_scorer returned out-of-bounds doc_id: {} (max: {})", doc_id, self.reader.max_doc());
+                continue;
             }
 
             // Check if this document passes all field filters
@@ -2059,7 +2066,7 @@ impl IndexedWithSimpleFilterScorer {
         let ctid = match self.extract_ctid(doc_id) {
             Some(ctid) => ctid,
             None => {
-                debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
+                pgrx::warning!("Failed to extract ctid for doc_id: {}", doc_id);
                 return false;
             }
         };
@@ -2075,12 +2082,18 @@ impl IndexedWithSimpleFilterScorer {
     }
 
     fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
+        // Check if doc_id is valid
+        if doc_id >= self.reader.max_doc() {
+            pgrx::warning!("doc_id {} is out of bounds (max_doc: {})", doc_id, self.reader.max_doc());
+            return None;
+        }
+        
         match &self.ctid_ff {
             crate::index::fast_fields_helper::FFType::U64(ff) => {
                 ff.first(doc_id)
             }
             _ => {
-                debug_log!("CTID fast field is not U64 type");
+                pgrx::warning!("CTID fast field is not U64 type");
                 None
             }
         }

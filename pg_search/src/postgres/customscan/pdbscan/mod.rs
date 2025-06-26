@@ -60,7 +60,7 @@ use crate::postgres::customscan::pdbscan::qual_inspect::{
     extract_join_predicates, extract_quals, Qual, QualExtractState,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{self, CustomScan, CustomScanState};
+use crate::postgres::customscan::{self, CustomScan, CustomScanState, RelPathlistHookArgs};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
@@ -210,7 +210,7 @@ impl PdbScan {
     }
 
     unsafe fn extract_all_possible_quals(
-        builder: &mut CustomPathBuilder<PrivateData>,
+        builder: &mut CustomPathBuilder<PdbScan>,
         root: *mut pg_sys::PlannerInfo,
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
@@ -298,14 +298,13 @@ impl customscan::ExecMethod for PdbScan {
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
+    type Args = RelPathlistHookArgs;
     type State = PdbScanState;
     type PrivateData = PrivateData;
 
-    fn rel_pathlist_callback(
-        mut builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         unsafe {
-            let (restrict_info, ri_type) = builder.restrict_info();
+            let (restrict_info, ri_type) = restrict_info(builder.args().rel());
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // for us to do anything
@@ -1263,6 +1262,24 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
     }
 }
 
+fn restrict_info(rel: &pg_sys::RelOptInfo) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
+    unsafe {
+        let baseri = PgList::from_pg(rel.baserestrictinfo);
+        let joinri = PgList::from_pg(rel.joininfo);
+
+        if baseri.is_empty() && joinri.is_empty() {
+            // both lists are empty, so return an empty list
+            (PgList::new(), RestrictInfoType::None)
+        } else if !baseri.is_empty() {
+            // the baserestrictinfo has entries, so we prefer that first
+            (baseri, RestrictInfoType::BaseRelation)
+        } else {
+            // only the joininfo has entries, so that's what we'll use
+            (joinri, RestrictInfoType::Join)
+        }
+    }
+}
+
 ///
 /// Computes the execution time `which_fast_fields`, which are validated to be a subset of the
 /// planning time `which_fast_fields`. If it's not the case, we return `None` to indicate that
@@ -1363,8 +1380,8 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
-unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
-    builder: &mut CustomPathBuilder<P>,
+unsafe fn pullup_orderby_pathkey(
+    builder: &mut CustomPathBuilder<PdbScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,

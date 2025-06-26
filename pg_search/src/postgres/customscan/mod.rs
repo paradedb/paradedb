@@ -20,8 +20,11 @@
 #![allow(unused_variables)]
 #![allow(clippy::tabs_in_doc_comments)]
 
+use parking_lot::Mutex;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
+
 use std::ffi::{CStr, CString};
+use std::ptr::NonNull;
 
 mod builders;
 mod dsm;
@@ -33,6 +36,7 @@ mod scan;
 mod explainer;
 pub mod pdbscan;
 
+use crate::api::HashMap;
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
@@ -47,63 +51,77 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::register_rel_pathlist;
-use std::ptr::NonNull;
 
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
 }
 
+struct CustomPathMethodsWrapper(*const pg_sys::CustomPathMethods);
+
+unsafe impl Send for CustomPathMethodsWrapper {}
+unsafe impl Sync for CustomPathMethodsWrapper {}
+
+struct CustomScanMethodsWrapper(*const pg_sys::CustomScanMethods);
+
+unsafe impl Send for CustomScanMethodsWrapper {}
+unsafe impl Sync for CustomScanMethodsWrapper {}
+
+lazy_static::lazy_static! {
+    // We need to allocate the structs to define functions once, however
+    // all the methods are generic over this trait ([`CustomScan]).  Because Rust
+    // monomorphizes these functions, they're actually at different addresses per CustomScan
+    // impl. As such, we allocate them once, in Postgres "TopMemoryContext", which is **never**
+    // freed. This ensures we don't waste any more memory than we need and more importantly,
+    // ensures the returned pointer holding the function pointers lives for the life of the
+    // process, which Postgres requires of these.
+    static ref PATH_METHODS: Mutex<HashMap<&'static CStr, CustomPathMethodsWrapper>> = Mutex::default();
+    static ref SCAN_METHODS: Mutex<HashMap<&'static CStr, CustomScanMethodsWrapper>> = Mutex::default();
+}
+
 pub trait CustomScan: ExecMethod + Default + Sized {
     const NAME: &'static CStr;
+    type Args;
     type State: CustomScanState;
     type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List> + Default;
 
-    //
-    // SAFETY:  We need to allocate the struct to define the functions once, however
-    // all the methods are generic over this trait ([`CustomScan]).  Because Rust
-    // monomorphizes these functions, they're actually at different addresses per CustomScan
-    // impl.  As such, we allocate them once, in Postgres "TopMemoryContext", which is **never**
-    // freed.  This ensures we don't waste any more memory than we need and more importantly,
-    // ensures the returned pointer holding the function pointers lives for the life of the
-    // process, which Postgres requires of these.
-    //
-
     fn custom_path_methods() -> *const pg_sys::CustomPathMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomPathMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomPathMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        PlanCustomPath: Some(plan_custom_path::<Self>),
-                        ReparameterizeCustomPathByChild: Some(
-                            reparameterize_custom_path_by_child::<Self>,
-                        ),
-                    },
-                );
-            }
-            METHODS
-        }
+        PATH_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomPathMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                        pg_sys::CustomPathMethods {
+                            CustomName: Self::NAME.as_ptr(),
+                            PlanCustomPath: Some(plan_custom_path::<Self>),
+                            ReparameterizeCustomPathByChild: Some(
+                                reparameterize_custom_path_by_child::<Self>,
+                            ),
+                        },
+                    ),
+                )
+            })
+            .0
     }
 
     fn custom_scan_methods() -> *const pg_sys::CustomScanMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomScanMethods = std::ptr::null_mut();
-
-            METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                pg_sys::CustomScanMethods {
-                    CustomName: Self::NAME.as_ptr(),
-                    CreateCustomScanState: Some(create_custom_scan_state::<Self>),
-                },
-            );
-            METHODS
-        }
+        SCAN_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomScanMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                        pg_sys::CustomScanMethods {
+                            CustomName: Self::NAME.as_ptr(),
+                            CreateCustomScanState: Some(create_custom_scan_state::<Self>),
+                        },
+                    ),
+                )
+            })
+            .0
     }
 
-    fn rel_pathlist_callback(
-        builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
 
@@ -204,6 +222,29 @@ where
     fn mark_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+}
+
+#[derive(Debug)]
+pub struct RelPathlistHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    pub rel: *mut pg_sys::RelOptInfo,
+    pub rti: pg_sys::Index,
+    pub rte: *mut pg_sys::RangeTblEntry,
+}
+
+impl RelPathlistHookArgs {
+    #[allow(dead_code)]
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe { self.rel.as_ref().expect("Args::rel should not be null") }
+    }
+
+    pub fn rte(&self) -> &pg_sys::RangeTblEntry {
+        unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
+    }
 }
 
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more

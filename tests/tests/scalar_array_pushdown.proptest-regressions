@@ -5,3 +5,5 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 3855ecc02c3b0637290da9ce4b694fce6977bcd31d92990b3af63d2a9d093d33 # shrinks to expr = ScalarArrayExpr { column_type: Boolean, operator: Le, quantifier: Any, tokenizer: Default, use_in_syntax: false }
+cc c0a9285868965f0e23425a425145f345c150ae83cfb8fc4f235809d85d6c9a9d # shrinks to expr = ScalarArrayExpr { column_type: Text, operator: In, quantifier: Any, tokenizer: Default, use_in_syntax: false }
+cc 5c524a4fc980834d11de1968f7ee570d7fd7a5ffda37e6232db42ab9482d92e6 # shrinks to expr = ScalarArrayExpr { column_type: Text, operator: In, quantifier: Any, tokenizer: Default, use_in_syntax: false }

@@ -26,43 +26,8 @@ use rstest::*;
 use sqlx::PgConnection;
 use std::fmt::Debug;
 
-#[derive(Debug, Clone, Arbitrary)]
-pub enum Operator {
-    Eq, // =
-    Ne, // <>
-    Lt, // <
-    Le, // <=
-    Gt, // >
-    Ge, // >=
-}
-
-impl Operator {
-    fn to_sql(&self) -> &'static str {
-        match self {
-            Operator::Eq => "=",
-            Operator::Ne => "<>",
-            Operator::Lt => "<",
-            Operator::Le => "<=",
-            Operator::Gt => ">",
-            Operator::Ge => ">=",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Arbitrary)]
-pub enum ArrayQuantifier {
-    Any,
-    All,
-}
-
-impl ArrayQuantifier {
-    fn to_sql(&self) -> &'static str {
-        match self {
-            ArrayQuantifier::Any => "ANY",
-            ArrayQuantifier::All => "ALL",
-        }
-    }
-}
+use crate::fixtures::querygen::compare;
+use crate::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -217,58 +182,6 @@ WITH (
     setup_sql
 }
 
-/// Compare results with custom scan enabled vs disabled
-fn compare_scalar_array<R, F>(
-    pg_query: String,
-    bm25_query: String,
-    conn: &mut PgConnection,
-    run_query: F,
-) -> Result<(), TestCaseError>
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> R,
-{
-    // Run with custom scan disabled (standard Postgres behavior)
-    r#"
-        SET max_parallel_workers TO 8;
-        SET enable_seqscan TO ON;
-        SET enable_indexscan TO ON;
-        SET paradedb.enable_custom_scan TO OFF;
-    "#
-    .execute(conn);
-
-    let pg_result = run_query(&pg_query, conn);
-
-    // Run with custom scan enabled and various scan types disabled
-    "SET paradedb.enable_custom_scan TO ON;".execute(conn);
-    for scan_type in [
-        "SET enable_seqscan TO OFF",
-        "SET enable_indexscan TO OFF",
-        "SET max_parallel_workers TO 0",
-    ] {
-        scan_type.execute(conn);
-
-        let bm25_result = run_query(&bm25_query, conn);
-
-        prop_assert_eq!(
-            &pg_result,
-            &bm25_result,
-            "\nscan_type={}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-            scan_type,
-            pg_query,
-            bm25_query,
-            format!("EXPLAIN (ANALYZE, VERBOSE) {}", bm25_query)
-                .fetch::<(String,)>(conn)
-                .into_iter()
-                .map(|(s,)| s)
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-    }
-
-    Ok(())
-}
-
 #[rstest]
 #[tokio::test]
 async fn test_scalar_array_pushdown_basic(database: Db) {
@@ -302,7 +215,7 @@ async fn test_scalar_array_pushdown_basic(database: Db) {
         eprintln!("PG query: {}", pg_query);
         eprintln!("BM25 query: {}", bm25_query);
 
-        compare_scalar_array(
+        compare(
             pg_query,
             bm25_query,
             &mut pool.pull(),
@@ -344,7 +257,7 @@ async fn test_scalar_array_pushdown_with_results(database: Db) {
         eprintln!("PG query: {}", pg_query);
         eprintln!("BM25 query: {}", bm25_query);
 
-        compare_scalar_array(
+        compare(
             pg_query,
             bm25_query,
             &mut pool.pull(),
@@ -427,7 +340,7 @@ async fn test_scalar_array_in_syntax_variations(database: Db) {
         );
 
         // Then test pushdown
-        compare_scalar_array(
+        compare(
             pg_query_array,
             bm25_query,
             &mut pool.pull(),
@@ -475,7 +388,7 @@ async fn test_scalar_array_edge_cases(database: Db) {
 
         eprintln!("Testing edge case: {}", edge_case);
 
-        compare_scalar_array(pg_query, bm25_query, &mut pool.pull(), |query, conn| {
+        compare(pg_query, bm25_query, &mut pool.pull(), |query, conn| {
             query.fetch::<(i64,)>(conn)
         })
         .unwrap();

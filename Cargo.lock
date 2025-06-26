@@ -2944,6 +2944,7 @@ dependencies = [
  "env_logger 0.11.8",
  "itertools 0.14.0",
  "json5",
+ "lazy_static",
  "memoffset",
  "once_cell",
  "ordered-float",

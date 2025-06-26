@@ -96,12 +96,21 @@ pub enum SearchFieldConfig {
 
 impl SearchFieldConfig {
     pub fn text_from_json(value: serde_json::Value) -> Result<Self> {
-        let config: Self = serde_json::from_value(json!({
+        let mut config: Self = serde_json::from_value(json!({
             "Text": value
         }))?;
 
         match config {
-            SearchFieldConfig::Text { .. } => Ok(config),
+            SearchFieldConfig::Text {
+                ref tokenizer,
+                ref mut fast,
+                ..
+            } => {
+                if matches!(tokenizer, SearchTokenizer::Keyword) {
+                    *fast = true;
+                }
+                Ok(config)
+            }
             _ => Err(anyhow::anyhow!("Expected Text configuration")),
         }
     }
@@ -113,7 +122,7 @@ impl SearchFieldConfig {
 
         match config {
             SearchFieldConfig::Inet { .. } => Ok(config),
-            _ => Err(anyhow::anyhow!("Expected Text configuration")),
+            _ => Err(anyhow::anyhow!("Expected Inet configuration")),
         }
     }
 

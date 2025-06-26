@@ -81,6 +81,7 @@ pub struct ScalarArrayExpr {
     column_type: ColumnType,
     operation: ArrayOperation,
     tokenizer: TokenizerType,
+    include_null: bool,
 }
 
 impl ScalarArrayExpr {
@@ -91,7 +92,7 @@ impl ScalarArrayExpr {
                 "'banana'".to_string(),
                 "'cherry'".to_string(),
                 "'date'".to_string(),
-                "NULL::text".to_string(),
+                "'elderberry'".to_string(),
             ],
             ColumnType::Integer => vec![
                 "1".to_string(),
@@ -99,34 +100,44 @@ impl ScalarArrayExpr {
                 "3".to_string(),
                 "42".to_string(),
                 "100".to_string(),
-                "NULL::integer".to_string(),
             ],
             ColumnType::Boolean => {
-                vec![
-                    "true".to_string(),
-                    "false".to_string(),
-                    "NULL::boolean".to_string(),
-                ]
+                vec!["true".to_string(), "false".to_string()]
             }
             ColumnType::Timestamp => vec![
                 "'2023-01-01 00:00:00'::timestamp".to_string(),
                 "'2023-06-15 12:30:00'::timestamp".to_string(),
                 "'2024-01-01 00:00:00'::timestamp".to_string(),
-                "NULL::timestamp".to_string(),
+                "'2024-06-01 09:15:00'::timestamp".to_string(),
             ],
             ColumnType::Uuid => vec![
                 "'550e8400-e29b-41d4-a716-446655440000'::uuid".to_string(),
                 "'6ba7b810-9dad-11d1-80b4-00c04fd430c8'::uuid".to_string(),
                 "'6ba7b811-9dad-11d1-80b4-00c04fd430c8'::uuid".to_string(),
                 "'12345678-1234-5678-9abc-123456789abc'::uuid".to_string(),
-                "NULL::uuid".to_string(),
             ],
         };
         proptest::sample::select(values)
     }
 
+    fn null_value(&self) -> String {
+        match self.column_type {
+            ColumnType::Text => "NULL::text".to_string(),
+            ColumnType::Integer => "NULL::integer".to_string(),
+            ColumnType::Boolean => "NULL::boolean".to_string(),
+            ColumnType::Timestamp => "NULL::timestamp".to_string(),
+            ColumnType::Uuid => "NULL::uuid".to_string(),
+        }
+    }
+
     fn to_sql(&self, values: &[String]) -> String {
         let column = self.column_type.column_name();
+
+        // Add NULL to values if include_null is true
+        let mut final_values = values.to_vec();
+        if self.include_null {
+            final_values.push(self.null_value());
+        }
 
         match &self.operation {
             ArrayOperation::OperatorQuantifier {
@@ -135,12 +146,12 @@ impl ScalarArrayExpr {
             } => {
                 let op = operator.to_sql();
                 let quant = quantifier.to_sql();
-                let array_literal = format!("ARRAY[{}]", values.join(", "));
+                let array_literal = format!("ARRAY[{}]", final_values.join(", "));
                 format!("{} {} {}({})", column, op, quant, array_literal)
             }
             ArrayOperation::ScalarArray { operator } => {
                 let op = operator.to_sql();
-                format!("{} {} ({})", column, op, values.join(", "))
+                format!("{} {} ({})", column, op, final_values.join(", "))
             }
         }
     }
@@ -166,19 +177,19 @@ CREATE TABLE scalar_array_test (
 -- Insert test data
 INSERT INTO scalar_array_test (text_col, int_col, bool_col, ts_col, uuid_col) VALUES
     ('apple', 1, true, '2023-01-01 00:00:00', '550e8400-e29b-41d4-a716-446655440000'),
-    ('banana', 2, false, '2023-06-15 12:30:00', '6ba7b810-9dad-11d1-80b4-00c04fd430c8'),
-    ('cherry', 3, true, '2024-01-01 00:00:00', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
-    ('date', 42, false, '2023-12-25 18:00:00', '12345678-1234-5678-9abc-123456789abc'),
-    ('elderberry', 100, true, '2024-06-01 09:15:00', '550e8400-e29b-41d4-a716-446655440001'),
-    ('fig', 1, false, '2023-03-15 14:20:00', '6ba7b810-9dad-11d1-80b4-00c04fd430c9'),
-    ('grape', 2, true, '2023-09-30 20:45:00', '6ba7b811-9dad-11d1-80b4-00c04fd430c9'),
-    ('honeydew', 3, false, '2024-02-14 11:30:00', '12345678-1234-5678-9abc-123456789abd'),
+    ('Apple', 2, false, '2023-06-15 12:30:00', '6ba7b810-9dad-11d1-80b4-00c04fd430c8'),
+    ('Apple Tree', 3, true, '2024-01-01 00:00:00', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+    ('banana', 42, false, '2023-12-25 18:00:00', '12345678-1234-5678-9abc-123456789abc'),
+    ('banana bunch', 100, true, '2024-06-01 09:15:00', '550e8400-e29b-41d4-a716-446655440001'),
+    ('Ripe Banana', 1, false, '2023-03-15 14:20:00', '6ba7b810-9dad-11d1-80b4-00c04fd430c9'),
+    ('banana', 2, true, '2023-09-30 20:45:00', '6ba7b811-9dad-11d1-80b4-00c04fd430c9'),
+    ('banana', 3, false, '2024-02-14 11:30:00', '12345678-1234-5678-9abc-123456789abd'),
     -- Rows with NULL values
     (NULL, 4, true, '2024-03-01 10:00:00', '550e8400-e29b-41d4-a716-446655440002'),
-    ('kiwi', NULL, false, '2024-04-01 11:00:00', '6ba7b810-9dad-11d1-80b4-00c04fd430ca'),
-    ('lemon', 5, NULL, '2024-05-01 12:00:00', '6ba7b811-9dad-11d1-80b4-00c04fd430ca'),
-    ('mango', 6, true, NULL, '12345678-1234-5678-9abc-123456789abe'),
-    ('orange', 7, false, '2024-07-01 14:00:00', NULL);
+    ('cherry', NULL, false, '2024-04-01 11:00:00', '6ba7b810-9dad-11d1-80b4-00c04fd430ca'),
+    ('date', 42, NULL, '2024-05-01 12:00:00', '6ba7b811-9dad-11d1-80b4-00c04fd430ca'),
+    ('elderberry', 2, true, NULL, '12345678-1234-5678-9abc-123456789abe'),
+    ('cherry', 1, false, '2024-07-01 14:00:00', NULL);
 
 -- Create BM25 index with configurable tokenizer
 CREATE INDEX idx_scalar_array_test ON scalar_array_test
@@ -229,10 +240,7 @@ async fn scalar_array_pushdown_correctness(database: Db) {
             array_condition
         );
 
-        eprintln!("Testing array condition: {}", array_condition);
-        eprintln!("Operation type: {:?}", expr.operation);
-        eprintln!("PG query: {}", pg_query);
-        eprintln!("BM25 query: {}", bm25_query);
+        eprintln!("{}", array_condition);
 
         compare(
             pg_query,

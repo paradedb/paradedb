@@ -609,7 +609,7 @@ pub unsafe fn term_with_operator(
 /// is equivalent to:
 ///
 /// ```sql
-/// SELECT * FROM mock_items WHERE id @@@ paradedb.terms_with_operator('rating', '=', ARRAY[1, 2, 3], true);
+/// SELECT * FROM mock_items WHERE id @@@ paradedb.terms_with_operator('rating', '=', ARRAY[1, 2, 3], false);
 /// ```
 ///
 #[pg_extern(immutable, parallel_safe)]

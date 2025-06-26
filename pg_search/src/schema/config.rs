@@ -23,7 +23,6 @@ use tantivy::schema::{
     DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
     TextFieldIndexing, TextOptions,
 };
-use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
@@ -206,17 +205,16 @@ impl SearchFieldConfig {
         Self::from_json(json!({"Text": {}}))
     }
 
-    #[allow(deprecated)]
     pub fn default_uuid() -> Self {
         let mut config = Self::from_json(json!({"Text": {}}));
         if let SearchFieldConfig::Text {
-            ref mut tokenizer, ..
+            ref mut tokenizer,
+            ref mut fast,
+            ..
         } = config
         {
-            // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
-            // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
-            // configuration as the `SearchTokenizer::Keyword` tokenizer.
-            *tokenizer = SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone());
+            *tokenizer = SearchTokenizer::Keyword;
+            *fast = true;
         }
         config
     }

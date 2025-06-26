@@ -4,35 +4,27 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan to OFF;
 SET paradedb.enable_mixed_fast_field_exec = true;
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'mock_items'
+DROP TABLE IF EXISTS t;
+CREATE TABLE t (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    org_id UUID
 );
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
-SELECT * FROM paradedb.schema('search_idx');
-     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         |  record  | normalizer 
---------------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
- category     | Str        | f      | t       | f    | t          |             | default                                                   | position | 
- created_at   | Date       | f      | t       | t    | f          |             |                                                           |          | 
- ctid         | U64        | f      | t       | t    | f          |             |                                                           |          | 
- description  | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
- id           | I64        | f      | t       | t    | f          |             |                                                           |          | 
- in_stock     | Bool       | f      | t       | t    | f          |             |                                                           |          | 
- metadata     | JsonObject | f      | t       | f    | f          | t           | default                                                   | position | 
- rating       | I64        | f      | t       | t    | f          |             |                                                           |          | 
- weight_range | JsonObject | f      | t       | t    | f          | t           | default                                                   | position | raw
-(9 rows)
+INSERT INTO t (description, org_id) VALUES
+    ('banana', '123e4567-e89b-12d3-a456-426614174000'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174001'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174002'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174003'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174004');
+CREATE INDEX t_idx ON t USING bm25
+(id, description, org_id) WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
+SELECT * FROM paradedb.schema('t_idx');
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
+ ctid        | U64        | f      | t       | t    | f          |             |                                                           |          | 
+ description | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
+ id          | I64        | f      | t       | t    | f          |             |                                                           |          | 
+ org_id      | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
+(4 rows)
 
-SELECT * FROM mock_items WHERE id @@@ paradedb.exists('description') ORDER BY id LIMIT 5;
- id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range 
-----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)
-  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)
-  3 | Sleek running shoes      |      5 | Footwear    | t        | {"color": "Blue", "location": "China"}           | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)
-  4 | White jogging shoes      |      3 | Footwear    | f        | {"color": "White", "location": "United States"}  | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)
-  5 | Generic shoes            |      4 | Footwear    | t        | {"color": "Brown", "location": "Canada"}         | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)
-(5 rows)
-
-DROP TABLE mock_items;
+DROP TABLE t;

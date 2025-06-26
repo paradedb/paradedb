@@ -23,10 +23,11 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
+use pgrx::nullable::IntoNullableIterator;
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
 use std::ops::Bound;
@@ -611,39 +612,102 @@ pub unsafe fn term_with_operator(
 /// SELECT * FROM mock_items WHERE id @@@ paradedb.terms_with_operator('rating', '=', ARRAY[1, 2, 3], true);
 /// ```
 ///
-#[rustfmt::skip]
 #[pg_extern(immutable, parallel_safe)]
 pub unsafe fn terms_with_operator(
     field: FieldName,
     operator: String,
     value: AnyElement,
-    use_or: bool
+    conjunction_mode: bool,
 ) -> anyhow::Result<SearchQueryInput> {
     let array_type = unsafe { pg_sys::get_element_type(value.oid()) };
     if array_type == pg_sys::InvalidOid {
         panic!("terms_with_operator: value is not an array");
     }
 
-    let array = pgrx::datum::Array::<pg_sys::Datum>::from_datum(value.datum(), false).unwrap();
-    let quals = array.into_iter().filter_map(|datum| {
-        datum.map(|d| {
-            let anyelement = AnyElement::from_polymorphic_datum(d, false, array_type).expect("should be a valid AnyElement");
-            term_with_operator(field.clone(), operator.clone(), anyelement).expect("should return a valid SearchQueryInput")
-        })
-    }).collect::<Vec<_>>();
+    let array = Array::<pg_sys::Datum>::from_datum(value.datum(), false).unwrap();
+    if !conjunction_mode && operator.trim() == "=" {
+        // represents:
+        //    - field IN (x, y, z)
+        //    - = ANY(ARRAY[x, y, z])
+        //
+        // this case can be optimized to use the tantivy TermSet
+        let is_datetime = matches!(
+            array_type,
+            pg_sys::DATEOID
+                | pg_sys::TIMEOID
+                | pg_sys::TIMETZOID
+                | pg_sys::TIMESTAMPOID
+                | pg_sys::TIMESTAMPTZOID
+        );
+        let array_type = PgOid::from_untagged(array_type);
+        let terms = array
+            .into_nullable_iter()
+            // skip NULL values in the array -- SQL boolean logic says we can't match them
+            // and since this is the disjunction case ("OR"), we don't need to anyway
+            .filter(|datum| datum.is_valid())
+            .map(|datum| {
+                let value = TantivyValue::try_from_datum(datum.unwrap(), array_type)?;
 
-    if use_or {
-        Ok(SearchQueryInput::Boolean {
-            must: vec![],
-            should: quals,
-            must_not: vec![],
-        })
+                Ok(TermInput {
+                    field: field.clone(),
+                    value: value.into(),
+                    is_datetime,
+                })
+            })
+            .collect::<Result<Vec<_>, TantivyValueError>>()?;
+
+        Ok(SearchQueryInput::TermSet { terms })
     } else {
-        Ok(SearchQueryInput::Boolean {
-            must: quals,
-            should: vec![],
-            must_not: vec![],
-        })
+        // this case must form a tantivy Boolean expression of individual terms
+        // which are OR'd or AND'd together
+        //
+        // represents the general forms of:
+        //      - field $op ANY|ALL(ARRAY[x, y, z])
+        //
+        // and specifically the cases of:
+        //      - field NOT IN (x, y, z), which is actually rewritten as...
+        //      - field <> ALL(ARRAY[x, y, z])
+        //
+        //
+        if conjunction_mode && array.contains_nulls() {
+            // if the array contains a null, it cannot be matched in a conjunction because in SQL a NULL doesn't
+            // compare in any way to another NULL
+            return Ok(SearchQueryInput::Empty);
+        }
+
+        let quals = array
+            .into_nullable_iter()
+            .filter(|datum| datum.is_valid())
+            .map(|datum| {
+                let anyelement =
+                    AnyElement::from_polymorphic_datum(datum.unwrap(), false, array_type)
+                        .expect("should be a valid AnyElement");
+                term_with_operator(field.clone(), operator.clone(), anyelement)
+                    .expect("should return a valid SearchQueryInput")
+            })
+            .collect::<Vec<_>>();
+
+        if conjunction_mode {
+            // AND the queries together
+            Ok(SearchQueryInput::Boolean {
+                must: quals,
+                should: vec![],
+                must_not: vec![],
+            })
+        } else {
+            // OR the queries together
+            Ok(SearchQueryInput::Boolean {
+                must: operator
+                    .trim()
+                    .eq("<>")
+                    // possibly requiring the field actually has a value
+                    // if the operator is not equals
+                    .then(|| vec![SearchQueryInput::Exists { field }])
+                    .unwrap_or_default(),
+                should: quals,
+                must_not: vec![],
+            })
+        }
     }
 }
 

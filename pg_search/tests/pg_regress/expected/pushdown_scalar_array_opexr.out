@@ -69,8 +69,8 @@ SELECT * FROM scalar_array_pushdown
 WHERE uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid])
 ORDER BY id
 LIMIT 10;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -80,7 +80,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"term":{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false}},{"term":{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}}]}}
+         Tantivy Query: {"term_set":{"terms":[{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false},{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}]}}
 (10 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -88,8 +88,8 @@ SELECT * FROM scalar_array_pushdown
 WHERE text_col = ANY(ARRAY['Alice', 'Bob'])
 ORDER BY id
 LIMIT 10;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -99,7 +99,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"term":{"field":"text_col","value":"Alice","is_datetime":false}},{"term":{"field":"text_col","value":"Bob","is_datetime":false}}]}}
+         Tantivy Query: {"term_set":{"terms":[{"field":"text_col","value":"Alice","is_datetime":false},{"field":"text_col","value":"Bob","is_datetime":false}]}}
 (10 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -107,8 +107,8 @@ SELECT * FROM scalar_array_pushdown
 WHERE int_col = ANY(ARRAY[0, 1])
 ORDER BY id
 LIMIT 10;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -118,7 +118,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"term":{"field":"int_col","value":0,"is_datetime":false}},{"term":{"field":"int_col","value":1,"is_datetime":false}}]}}
+         Tantivy Query: {"term_set":{"terms":[{"field":"int_col","value":0,"is_datetime":false},{"field":"int_col","value":1,"is_datetime":false}]}}
 (10 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -126,8 +126,8 @@ SELECT * FROM scalar_array_pushdown
 WHERE date_col = ANY(ARRAY['2023-01-01'::date, '2023-01-02'::date])
 ORDER BY id
 LIMIT 10;
-                                                                                                   QUERY PLAN                                                                                                    
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -137,7 +137,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"term":{"field":"date_col","value":"2023-01-01T00:00:00Z","is_datetime":true}},{"term":{"field":"date_col","value":"2023-01-02T00:00:00Z","is_datetime":true}}]}}
+         Tantivy Query: {"term_set":{"terms":[{"field":"date_col","value":"2023-01-01T00:00:00Z","is_datetime":true},{"field":"date_col","value":"2023-01-02T00:00:00Z","is_datetime":true}]}}
 (10 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -145,8 +145,8 @@ SELECT * FROM scalar_array_pushdown
 WHERE ts_col = ANY(ARRAY['2023-01-01'::timestamp, '2023-01-02'::timestamp])
 ORDER BY id
 LIMIT 10;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -156,7 +156,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"term":{"field":"ts_col","value":"2023-01-01T00:00:00Z","is_datetime":true}},{"term":{"field":"ts_col","value":"2023-01-02T00:00:00Z","is_datetime":true}}]}}
+         Tantivy Query: {"term_set":{"terms":[{"field":"ts_col","value":"2023-01-01T00:00:00Z","is_datetime":true},{"field":"ts_col","value":"2023-01-02T00:00:00Z","is_datetime":true}]}}
 (10 rows)
 
 -- Test pushdown with other clauses
@@ -168,8 +168,8 @@ OR text_col @@@ 'Alice'
 AND int_col > 2
 ORDER BY id
 LIMIT 10;
-                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                       
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on scalar_array_pushdown
          Table: scalar_array_pushdown
@@ -179,7 +179,7 @@ LIMIT 10;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 10
-         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"boolean":{"should":[{"term":{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false}},{"term":{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}}]}},{"boolean":{"should":[{"term":{"field":"text_col","value":"Alice","is_datetime":false}},{"term":{"field":"text_col","value":"Bob","is_datetime":false}}]}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_col","query_string":"Alice","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"int_col","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
+         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"term_set":{"terms":[{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440000","is_datetime":false},{"field":"uuid_col","value":"550e8400-e29b-41d4-a716-446655440001","is_datetime":false}]}},{"term_set":{"terms":[{"field":"text_col","value":"Alice","is_datetime":false},{"field":"text_col","value":"Bob","is_datetime":false}]}}]}},{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_col","query_string":"Alice","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"int_col","lower_bound":{"excluded":2},"upper_bound":null,"is_datetime":false}}]}}]}}
 (10 rows)
 
 DROP INDEX scalar_array_pushdown_idx;

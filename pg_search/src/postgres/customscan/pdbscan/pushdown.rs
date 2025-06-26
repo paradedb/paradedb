@@ -244,7 +244,8 @@ unsafe fn make_opexpr(
         args.push(value.cast());
 
         if matches!(orig_opexor, OpExpr::Array(_)) {
-            let use_or = pg_sys::makeBoolConst(orig_opexor.use_or().unwrap(), false);
+            let conjunction_mode = !orig_opexor.use_or().unwrap(); // invert meaning for `conjunction` (which would be AND)
+            let use_or = pg_sys::makeBoolConst(conjunction_mode, false);
             args.push(use_or.cast());
         }
 

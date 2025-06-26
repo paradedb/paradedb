@@ -1,15 +1,21 @@
 \i common/common_setup.sql
 
-CALL paradedb.create_bm25_test_table(
-  schema_name => 'public',
-  table_name => 'mock_items'
+DROP TABLE IF EXISTS t;
+CREATE TABLE t (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    org_id UUID
 );
 
-CREATE INDEX search_idx ON mock_items
-USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
-WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
+INSERT INTO t (description, org_id) VALUES
+    ('banana', '123e4567-e89b-12d3-a456-426614174000'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174001'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174002'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174003'),
+    ('banana', '123e4567-e89b-12d3-a456-426614174004');
 
-SELECT * FROM paradedb.schema('search_idx');
-SELECT * FROM mock_items WHERE id @@@ paradedb.exists('description') ORDER BY id LIMIT 5;
+CREATE INDEX t_idx ON t USING bm25
+(id, description, org_id) WITH (key_field='id', text_fields='{"description": {"tokenizer": {"type": "keyword"}}}');
 
-DROP TABLE mock_items;
+SELECT * FROM paradedb.schema('t_idx');
+DROP TABLE t;

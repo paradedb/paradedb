@@ -51,6 +51,17 @@ impl SimpleFieldFilter {
         }
     }
 
+    /// Create a SimpleFieldFilter with automatic attribute number resolution
+    pub fn new_with_field_resolution(
+        field: FieldName,
+        operator: SimpleOperator,
+        value: SimpleValue,
+        relation_oid: pg_sys::Oid,
+    ) -> Option<Self> {
+        let field_attno = unsafe { resolve_field_name_to_attno(relation_oid, &field)? };
+        Some(Self::new(field, operator, value, relation_oid, field_attno))
+    }
+
     /// Extract field value from PostgreSQL heap using ctid and evaluate the filter
     pub fn evaluate(&self, ctid: u64) -> bool {
         // Step 1: Extract field value from PostgreSQL using ctid
@@ -449,4 +460,34 @@ mod tests {
         assert!(filter.compare_less(&OwnedValue::F64(299.99)));
         assert!(!filter.compare_less(&OwnedValue::F64(300.01)));
     }
+}
+
+/// Resolve a field name to its attribute number in the given relation
+unsafe fn resolve_field_name_to_attno(
+    relation_oid: pg_sys::Oid,
+    field_name: &FieldName,
+) -> Option<pg_sys::AttrNumber> {
+    let relation = pg_sys::RelationIdGetRelation(relation_oid);
+    if relation.is_null() {
+        return None;
+    }
+
+    let tuple_desc = (*relation).rd_att;
+    let field_name_str = field_name.root();
+    
+    // Search through all attributes to find matching field name
+    for attno in 1..=(*tuple_desc).natts {
+        let attr = (*tuple_desc).attrs.as_ptr().add((attno - 1) as usize);
+        let attr_name = std::ffi::CStr::from_ptr((*attr).attname.data.as_ptr());
+        
+        if let Ok(attr_name_str) = attr_name.to_str() {
+            if attr_name_str == field_name_str {
+                pg_sys::RelationClose(relation);
+                return Some(attno as pg_sys::AttrNumber);
+            }
+        }
+    }
+
+    pg_sys::RelationClose(relation);
+    None
 } 

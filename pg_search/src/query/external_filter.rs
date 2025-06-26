@@ -1938,8 +1938,17 @@ impl DocSet for SimpleFieldFilterScorer {
 /// Combined query that runs indexed query first, then applies field filters
 #[derive(Debug)]
 pub struct IndexedWithSimpleFilterQuery {
-    pub indexed_query: Box<dyn Query>,
-    pub field_filters: Vec<SimpleFieldFilter>,
+    indexed_query: Box<dyn Query>,
+    field_filters: Vec<crate::query::simple_field_filter::SimpleFieldFilter>,
+}
+
+impl Clone for IndexedWithSimpleFilterQuery {
+    fn clone(&self) -> Self {
+        Self {
+            indexed_query: self.indexed_query.box_clone(),
+            field_filters: self.field_filters.clone(),
+        }
+    }
 }
 
 impl IndexedWithSimpleFilterQuery {
@@ -1951,8 +1960,7 @@ impl IndexedWithSimpleFilterQuery {
     }
 }
 
-// FIXME: Temporarily disabled - needs FFHelper fixes
-/*
+// Enable the Query implementation for IndexedWithSimpleFilterQuery
 impl Query for IndexedWithSimpleFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
         let indexed_weight = self.indexed_query.weight(enable_scoring)?;
@@ -1962,7 +1970,6 @@ impl Query for IndexedWithSimpleFilterQuery {
         }))
     }
 }
-*/
 
 struct IndexedWithSimpleFilterWeight {
     indexed_weight: Box<dyn Weight>,

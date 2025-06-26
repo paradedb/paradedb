@@ -2864,16 +2864,15 @@ pub unsafe fn convert_quals_to_simple_filters(
                 FieldValue::Null => return filters, // Skip NULL values
             };
             
-            // Get field attribute number - for now use a placeholder
-            let field_attno = 1; // This would need to be properly resolved from field name
-            
-            filters.push(SimpleFieldFilter::new(
+            // Use proper field resolution instead of placeholder
+            if let Some(filter) = SimpleFieldFilter::new_with_field_resolution(
                 field.clone(),
                 simple_op,
                 simple_value,
                 relation_oid,
-                field_attno,
-            ));
+            ) {
+                filters.push(filter);
+            }
         }
         Qual::FieldNullTest { field, is_null } => {
             let simple_op = if *is_null {
@@ -2884,15 +2883,16 @@ pub unsafe fn convert_quals_to_simple_filters(
             
             // For NULL tests, the value doesn't matter
             let simple_value = SimpleValue::Text("unused".to_string());
-            let field_attno = 1; // This would need to be properly resolved
             
-            filters.push(SimpleFieldFilter::new(
+            // Use proper field resolution instead of placeholder
+            if let Some(filter) = SimpleFieldFilter::new_with_field_resolution(
                 field.clone(),
                 simple_op,
                 simple_value,
                 relation_oid,
-                field_attno,
-            ));
+            ) {
+                filters.push(filter);
+            }
         }
         Qual::And(quals) => {
             // Recursively convert all AND-ed quals

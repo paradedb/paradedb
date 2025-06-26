@@ -1793,20 +1793,18 @@ impl SearchQueryInput {
                 // Convert the indexed query first
                 let indexed_tantivy_query = indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
 
-                // FIXME: Temporarily return indexed query only until SimpleFieldFilter is fully implemented
-                pgrx::warning!("IndexedWithFilter has {} field filters - temporarily ignoring", field_filters.len());
-                Ok(indexed_tantivy_query)
-                
-                // TODO: Re-enable when SimpleFieldFilter Query implementation is complete
-                // if !field_filters.is_empty() {
-                //     use crate::query::external_filter::IndexedWithSimpleFilterQuery;
-                //     Ok(Box::new(IndexedWithSimpleFilterQuery::new(
-                //         indexed_tantivy_query,
-                //         field_filters,
-                //     )))
-                // } else {
-                //     Ok(indexed_tantivy_query)
-                // }
+                // Enable SimpleFieldFilter Query implementation
+                if !field_filters.is_empty() {
+                    pgrx::warning!("IndexedWithFilter has {} field filters - creating IndexedWithSimpleFilterQuery", field_filters.len());
+                    use crate::query::external_filter::IndexedWithSimpleFilterQuery;
+                    Ok(Box::new(IndexedWithSimpleFilterQuery::new(
+                        indexed_tantivy_query,
+                        field_filters,
+                    )))
+                } else {
+                    pgrx::warning!("IndexedWithFilter has no field filters - returning indexed query only");
+                    Ok(indexed_tantivy_query)
+                }
             }
         }
     }

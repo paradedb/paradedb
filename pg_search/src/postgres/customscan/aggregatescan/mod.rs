@@ -26,7 +26,9 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::{CustomScan, CustomScanState, ExecMethod};
+use crate::postgres::customscan::{
+    CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod,
+};
 
 use pgrx::pg_sys;
 
@@ -35,23 +37,12 @@ pub struct AggregateScan;
 
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
+    type Args = CreateUpperPathsHookArgs;
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn rel_pathlist_callback(
-        builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath> {
-        None
-    }
-
-    fn upper_path_callback(
-        root: *mut pg_sys::PlannerInfo,
-        stage: pg_sys::UpperRelationKind::Type,
-        input_rel: *mut pg_sys::RelOptInfo,
-        output_rel: *mut pg_sys::RelOptInfo,
-        extra: *mut ::std::os::raw::c_void,
-    ) {
-        todo!("TODO: upper_path_callback")
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+        todo!("TODO: create_custom_path")
     }
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {

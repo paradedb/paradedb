@@ -56,6 +56,7 @@ pub trait CustomScanState: Default {
 
 pub trait CustomScan: ExecMethod + Default + Sized {
     const NAME: &'static CStr;
+    type Args;
     type State: CustomScanState;
     type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List> + Default;
 
@@ -102,9 +103,7 @@ pub trait CustomScan: ExecMethod + Default + Sized {
         }
     }
 
-    fn rel_pathlist_callback(
-        builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
 
     fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
 
@@ -205,6 +204,60 @@ where
     fn mark_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
+}
+
+#[derive(Debug)]
+pub struct RelPathlistHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    pub rel: *mut pg_sys::RelOptInfo,
+    pub rti: pg_sys::Index,
+    pub rte: *mut pg_sys::RangeTblEntry,
+}
+
+impl RelPathlistHookArgs {
+    #[allow(dead_code)]
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe { self.rel.as_ref().expect("Args::rel should not be null") }
+    }
+
+    pub fn rte(&self) -> &pg_sys::RangeTblEntry {
+        unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
+    }
+}
+
+#[derive(Debug)]
+pub struct CreateUpperPathsHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    pub stage: pg_sys::UpperRelationKind::Type,
+    pub input_rel: *mut pg_sys::RelOptInfo,
+    pub output_rel: *mut pg_sys::RelOptInfo,
+    pub extra: *mut ::std::os::raw::c_void,
+}
+
+impl CreateUpperPathsHookArgs {
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn input_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.input_rel
+                .as_ref()
+                .expect("Args::input_rel should not be null")
+        }
+    }
+
+    pub fn output_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.output_rel
+                .as_ref()
+                .expect("Args::output_rel should not be null")
+        }
+    }
 }
 
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more

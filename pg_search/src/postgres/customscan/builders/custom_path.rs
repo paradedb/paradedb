@@ -151,29 +151,6 @@ impl ExecMethodType {
     }
 }
 
-#[derive(Debug)]
-pub struct Args {
-    pub root: *mut pg_sys::PlannerInfo,
-    pub rel: *mut pg_sys::RelOptInfo,
-    pub rti: pg_sys::Index,
-    pub rte: *mut pg_sys::RangeTblEntry,
-}
-
-impl Args {
-    #[allow(dead_code)]
-    pub fn root(&self) -> &pg_sys::PlannerInfo {
-        unsafe { self.root.as_ref().expect("Args::root should not be null") }
-    }
-
-    pub fn rel(&self) -> &pg_sys::RelOptInfo {
-        unsafe { self.rel.as_ref().expect("Args::rel should not be null") }
-    }
-
-    pub fn rte(&self) -> &pg_sys::RangeTblEntry {
-        unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
-    }
-}
-
 #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
 #[repr(u32)]
 #[allow(dead_code)]
@@ -191,8 +168,8 @@ pub enum Flags {
     Force = 0x0008,
 }
 
-pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
-    args: Args,
+pub struct CustomPathBuilder<CS: CustomScan> {
+    args: CS::Args,
     flags: HashSet<Flags>,
 
     custom_path_node: pg_sys::CustomPath,
@@ -202,7 +179,7 @@ pub struct CustomPathBuilder<P: Into<*mut pg_sys::List> + Default> {
     /// `custom_private` can be used to store the custom path's private data. Private data should be
     /// stored in a form that can be handled by nodeToString, so that debugging routines that attempt
     /// to print the custom path will work as designed.
-    custom_private: P,
+    custom_private: CS::PrivateData,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -212,21 +189,15 @@ pub enum RestrictInfoType {
     None,
 }
 
-impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
-    pub fn new<CS: CustomScan>(
+impl<CS: CustomScan> CustomPathBuilder<CS> {
+    pub fn new(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
-        rti: pg_sys::Index,
-        rte: *mut pg_sys::RangeTblEntry,
-    ) -> CustomPathBuilder<P> {
+        args: CS::Args,
+    ) -> Self {
         unsafe {
             Self {
-                args: Args {
-                    root,
-                    rel,
-                    rti,
-                    rte,
-                },
+                args,
                 flags: Default::default(),
 
                 custom_path_node: pg_sys::CustomPath {
@@ -246,45 +217,13 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
                     ..Default::default()
                 },
                 custom_paths: PgList::default(),
-                custom_private: P::default(),
+                custom_private: CS::PrivateData::default(),
             }
         }
     }
 
-    pub fn args(&self) -> &Args {
+    pub fn args(&self) -> &CS::Args {
         &self.args
-    }
-
-    //
-    // convenience getters for type safety
-    //
-
-    pub fn restrict_info(&self) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
-        unsafe {
-            let baseri = PgList::from_pg(self.args.rel().baserestrictinfo);
-            let joinri = PgList::from_pg(self.args.rel().joininfo);
-
-            if baseri.is_empty() && joinri.is_empty() {
-                // both lists are empty, so return an empty list
-                (PgList::new(), RestrictInfoType::None)
-            } else if !baseri.is_empty() {
-                // the baserestrictinfo has entries, so we prefer that first
-                (baseri, RestrictInfoType::BaseRelation)
-            } else {
-                // only the joininfo has entries, so that's what we'll use
-                (joinri, RestrictInfoType::Join)
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn path_target(&self) -> *mut pg_sys::PathTarget {
-        self.args.rel().reltarget
-    }
-
-    #[allow(dead_code)]
-    pub fn limit(&self) -> i32 {
-        unsafe { (*self.args().root).limit_tuples.round() as i32 }
     }
 
     //
@@ -308,7 +247,7 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
         self
     }
 
-    pub fn custom_private(&mut self) -> &mut P {
+    pub fn custom_private(&mut self) -> &mut CS::PrivateData {
         &mut self.custom_private
     }
 

@@ -1,0 +1,963 @@
+-- Test case for demonstrating the issue where BM25 scores return null 
+-- when not all predicates are indexed in the BM25 index
+-- This is a simpler reproduction case than join scenarios
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+-- Setup test table
+DROP TABLE IF EXISTS products;
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    price DECIMAL(10,2),
+    category_id INTEGER,
+    category_name TEXT,
+    in_stock BOOLEAN,
+    created_at TIMESTAMP DEFAULT '2025-01-01 12:00:00'::timestamp,
+    rating REAL,
+    tags TEXT[]
+);
+-- Insert test data
+INSERT INTO products (name, description, price, category_id, category_name, in_stock, rating, tags) VALUES
+('Apple iPhone 14', 'Latest Apple smartphone with great camera', 999.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
+('MacBook Pro', 'Powerful Apple laptop for professionals', 2499.99, 1, 'Electronics', true, 4.8, ARRAY['laptop', 'apple']),
+-- ('Apple iPhone 13', 'Latest Apple smartphone with medium camera', 899.99, 1, 'Casual', true, 4.5, ARRAY['smartphone', 'apple']),
+('Nike Air Max', 'Comfortable running shoes for athletes', 149.99, 2, 'Footwear', true, 4.2, ARRAY['shoes', 'running']),
+('Samsung Galaxy', 'Android smartphone with excellent display', 899.99, 1, 'Electronics', false, 4.3, ARRAY['smartphone', 'android']),
+('Adidas Ultraboost', 'Premium running shoes with boost technology', 179.99, 2, 'Footwear', true, 4.6, ARRAY['shoes', 'running', 'premium']),
+('Nike Normal', 'Comfortable running shoes for athletes and technology enthusiasts', 149.99, 2, 'Footwear', false, 3.9, ARRAY['shoes', 'casual']),
+('Apple Watch', 'Smartwatch with health tracking features', 399.99, 1, 'Electronics', true, 4.4, ARRAY['watch', 'apple']),
+('Sony Headphones', 'Noise-canceling headphones for music lovers', 299.99, 1, 'Electronics', true, 4.7, ARRAY['headphones', 'audio']),
+('Running Socks', 'Moisture-wicking socks for athletes', 19.99, 2, 'Footwear', true, 4.0, ARRAY['socks', 'running']),
+('Budget Phone', 'Affordable smartphone for basic needs', 199.99, 1, 'Electronics', false, 3.5, NULL),
+('Budget Tablet', 'Affordable tablet for basic needs', 199.99, 1, 'Garbage', false, 3.5, NULL);
+-- Create BM25 index that only includes some columns (name, description)
+-- Note: price, category_id, category_name, in_stock, rating, tags are NOT in the BM25 index
+CREATE INDEX products_bm25_idx ON products USING bm25 (
+    id,
+    name,
+    description
+) WITH (key_field = 'id');
+-- Test Case 1: Query using only indexed columns - should return proper scores
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+ORDER BY score DESC;
+                                                                                                                                                      QUERY PLAN                                                                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
+
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
+ORDER BY score DESC;
+ id |      name       |   score   
+----+-----------------+-----------
+  1 | Apple iPhone 14 | 2.5521502
+  7 | Apple Watch     | 1.6239789
+  4 | Samsung Galaxy  | 1.2838018
+ 10 | Budget Phone    | 1.2838018
+(4 rows)
+
+-- Test Case 2: Query using indexed + non-indexed columns - currently returns null/zero scores
+-- This demonstrates the problem: even though 'Apple' matches in the indexed 'name' field,
+-- the presence of 'category_name = Electronics' (non-indexed predicate) causes scores to be null
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: ((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+         Filter: (category_name = 'Electronics'::text)
+         ->  BitmapOr
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(10 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+ id |      name      | category_name | score 
+----+----------------+---------------+-------
+  4 | Samsung Galaxy | Electronics   |      
+  7 | Apple Watch    | Electronics   |      
+ 10 | Budget Phone   | Electronics   |      
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Seq Scan on products
+         Filter: ((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (category_name = 'Electronics'::text))
+(4 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+ id |      name       | category_name | score 
+----+-----------------+---------------+-------
+  1 | Apple iPhone 14 | Casual        |      
+  2 | MacBook Pro     | Electronics   |      
+  4 | Samsung Galaxy  | Electronics   |      
+  7 | Apple Watch     | Electronics   |      
+  8 | Sony Headphones | Electronics   |      
+ 10 | Budget Phone    | Electronics   |      
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Seq Scan on products
+         Filter: (((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) AND (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) OR (category_name = 'Electronics'::text))
+(4 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR category_name = 'Electronics'
+ORDER BY score DESC;
+ id |      name       | category_name | score 
+----+-----------------+---------------+-------
+  1 | Apple iPhone 14 | Casual        |      
+  2 | MacBook Pro     | Electronics   |      
+  4 | Samsung Galaxy  | Electronics   |      
+  7 | Apple Watch     | Electronics   |      
+  8 | Sony Headphones | Electronics   |      
+ 10 | Budget Phone    | Electronics   |      
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR TRUE OR category_name = 'Electronics'
+ORDER BY score DESC;
+              QUERY PLAN               
+---------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Seq Scan on products
+(3 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
+  OR TRUE OR category_name = 'Electronics'
+ORDER BY score DESC;
+ id |       name        | category_name | score 
+----+-------------------+---------------+-------
+  1 | Apple iPhone 14   | Casual        |      
+  2 | MacBook Pro       | Electronics   |      
+  3 | Nike Air Max      | Footwear      |      
+  4 | Samsung Galaxy    | Electronics   |      
+  5 | Adidas Ultraboost | Footwear      |      
+  6 | Nike Normal       | Footwear      |      
+  7 | Apple Watch       | Electronics   |      
+  8 | Sony Headphones   | Electronics   |      
+  9 | Running Socks     | Footwear      |      
+ 10 | Budget Phone      | Electronics   |      
+ 11 | Budget Tablet     | Garbage       |      
+(11 rows)
+
+-- Test Case 3: Another example with price filter (non-indexed)
+-- Should show the same issue - scores become null due to non-indexed predicate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running' 
+  AND price < 200.00
+ORDER BY score DESC;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (price < 200.00)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running' 
+  AND price < 200.00
+ORDER BY score DESC;
+ id |       name        | price  | score 
+----+-------------------+--------+-------
+  3 | Nike Air Max      | 149.99 |      
+  5 | Adidas Ultraboost | 179.99 |      
+  6 | Nike Normal       | 149.99 |      
+(3 rows)
+
+-- Test Case 4: Mixed predicates with boolean non-indexed column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology' 
+  AND in_stock = true
+ORDER BY score DESC;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: in_stock
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology' 
+  AND in_stock = true
+ORDER BY score DESC;
+ id |       name        | in_stock | score 
+----+-------------------+----------+-------
+  5 | Adidas Ultraboost | t        |      
+(1 row)
+
+-- For comparison: Show that when all predicates are on indexed columns, scores work
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    description,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'MacBook' 
+  AND description @@@ 'laptop'
+ORDER BY score DESC;
+                                                                                                                                                    QUERY PLAN                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"MacBook","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+(8 rows)
+
+SELECT 
+    id,
+    name,
+    description,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'MacBook' 
+  AND description @@@ 'laptop'
+ORDER BY score DESC;
+ id |    name     |               description               |  score   
+----+-------------+-----------------------------------------+----------
+  2 | MacBook Pro | Powerful Apple laptop for professionals | 4.319457
+(1 row)
+
+-- Test Case 5: Complex query with multiple non-indexed predicates
+-- This should clearly show scores being null even when some predicates could contribute
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'shoes' OR description @@@ 'running')
+  AND category_name = 'Footwear'
+  AND price BETWEEN 100.00 AND 200.00
+ORDER BY score DESC;
+                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: ((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+         Filter: ((price >= 100.00) AND (price <= 200.00) AND (category_name = 'Footwear'::text))
+         ->  BitmapOr
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(10 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'shoes' OR description @@@ 'running')
+  AND category_name = 'Footwear'
+  AND price BETWEEN 100.00 AND 200.00
+ORDER BY score DESC; 
+ id |       name        | category_name | price  | score 
+----+-------------------+---------------+--------+-------
+  3 | Nike Air Max      | Footwear      | 149.99 |      
+  5 | Adidas Ultraboost | Footwear      | 179.99 |      
+  6 | Nike Normal       | Footwear      | 149.99 |      
+(3 rows)
+
+-- Test Case 6: Multiple AND conditions with different data types
+-- Tests heap filtering with integer, decimal, and text non-indexed predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_id,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_id = 1
+  AND price > 500.00
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: ((price > 500.00) AND (category_id = 1) AND (category_name = 'Electronics'::text))
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    category_id,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_id = 1
+  AND price > 500.00
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+ id |    name     | category_id |  price  | category_name | score 
+----+-------------+-------------+---------+---------------+-------
+  2 | MacBook Pro |           1 | 2499.99 | Electronics   |      
+(1 row)
+
+-- Test Case 7: Complex nested OR/AND combinations
+-- Tests recursive clause extraction and combination
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'smartphone'
+  AND (
+    (price < 500.00 AND in_stock = true) OR 
+    (price > 800.00 AND category_name = 'Electronics')
+  )
+ORDER BY score DESC;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (((price < 500.00) AND in_stock) OR ((price > 800.00) AND (category_name = 'Electronics'::text)))
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'smartphone'
+  AND (
+    (price < 500.00 AND in_stock = true) OR 
+    (price > 800.00 AND category_name = 'Electronics')
+  )
+ORDER BY score DESC;
+ id |      name      | price  | in_stock | score 
+----+----------------+--------+----------+-------
+  4 | Samsung Galaxy | 899.99 | f        |      
+(1 row)
+
+-- Test Case 8: Real number (REAL) filtering
+-- Tests heap filtering with floating-point comparisons
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND rating >= 4.0
+ORDER BY score DESC;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (rating >= '4'::double precision)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND rating >= 4.0
+ORDER BY score DESC;
+ id |       name        | rating | score 
+----+-------------------+--------+-------
+  3 | Nike Air Max      |    4.2 |      
+  5 | Adidas Ultraboost |    4.6 |      
+(2 rows)
+
+-- Test Case 9: NULL value handling
+-- Tests heap filtering with NULL checks
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  AND tags IS NULL
+ORDER BY score DESC;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (tags IS NULL)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  AND tags IS NULL
+ORDER BY score DESC;
+ id |     name     | tags | score 
+----+--------------+------+-------
+ 10 | Budget Phone |      |      
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
+ORDER BY score DESC;
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Seq Scan on products
+         Filter: ((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"phone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (tags IS NULL))
+(4 rows)
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'phone'
+  OR tags IS NULL
+ORDER BY score DESC;
+ id |     name      | tags | score 
+----+---------------+------+-------
+ 10 | Budget Phone  |      |      
+ 11 | Budget Tablet |      |      
+(2 rows)
+
+-- Test Case 10: NOT NULL filtering
+-- Tests heap filtering with NOT NULL predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND tags IS NOT NULL
+ORDER BY score DESC;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (tags IS NOT NULL)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND tags IS NOT NULL
+ORDER BY score DESC;
+ id |      name       |        tags        | score 
+----+-----------------+--------------------+-------
+  1 | Apple iPhone 14 | {smartphone,apple} |      
+  2 | MacBook Pro     | {laptop,apple}     |      
+(2 rows)
+
+-- Test Case 11: Multiple OR conditions with non-indexed predicates
+-- Tests complex OR logic in heap filtering
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND (
+    price < 100.00 OR 
+    category_name = 'Electronics' OR
+    in_stock = false
+  )
+ORDER BY score DESC;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: ((price < 100.00) OR (category_name = 'Electronics'::text) OR (NOT in_stock))
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND (
+    price < 100.00 OR 
+    category_name = 'Electronics' OR
+    in_stock = false
+  )
+ORDER BY score DESC;
+ id |    name     | price  | category_name | score 
+----+-------------+--------+---------------+-------
+  6 | Nike Normal | 149.99 | Footwear      |      
+(1 row)
+
+-- Test Case 12: Edge case - all tuples filtered out
+-- Tests behavior when heap filtering eliminates all results
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND price > 1000.00  -- Should filter out all running items
+ORDER BY score DESC;
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (price > 1000.00)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'running'
+  AND price > 1000.00  -- Should filter out all running items
+ORDER BY score DESC;
+ id | name | price | score 
+----+------+-------+-------
+(0 rows)
+
+-- Test Case 13: Edge case - no search predicates, only non-indexed
+-- Tests heap filtering when there are no indexed predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE price BETWEEN 100.00 AND 300.00
+  AND in_stock = true
+ORDER BY score DESC;
+                               QUERY PLAN                               
+------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Seq Scan on products
+         Filter: (in_stock AND (price >= 100.00) AND (price <= 300.00))
+(4 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    paradedb.score(id) as score
+FROM products 
+WHERE price BETWEEN 100.00 AND 300.00
+  AND in_stock = true
+ORDER BY score DESC;
+ id |       name        | price  | in_stock | score 
+----+-------------------+--------+----------+-------
+  3 | Nike Air Max      | 149.99 | t        |      
+  5 | Adidas Ultraboost | 179.99 | t        |      
+  8 | Sony Headphones   | 299.99 | t        |      
+(3 rows)
+
+-- Test Case 14: Array operations (if supported)
+-- Tests heap filtering with array predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND 'apple' = ANY(tags)
+ORDER BY score DESC;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: ('apple'::text = ANY (tags))
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    tags,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND 'apple' = ANY(tags)
+ORDER BY score DESC;
+ id |      name       |        tags        | score 
+----+-----------------+--------------------+-------
+  1 | Apple iPhone 14 | {smartphone,apple} |      
+  2 | MacBook Pro     | {laptop,apple}     |      
+(2 rows)
+
+-- Test Case 15: Timestamp filtering
+-- Tests heap filtering with timestamp predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    created_at,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple'
+  AND created_at > '2024-01-01 00:00:00'::timestamp
+ORDER BY score DESC;
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (created_at > 'Mon Jan 01 00:00:00 2024'::timestamp without time zone)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    created_at,
+    paradedb.score(id) as score
+FROM products 
+WHERE name @@@ 'Apple'
+  AND created_at > '2024-01-01 00:00:00'::timestamp
+ORDER BY score DESC;
+ id |      name       |        created_at        | score 
+----+-----------------+--------------------------+-------
+  1 | Apple iPhone 14 | Wed Jan 01 12:00:00 2025 |      
+  7 | Apple Watch     | Wed Jan 01 12:00:00 2025 |      
+(2 rows)
+
+-- Test Case 16: Combined numeric comparisons
+-- Tests multiple numeric predicate combinations
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    rating,
+    category_id,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'shoes'
+  AND price <= 200.00
+  AND rating > 4.0
+  AND category_id = 2
+ORDER BY score DESC;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: ((price <= 200.00) AND (rating > '4'::double precision) AND (category_id = 2))
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    rating,
+    category_id,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'shoes'
+  AND price <= 200.00
+  AND rating > 4.0
+  AND category_id = 2
+ORDER BY score DESC;
+ id |       name        | price  | rating | category_id | score 
+----+-------------------+--------+--------+-------------+-------
+  3 | Nike Air Max      | 149.99 |    4.2 |           2 |      
+  5 | Adidas Ultraboost | 179.99 |    4.6 |           2 |      
+(2 rows)
+
+-- Test Case 17: String pattern matching
+-- Tests heap filtering with LIKE predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND category_name LIKE 'Elect%'
+ORDER BY score DESC;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+         Filter: (category_name ~~ 'Elect%'::text)
+         ->  Bitmap Index Scan on products_bm25_idx
+               Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(7 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'technology'
+  AND category_name LIKE 'Elect%'
+ORDER BY score DESC;
+ id | name | category_name | score 
+----+------+---------------+-------
+(0 rows)
+
+-- Test Case 18: Mixed boolean logic complexity
+-- Tests deeply nested boolean expressions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+  AND (
+    (price > 500.00 AND in_stock = true) OR
+    (price < 300.00 AND rating >= 4.0) OR
+    (category_name = 'Electronics' AND rating > 4.5)
+  )
+ORDER BY score DESC;
+                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Bitmap Heap Scan on products
+         Recheck Cond: ((id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+         Filter: (((price > 500.00) AND in_stock) OR ((price < 300.00) AND (rating >= '4'::double precision)) OR ((category_name = 'Electronics'::text) AND (rating > '4.5'::double precision)))
+         ->  BitmapOr
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+               ->  Bitmap Index Scan on products_bm25_idx
+                     Index Cond: (id @@@ '{"with_index":{"oid":1389951,"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
+(10 rows)
+
+SELECT 
+    id,
+    name,
+    price,
+    in_stock,
+    rating,
+    paradedb.score(id) as score
+FROM products 
+WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
+  AND (
+    (price > 500.00 AND in_stock = true) OR
+    (price < 300.00 AND rating >= 4.0) OR
+    (category_name = 'Electronics' AND rating > 4.5)
+  )
+ORDER BY score DESC; 
+ id |      name       | price  | in_stock | rating | score 
+----+-----------------+--------+----------+--------+-------
+  1 | Apple iPhone 14 | 999.99 | t        |    4.5 |      
+(1 row)
+

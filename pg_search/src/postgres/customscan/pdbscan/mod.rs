@@ -21,7 +21,7 @@ pub mod parallel;
 mod privdat;
 mod projections;
 mod pushdown;
-mod qual_inspect;
+pub mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
@@ -199,17 +199,18 @@ impl PdbScan {
         match query {
             SearchQueryInput::IndexedWithFilter {
                 indexed_query,
-                filter_expression,
-                referenced_fields,
+                field_filters,
+                ..
             } => {
                 // Set up callback for the filter part
-                Self::create_external_filter_callback(
-                    filter_expression,
-                    referenced_fields,
-                    planstate,
-                    expr_context,
-                    state,
-                );
+                // FIXME: Update to use SimpleFieldFilter
+                // Self::create_external_filter_callback(
+                //     filter_expression,
+                //     referenced_fields,
+                //     planstate,
+                //     expr_context,
+                //     state,
+                // );
 
                 // Recursively handle the indexed query part
                 Self::setup_callbacks_recursive(indexed_query, planstate, expr_context, state);

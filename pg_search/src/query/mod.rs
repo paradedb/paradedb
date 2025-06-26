@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod external_filter;
+pub mod field_filter;
+pub mod simple_field_filter;
 pub mod iter_mut;
 mod more_like_this;
 mod range;
@@ -277,8 +279,7 @@ pub enum SearchQueryInput {
     /// Combination of indexed query with external filter
     IndexedWithFilter {
         indexed_query: Box<SearchQueryInput>,
-        filter_expression: String,
-        referenced_fields: Vec<FieldName>,
+        field_filters: Vec<crate::query::simple_field_filter::SimpleFieldFilter>,
     },
 }
 
@@ -1307,10 +1308,10 @@ impl SearchQueryInput {
                                 Box::new(BooleanQuery::new(vec![
                                     (
                                         Occur::Must,
-                                        Box::new(
-                                            range_field
-                                                .compare_upper_bound(lower, Comparison::LessThan)?,
-                                        ),
+                                        Box::new(range_field.compare_upper_bound(
+                                            lower,
+                                            Comparison::LessThan,
+                                        )?),
                                     ),
                                     (
                                         Occur::Must,
@@ -1785,35 +1786,27 @@ impl SearchQueryInput {
 
             Self::IndexedWithFilter {
                 indexed_query,
-                filter_expression,
-                referenced_fields,
+                field_filters,
             } => {
                 pgrx::warning!("Converting IndexedWithFilter to Tantivy query");
 
-                // Create the indexed query part
-                let indexed_tantivy_query =
-                    indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
+                // Convert the indexed query first
+                let indexed_tantivy_query = indexed_query.into_tantivy_query(schema, parser, searcher, index_oid)?;
 
-                // Create the external filter part
-                use crate::query::external_filter::{
-                    ExternalFilterConfig, ExternalFilterQuery, IndexedWithFilterQuery,
-                };
-
-                let external_filter_config = ExternalFilterConfig {
-                    expression: filter_expression.clone(),
-                    referenced_fields: referenced_fields.clone(),
-                };
-
-                let external_filter_query = ExternalFilterQuery::new(external_filter_config);
-
-                pgrx::warning!(
-                    "Created IndexedWithFilterQuery with indexed query and external filter: {}",
-                    filter_expression
-                );
-                Ok(Box::new(IndexedWithFilterQuery::new(
-                    indexed_tantivy_query,
-                    external_filter_query,
-                )))
+                // FIXME: Temporarily return indexed query only until SimpleFieldFilter is fully implemented
+                pgrx::warning!("IndexedWithFilter has {} field filters - temporarily ignoring", field_filters.len());
+                Ok(indexed_tantivy_query)
+                
+                // TODO: Re-enable when SimpleFieldFilter Query implementation is complete
+                // if !field_filters.is_empty() {
+                //     use crate::query::external_filter::IndexedWithSimpleFilterQuery;
+                //     Ok(Box::new(IndexedWithSimpleFilterQuery::new(
+                //         indexed_tantivy_query,
+                //         field_filters,
+                //     )))
+                // } else {
+                //     Ok(indexed_tantivy_query)
+                // }
             }
         }
     }

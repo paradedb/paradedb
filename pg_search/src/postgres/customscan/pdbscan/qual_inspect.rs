@@ -25,7 +25,7 @@ use crate::postgres::customscan::pdbscan::pushdown::{
     is_complex, try_external_filter, try_pushdown, PushdownField,
 };
 use crate::query::SearchQueryInput;
-use crate::query::external_filter::ExternalFilterQuery;
+// use crate::query::external_filter::ExternalFilterQuery;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
 use pgrx::{datum::FromDatum, pg_sys, IntoDatum, PgList};
@@ -150,6 +150,8 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
+            Qual::FieldComparison { .. } => false,
+            Qual::FieldNullTest { .. } => false,
         }
     }
 
@@ -172,6 +174,8 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Not(qual) => qual.contains_external_var(),
+            Qual::FieldComparison { .. } => false,
+            Qual::FieldNullTest { .. } => false,
         }
     }
 
@@ -194,6 +198,8 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
+            Qual::FieldComparison { .. } => false,
+            Qual::FieldNullTest { .. } => false,
         }
     }
 
@@ -216,6 +222,8 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
+            Qual::FieldComparison { .. } => false,
+            Qual::FieldNullTest { .. } => false,
         }
     }
 
@@ -238,6 +246,8 @@ impl Qual {
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Not(qual) => qual.contains_score_exprs(),
+            Qual::FieldComparison { .. } => false,
+            Qual::FieldNullTest { .. } => false,
         }
     }
 
@@ -490,10 +500,10 @@ impl From<&Qual> for SearchQueryInput {
                 let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
 
                 // Combine the indexed query with the external filter
+                // FIXME: Convert to SimpleFieldFilter approach
                 SearchQueryInput::IndexedWithFilter {
                     indexed_query: Box::new(indexed_query),
-                    filter_expression,
-                    referenced_fields,
+                    field_filters: vec![], // Temporary placeholder
                 }
             }
             Qual::PushdownExpr { funcexpr } => unsafe {
@@ -649,10 +659,10 @@ impl From<&Qual> for SearchQueryInput {
                     };
 
                     // Create a single IndexedWithFilter with the combined external filter
+                    // FIXME: Convert to SimpleFieldFilter approach
                     SearchQueryInput::IndexedWithFilter {
                         indexed_query: Box::new(indexed_query),
-                        filter_expression: combined_filter,
-                        referenced_fields: all_referenced_fields,
+                        field_filters: vec![], // Temporary placeholder
                     }
                 } else if !indexed_quals.is_empty() {
                     // Only indexed quals
@@ -689,10 +699,10 @@ impl From<&Qual> for SearchQueryInput {
                     };
 
                     // Create a single IndexedWithFilter with All query and combined external filter
+                    // FIXME: Convert to SimpleFieldFilter approach
                     SearchQueryInput::IndexedWithFilter {
                         indexed_query: Box::new(SearchQueryInput::All),
-                        filter_expression: combined_filter,
-                        referenced_fields: all_referenced_fields,
+                        field_filters: vec![], // Temporary placeholder
                     }
                 } else {
                     // No quals - shouldn't happen but handle gracefully
@@ -745,8 +755,7 @@ impl From<&Qual> for SearchQueryInput {
                             // This means "return all documents, then filter by the non-indexed predicate"
                             or_branches.push(SearchQueryInput::IndexedWithFilter {
                                 indexed_query: Box::new(SearchQueryInput::All),
-                                filter_expression,
-                                referenced_fields,
+                                                        field_filters: vec![],
                             });
                         }
                         
@@ -754,11 +763,11 @@ impl From<&Qual> for SearchQueryInput {
                         Qual::NonIndexedExpr => {
                             debug_log!("🔥 OR branch: non-indexed expression - wrapping in IndexedWithFilter");
                             // For non-indexed expressions, create an IndexedWithFilter with All
-                            or_branches.push(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(SearchQueryInput::All),
-                                filter_expression: "TRUE".to_string(),
-                                referenced_fields: vec![],
-                            });
+                            or_branches.push(                        // FIXME: Convert to SimpleFieldFilter approach
+                        SearchQueryInput::IndexedWithFilter {
+                            indexed_query: Box::new(SearchQueryInput::All),
+                            field_filters: vec![], // Temporary placeholder
+                        });
                         }
                         
                         // Negation and other complex cases
@@ -827,6 +836,40 @@ impl From<&Qual> for SearchQueryInput {
                             should: Default::default(),
                             must_not,
                         }
+                    }
+                }
+            }
+            Qual::FieldComparison { field, operator, value } => {
+                // Convert field comparison to appropriate SearchQueryInput
+                // For now, convert to Term query as a placeholder
+                let owned_value = match value {
+                    FieldValue::Integer(i) => OwnedValue::I64(*i),
+                    FieldValue::Float(f) => OwnedValue::F64(*f),
+                    FieldValue::Text(s) => OwnedValue::Str(s.clone()),
+                    FieldValue::Boolean(b) => OwnedValue::Bool(*b),
+                    FieldValue::Null => OwnedValue::Null,
+                };
+                
+                // For now, map all comparisons to Term queries
+                // This is a simplification - proper implementation would need range queries for > < etc
+                SearchQueryInput::Term {
+                    field: Some(field.clone()),
+                    value: owned_value,
+                    is_datetime: false,
+                }
+            }
+            Qual::FieldNullTest { field, is_null } => {
+                if *is_null {
+                    // IS NULL - use term query with null value
+                    SearchQueryInput::Term {
+                        field: Some(field.clone()),
+                        value: OwnedValue::Null,
+                        is_datetime: false,
+                    }
+                } else {
+                    // IS NOT NULL - use exists query
+                    SearchQueryInput::Exists {
+                        field: field.clone(),
                     }
                 }
             }
@@ -2495,7 +2538,7 @@ unsafe fn extract_field_value_from_const(const_node: *mut pg_sys::Const) -> Opti
 /// Map PostgreSQL operator OID to ComparisonOperator
 unsafe fn map_oid_to_comparison_operator(opno: pg_sys::Oid) -> Option<ComparisonOperator> {
     // Common operator OIDs for different types
-    match opno.value() {
+    match opno.to_u32() {
         // Integer operators
         96 => Some(ComparisonOperator::Equal),      // int4eq
         518 => Some(ComparisonOperator::NotEqual),  // int4ne
@@ -2759,11 +2802,11 @@ fn wrap_in_indexed_with_filter_all(qual: Qual) -> Qual {
 fn create_indexed_with_filter(indexed_query: SearchQueryInput, postgres_eval_qual: Qual) -> Qual {
     if let Some((filter_expression, referenced_fields)) = extract_postgres_eval_info(&postgres_eval_qual) {
         // Convert to SearchQueryInput::IndexedWithFilter and then back to Qual
-        let search_query = SearchQueryInput::IndexedWithFilter {
-            indexed_query: Box::new(indexed_query),
-            filter_expression,
-            referenced_fields,
-        };
+        let search_query =                         // FIXME: Convert to SimpleFieldFilter approach
+                        SearchQueryInput::IndexedWithFilter {
+                            indexed_query: Box::new(indexed_query),
+                            field_filters: vec![], // Temporary placeholder
+                        };
         
         // Convert SearchQueryInput back to Qual
         // This is a bit of a hack - we need to represent IndexedWithFilter as a Qual
@@ -2789,4 +2832,78 @@ fn extract_postgres_eval_info(qual: &Qual) -> Option<(String, Vec<FieldName>)> {
         }
         _ => None,
     }
+}
+
+/// Convert field comparison quals to SimpleFieldFilter objects
+pub unsafe fn convert_quals_to_simple_filters(
+    qual: &Qual,
+    relation_oid: pg_sys::Oid,
+) -> Vec<crate::query::simple_field_filter::SimpleFieldFilter> {
+    use crate::query::simple_field_filter::{SimpleFieldFilter, SimpleOperator, SimpleValue};
+    
+    let mut filters = Vec::new();
+    
+    match qual {
+        Qual::FieldComparison { field, operator, value } => {
+            // Convert comparison operator
+            let simple_op = match operator {
+                ComparisonOperator::Equal => SimpleOperator::Equal,
+                ComparisonOperator::GreaterThan => SimpleOperator::GreaterThan,
+                ComparisonOperator::LessThan => SimpleOperator::LessThan,
+                ComparisonOperator::GreaterThanOrEqual => SimpleOperator::GreaterThan, // Simplified
+                ComparisonOperator::LessThanOrEqual => SimpleOperator::LessThan, // Simplified
+                ComparisonOperator::NotEqual => return filters, // Skip NOT EQUAL for now
+            };
+            
+            // Convert field value
+            let simple_value = match value {
+                FieldValue::Integer(i) => SimpleValue::Integer(*i),
+                FieldValue::Float(f) => SimpleValue::Float(*f),
+                FieldValue::Text(s) => SimpleValue::Text(s.clone()),
+                FieldValue::Boolean(b) => SimpleValue::Boolean(*b),
+                FieldValue::Null => return filters, // Skip NULL values
+            };
+            
+            // Get field attribute number - for now use a placeholder
+            let field_attno = 1; // This would need to be properly resolved from field name
+            
+            filters.push(SimpleFieldFilter::new(
+                field.clone(),
+                simple_op,
+                simple_value,
+                relation_oid,
+                field_attno,
+            ));
+        }
+        Qual::FieldNullTest { field, is_null } => {
+            let simple_op = if *is_null {
+                SimpleOperator::IsNull
+            } else {
+                SimpleOperator::IsNotNull
+            };
+            
+            // For NULL tests, the value doesn't matter
+            let simple_value = SimpleValue::Text("unused".to_string());
+            let field_attno = 1; // This would need to be properly resolved
+            
+            filters.push(SimpleFieldFilter::new(
+                field.clone(),
+                simple_op,
+                simple_value,
+                relation_oid,
+                field_attno,
+            ));
+        }
+        Qual::And(quals) => {
+            // Recursively convert all AND-ed quals
+            for sub_qual in quals {
+                filters.extend(convert_quals_to_simple_filters(sub_qual, relation_oid));
+            }
+        }
+        _ => {
+            // Other qual types are not converted to SimpleFieldFilter
+        }
+    }
+    
+    filters
 }

@@ -19,8 +19,9 @@ use crate::api::FieldName;
 use crate::debug_log;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::utils::u64_to_item_pointer;
+use crate::query::simple_field_filter::SimpleFieldFilter;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{pg_sys, AnyNumeric, FromDatum, IntoDatum, PgTupleDesc, WhoAllocated, PgList};
+use pgrx::{pg_sys, AnyNumeric, IntoDatum, PgTupleDesc, WhoAllocated};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -1781,4 +1782,321 @@ unsafe fn serialize_expression(expr: *mut pg_sys::Expr) -> String {
 
     debug_log!("🔥 Serialized expression: {}", rust_string);
     rust_string
+}
+
+/// Simple field filter query that uses ctid-based field extraction
+#[derive(Debug, Clone)]
+pub struct SimpleFieldFilterQuery {
+    pub field_filters: Vec<SimpleFieldFilter>,
+}
+
+impl SimpleFieldFilterQuery {
+    pub fn new(field_filters: Vec<SimpleFieldFilter>) -> Self {
+        Self { field_filters }
+    }
+}
+
+// FIXME: Temporarily disabled - needs FFHelper fixes
+/*
+impl Query for SimpleFieldFilterQuery {
+    fn weight(&self, _enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
+        Ok(Box::new(SimpleFieldFilterWeight {
+            field_filters: self.field_filters.clone(),
+        }))
+    }
+}
+*/
+
+// FIXME: Temporarily disabled - needs FFHelper fixes
+/*
+struct SimpleFieldFilterWeight {
+    field_filters: Vec<SimpleFieldFilter>,
+}
+
+impl Weight for SimpleFieldFilterWeight {
+    fn scorer(&self, reader: &SegmentReader, _boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        // Get heap relation OID from global context
+        let heaprel_oid = get_heap_relation_oid().unwrap_or_else(|| {
+            pgrx::warning!("No heap relation OID set, using InvalidOid");
+            pg_sys::InvalidOid
+        });
+
+        // Get ctid fast field
+        let fast_fields_reader = reader.fast_fields();
+        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(&fast_fields_reader);
+
+        Ok(Box::new(SimpleFieldFilterScorer::new(
+            reader.clone(),
+            self.field_filters.clone(),
+            ctid_ff,
+            heaprel_oid,
+        )))
+    }
+
+    fn explain(
+        &self,
+        _reader: &SegmentReader,
+        _doc: DocId,
+    ) -> tantivy::Result<tantivy::query::Explanation> {
+        Ok(tantivy::query::Explanation::new(
+            "SimpleFieldFilter",
+            1.0,
+        ))
+    }
+}
+*/
+
+pub struct SimpleFieldFilterScorer {
+    reader: SegmentReader,
+    field_filters: Vec<SimpleFieldFilter>,
+    ctid_ff: crate::index::fast_fields_helper::FFType,
+    heaprel_oid: pg_sys::Oid,
+    current_doc: DocId,
+    max_doc: DocId,
+}
+
+impl SimpleFieldFilterScorer {
+    fn new(
+        reader: SegmentReader,
+        field_filters: Vec<SimpleFieldFilter>,
+        ctid_ff: crate::index::fast_fields_helper::FFType,
+        heaprel_oid: pg_sys::Oid,
+    ) -> Self {
+        let max_doc = reader.max_doc();
+        Self {
+            reader,
+            field_filters,
+            ctid_ff,
+            heaprel_oid,
+            current_doc: 0,
+            max_doc,
+        }
+    }
+
+    fn evaluate_filters(&self, doc_id: DocId) -> bool {
+        // Extract ctid for this document
+        let ctid = match self.extract_ctid(doc_id) {
+            Some(ctid) => ctid,
+            None => {
+                debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
+                return false;
+            }
+        };
+
+        // Evaluate all field filters - all must pass (AND logic)
+        for filter in &self.field_filters {
+            if !filter.evaluate(ctid) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
+        match &self.ctid_ff {
+            crate::index::fast_fields_helper::FFType::U64(ff) => {
+                ff.first(doc_id)
+            }
+            _ => {
+                debug_log!("CTID fast field is not U64 type");
+                None
+            }
+        }
+    }
+}
+
+impl Scorer for SimpleFieldFilterScorer {
+    fn score(&mut self) -> Score {
+        1.0 // Simple scoring - could be enhanced
+    }
+}
+
+impl DocSet for SimpleFieldFilterScorer {
+    fn advance(&mut self) -> DocId {
+        loop {
+            self.current_doc += 1;
+            if self.current_doc >= self.max_doc {
+                return tantivy::TERMINATED;
+            }
+
+            if self.evaluate_filters(self.current_doc) {
+                return self.current_doc;
+            }
+        }
+    }
+
+    fn doc(&self) -> DocId {
+        self.current_doc
+    }
+
+    fn size_hint(&self) -> u32 {
+        self.max_doc
+    }
+}
+
+/// Combined query that runs indexed query first, then applies field filters
+#[derive(Debug)]
+pub struct IndexedWithSimpleFilterQuery {
+    pub indexed_query: Box<dyn Query>,
+    pub field_filters: Vec<SimpleFieldFilter>,
+}
+
+impl IndexedWithSimpleFilterQuery {
+    pub fn new(indexed_query: Box<dyn Query>, field_filters: Vec<SimpleFieldFilter>) -> Self {
+        Self {
+            indexed_query,
+            field_filters,
+        }
+    }
+}
+
+// FIXME: Temporarily disabled - needs FFHelper fixes
+/*
+impl Query for IndexedWithSimpleFilterQuery {
+    fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
+        let indexed_weight = self.indexed_query.weight(enable_scoring)?;
+        Ok(Box::new(IndexedWithSimpleFilterWeight {
+            indexed_weight,
+            field_filters: self.field_filters.clone(),
+        }))
+    }
+}
+*/
+
+struct IndexedWithSimpleFilterWeight {
+    indexed_weight: Box<dyn Weight>,
+    field_filters: Vec<SimpleFieldFilter>,
+}
+
+impl Weight for IndexedWithSimpleFilterWeight {
+    fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        
+        // Get heap relation OID from global context
+        let heaprel_oid = get_heap_relation_oid().unwrap_or_else(|| {
+            pgrx::warning!("No heap relation OID set, using InvalidOid");
+            pg_sys::InvalidOid
+        });
+
+        // Get ctid fast field
+        let fast_fields_reader = reader.fast_fields();
+        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(&fast_fields_reader);
+
+        Ok(Box::new(IndexedWithSimpleFilterScorer::new(
+            indexed_scorer,
+            self.field_filters.clone(),
+            reader.clone(),
+            ctid_ff,
+            heaprel_oid,
+        )))
+    }
+
+    fn explain(
+        &self,
+        reader: &SegmentReader,
+        doc: DocId,
+    ) -> tantivy::Result<tantivy::query::Explanation> {
+        let indexed_explanation = self.indexed_weight.explain(reader, doc)?;
+        Ok(tantivy::query::Explanation::new(
+            "IndexedWithSimpleFilter",
+            indexed_explanation.value(),
+        ))
+    }
+}
+
+pub struct IndexedWithSimpleFilterScorer {
+    indexed_scorer: Box<dyn Scorer>,
+    field_filters: Vec<SimpleFieldFilter>,
+    reader: SegmentReader,
+    ctid_ff: crate::index::fast_fields_helper::FFType,
+    heaprel_oid: pg_sys::Oid,
+    current_doc: DocId,
+}
+
+impl IndexedWithSimpleFilterScorer {
+    fn new(
+        indexed_scorer: Box<dyn Scorer>,
+        field_filters: Vec<SimpleFieldFilter>,
+        reader: SegmentReader,
+        ctid_ff: crate::index::fast_fields_helper::FFType,
+        heaprel_oid: pg_sys::Oid,
+    ) -> Self {
+        Self {
+            indexed_scorer,
+            field_filters,
+            reader,
+            ctid_ff,
+            heaprel_oid,
+            current_doc: 0,
+        }
+    }
+
+    fn advance_to_next_valid(&mut self) -> DocId {
+        loop {
+            let doc_id = self.indexed_scorer.advance();
+            if doc_id == tantivy::TERMINATED {
+                return tantivy::TERMINATED;
+            }
+
+            // Check if this document passes all field filters
+            if self.evaluate_field_filters(doc_id) {
+                self.current_doc = doc_id;
+                return doc_id;
+            }
+        }
+    }
+
+    fn evaluate_field_filters(&self, doc_id: DocId) -> bool {
+        // Extract ctid for this document
+        let ctid = match self.extract_ctid(doc_id) {
+            Some(ctid) => ctid,
+            None => {
+                debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
+                return false;
+            }
+        };
+
+        // Evaluate all field filters - all must pass (AND logic)
+        for filter in &self.field_filters {
+            if !filter.evaluate(ctid) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
+        match &self.ctid_ff {
+            crate::index::fast_fields_helper::FFType::U64(ff) => {
+                ff.first(doc_id)
+            }
+            _ => {
+                debug_log!("CTID fast field is not U64 type");
+                None
+            }
+        }
+    }
+}
+
+impl Scorer for IndexedWithSimpleFilterScorer {
+    fn score(&mut self) -> Score {
+        // Return the score from the indexed query
+        self.indexed_scorer.score()
+    }
+}
+
+impl DocSet for IndexedWithSimpleFilterScorer {
+    fn advance(&mut self) -> DocId {
+        self.advance_to_next_valid()
+    }
+
+    fn doc(&self) -> DocId {
+        self.current_doc
+    }
+
+    fn size_hint(&self) -> u32 {
+        self.indexed_scorer.size_hint()
+    }
 }

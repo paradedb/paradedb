@@ -63,7 +63,6 @@ CREATE INDEX scalar_array_pushdown_idx ON scalar_array_pushdown USING bm25 (
     key_field = 'id',
     text_fields = '{"text_col": { "tokenizer": {"type": "keyword"} } }'
 );
-WARNING:  the `raw` tokenizer is deprecated
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM scalar_array_pushdown
 WHERE uuid_col = ANY(ARRAY['550e8400-e29b-41d4-a716-446655440000'::uuid, '550e8400-e29b-41d4-a716-446655440001'::uuid])

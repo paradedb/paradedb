@@ -20,15 +20,15 @@ pub mod opexprgen;
 pub mod pagegen;
 pub mod wheregen;
 
-use proptest::prelude::*;
-use sqlx::PgConnection;
-use std::fmt::Debug;
-
+use crate::fixtures::db::Query;
+use crate::fixtures::ConnExt;
+use futures::executor::block_on;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
+use proptest::prelude::*;
+use sqlx::{Connection, PgConnection};
+use std::fmt::Debug;
 use wheregen::{Expr, SqlValue};
-
-use crate::fixtures::db::Query;
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
@@ -92,7 +92,17 @@ where
     "#
     .execute(conn);
 
+    conn.deallocate_all()?;
+    let pg_explain = format!("EXPLAIN {pg_query}")
+        .fetch::<(String,)>(conn)
+        .into_iter()
+        .map(|(s,)| s)
+        .collect::<Vec<_>>()
+        .join("\n");
+    eprintln!("pg_explain: {pg_explain}");
+
     let pg_result = run_query(&pg_query, conn);
+    eprintln!("pg_result: {pg_result:?}");
 
     // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
     // always ensuring that paradedb's custom scan is turned on
@@ -104,7 +114,18 @@ where
     ] {
         scan_type.execute(conn);
 
+        conn.deallocate_all()?;
+        let bm25_explain = format!("EXPLAIN {bm25_query}")
+            .fetch::<(String,)>(conn)
+            .into_iter()
+            .map(|(s,)| s)
+            .collect::<Vec<_>>()
+            .join("\n");
+        eprintln!("bm25_explain: {bm25_explain}");
+
         let bm25_result = run_query(&bm25_query, conn);
+        eprintln!("bm25_result: {bm25_result:?}");
+
         prop_assert_eq!(
             &pg_result,
             &bm25_result,
@@ -112,12 +133,7 @@ where
             scan_type,
             pg_query,
             bm25_query,
-            format!("EXPLAIN ANALYZE {bm25_query}")
-                .fetch::<(String,)>(conn)
-                .into_iter()
-                .map(|(s,)| s)
-                .collect::<Vec<_>>()
-                .join("\n")
+            bm25_explain
         );
     }
 

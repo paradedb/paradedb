@@ -559,7 +559,8 @@ pub unsafe fn term_with_operator(
                 "=" => Ok($eq_func_name(Some($field), <$value_type>::from_datum($anyelement.datum(), false))),
                 "<>" => Ok(
                     SearchQueryInput::Boolean {
-                        must: vec![SearchQueryInput::All],
+                        // ensure that we don't match NULL nulls as not being equal to whatever the user specified
+                        must: vec![SearchQueryInput::Exists {field: $field.clone()}],
                         should: vec![],
                         must_not: vec![$eq_func_name(Some($field), <$value_type>::from_datum($anyelement.datum(), false))]
                     }
@@ -668,7 +669,7 @@ pub unsafe fn terms_with_operator(
         //      - field NOT IN (x, y, z), which is actually rewritten as...
         //      - field <> ALL(ARRAY[x, y, z])
         //
-        //
+
         if conjunction_mode && array.contains_nulls() {
             // if the array contains a null, it cannot be matched in a conjunction because in SQL a NULL doesn't
             // compare in any way to another NULL
@@ -697,13 +698,7 @@ pub unsafe fn terms_with_operator(
         } else {
             // OR the queries together
             Ok(SearchQueryInput::Boolean {
-                must: operator
-                    .trim()
-                    .eq("<>")
-                    // possibly requiring the field actually has a value
-                    // if the operator is not equals
-                    .then(|| vec![SearchQueryInput::Exists { field }])
-                    .unwrap_or_default(),
+                must: vec![],
                 should: quals,
                 must_not: vec![],
             })

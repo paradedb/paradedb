@@ -24,7 +24,7 @@ use rand::Rng;
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
-    ConnectOptions, Decode, Executor, FromRow, PgConnection, Postgres, Type,
+    ConnectOptions, Connection, Decode, Error, Executor, FromRow, PgConnection, Postgres, Type,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -78,6 +78,18 @@ impl Drop for Db {
         async_std::task::spawn(async move {
             Postgres::cleanup_test(db_name.as_str()).await.ok(); // ignore errors as there's nothing we can do about it
         });
+    }
+}
+
+pub trait ConnExt {
+    fn deallocate_all(&mut self) -> Result<(), sqlx::Error>;
+}
+
+impl ConnExt for PgConnection {
+    /// Deallocate all cached prepared statements.  Akin to Postgres' `DEALLOCATE ALL` command
+    /// but also does the right thing for the sql [`PgConnection`] internals.
+    fn deallocate_all(&mut self) -> Result<(), Error> {
+        async_std::task::block_on(async { self.clear_cached_statements().await })
     }
 }
 

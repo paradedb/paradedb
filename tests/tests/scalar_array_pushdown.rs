@@ -201,6 +201,9 @@ WITH (
         "uuid_col": {{ {} }}
     }}'
 );
+
+-- help our cost estimates
+ANALYZE scalar_array_test;
 "#,
         tokenizer.to_index_config(),
         tokenizer.to_index_config()
@@ -241,7 +244,8 @@ async fn scalar_array_pushdown_correctness(database: Db) {
         );
 
         eprintln!("{}", array_condition);
-
+        eprintln!("pg_query: {}", pg_query);
+        eprintln!("bm25_query: {}", bm25_query);
         compare(
             pg_query,
             bm25_query,

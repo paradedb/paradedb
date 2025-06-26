@@ -2143,54 +2143,99 @@ unsafe fn create_search_query_from_opexpr(
         return None;
     };
 
-    // Extract query string from right argument
-    let query_string = if (*right_arg).type_ == pg_sys::NodeTag::T_Const {
+    // Extract query from right argument
+    let search_query = if (*right_arg).type_ == pg_sys::NodeTag::T_Const {
         let const_node = right_arg.cast::<pg_sys::Const>();
         if (*const_node).constisnull {
-            debug_log!("🔥 Query string is NULL");
+            debug_log!("🔥 Query is NULL");
             return None;
         }
 
-        // Convert the constant value to string
+        // Convert the constant value to SearchQueryInput
         let datum = (*const_node).constvalue;
         let type_oid = (*const_node).consttype;
         
-        // Assuming text type (OID 25)
+        // Check if it's a text type (simple string query)
         if type_oid == pg_sys::TEXTOID {
             let text_ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
             let vl_len = unsafe { (*text_ptr).vl_len_ };
             let text_len = (vl_len[0] as u32 | (vl_len[1] as u32) << 8 | (vl_len[2] as u32) << 16 | (vl_len[3] as u32) << 24) - 4; // VARHDRSZ is 4
             let text_data = unsafe { (text_ptr as *const u8).add(4) }; // Skip header
             
-            unsafe {
+            let query_string = unsafe {
                 std::slice::from_raw_parts(text_data, text_len as usize)
                     .to_vec()
                     .into_iter()
                     .map(|b| b as char)
                     .collect::<String>()
+            };
+            
+            // Create a simple ParseWithField query
+            if let Some(field_name) = field_name {
+                debug_log!("🔥 Creating search query from text: field={}, query={}", field_name, query_string);
+                return Some(SearchQueryInput::ParseWithField {
+                    field: field_name,
+                    query_string,
+                    lenient: Some(false),
+                    conjunction_mode: Some(false),
+                });
+            } else {
+                debug_log!("🔥 Could not determine field name for text search query");
+                return None;
             }
         } else {
-            debug_log!("🔥 Query string is not text type (OID: {})", type_oid);
-            return None;
+            // Try to deserialize as SearchQueryInput object
+            debug_log!("🔥 Query is SearchQueryInput object (OID: {}), deserializing", type_oid);
+            
+            // Use SearchQueryInput::from_datum to deserialize
+            use pgrx::FromDatum;
+            match SearchQueryInput::from_datum(datum, false) {
+                Some(mut search_query_input) => {
+                    debug_log!("🔥 Successfully deserialized SearchQueryInput: {:?}", search_query_input);
+                    
+                    // If the field is specified in the left side, we need to ensure the SearchQueryInput
+                    // has the correct field. This handles cases where the query was parsed generically
+                    // and needs to be associated with the specific field from the @@@ operator.
+                    if let Some(field_name) = field_name {
+                        search_query_input = match search_query_input {
+                            SearchQueryInput::ParseWithField { query_string, lenient, conjunction_mode, .. } => {
+                                SearchQueryInput::ParseWithField {
+                                    field: field_name,
+                                    query_string,
+                                    lenient,
+                                    conjunction_mode,
+                                }
+                            }
+                            SearchQueryInput::Parse { query_string, lenient, conjunction_mode } => {
+                                SearchQueryInput::ParseWithField {
+                                    field: field_name,
+                                    query_string,
+                                    lenient,
+                                    conjunction_mode,
+                                }
+                            }
+                            // For other query types, return as-is since they might not need field specification
+                            other => other,
+                        };
+                        debug_log!("🔥 Updated SearchQueryInput with field: {:?}", search_query_input);
+                    }
+                    
+                    return Some(search_query_input);
+                }
+                None => {
+                    debug_log!("🔥 Failed to deserialize SearchQueryInput from datum");
+                    return None;
+                }
+            }
         }
     } else {
         debug_log!("🔥 Right argument is not a Const node");
         return None;
     };
 
-    // Create the search query
-    if let Some(field_name) = field_name {
-        debug_log!("🔥 Creating search query: field={}, query={}", field_name, query_string);
-        Some(SearchQueryInput::ParseWithField {
-            field: field_name,
-            query_string,
-            lenient: Some(false),
-            conjunction_mode: Some(false),
-        })
-    } else {
-        debug_log!("🔥 Could not determine field name for search query");
-        None
-    }
+    // This should not be reached since we return early in both branches above
+    debug_log!("🔥 Unexpected code path in create_search_query_from_opexpr");
+    None
 }
 
 /// Serialize a PostgreSQL expression to string

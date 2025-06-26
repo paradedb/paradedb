@@ -581,8 +581,28 @@ impl CallbackManager {
                 Ok(((*i as i32).into_datum().unwrap(), false))
             }
             OwnedValue::F64(f) => {
-                // Convert to appropriate float type
-                Ok(((*f as f32).into_datum().unwrap(), false))
+                // Check if this should be a NUMERIC field based on the field type
+                let type_oid = self.get_appropriate_type_oid(field_name);
+                if type_oid == pg_sys::NUMERICOID {
+                    // Convert f64 to NUMERIC using AnyNumeric
+                    match AnyNumeric::try_from(*f) {
+                        Ok(numeric) => {
+                            debug_log!("🔥 Converting f64 {} to NUMERIC datum for field '{}'", f, field_name.root());
+                            Ok((numeric.into_datum().unwrap(), false))
+                        }
+                        Err(e) => {
+                            debug_log!("🔥 Failed to convert f64 {} to NUMERIC for field '{}': {}", f, field_name.root(), e);
+                            Ok((pg_sys::Datum::from(0), true)) // Return NULL on conversion error
+                        }
+                    }
+                } else {
+                    // Convert to appropriate float type (f32 or f64)
+                    if type_oid == pg_sys::FLOAT4OID {
+                        Ok(((*f as f32).into_datum().unwrap(), false))
+                    } else {
+                        Ok(((*f).into_datum().unwrap(), false))
+                    }
+                }
             }
             OwnedValue::Str(s) => {
                 // Special handling for array marker

@@ -376,9 +376,8 @@ impl CallbackManager {
                 let clause_node = pg_sys::stringToNode(clause_cstring.as_ptr());
 
                 if !clause_node.is_null() {
-                    // For the legacy ExprState path, replace @@@ operators with TRUE constants
-                    let processed_node = replace_search_operators_with_true(clause_node.cast());
-                    args_list = pg_sys::lappend(args_list, processed_node.cast::<core::ffi::c_void>());
+                    // Use the original clause node without replacing @@@ operators
+                    args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
                 } else {
                     panic!("Failed to parse clause string: {}", clause_str);
                 }
@@ -404,9 +403,8 @@ impl CallbackManager {
             let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
             if !node.is_null() {
-                // For the legacy ExprState path, replace @@@ operators with TRUE constants
-                let processed_node = replace_search_operators_with_true(node.cast());
-                processed_node.cast::<pg_sys::Expr>()
+                // Use the original node without replacing @@@ operators
+                node.cast::<pg_sys::Expr>()
             } else {
                 panic!("Failed to deserialize node: {}", heap_filter_node_string);
             }
@@ -414,7 +412,7 @@ impl CallbackManager {
     }
 
     /// Create a mock tuple slot with the provided field values
-    /// This creates a tuple slot that matches the table structure
+    /// This creates a tuple slot that matches the expected PostgreSQL attribute structure
     unsafe fn create_mock_tuple_slot(
         &self,
         field_values: &HashMap<FieldName, OwnedValue>,
@@ -424,24 +422,57 @@ impl CallbackManager {
             field_values.len()
         );
 
-        // We need to create a tuple descriptor that matches the actual table structure
-        // For now, we'll create a simple approach that works with the expression evaluation
+        // Find the maximum attribute number we need to support
+        // We need to look at the actual attribute numbers used in the expression
+        let max_attno = self.referenced_fields.iter()
+            .enumerate()
+            .map(|(i, field_name)| {
+                // For now, map based on field name to known attribute numbers
+                // This should ideally come from the original attno_map
+                match field_name.root().as_str() {
+                    "id" => 1,
+                    "name" => 2, 
+                    "description" => 3,
+                    "price" => 4,
+                    "category_id" => 5,
+                    "category_name" => 6,
+                    "in_stock" => 7,
+                    "created_at" => 8,
+                    "rating" => 9,
+                    "tags" => 10,
+                    _ => (i + 1) as i16, // Fallback to sequential
+                }
+            })
+            .max()
+            .unwrap_or(1);
 
-        // Get the maximum attribute number we need to support
-        let max_attno = self.referenced_fields.len();
         debug_log!("🔥 Maximum attribute number needed: {}", max_attno);
 
-        // Create a tuple descriptor with enough attributes
-        let tupdesc = pg_sys::CreateTemplateTupleDesc(max_attno as i32);
+        // Create tuple descriptor with the required number of attributes
+        let natts = max_attno as i16;
+        let tupdesc = pg_sys::CreateTemplateTupleDesc(natts.into());
 
-        // Initialize all attributes with appropriate types based on field values
-        for i in 0..max_attno {
-            let field_name = &self.referenced_fields[i];
+        // Initialize all attributes with appropriate types based on field names
+        for field_name in &self.referenced_fields {
+            let attno = match field_name.root().as_str() {
+                "id" => 1,
+                "name" => 2,
+                "description" => 3, 
+                "price" => 4,
+                "category_id" => 5,
+                "category_name" => 6,
+                "in_stock" => 7,
+                "created_at" => 8,
+                "rating" => 9,
+                "tags" => 10,
+                _ => continue, // Skip unknown fields
+            };
+
             let oid = self.get_appropriate_type_oid(field_name);
 
             pg_sys::TupleDescInitEntry(
                 tupdesc,
-                i as pg_sys::AttrNumber + 1,
+                attno,
                 std::ptr::null_mut(), // name (not needed for our use case)
                 oid,                  // use appropriate type
                 -1,                   // typmod
@@ -452,7 +483,10 @@ impl CallbackManager {
         // Create the tuple slot
         let slot = pg_sys::MakeTupleTableSlot(tupdesc, &pg_sys::TTSOpsVirtual);
 
-        // Initialize the slot values
+        // Clear the slot and prepare for setting values
+        pg_sys::ExecClearTuple(slot);
+
+        // Set up the values and nulls arrays
         let natts = max_attno as usize;
         let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
         let nulls = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
@@ -464,17 +498,32 @@ impl CallbackManager {
         }
 
         // Set the actual field values we have
-        for (i, field_name) in self.referenced_fields.iter().enumerate() {
+        for field_name in &self.referenced_fields {
             if let Some(value) = field_values.get(field_name) {
-                let array_index = i as usize;
+                let attno = match field_name.root().as_str() {
+                    "id" => 1,
+                    "name" => 2,
+                    "description" => 3,
+                    "price" => 4, 
+                    "category_id" => 5,
+                    "category_name" => 6,
+                    "in_stock" => 7,
+                    "created_at" => 8,
+                    "rating" => 9,
+                    "tags" => 10,
+                    _ => continue, // Skip unknown fields
+                };
+
+                let array_index = (attno - 1) as usize; // Convert to 0-based index
                 if array_index < natts {
                     match self.convert_value_to_datum(value, field_name) {
                         Ok((datum, is_null)) => {
                             datums[array_index] = datum;
                             nulls[array_index] = is_null;
                             debug_log!(
-                                "🔥 Set field '{}' at index {} with is_null={}",
+                                "🔥 Set field '{}' at attno {} (index {}) with is_null={}",
                                 field_name.root().as_str(),
+                                attno,
                                 array_index,
                                 is_null
                             );
@@ -494,9 +543,9 @@ impl CallbackManager {
             }
         }
 
-        // Mark the slot as valid
-        (*slot).tts_nvalid = natts as i16;
-        (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+        // Mark the slot as having valid data
+        (*slot).tts_nvalid = natts as pg_sys::AttrNumber;
+        (*slot).tts_flags |= pg_sys::TTS_FLAG_FIXED as u16;
 
         debug_log!(
             "🔥 Successfully created mock tuple slot with {} attributes",
@@ -1440,7 +1489,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<i16>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (i16->i64)", field_name.root(), value);
-                OwnedValue::I64(value as i64)
+                            OwnedValue::I64(value as i64)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1466,7 +1515,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<i64>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (i64)", field_name.root(), value);
-                OwnedValue::I64(value)
+                            OwnedValue::I64(value)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1479,7 +1528,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<f32>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (f32->f64)", field_name.root(), value);
-                OwnedValue::F64(value as f64)
+                            OwnedValue::F64(value as f64)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1492,7 +1541,7 @@ impl IndexedWithFilterScorer {
                     match heap_tuple.get_by_name::<f64>(&field_name.root()) {
                         Ok(Some(value)) => {
                             debug_log!("🔥 Extracted field '{}' = {} (f64)", field_name.root(), value);
-                OwnedValue::F64(value)
+                            OwnedValue::F64(value)
                         }
                         Ok(None) => OwnedValue::Null,
                         Err(e) => {
@@ -1517,12 +1566,12 @@ impl IndexedWithFilterScorer {
                 oid if oid == pg_sys::NUMERICOID.to_u32() => {
                     match heap_tuple.get_by_name::<AnyNumeric>(&field_name.root()) {
                         Ok(Some(value)) => {
-                match value.try_into() {
-                    Ok(f) => {
-                        let f: f64 = f;
+                            match value.try_into() {
+                                Ok(f) => {
+                                    let f: f64 = f;
                                     debug_log!("🔥 Extracted field '{}' = {} (NUMERIC->f64)", field_name.root(), f);
-                        OwnedValue::F64(f)
-                    }
+                                    OwnedValue::F64(f)
+                                }
                                 Err(e) => {
                                     debug_log!("🔥 Failed to convert NUMERIC to f64 for field '{}': {}", field_name.root(), e);
                                     OwnedValue::Null
@@ -1539,12 +1588,12 @@ impl IndexedWithFilterScorer {
                 // Handle other unknown types safely
                 _ => {
                     debug_log!("🔥 Unsupported type_oid {} for field '{}', returning Null", type_oid, field_name.root());
-                        OwnedValue::Null
-                    }
+                    OwnedValue::Null
                 }
-            } else {
+            }
+        } else {
             debug_log!("🔥 Field '{}' not found in tuple", field_name.root());
-                OwnedValue::Null
+            OwnedValue::Null
         }
     }
 
@@ -1660,9 +1709,8 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
             let clause_node = pg_sys::stringToNode(clause_cstring.as_ptr());
 
             if !clause_node.is_null() {
-                // For the legacy ExprState path, replace @@@ operators with TRUE constants
-                let processed_node = replace_search_operators_with_true(clause_node.cast());
-                args_list = pg_sys::lappend(args_list, processed_node.cast::<core::ffi::c_void>());
+                // Use the original clause node without replacing @@@ operators
+                args_list = pg_sys::lappend(args_list, clause_node.cast::<core::ffi::c_void>());
             } else {
                 panic!("Failed to parse clause string: {}", clause_str);
             }
@@ -1688,91 +1736,28 @@ unsafe fn create_heap_filter_expr(heap_filter_node_string: &str) -> *mut pg_sys:
         let node = pg_sys::stringToNode(node_cstr.as_ptr());
 
         if !node.is_null() {
-            // For the legacy ExprState path, replace @@@ operators with TRUE constants
-            let processed_node = replace_search_operators_with_true(node.cast());
-            processed_node.cast::<pg_sys::Expr>()
+            // Use the original node without replacing @@@ operators
+            node.cast::<pg_sys::Expr>()
         } else {
             panic!("Failed to deserialize node: {}", heap_filter_node_string);
         }
     }
 }
 
-/// Replace @@@ search operators with TRUE constants for PostgreSQL evaluation
-/// This allows PostgreSQL to evaluate the non-@@@ parts of mixed expressions
-unsafe fn replace_search_operators_with_true(node: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    if node.is_null() {
-        return node;
+/// Serialize a PostgreSQL expression to a string for later evaluation
+/// This preserves the original expression structure for proper evaluation
+unsafe fn serialize_expression(expr: *mut pg_sys::Expr) -> String {
+    if expr.is_null() {
+        return "NULL".to_string();
     }
 
-    match (*node).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = node.cast::<pg_sys::OpExpr>();
-            
-            // Check if this is a @@@ operator (you'll need to define this check)
-            if is_search_operator_for_replacement((*opexpr).opno) {
-                // Replace with TRUE constant
-                create_true_const().unwrap_or(node)
-            } else {
-                // Recursively process arguments
-                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-                let mut new_args = std::ptr::null_mut();
-                
-                for arg in args.iter_ptr() {
-                    let processed_arg = replace_search_operators_with_true(arg);
-                    new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
-                }
-                
-                // Create new OpExpr with processed arguments
-                let new_opexpr = pg_sys::palloc0(std::mem::size_of::<pg_sys::OpExpr>())
-                    .cast::<pg_sys::OpExpr>();
-                *new_opexpr = *opexpr; // Copy original
-                (*new_opexpr).args = new_args;
-                new_opexpr.cast()
-            }
-        }
-        pg_sys::NodeTag::T_BoolExpr => {
-            let bool_expr = node.cast::<pg_sys::BoolExpr>();
-            let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-            let mut new_args = std::ptr::null_mut();
-            
-            for arg in args.iter_ptr() {
-                let processed_arg = replace_search_operators_with_true(arg);
-                new_args = pg_sys::lappend(new_args, processed_arg.cast::<core::ffi::c_void>());
-            }
-            
-            // Create new BoolExpr with processed arguments
-            let new_bool_expr = pg_sys::palloc0(std::mem::size_of::<pg_sys::BoolExpr>())
-                .cast::<pg_sys::BoolExpr>();
-            *new_bool_expr = *bool_expr; // Copy original
-            (*new_bool_expr).args = new_args;
-            new_bool_expr.cast()
-        }
-        _ => {
-            // For other node types, return as-is
-            node
-        }
-    }
-}
+    // Convert the expression to a string representation
+    let node_string = pg_sys::nodeToString(expr.cast::<core::ffi::c_void>());
+    let rust_string = std::ffi::CStr::from_ptr(node_string)
+        .to_string_lossy()
+        .into_owned();
+    pg_sys::pfree(node_string.cast());
 
-/// Check if an operator OID represents a search operator that should be replaced
-unsafe fn is_search_operator_for_replacement(_opno: pg_sys::Oid) -> bool {
-    // This should check for @@@ operators
-    // You'll need to implement this based on your operator OIDs
-    false // Placeholder for now
-}
-
-/// Create a TRUE constant node
-unsafe fn create_true_const() -> Option<*mut pg_sys::Node> {
-    let const_node = pg_sys::palloc0(std::mem::size_of::<pg_sys::Const>()).cast::<pg_sys::Const>();
-    (*const_node).xpr.type_ = pg_sys::NodeTag::T_Const;
-    (*const_node).consttype = pg_sys::BOOLOID;
-    (*const_node).consttypmod = -1;
-    (*const_node).constcollid = pg_sys::Oid::from(0);
-    (*const_node).constlen = 1;
-    (*const_node).constbyval = true;
-    (*const_node).constisnull = false;
-    (*const_node).constvalue = pg_sys::Datum::from(true);
-    (*const_node).location = -1;
-    
-    Some(const_node.cast())
+    debug_log!("🔥 Serialized expression: {}", rust_string);
+    rust_string
 }

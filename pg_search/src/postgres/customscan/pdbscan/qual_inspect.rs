@@ -575,7 +575,7 @@ impl From<&Qual> for SearchQueryInput {
                 }
 
                 if !indexed_quals.is_empty() && !non_indexed_quals.is_empty() {
-                    debug_log!("Creating multiple atomic external filters for mixed predicates");
+                    debug_log!("Creating combined external filter for mixed predicates");
                     debug_log!("Indexed quals: {}, Non-indexed quals: {}", indexed_quals.len(), non_indexed_quals.len());
                     
                     // Create the base indexed query
@@ -589,35 +589,37 @@ impl From<&Qual> for SearchQueryInput {
                         }
                     };
 
-                    // For each non-indexed qual, create a separate IndexedWithFilter
-                    let mut filters = Vec::new();
+                    // Combine all non-indexed quals into a single external filter
+                    let mut all_referenced_fields = Vec::new();
+                    let mut filter_expressions = Vec::new();
+                    
                     for non_indexed_qual in non_indexed_quals {
                         if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
                             let filter_expression = unsafe { serialize_expression(*expr) };
                             let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
                             
-                            // Try to extract any indexed parts from the filter expression
-                            let indexed_part = unsafe {
-                                parse_mixed_expression_tree(*expr, attno_map)
-                                    .unwrap_or(SearchQueryInput::All)
-                            };
-                            
-                            filters.push(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(indexed_part),
-                                filter_expression,
-                                referenced_fields,
-                            });
+                            filter_expressions.push(filter_expression);
+                            all_referenced_fields.extend(referenced_fields);
                         }
                     }
 
-                    // Combine the indexed query with all filters
-                    let mut must_clauses = vec![indexed_query];
-                    must_clauses.extend(filters);
+                    // Remove duplicate referenced fields
+                    all_referenced_fields.sort();
+                    all_referenced_fields.dedup();
 
-                    SearchQueryInput::Boolean {
-                        must: must_clauses,
-                        should: vec![],
-                        must_not: vec![],
+                    // Combine all filter expressions with AND
+                    let combined_filter = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
+                    } else {
+                        // Create a combined AND expression
+                        format!("({})", filter_expressions.join(" AND "))
+                    };
+
+                    // Create a single IndexedWithFilter with the combined external filter
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(indexed_query),
+                        filter_expression: combined_filter,
+                        referenced_fields: all_referenced_fields,
                     }
                 } else if !indexed_quals.is_empty() {
                     // Only indexed quals
@@ -627,35 +629,37 @@ impl From<&Qual> for SearchQueryInput {
                         must_not: vec![],
                     }
                 } else if !non_indexed_quals.is_empty() {
-                    // Only non-indexed quals - create external filters
-                    let mut filters = Vec::new();
+                    // Only non-indexed quals - create a single external filter with All query
+                    let mut all_referenced_fields = Vec::new();
+                    let mut filter_expressions = Vec::new();
+                    
                     for non_indexed_qual in non_indexed_quals {
                         if let Qual::PostgresEval { expr, attno_map } = non_indexed_qual {
                             let filter_expression = unsafe { serialize_expression(*expr) };
                             let referenced_fields = unsafe { extract_referenced_fields(*expr, attno_map) };
                             
-                            // Try to extract any indexed parts from the filter expression
-                            let indexed_part = unsafe {
-                                parse_mixed_expression_tree(*expr, attno_map)
-                                    .unwrap_or(SearchQueryInput::All)
-                            };
-                            
-                            filters.push(SearchQueryInput::IndexedWithFilter {
-                                indexed_query: Box::new(indexed_part),
-                                filter_expression,
-                                referenced_fields,
-                            });
+                            filter_expressions.push(filter_expression);
+                            all_referenced_fields.extend(referenced_fields);
                         }
                     }
 
-                    if filters.len() == 1 {
-                        filters.into_iter().next().unwrap()
+                    // Remove duplicate referenced fields
+                    all_referenced_fields.sort();
+                    all_referenced_fields.dedup();
+
+                    // Combine all filter expressions with AND
+                    let combined_filter = if filter_expressions.len() == 1 {
+                        filter_expressions.into_iter().next().unwrap()
                     } else {
-                        SearchQueryInput::Boolean {
-                            must: filters,
-                            should: vec![],
-                            must_not: vec![],
-                        }
+                        // Create a combined AND expression
+                        format!("({})", filter_expressions.join(" AND "))
+                    };
+
+                    // Create a single IndexedWithFilter with All query and combined external filter
+                    SearchQueryInput::IndexedWithFilter {
+                        indexed_query: Box::new(SearchQueryInput::All),
+                        filter_expression: combined_filter,
+                        referenced_fields: all_referenced_fields,
                     }
                 } else {
                     // No quals - shouldn't happen but handle gracefully

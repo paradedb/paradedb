@@ -116,6 +116,10 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
         &mut self.custom_private
     }
 
+    pub fn set_target_list(&mut self, tlist: PgList<pg_sys::TargetEntry>) {
+        self.custom_scan_node.scan.plan.targetlist = tlist.into_pg();
+    }
+
     pub fn build(self) -> pg_sys::CustomScan {
         let mut node = self.custom_scan_node;
         node.custom_private = self.custom_private.into();

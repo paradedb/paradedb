@@ -5,4 +5,8 @@ CREATE TABLE tbl_inet (ip inet);
 CREATE INDEX idx_inet ON tbl_inet USING bm25 (ip) WITH (key_field = 'ip');
 INSERT INTO tbl_inet (ip) VALUES ('192.168.0.1');
 EXPLAIN SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
-ERROR:  called `Result::unwrap()` on an `Err` value: Error("invalid type: null, expected struct PrivateData", line: 1, column: 4)
+                               QUERY PLAN                                
+-------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)  (cost=0.00..0.00 rows=0 width=8)
+(1 row)
+

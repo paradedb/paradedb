@@ -180,7 +180,7 @@ pub unsafe fn try_pushdown(
     }
 }
 
-unsafe fn term_with_operator_procid() -> pg_sys::Oid {
+pub unsafe fn term_with_operator_procid() -> pg_sys::Oid {
     direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             // NB:  the SQL signature here needs to match our Rust implementation

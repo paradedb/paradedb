@@ -365,7 +365,7 @@ impl Directory for MVCCDirectory {
                         .collect();
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
-                        .store(loaded.total_segments, Ordering::SeqCst);
+                        .store(loaded.total_segments, Ordering::Relaxed);
                     Arc::new(Ok(loaded.meta))
                 }
             }

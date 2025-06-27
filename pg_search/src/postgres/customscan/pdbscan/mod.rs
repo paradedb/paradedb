@@ -72,6 +72,7 @@ use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
+use std::sync::atomic::Ordering;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -306,8 +307,10 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
-            let directory = MvccSatisfies::Snapshot.directory(&bm25_index);
+            let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = SearchIndexSchema::from_index(&bm25_index, &index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
@@ -422,12 +425,7 @@ impl CustomScan for PdbScan {
             builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
-            builder.custom_private().set_segment_count(
-                index
-                    .searchable_segments()
-                    .map(|segments| segments.len())
-                    .unwrap_or(0),
-            );
+            builder.custom_private().set_segment_count(segment_count);
 
             if is_topn && pathkey.is_some() {
                 let pathkey = pathkey.as_ref().unwrap();
@@ -458,7 +456,6 @@ impl CustomScan for PdbScan {
             }
 
             let nworkers = if (*builder.args().rel).consider_parallel {
-                let segment_count = index.searchable_segments().unwrap_or_default().len();
                 compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
             } else {
                 0
@@ -480,7 +477,7 @@ impl CustomScan for PdbScan {
                     let cardinality = {
                         let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
                             // NB:  '4' is a magic number
-                            fast_fields::estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            fast_fields::estimate_cardinality(&index, field).unwrap_or(0) * 4
                         } else {
                             0
                         };

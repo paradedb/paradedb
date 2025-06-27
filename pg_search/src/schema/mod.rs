@@ -160,6 +160,10 @@ impl SearchIndexSchema {
         Ok(Self::from_index(indexrel, &index))
     }
 
+    pub fn tantivy_schema(&self) -> &Schema {
+        &self.schema
+    }
+
     pub fn ctid_field(&self) -> Field {
         self.schema
             .get_field("ctid")

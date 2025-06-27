@@ -94,23 +94,27 @@ impl PdbScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
-        .expect("should be able to open the search index reader");
+        let search_query_input = state.custom_state().search_query_input();
+        let need_scores = state.custom_state().need_scores();
+
+        let search_reader =
+            SearchIndexReader::open(indexrel, search_query_input.clone(), need_scores, unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // the leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // the workers have their own rules, which is literally every segment
+                    // this is because the workers pick a specific segment to query that
+                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                    // visibility test due to concurrent merges/garbage collects
+                    MvccSatisfies::ParallelWorker(list_segment_ids(
+                        state.custom_state().parallel_state.expect(
+                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                        ),
+                    ))
+                }
+            })
+            .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -151,7 +155,7 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use);
+                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
@@ -1120,7 +1124,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
-            need_scores: privdata.need_scores(),
         }
     } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
@@ -1158,14 +1161,8 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             sort_direction,
-            need_scores,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(
-                heaprelid,
-                limit,
-                sort_direction,
-                need_scores,
-            ),
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
         ExecMethodType::FastFieldString {

@@ -22,7 +22,7 @@ use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
 use crate::query::SearchQueryInput;
-use crate::query::heap_field_filter::{HeapFieldFilter, HeapOperand, HeapOperator, HeapValue};
+use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::api::FieldName;
 use crate::schema::SearchIndexSchema;
 use crate::debug_log;
@@ -703,24 +703,25 @@ pub unsafe fn extract_quals(
                 debug_log!("Found boolean constant");
                 
                 if convert_external_to_special_qual {
-                    // Convert boolean constant to HeapExpr: constant = true
-                    if let Some(heap_value) = postgres_const_to_heap_value(const_node) {
-                        debug_log!("Creating HeapExpr for boolean constant: {:?}", heap_value);
-                        
-                        // Create HeapExpr using the new expression-based approach
-                        let expr_description = format!("Boolean constant = true");
-                        let heap_expr = Qual::HeapExpr {
-                            expr_node: node, // Use the original T_Const node
-                            expr_description,
-                            search_query_input: Box::new(SearchQueryInput::All),
-                        };
-                        
-                        debug_log!("Successfully created HeapExpr for boolean constant");
-                        *uses_tantivy_to_query = true;
-                        return Some(heap_expr);
+                    // Convert boolean constant to HeapExpr using the expression-based approach
+                    debug_log!("Creating HeapExpr for boolean constant");
+                    
+                    // Create HeapExpr using the new expression-based approach
+                    let bool_value = if !(*const_node).constisnull {
+                        bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                     } else {
-                        debug_log!("Failed to convert boolean constant to HeapValue");
-                    }
+                        false
+                    };
+                    let expr_description = format!("Boolean constant = {}", bool_value);
+                    let heap_expr = Qual::HeapExpr {
+                        expr_node: node, // Use the original T_Const node
+                        expr_description,
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    };
+                    
+                    debug_log!("Successfully created HeapExpr for boolean constant");
+                    *uses_tantivy_to_query = true;
+                    return Some(heap_expr);
                 } else {
                     // Handle constants that result from join clause simplification (original logic)
                     if !(*const_node).constisnull {
@@ -1392,129 +1393,8 @@ unsafe fn try_create_heap_expr_from_opexpr(
     })
 }
 
-/// Try to extract a HeapOperand from a PostgreSQL node
-unsafe fn try_extract_heap_operand(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    node: *mut pg_sys::Node,
-    relation_oid: pg_sys::Oid,
-) -> Option<HeapOperand> {
-    if node.is_null() {
-        debug_log!("Node is null");
-        return None;
-    }
-    
-    debug_log!("Node type: {:?}", (*node).type_);
-    
-    match (*node).type_ {
-        pg_sys::NodeTag::T_Var => {
-            let var = nodecast!(Var, T_Var, node)?;
-            debug_log!("Found Var node: varno={}, rti={}, attno={}", (*var).varno, rti, (*var).varattno);
-            if (*var).varno as pg_sys::Index == rti {
-                // This is a field reference to our relation
-                let attno = (*var).varattno;
-                let field_name = get_field_name_from_attno(relation_oid, attno)?;
-                debug_log!("Field name resolved: {}", field_name);
-                Some(HeapOperand::Field { field: field_name, attno })
-            } else {
-                debug_log!("Var node varno {} doesn't match rti {}", (*var).varno, rti);
-                None
-            }
-        }
-        pg_sys::NodeTag::T_Const => {
-            let const_node = nodecast!(Const, T_Const, node)?;
-            debug_log!("Found Const node: type={}, is_null={}", (*const_node).consttype, (*const_node).constisnull);
-            let heap_value = postgres_const_to_heap_value(const_node)?;
-            debug_log!("Const value converted to HeapValue");
-            Some(HeapOperand::Value(heap_value))
-        }
-        _ => {
-            debug_log!("Unsupported node type for HeapOperand");
-            None
-        }
-    }
-}
-
-/// Convert PostgreSQL operator OID to HeapOperator
-unsafe fn postgres_oid_to_heap_operator(opno: pg_sys::Oid) -> Option<HeapOperator> {
-    // Check common comparison operators
-    if opno == operator_oid("=(int4,int4)") || opno == operator_oid("=(int8,int8)") ||
-       opno == operator_oid("=(float4,float4)") || opno == operator_oid("=(float8,float8)") ||
-       opno == operator_oid("=(text,text)") || opno == operator_oid("=(bool,bool)") ||
-       opno == operator_oid("=(numeric,numeric)") ||
-       // Cross-type float comparisons
-       opno == operator_oid("=(real,double precision)") ||
-       opno == operator_oid("=(double precision,real)") {
-        Some(HeapOperator::Equal)
-    } else if opno == operator_oid(">(int4,int4)") || opno == operator_oid(">(int8,int8)") ||
-              opno == operator_oid(">(float4,float4)") || opno == operator_oid(">(float8,float8)") ||
-              opno == operator_oid(">(text,text)") || opno == operator_oid(">(numeric,numeric)") ||
-              // Cross-type float comparisons
-              opno == operator_oid(">(real,double precision)") ||
-              opno == operator_oid(">(double precision,real)") {
-        Some(HeapOperator::GreaterThan)
-    } else if opno == operator_oid("<(int4,int4)") || opno == operator_oid("<(int8,int8)") ||
-              opno == operator_oid("<(float4,float4)") || opno == operator_oid("<(float8,float8)") ||
-              opno == operator_oid("<(text,text)") || opno == operator_oid("<(numeric,numeric)") ||
-              // Cross-type float comparisons
-              opno == operator_oid("<(real,double precision)") ||
-              opno == operator_oid("<(double precision,real)") {
-        Some(HeapOperator::LessThan)
-    } else if opno == operator_oid(">=(int4,int4)") || opno == operator_oid(">=(int8,int8)") ||
-              opno == operator_oid(">=(float4,float4)") || opno == operator_oid(">=(float8,float8)") ||
-              opno == operator_oid(">=(text,text)") || opno == operator_oid(">=(numeric,numeric)") ||
-              // Cross-type float comparisons
-              opno == operator_oid(">=(real,double precision)") ||
-              opno == operator_oid(">=(double precision,real)") {
-        Some(HeapOperator::GreaterThanOrEqual)
-    } else if opno == operator_oid("<=(int4,int4)") || opno == operator_oid("<=(int8,int8)") ||
-              opno == operator_oid("<=(float4,float4)") || opno == operator_oid("<=(float8,float8)") ||
-              opno == operator_oid("<=(text,text)") || opno == operator_oid("<=(numeric,numeric)") ||
-              // Cross-type float comparisons
-              opno == operator_oid("<=(real,double precision)") ||
-              opno == operator_oid("<=(double precision,real)") {
-        Some(HeapOperator::LessThanOrEqual)
-    } else {
-        debug_log!("Unsupported operator OID: {}", opno);
-        None
-    }
-}
-
-/// Convert PostgreSQL Const node to HeapValue
-unsafe fn postgres_const_to_heap_value(const_node: *mut pg_sys::Const) -> Option<HeapValue> {
-    if (*const_node).constisnull {
-        return None;
-    }
-    
-    let datum = (*const_node).constvalue;
-    let type_oid = (*const_node).consttype;
-    
-    match type_oid {
-        pg_sys::TEXTOID | pg_sys::VARCHAROID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|s: String| HeapValue::Text(s))
-        }
-        pg_sys::INT4OID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|i: i32| HeapValue::Integer(i as i64))
-        }
-        pg_sys::INT8OID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|i: i64| HeapValue::Integer(i))
-        }
-        pg_sys::FLOAT4OID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|f: f32| HeapValue::Float(f as f64))
-        }
-        pg_sys::FLOAT8OID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|f: f64| HeapValue::Float(f))
-        }
-        pg_sys::BOOLOID => {
-            pgrx::FromDatum::from_datum(datum, false).map(|b: bool| HeapValue::Boolean(b))
-        }
-        pg_sys::NUMERICOID => {
-            pgrx::AnyNumeric::from_datum(datum, false)
-                .map(|numeric| HeapValue::Decimal(numeric.to_string()))
-        }
-        _ => None,
-    }
-}
+// The operand-based helper functions have been removed in favor of the expression-based approach
+// All PostgreSQL expression evaluation is now handled directly through serialized expressions
 
 /// Optimize qual tree by converting ExternalVar and ExternalExpr to HeapExpr where possible
 /// This is the second pass optimization mentioned in the implementation plan

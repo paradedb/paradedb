@@ -378,21 +378,28 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, item_count
 FROM category_tree
 ORDER BY level, name;
-                          QUERY PLAN                          
---------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
      ->  Recursive Union
-           ->  Seq Scan on category
-                 Filter: (name = 'Electronics'::text)
+           ->  Custom Scan (ParadeDB Scan) on category
+                 Table: category
+                 Index: category_idx
+                 Exec Method: MixedFastFieldExecState
+                 Fast Fields: name, id, is_active, item_count, level, parent_id
+                 String Fast Fields: name
+                 Numeric Fast Fields: id, is_active, item_count, level, parent_id
+                 Scores: false
+                 Tantivy Query: {"indexed_with_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}
            ->  Hash Join
                  Hash Cond: (c.parent_id = ct.id)
                  ->  Seq Scan on category c
                  ->  Hash
                        ->  WorkTable Scan on category_tree ct
    ->  CTE Scan on category_tree
-(12 rows)
+(19 rows)
 
 WITH RECURSIVE category_tree AS (
     -- Base case: start with parent category
@@ -591,14 +598,21 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-                                                                                                                                                    QUERY PLAN                                                                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
      ->  Recursive Union
-           ->  Seq Scan on category
-                 Filter: (name = 'Electronics'::text)
+           ->  Custom Scan (ParadeDB Scan) on category
+                 Table: category
+                 Index: category_idx
+                 Exec Method: MixedFastFieldExecState
+                 Fast Fields: description, name, id, item_count, level, parent_id
+                 String Fast Fields: description, name
+                 Numeric Fast Fields: id, item_count, level, parent_id
+                 Scores: false
+                 Tantivy Query: {"indexed_with_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}
            ->  Hash Join
                  Hash Cond: (ct.id = c.parent_id)
                  ->  WorkTable Scan on category_tree ct
@@ -613,7 +627,7 @@ ORDER BY level, name;
                              Scores: false
                              Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
    ->  CTE Scan on category_tree
-(20 rows)
+(27 rows)
 
 WITH RECURSIVE category_tree AS (
     -- Base case

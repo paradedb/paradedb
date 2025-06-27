@@ -529,9 +529,28 @@ pub unsafe fn extract_quals(
             if (*var_node).varno as pg_sys::Index == rti {
                 debug_log!("Found boolean field reference: varno={}, attno={}", (*var_node).varno, (*var_node).varattno);
                 
-                // Try to create a HeapExpr for boolean field = true
+                // First, try to create a PushdownField to see if this is an indexed boolean field
+                if let Some(field) = PushdownField::try_new(root, var_node, schema) {
+                    if let Some(search_field) = schema.search_field(field.attname()) {
+                        if search_field.is_fast() {
+                            debug_log!("Boolean field is indexed and fast, creating PushdownVarEqTrue");
+                            // This is an indexed boolean field, create proper pushdown qual
+                            // T_Var alone represents "field = true"
+                            *uses_tantivy_to_query = true;
+                            return Some(Qual::PushdownVarEqTrue { field });
+                        } else {
+                            debug_log!("Boolean field is indexed but not fast, falling back to HeapExpr");
+                        }
+                    } else {
+                        debug_log!("Boolean field not found in schema, falling back to HeapExpr");
+                    }
+                } else {
+                    debug_log!("Could not create PushdownField, falling back to HeapExpr");
+                }
+                
+                // If we reach here, the field is not indexed or not fast, so create HeapExpr
                 if convert_external_to_special_qual {
-                    debug_log!("Attempting HeapExpr creation for boolean field");
+                    debug_log!("Attempting HeapExpr creation for non-indexed boolean field");
                     
                     // Check if root and parse are valid
                     if root.is_null() || (*root).parse.is_null() {
@@ -551,7 +570,7 @@ pub unsafe fn extract_quals(
                     // Get the field name
                     let attno = (*var_node).varattno;
                     if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
-                        debug_log!("Creating HeapExpr for boolean field: {}", field_name.root());
+                        debug_log!("Creating HeapExpr for non-indexed boolean field: {}", field_name.root());
                         
                         // Create HeapExpr using the new expression-based approach
                         let expr_description = format!("Boolean field {} = true", field_name.root());
@@ -561,54 +580,18 @@ pub unsafe fn extract_quals(
                             search_query_input: Box::new(SearchQueryInput::All),
                         };
                         
-                        debug_log!("Successfully created HeapExpr for boolean field");
+                        debug_log!("Successfully created HeapExpr for non-indexed boolean field");
                         *uses_tantivy_to_query = true;
                         return Some(heap_expr);
                     } else {
                         debug_log!("Failed to get field name for attno: {}", attno);
                     }
                 } else {
-                    debug_log!("convert_external_to_special_qual is false, attempting HeapExpr creation anyway for boolean field");
-                    
-                    // Even if convert_external_to_special_qual is false, we should still try to create HeapExpr
-                    // for boolean fields since this is a common case
-                    if root.is_null() || (*root).parse.is_null() {
-                        debug_log!("Invalid root or parse pointer");
-                        return None;
-                    }
-                    
-                    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                    if rte.is_null() {
-                        debug_log!("Failed to fetch range table entry");
-                        return None;
-                    }
-                    
-                    let relation_oid = (*rte).relid;
-                    debug_log!("Got relation_oid: {}", relation_oid);
-                    
-                    // Get the field name
-                    let attno = (*var_node).varattno;
-                    if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
-                        debug_log!("Creating HeapExpr for boolean field (even with convert_external_to_special_qual=false): {}", field_name.root());
-                        
-                        // Create HeapExpr using the new expression-based approach
-                        let expr_description = format!("Boolean field {} = true", field_name.root());
-                        let heap_expr = Qual::HeapExpr {
-                            expr_node: node, // Use the original T_Var node
-                            expr_description,
-                            search_query_input: Box::new(SearchQueryInput::All),
-                        };
-                        
-                        debug_log!("Successfully created HeapExpr for boolean field");
-                        *uses_tantivy_to_query = true;
-                        return Some(heap_expr);
-                    } else {
-                        debug_log!("Failed to get field name for attno: {}", attno);
-                    }
+                    debug_log!("convert_external_to_special_qual is false, not creating HeapExpr for boolean field");
                 }
                 
-                // If HeapExpr creation failed, return None
-                debug_log!("HeapExpr creation failed for boolean field, returning None");
+                // If we can't handle this boolean field, return None
+                debug_log!("Cannot handle boolean field, returning None");
                 None
             } else {
                 debug_log!("T_Var node does not reference our relation");

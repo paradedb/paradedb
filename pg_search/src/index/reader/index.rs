@@ -695,12 +695,9 @@ impl SearchIndexReader {
         }
     }
 
-    pub fn estimate_docs(&self) -> Option<usize> {
+    pub fn estimate_docs(&self, total_docs: f64) -> Option<usize> {
         let largest_reader = self.searcher.segment_reader(0);
-        let weight = self
-            .query
-            .weight(enable_scoring(self.need_scores, &self.searcher))
-            .expect("weight should be constructable");
+        let weight = self.weight();
         let mut scorer = weight
             .scorer(largest_reader, 1.0)
             .expect("counting docs in the largest segment should not fail");
@@ -711,8 +708,7 @@ impl SearchIndexReader {
             // but when it doesn't, we need to do a full count
             count = scorer.count_including_deleted() as usize;
         }
-        let segment_doc_proportion =
-            largest_reader.num_docs() as f64 / self.searcher.num_docs() as f64;
+        let segment_doc_proportion = largest_reader.num_docs() as f64 / total_docs;
 
         Some((count as f64 / segment_doc_proportion).ceil() as usize)
     }

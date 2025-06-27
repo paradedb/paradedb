@@ -435,9 +435,6 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
-    // Add debug logging to see what node types we're processing
-    let node_tag = (*node).type_;
-
     if node.is_null() {
         return None;
     }

@@ -582,22 +582,20 @@ pub unsafe fn extract_quals(
                 if let Some(search_field) = schema.search_field(field.attname()) {
                     if search_field.is_fast() {
                         if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
-                            Some(Qual::PushdownIsNotNull { field })
+                            return Some(Qual::PushdownIsNotNull { field });
                         } else {
-                            Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })))
+                            return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
                         }
                     } else {
                         // Field is not fast, try creating HeapExpr
-                        try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
                     }
                 } else {
                     // Field not found in schema, try creating HeapExpr
-                    try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
                 }
             } else {
                 // Try to create a HeapExpr for non-indexed field NULL tests
-                try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
             }
+            try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
         }
 
         pg_sys::NodeTag::T_BooleanTest => booltest(

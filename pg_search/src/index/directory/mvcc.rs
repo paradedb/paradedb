@@ -60,6 +60,7 @@ pub const BUFWRITER_CAPACITY: usize = bm25_max_free_space() * MAX_BUFFERS_TO_EXT
 #[derive(Debug, PartialEq, Eq)]
 pub enum MvccSatisfies {
     ParallelWorker(HashSet<SegmentId>),
+    LargestSegment,
     Snapshot,
     Vacuum,
     Mergeable,
@@ -431,6 +432,10 @@ impl PinCushion {
 
     pub fn remove(&mut self, blockno: pg_sys::BlockNumber) {
         self.0.remove(&blockno);
+    }
+
+    pub fn clear(&mut self) {
+        self.0.clear();
     }
 }
 

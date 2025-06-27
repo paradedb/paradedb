@@ -410,7 +410,7 @@ impl CustomScan for PdbScan {
                 PARAMETERIZED_SELECTIVITY
             } else {
                 // ask the index
-                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+                estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
             // we must use this path if we need to do const projections for scores or snippets

@@ -23,7 +23,6 @@ mod score;
 
 use heap_field_filter::HeapFieldFilter;
 
-use crate::debug_log;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
@@ -986,7 +985,7 @@ impl SearchQueryInput {
                 // For example, NgramTokenizer can produce many tokens per word and all of them will
                 // have position=0 which won't be correctly interpreted when processing slop
                 if should_warn {
-                    debug_log!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
+                    // Note: Phrase query with multiple tokens per phrase may not be correctly interpreted
                 }
 
                 let mut query = PhraseQuery::new(terms);

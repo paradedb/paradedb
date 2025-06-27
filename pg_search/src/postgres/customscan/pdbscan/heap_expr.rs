@@ -1,6 +1,5 @@
 use pgrx::{pg_sys, PgRelation, PgTupleDesc};
 use pgrx::heap_tuple::PgHeapTuple;
-use crate::debug_log;
 use crate::api::SearchQueryInput;
 
 /// Create a HeapExpr from a PostgreSQL expression node
@@ -12,8 +11,6 @@ pub unsafe fn try_create_heap_expr_from_node(
 ) -> Option<crate::postgres::customscan::pdbscan::qual_inspect::Qual> {
     // Create a description of the expression for debugging
     let expr_description = format!("PostgreSQL expression at {:p}", expr_node);
-    
-    debug_log!("Creating HeapExpr with description: {}", expr_description);
     
     Some(crate::postgres::customscan::pdbscan::qual_inspect::Qual::HeapExpr {
         expr_node,
@@ -30,7 +27,6 @@ pub unsafe fn evaluate_postgres_expression_against_tuple(
     relation_oid: pg_sys::Oid,
     expr_description: &str,
 ) -> Option<bool> {
-    debug_log!("evaluate_postgres_expression_against_tuple called for: {}", expr_description);
 
     // Open the relation
     let heaprel = PgRelation::open(relation_oid);
@@ -62,21 +58,15 @@ pub unsafe fn evaluate_postgres_expression_against_tuple(
     );
 
     if !fetch_success {
-        debug_log!("Failed to fetch heap tuple for ctid: block={}, offset={}", 
-                  pgrx::itemptr::item_pointer_get_both(*ctid).0,
-                  pgrx::itemptr::item_pointer_get_both(*ctid).1);
         if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
         }
         return None;
     }
 
-    debug_log!("Successfully fetched heap tuple");
-
     // Create an expression state for evaluation
     let expr_state = pg_sys::ExecInitExpr(expr_node, std::ptr::null_mut());
     if expr_state.is_null() {
-        debug_log!("Failed to initialize expression state");
         if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
         }
@@ -86,7 +76,6 @@ pub unsafe fn evaluate_postgres_expression_against_tuple(
     // Create an expression context
     let expr_context = pg_sys::CreateStandaloneExprContext();
     if expr_context.is_null() {
-        debug_log!("Failed to create expression context");
         if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
         }
@@ -97,7 +86,6 @@ pub unsafe fn evaluate_postgres_expression_against_tuple(
     let tuple_desc = heaprel.rd_att;
     let slot = pg_sys::MakeTupleTableSlot(tuple_desc, &pg_sys::TTSOpsHeapTuple);
     if slot.is_null() {
-        debug_log!("Failed to create tuple table slot");
         pg_sys::FreeExprContext(expr_context, false);
         if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
@@ -123,13 +111,11 @@ pub unsafe fn evaluate_postgres_expression_against_tuple(
     }
 
     if is_null {
-        debug_log!("Expression evaluated to NULL");
         None
     } else {
         // Convert datum to boolean
         let result = pgrx::FromDatum::from_datum(result_datum, false)
             .unwrap_or(false);
-        debug_log!("Expression evaluated to boolean: {}", result);
         Some(result)
     }
 } 

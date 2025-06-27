@@ -588,37 +588,15 @@ pub unsafe fn extract_quals(
                         }
                     } else {
                         // Field is not fast, try creating HeapExpr
-                        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                        let relation_oid = (*rte).relid;
-                        if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti)
-                        {
-                            *uses_tantivy_to_query = true;
-                            Some(heap_expr)
-                        } else {
-                            None
-                        }
+                        try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
                     }
                 } else {
                     // Field not found in schema, try creating HeapExpr
-                    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                    let relation_oid = (*rte).relid;
-                    if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
-                        *uses_tantivy_to_query = true;
-                        Some(heap_expr)
-                    } else {
-                        None
-                    }
+                    try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
                 }
             } else {
                 // Try to create a HeapExpr for non-indexed field NULL tests
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                let relation_oid = (*rte).relid;
-                if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
-                    *uses_tantivy_to_query = true;
-                    Some(heap_expr)
-                } else {
-                    None
-                }
+                try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
             }
         }
 
@@ -1370,6 +1348,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
 unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
+    uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Extract the field being tested
     let arg = (*nulltest).arg;
@@ -1383,6 +1362,8 @@ unsafe fn try_create_heap_expr_from_null_test(
             } else {
                 "IS NOT NULL"
             };
+
+            *uses_tantivy_to_query = true;
 
             Some(Qual::HeapExpr {
                 expr_node: nulltest as *mut pg_sys::Node,

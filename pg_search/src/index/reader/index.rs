@@ -231,7 +231,7 @@ impl Iterator for SearchResults {
 #[derive(Clone)]
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
-    relation_oid: Option<pg_sys::Oid>,
+    rel_oid: Option<pg_sys::Oid>,
     searcher: Searcher,
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
@@ -271,7 +271,7 @@ impl SearchIndexReader {
 
         Ok(Self {
             index_oid: index_relation.oid(),
-            relation_oid: None,
+            rel_oid: None,
             searcher,
             schema,
             underlying_reader: reader,
@@ -292,8 +292,8 @@ impl SearchIndexReader {
         self.schema.key_field()
     }
 
-    pub fn set_relation_oid(&mut self, relation_oid: pg_sys::Oid) {
-        self.relation_oid = Some(relation_oid);
+    pub fn set_rel_oid(&mut self, rel_oid: pg_sys::Oid) {
+        self.rel_oid = Some(rel_oid);
     }
 
     pub fn query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {
@@ -311,7 +311,7 @@ impl SearchIndexReader {
                 &mut parser,
                 &self.searcher,
                 self.index_oid,
-                self.relation_oid,
+                self.rel_oid,
             )
             .expect("must be able to parse query")
     }

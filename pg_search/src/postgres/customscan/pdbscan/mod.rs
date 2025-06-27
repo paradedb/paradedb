@@ -113,7 +113,7 @@ impl PdbScan {
         .expect("should be able to open the search index reader");
 
         // Set the relation OID for heap field filtering
-        search_reader.set_relation_oid(state.custom_state().heaprelid);
+        search_reader.set_rel_oid(state.custom_state().heaprelid);
 
         state.custom_state_mut().search_reader = Some(search_reader);
 

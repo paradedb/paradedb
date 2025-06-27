@@ -25,6 +25,7 @@ use crate::query::SearchQueryInput;
 use crate::query::heap_field_filter::{HeapFieldFilter, HeapOperand, HeapOperator, HeapValue};
 use crate::api::FieldName;
 use crate::schema::SearchIndexSchema;
+use crate::debug_log;
 use pg_sys::BoolExprType;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
@@ -534,7 +535,17 @@ pub unsafe fn extract_quals(
                     } else {
                         // Field is not fast, try creating HeapExpr if requested
                         if convert_external_to_special_qual {
-                            try_create_heap_expr_from_null_test(nulltest, rti)
+                            debug_log!("Field is not fast, attempting HeapExpr creation for NULL test");
+                            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                            let relation_oid = (*rte).relid;
+                            if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
+                                debug_log!("Successfully created HeapExpr for NULL test");
+                                *uses_tantivy_to_query = true;
+                                Some(heap_expr)
+                            } else {
+                                debug_log!("HeapExpr creation failed for NULL test");
+                                None
+                            }
                         } else {
                             None
                         }
@@ -542,14 +553,34 @@ pub unsafe fn extract_quals(
                 } else {
                     // Field not found in schema, try creating HeapExpr if requested
                     if convert_external_to_special_qual {
-                        try_create_heap_expr_from_null_test(nulltest, rti)
+                        debug_log!("Field not found in schema, attempting HeapExpr creation for NULL test");
+                        let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                        let relation_oid = (*rte).relid;
+                        if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
+                            debug_log!("Successfully created HeapExpr for NULL test");
+                            *uses_tantivy_to_query = true;
+                            Some(heap_expr)
+                        } else {
+                            debug_log!("HeapExpr creation failed for NULL test");
+                            None
+                        }
                     } else {
                         None
                     }
                 }
             } else if convert_external_to_special_qual {
                 // Try to create a HeapExpr for non-indexed field NULL tests
-                try_create_heap_expr_from_null_test(nulltest, rti)
+                debug_log!("No pushdown field, attempting HeapExpr creation for NULL test");
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                let relation_oid = (*rte).relid;
+                if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
+                    debug_log!("Successfully created HeapExpr for NULL test");
+                    *uses_tantivy_to_query = true;
+                    Some(heap_expr)
+                } else {
+                    debug_log!("HeapExpr creation failed for NULL test");
+                    None
+                }
             } else {
                 None
             }
@@ -782,20 +813,34 @@ unsafe fn node_opexpr(
         }
     } else {
         // it doesn't use our operator.
+        // Save the operator OID before the move
+        let opno = opexpr.opno();
+        
         // we'll try to convert it into a pushdown
-        let result = try_pushdown(root, rti, opexpr, schema);
-        if result.is_none() {
-            if convert_external_to_special_qual {
-                // Try to create a HeapExpr for non-indexed field comparisons
-                // We need the relation OID to do this properly
-                // For now, we'll fall back to ExternalExpr and handle HeapExpr creation later
+        let pushdown_result = try_pushdown(root, rti, opexpr, schema);
+        if pushdown_result.is_none() {
+            debug_log!("try_pushdown failed for opexpr, attempting HeapExpr creation");
+            
+            // Try to create a HeapExpr for non-indexed field comparisons
+            // We need the relation OID - get it from the range table
+            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+            let relation_oid = (*rte).relid;
+            
+            // Create HeapExpr directly from the lhs, rhs, and operator we already have
+            if let Some(heap_expr) = try_create_heap_expr_from_nodes(root, rti, lhs, rhs.cast(), opno, relation_oid) {
+                debug_log!("Successfully created HeapExpr for non-indexed predicate");
+                *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+                Some(heap_expr)
+            } else if convert_external_to_special_qual {
+                debug_log!("HeapExpr creation failed, falling back to ExternalExpr");
                 Some(Qual::ExternalExpr)
             } else {
+                debug_log!("HeapExpr creation failed, returning None");
                 None
             }
         } else {
             *uses_tantivy_to_query = true;
-            result
+            pushdown_result
         }
     }
 }
@@ -1168,17 +1213,41 @@ unsafe fn try_create_heap_expr_from_opexpr(
     opexpr: OpExpr,
     relation_oid: pg_sys::Oid,
 ) -> Option<Qual> {
+    debug_log!("try_create_heap_expr_from_opexpr called with opno: {}", opexpr.opno());
+    
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
     
+    try_create_heap_expr_from_nodes(root, rti, lhs, rhs, opexpr.opno(), relation_oid)
+}
+
+/// Try to create a HeapExpr from individual nodes and operator
+unsafe fn try_create_heap_expr_from_nodes(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    lhs: *mut pg_sys::Node,
+    rhs: *mut pg_sys::Node,
+    opno: pg_sys::Oid,
+    relation_oid: pg_sys::Oid,
+) -> Option<Qual> {
+    debug_log!("try_create_heap_expr_from_nodes called with opno: {}", opno);
+    
+    debug_log!("Extracting left operand");
     // Try to extract operands
     let left_operand = try_extract_heap_operand(root, rti, lhs, relation_oid)?;
+    debug_log!("Left operand extracted successfully");
+    
+    debug_log!("Extracting right operand");
     let right_operand = try_extract_heap_operand(root, rti, rhs, relation_oid)?;
+    debug_log!("Right operand extracted successfully");
     
+    debug_log!("Converting operator OID to HeapOperator");
     // Convert operator OID to HeapOperator
-    let heap_operator = postgres_oid_to_heap_operator(opexpr.opno())?;
+    let heap_operator = postgres_oid_to_heap_operator(opno)?;
+    debug_log!("Converted to HeapOperator: {:?}", heap_operator);
     
+    debug_log!("Successfully created HeapExpr from nodes");
     Some(Qual::HeapExpr {
         left: left_operand,
         operator: heap_operator,
@@ -1195,27 +1264,38 @@ unsafe fn try_extract_heap_operand(
     relation_oid: pg_sys::Oid,
 ) -> Option<HeapOperand> {
     if node.is_null() {
+        debug_log!("Node is null");
         return None;
     }
+    
+    debug_log!("Node type: {:?}", (*node).type_);
     
     match (*node).type_ {
         pg_sys::NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node)?;
+            debug_log!("Found Var node: varno={}, rti={}, attno={}", (*var).varno, rti, (*var).varattno);
             if (*var).varno as pg_sys::Index == rti {
                 // This is a field reference to our relation
                 let attno = (*var).varattno;
                 let field_name = get_field_name_from_attno(relation_oid, attno)?;
+                debug_log!("Field name resolved: {}", field_name);
                 Some(HeapOperand::Field { field: field_name, attno })
             } else {
+                debug_log!("Var node varno {} doesn't match rti {}", (*var).varno, rti);
                 None
             }
         }
         pg_sys::NodeTag::T_Const => {
             let const_node = nodecast!(Const, T_Const, node)?;
+            debug_log!("Found Const node: type={}, is_null={}", (*const_node).consttype, (*const_node).constisnull);
             let heap_value = postgres_const_to_heap_value(const_node)?;
+            debug_log!("Const value converted to HeapValue");
             Some(HeapOperand::Value(heap_value))
         }
-        _ => None,
+        _ => {
+            debug_log!("Unsupported node type for HeapOperand");
+            None
+        }
     }
 }
 
@@ -1380,22 +1460,27 @@ unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
 ) -> Option<Qual> {
+    debug_log!("try_create_heap_expr_from_null_test called");
+    
     // Extract the field being tested
     let arg = (*nulltest).arg;
     if let Some(var) = nodecast!(Var, T_Var, arg) {
+        debug_log!("Found Var node, varno: {}, rti: {}", (*var).varno, rti);
         if (*var).varno as pg_sys::Index == rti {
             // This is a field reference to our relation
             let attno = (*var).varattno;
+            debug_log!("Creating HeapExpr for NULL test on attno: {}", attno);
             
-            // We'll need the relation OID to resolve the field name
-            // For now, create a placeholder - this will be resolved later when we have access to relation_oid
-            let field_name = FieldName::from(format!("__placeholder_field_{}", attno));
+            // For NULL tests, we don't need the actual field name since we're just using attno
+            let field_name = FieldName::from(format!("field_{}", attno));
             
             let operator = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
                 HeapOperator::IsNull
             } else {
                 HeapOperator::IsNotNull
             };
+            
+            debug_log!("Created HeapExpr with operator: {:?}", operator);
             
             Some(Qual::HeapExpr {
                 left: HeapOperand::Field { 
@@ -1407,9 +1492,11 @@ unsafe fn try_create_heap_expr_from_null_test(
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else {
+            debug_log!("Var node varno {} doesn't match rti {}", (*var).varno, rti);
             None
         }
     } else {
+        debug_log!("NullTest arg is not a Var node");
         None
     }
 }

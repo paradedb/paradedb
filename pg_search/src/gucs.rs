@@ -57,8 +57,6 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
-static TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
-
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -110,17 +108,6 @@ pub fn init() {
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
-    GucRegistry::define_int_guc(
-        "paradedb.target_segment_count",
-        "Set the target segment count for a CREATE INDEX/REINDEX statement",
-        "Defaults to 0, which means the number of CPU cores will be used as the target segment count. Increasing the target segment count can be useful if max_parallel_workers_per_gather is greater than the CPU count.",
-        &TARGET_SEGMENT_COUNT,
-        0,
-        1024,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -200,14 +187,6 @@ pub fn adjust_work_mem() -> NonZeroUsize {
     );
 
     NonZeroUsize::new(wm_as_bytes).unwrap()
-}
-
-pub fn target_segment_count() -> usize {
-    if TARGET_SEGMENT_COUNT.get() > 0 {
-        TARGET_SEGMENT_COUNT.get() as usize
-    } else {
-        std::thread::available_parallelism().unwrap().get()
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

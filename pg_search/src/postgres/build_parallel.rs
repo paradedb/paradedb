@@ -697,9 +697,7 @@ mod plan {
         // If there are fewer rows than number of CPUs, use 1 worker
         let options = unsafe { SearchIndexOptions::from_relation(indexrel) };
         let reltuples = plan::estimate_heap_reltuples(heaprel);
-        let target_segment_count = options
-            .target_segment_count()
-            .unwrap_or_else(gucs::target_segment_count);
+        let target_segment_count = options.target_segment_count();
         if reltuples <= target_segment_count as f64 {
             pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
             return 1;

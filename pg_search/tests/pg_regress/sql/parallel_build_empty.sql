@@ -23,10 +23,9 @@ BEGIN
                     -- Set configuration
                     EXECUTE format('SET max_parallel_maintenance_workers = %s', mw);
                     EXECUTE format('SET parallel_leader_participation = %s', lp);
-                    EXECUTE format('SET paradedb.target_segment_count = %s', ts);
                     EXECUTE format('SET maintenance_work_mem = %L', mwm);
 
-                    CREATE INDEX parallel_build_small_idx ON parallel_build_small USING bm25 (id, name, age) WITH (key_field = 'id');
+                    EXECUTE format('CREATE INDEX parallel_build_small_idx ON parallel_build_small USING bm25 (id, name, age) WITH (key_field = ''id'', target_segment_count = %s)', ts);
 
                     -- Check index info and display results
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_small_idx');

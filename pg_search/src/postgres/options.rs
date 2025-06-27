@@ -338,8 +338,14 @@ impl SearchIndexOptions {
         self.layer_sizes.clone()
     }
 
-    pub fn target_segment_count(&self) -> Option<usize> {
-        self.target_segment_count.map(|count| count as usize)
+    pub fn target_segment_count(&self) -> usize {
+        self.target_segment_count
+            .map(|count| count as usize)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .expect("your computer should have at least one CPU")
+                    .get()
+            })
     }
 
     pub fn key_field_name(&self) -> FieldName {

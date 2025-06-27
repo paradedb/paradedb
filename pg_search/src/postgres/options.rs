@@ -169,7 +169,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 9;
+const NUM_REL_OPTS: usize = 10;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -221,6 +221,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexOptionsData, layer_sizes_offset) as i32,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "target_segment_count".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(SearchIndexOptionsData, target_segment_count) as i32,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -245,6 +250,7 @@ unsafe fn build_relopts(
 #[derive(Clone, Debug)]
 pub struct SearchIndexOptions {
     layer_sizes: Vec<u64>,
+    target_segment_count: Option<i32>,
     key_field_name: FieldName,
     text_configs: HashMap<FieldName, SearchFieldConfig>,
     inet_configs: HashMap<FieldName, SearchFieldConfig>,
@@ -315,6 +321,7 @@ impl SearchIndexOptions {
 
         Self {
             layer_sizes: data.layer_sizes(),
+            target_segment_count: data.target_segment_count(),
             key_field_name,
             text_configs,
             inet_configs,
@@ -329,6 +336,10 @@ impl SearchIndexOptions {
 
     pub fn layer_sizes(&self) -> Vec<u64> {
         self.layer_sizes.clone()
+    }
+
+    pub fn target_segment_count(&self) -> Option<usize> {
+        self.target_segment_count.map(|count| count as usize)
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -428,6 +439,7 @@ struct SearchIndexOptionsData {
     key_field_offset: i32,
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
+    target_segment_count: i32,
 }
 
 impl SearchIndexOptionsData {
@@ -448,6 +460,14 @@ impl SearchIndexOptionsData {
             return DEFAULT_LAYER_SIZES.to_vec();
         }
         get_layer_sizes(&layer_sizes_str).collect()
+    }
+
+    pub fn target_segment_count(&self) -> Option<i32> {
+        if self.target_segment_count == 0 {
+            None
+        } else {
+            Some(self.target_segment_count)
+        }
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -598,6 +618,15 @@ pub unsafe fn init() {
         Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "target_segment_count".as_pg_cstr(),
+        "When creating or reindexing, how many segments should be created".as_pg_cstr(),
+        0,
+        0,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    )
 }
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs

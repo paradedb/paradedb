@@ -312,11 +312,19 @@ pub unsafe fn save_new_metas(
     Ok(())
 }
 
+pub struct LoadedMetas {
+    pub entries: Vec<SegmentMetaEntry>,
+    pub meta: IndexMeta,
+    pub pin_cushion: PinCushion,
+    pub total_segments: usize,
+}
+
 pub unsafe fn load_metas(
     indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
-) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
+) -> tantivy::Result<LoadedMetas> {
+    let mut total_segments = 0;
     let mut alive_segments = vec![];
     let mut alive_entries = vec![];
     let mut opstamp = None;
@@ -349,6 +357,7 @@ pub unsafe fn load_metas(
                 return;
             };
 
+            total_segments += 1;
 
             let mut need_entry = true;
             if is_largest_only {
@@ -436,9 +445,9 @@ pub unsafe fn load_metas(
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    Ok((
-        alive_entries,
-        IndexMeta {
+    Ok(LoadedMetas {
+        entries: alive_entries,
+        meta: IndexMeta {
             segments: alive_segments,
             schema: deserialized_schema,
             index_settings: deserialized_settings,
@@ -446,5 +455,6 @@ pub unsafe fn load_metas(
             payload: None,
         },
         pin_cushion,
-    ))
+        total_segments,
+    })
 }

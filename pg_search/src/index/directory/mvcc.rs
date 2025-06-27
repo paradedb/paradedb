@@ -97,6 +97,7 @@ pub struct MVCCDirectory {
     loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
     all_entries: Arc<Mutex<HashMap<SegmentId, SegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
+    total_segment_count: Arc<AtomicUsize>,
 }
 
 unsafe impl Send for MVCCDirectory {}
@@ -119,6 +120,7 @@ impl MVCCDirectory {
             loaded_metas: Default::default(),
             pin_cushion: Default::default(),
             all_entries: Default::default(),
+            total_segment_count: Default::default(),
         }
     }
 
@@ -178,6 +180,16 @@ impl MVCCDirectory {
 
     pub(crate) fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
         self.all_entries.lock().clone()
+    }
+
+    /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'
+    /// visibility checking gets stored once [`load_metas()`] has actually been called.
+    ///
+    /// An implementation detail behind the value calculation is that there's special casing for
+    /// [`MvccSatisfies::LargestSegment`] in that it will use the count of **all** "Snapshot"-visible
+    /// segments rather than `1` (one).
+    pub(crate) fn total_segment_count(&self) -> Arc<AtomicUsize> {
+        self.total_segment_count.clone()
     }
 }
 
@@ -345,13 +357,16 @@ impl Directory for MVCCDirectory {
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
             match load_metas(&self.indexrel, inventory, &self.mvcc_style) {
                 Err(e) => Arc::new(Err(e)),
-                Ok((all_entries, index_meta, pin_cushion)) => {
-                    *self.all_entries.lock() = all_entries
+                Ok(loaded) => {
+                    *self.all_entries.lock() = loaded
+                        .entries
                         .into_iter()
                         .map(|entry| (entry.segment_id, entry))
                         .collect();
-                    *self.pin_cushion.lock() = Some(pin_cushion);
-                    Arc::new(Ok(index_meta))
+                    *self.pin_cushion.lock() = Some(loaded.pin_cushion);
+                    self.total_segment_count
+                        .store(loaded.total_segments, Ordering::SeqCst);
+                    Arc::new(Ok(loaded.meta))
                 }
             }
         });

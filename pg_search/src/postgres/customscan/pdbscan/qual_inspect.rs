@@ -1450,23 +1450,38 @@ unsafe fn postgres_oid_to_heap_operator(opno: pg_sys::Oid) -> Option<HeapOperato
     if opno == operator_oid("=(int4,int4)") || opno == operator_oid("=(int8,int8)") ||
        opno == operator_oid("=(float4,float4)") || opno == operator_oid("=(float8,float8)") ||
        opno == operator_oid("=(text,text)") || opno == operator_oid("=(bool,bool)") ||
-       opno == operator_oid("=(numeric,numeric)") {
+       opno == operator_oid("=(numeric,numeric)") ||
+       // Cross-type float comparisons
+       opno == operator_oid("=(real,double precision)") ||
+       opno == operator_oid("=(double precision,real)") {
         Some(HeapOperator::Equal)
     } else if opno == operator_oid(">(int4,int4)") || opno == operator_oid(">(int8,int8)") ||
               opno == operator_oid(">(float4,float4)") || opno == operator_oid(">(float8,float8)") ||
-              opno == operator_oid(">(text,text)") || opno == operator_oid(">(numeric,numeric)") {
+              opno == operator_oid(">(text,text)") || opno == operator_oid(">(numeric,numeric)") ||
+              // Cross-type float comparisons
+              opno == operator_oid(">(real,double precision)") ||
+              opno == operator_oid(">(double precision,real)") {
         Some(HeapOperator::GreaterThan)
     } else if opno == operator_oid("<(int4,int4)") || opno == operator_oid("<(int8,int8)") ||
               opno == operator_oid("<(float4,float4)") || opno == operator_oid("<(float8,float8)") ||
-              opno == operator_oid("<(text,text)") || opno == operator_oid("<(numeric,numeric)") {
+              opno == operator_oid("<(text,text)") || opno == operator_oid("<(numeric,numeric)") ||
+              // Cross-type float comparisons
+              opno == operator_oid("<(real,double precision)") ||
+              opno == operator_oid("<(double precision,real)") {
         Some(HeapOperator::LessThan)
     } else if opno == operator_oid(">=(int4,int4)") || opno == operator_oid(">=(int8,int8)") ||
               opno == operator_oid(">=(float4,float4)") || opno == operator_oid(">=(float8,float8)") ||
-              opno == operator_oid(">=(text,text)") || opno == operator_oid(">=(numeric,numeric)") {
+              opno == operator_oid(">=(text,text)") || opno == operator_oid(">=(numeric,numeric)") ||
+              // Cross-type float comparisons
+              opno == operator_oid(">=(real,double precision)") ||
+              opno == operator_oid(">=(double precision,real)") {
         Some(HeapOperator::GreaterThanOrEqual)
     } else if opno == operator_oid("<=(int4,int4)") || opno == operator_oid("<=(int8,int8)") ||
               opno == operator_oid("<=(float4,float4)") || opno == operator_oid("<=(float8,float8)") ||
-              opno == operator_oid("<=(text,text)") || opno == operator_oid("<=(numeric,numeric)") {
+              opno == operator_oid("<=(text,text)") || opno == operator_oid("<=(numeric,numeric)") ||
+              // Cross-type float comparisons
+              opno == operator_oid("<=(real,double precision)") ||
+              opno == operator_oid("<=(double precision,real)") {
         Some(HeapOperator::LessThanOrEqual)
     } else {
         debug_log!("Unsupported operator OID: {}", opno);

@@ -69,7 +69,7 @@ pub fn schema(
         .next()
         .expect("expected at least one partition of the index");
 
-    let search_reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)
         .expect("could not open search index reader");
     let schema = search_reader.schema();
 

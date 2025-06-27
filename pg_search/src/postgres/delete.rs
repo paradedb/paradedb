@@ -70,7 +70,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     );
     drop(cleanup_lock);
 
-    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
+    let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
     let writer_segment_ids = reader.segment_ids();
 

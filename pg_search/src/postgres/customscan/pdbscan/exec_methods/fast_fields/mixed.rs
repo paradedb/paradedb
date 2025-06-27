@@ -43,7 +43,6 @@ use pgrx::pg_sys;
 use pgrx::PgOid;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
-use tantivy::query::Query;
 use tantivy::schema::document::OwnedValue;
 use tantivy::schema::Schema;
 use tantivy::termdict::TermOrdinal;
@@ -538,13 +537,12 @@ impl MixedAggSearcher<'_> {
         };
 
         // Execute search with the appropriate scoring mode
-        let query = self.0.query(query);
         let schema = Schema::from(self.0.schema().clone());
         let results = self
             .0
             .searcher()
             .search_with_executor(
-                &query,
+                self.0.query(),
                 &collector,
                 &Executor::SingleThread,
                 if need_scores {
@@ -605,21 +603,7 @@ impl MixedAggSearcher<'_> {
 
         // Create a query weight for this segment
         let schema = Schema::from(self.0.schema().clone());
-        let weight = self
-            .0
-            .query(query)
-            .weight(if need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: self.0.searcher(),
-                    statistics_provider: self.0.searcher(),
-                }
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: &schema,
-                    searcher_opt: Some(self.0.searcher()),
-                }
-            })
-            .expect("weight should be constructable");
+        let weight = self.0.weight();
 
         // Execute search on this specific segment
         let result = collector

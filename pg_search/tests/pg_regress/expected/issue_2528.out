@@ -2,7 +2,6 @@ SELECT id, paradedb.score(id) FROM mock_items_issue_2528 WHERE description @@@ '
  id | score 
 ----+-------
   3 |     1
-  4 |     1
   5 |     1
-(3 rows)
+(2 rows)
 

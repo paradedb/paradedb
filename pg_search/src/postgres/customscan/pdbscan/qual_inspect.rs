@@ -549,45 +549,44 @@ pub unsafe fn extract_quals(
                 }
                 
                 // If we reach here, the field is not indexed or not fast, so create HeapExpr
-                if convert_external_to_special_qual {
-                    debug_log!("Attempting HeapExpr creation for non-indexed boolean field");
+                // T_Var nodes represent boolean field references without explicit "= true" comparison
+                // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
+                // We need to handle both cases since they're semantically equivalent
+                debug_log!("Attempting HeapExpr creation for non-indexed boolean field");
+                
+                // Check if root and parse are valid
+                if root.is_null() || (*root).parse.is_null() {
+                    debug_log!("Invalid root or parse pointer");
+                    return None;
+                }
+                
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                if rte.is_null() {
+                    debug_log!("Failed to fetch range table entry");
+                    return None;
+                }
+                
+                let relation_oid = (*rte).relid;
+                debug_log!("Got relation_oid: {}", relation_oid);
+                
+                // Get the field name
+                let attno = (*var_node).varattno;
+                if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
+                    debug_log!("Creating HeapExpr for non-indexed boolean field: {}", field_name.root());
                     
-                    // Check if root and parse are valid
-                    if root.is_null() || (*root).parse.is_null() {
-                        debug_log!("Invalid root or parse pointer");
-                        return None;
-                    }
+                    // Create HeapExpr using the new expression-based approach
+                    let expr_description = format!("Boolean field {} = true", field_name.root());
+                    let heap_expr = Qual::HeapExpr {
+                        expr_node: node, // Use the original T_Var node
+                        expr_description,
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    };
                     
-                    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                    if rte.is_null() {
-                        debug_log!("Failed to fetch range table entry");
-                        return None;
-                    }
-                    
-                    let relation_oid = (*rte).relid;
-                    debug_log!("Got relation_oid: {}", relation_oid);
-                    
-                    // Get the field name
-                    let attno = (*var_node).varattno;
-                    if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
-                        debug_log!("Creating HeapExpr for non-indexed boolean field: {}", field_name.root());
-                        
-                        // Create HeapExpr using the new expression-based approach
-                        let expr_description = format!("Boolean field {} = true", field_name.root());
-                        let heap_expr = Qual::HeapExpr {
-                            expr_node: node, // Use the original T_Var node
-                            expr_description,
-                            search_query_input: Box::new(SearchQueryInput::All),
-                        };
-                        
-                        debug_log!("Successfully created HeapExpr for non-indexed boolean field");
-                        *uses_tantivy_to_query = true;
-                        return Some(heap_expr);
-                    } else {
-                        debug_log!("Failed to get field name for attno: {}", attno);
-                    }
+                    debug_log!("Successfully created HeapExpr for non-indexed boolean field");
+                    *uses_tantivy_to_query = true;
+                    return Some(heap_expr);
                 } else {
-                    debug_log!("convert_external_to_special_qual is false, not creating HeapExpr for boolean field");
+                    debug_log!("Failed to get field name for attno: {}", attno);
                 }
                 
                 // If we can't handle this boolean field, return None
@@ -610,27 +609,8 @@ pub unsafe fn extract_quals(
                             return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
                         }
                     } else {
-                        // Field is not fast, try creating HeapExpr if requested
-                        if convert_external_to_special_qual {
-                            debug_log!("Field is not fast, attempting HeapExpr creation for NULL test");
-                            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                            let relation_oid = (*rte).relid;
-                            if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
-                                debug_log!("Successfully created HeapExpr for NULL test");
-                                *uses_tantivy_to_query = true;
-                                Some(heap_expr)
-                            } else {
-                                debug_log!("HeapExpr creation failed for NULL test");
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    }
-                } else {
-                    // Field not found in schema, try creating HeapExpr if requested
-                    if convert_external_to_special_qual {
-                        debug_log!("Field not found in schema, attempting HeapExpr creation for NULL test");
+                        // Field is not fast, try creating HeapExpr
+                        debug_log!("Field is not fast, attempting HeapExpr creation for NULL test");
                         let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
                         let relation_oid = (*rte).relid;
                         if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
@@ -641,11 +621,22 @@ pub unsafe fn extract_quals(
                             debug_log!("HeapExpr creation failed for NULL test");
                             None
                         }
+                    }
+                } else {
+                    // Field not found in schema, try creating HeapExpr
+                    debug_log!("Field not found in schema, attempting HeapExpr creation for NULL test");
+                    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                    let relation_oid = (*rte).relid;
+                    if let Some(heap_expr) = try_create_heap_expr_from_null_test(nulltest, rti) {
+                        debug_log!("Successfully created HeapExpr for NULL test");
+                        *uses_tantivy_to_query = true;
+                        Some(heap_expr)
                     } else {
+                        debug_log!("HeapExpr creation failed for NULL test");
                         None
                     }
                 }
-            } else if convert_external_to_special_qual {
+            } else {
                 // Try to create a HeapExpr for non-indexed field NULL tests
                 debug_log!("No pushdown field, attempting HeapExpr creation for NULL test");
                 let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
@@ -658,8 +649,6 @@ pub unsafe fn extract_quals(
                     debug_log!("HeapExpr creation failed for NULL test");
                     None
                 }
-            } else {
-                None
             }
         }
 
@@ -684,38 +673,26 @@ pub unsafe fn extract_quals(
             // Check if this is a boolean constant
             if (*const_node).consttype == pg_sys::BOOLOID {
                 debug_log!("Found boolean constant");
+
+                // Convert boolean constant to HeapExpr using the expression-based approach
+                debug_log!("Creating HeapExpr for boolean constant");
                 
-                if convert_external_to_special_qual {
-                    // Convert boolean constant to HeapExpr using the expression-based approach
-                    debug_log!("Creating HeapExpr for boolean constant");
-                    
-                    // Create HeapExpr using the new expression-based approach
-                    let bool_value = if !(*const_node).constisnull {
-                        bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
-                    } else {
-                        false
-                    };
-                    let expr_description = format!("Boolean constant = {}", bool_value);
-                    let heap_expr = Qual::HeapExpr {
-                        expr_node: node, // Use the original T_Const node
-                        expr_description,
-                        search_query_input: Box::new(SearchQueryInput::All),
-                    };
-                    
-                    debug_log!("Successfully created HeapExpr for boolean constant");
-                    *uses_tantivy_to_query = true;
-                    return Some(heap_expr);
+                // Create HeapExpr using the new expression-based approach
+                let bool_value = if !(*const_node).constisnull {
+                    bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                 } else {
-                    // Handle constants that result from join clause simplification (original logic)
-                    if !(*const_node).constisnull {
-                        let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
-                        if bool_value {
-                            return Some(Qual::All);
-                        } else {
-                            return Some(Qual::Not(Box::new(Qual::All)));
-                        }
-                    }
-                }
+                    false
+                };
+                let expr_description = format!("Boolean constant = {}", bool_value);
+                let heap_expr = Qual::HeapExpr {
+                    expr_node: node, // Use the original T_Const node
+                    expr_description,
+                    search_query_input: Box::new(SearchQueryInput::All),
+                };
+                
+                debug_log!("Successfully created HeapExpr for boolean constant");
+                *uses_tantivy_to_query = true;
+                return Some(heap_expr);
             } else {
                 debug_log!("T_Const is not a boolean type: {}", (*const_node).consttype);
             }

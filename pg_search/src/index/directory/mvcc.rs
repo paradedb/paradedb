@@ -67,14 +67,7 @@ pub enum MvccSatisfies {
 
 impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgSearchRelation) -> MVCCDirectory {
-        match self {
-            MvccSatisfies::ParallelWorker(segment_ids) => {
-                MVCCDirectory::parallel_worker(index_relation, segment_ids)
-            }
-            MvccSatisfies::Snapshot => MVCCDirectory::snapshot(index_relation),
-            MvccSatisfies::Vacuum => MVCCDirectory::vacuum(index_relation),
-            MvccSatisfies::Mergeable => MVCCDirectory::mergeable(index_relation),
-        }
+        MVCCDirectory::with_mvcc_style(index_relation, self)
     }
 }
 
@@ -116,19 +109,7 @@ impl MVCCDirectory {
         Self::with_mvcc_style(index_relation, MvccSatisfies::ParallelWorker(segment_ids))
     }
 
-    pub fn snapshot(index_relation: &PgSearchRelation) -> Self {
-        Self::with_mvcc_style(index_relation, MvccSatisfies::Snapshot)
-    }
-
-    pub fn vacuum(index_relation: &PgSearchRelation) -> Self {
-        Self::with_mvcc_style(index_relation, MvccSatisfies::Vacuum)
-    }
-
-    pub fn mergeable(index_relation: &PgSearchRelation) -> Self {
-        Self::with_mvcc_style(index_relation, MvccSatisfies::Mergeable)
-    }
-
-    fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
+    pub fn with_mvcc_style(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Self {
         Self {
             indexrel: Clone::clone(index_relation),
             mvcc_style: Arc::new(mvcc_style),

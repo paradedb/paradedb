@@ -68,6 +68,26 @@ FROM products
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
 
+-- Test Case 1.5: Test if All query works at all
+-- This should return all documents with score 0
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+
+-- Test Case 1.6: Simple test with just non-indexed predicate to isolate the issue
+SELECT 
+    id,
+    name,
+    category_name
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+
 -- Test Case 2: Query using indexed + non-indexed columns - currently returns null/zero scores
 -- This demonstrates the problem: even though 'Apple' matches in the indexed 'name' field,
 -- the presence of 'category_name = Electronics' (non-indexed predicate) causes scores to be null

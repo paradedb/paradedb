@@ -1,7 +1,6 @@
-use crate::index::fast_fields_helper::FFType;
-use pgrx::{pg_sys, FromDatum, AnyNumeric};
+use pgrx::{pg_sys, AnyNumeric, PgTupleDesc, PgRelation};
+use pgrx::heap_tuple::PgHeapTuple;
 use crate::debug_log;
-use crate::schema::SearchIndexSchema;
 use crate::api::FieldName;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
@@ -92,9 +91,9 @@ impl HeapFieldFilter {
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Now supports flexible operand evaluation
     pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> bool {
-        debug_log!("HeapFieldFilter::evaluate called with ctid: {:?}, relation_oid: {}", 
-                  (*ctid).ip_blkid.bi_hi as u32 * 65536 + (*ctid).ip_blkid.bi_lo as u32, 
-                  relation_oid);
+        let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(*ctid);
+        debug_log!("HeapFieldFilter::evaluate called with ctid: block={}, offset={}, relation_oid: {}", 
+                  block_num, offset_num, relation_oid);
 
         // Get left operand value
         let left_value = match &self.left {
@@ -147,30 +146,27 @@ impl HeapFieldFilter {
         }
     }
 
-    /// Get field value from heap tuple
+    /// Get field value from heap tuple using proper pgrx APIs
     unsafe fn get_field_value_from_heap(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> Option<HeapValue> {
-        debug_log!("get_field_value_from_heap called with ctid: {:?}, attno: {}", 
-                  (*ctid).ip_blkid.bi_hi as u32 * 65536 + (*ctid).ip_blkid.bi_lo as u32, 
-                  attno);
+        let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(*ctid);
+        debug_log!("get_field_value_from_heap called with ctid: block={}, offset={}, attno: {}", 
+                  block_num, offset_num, attno);
 
-        // Open the relation
-        let relation = pg_sys::RelationIdGetRelation(relation_oid);
-        if relation.is_null() {
-            debug_log!("Failed to open relation with OID: {}", relation_oid);
-            return None;
-        }
+        // Open the relation using pgrx
+        let heaprel = PgRelation::open(relation_oid);
+        let ipd = *ctid;
 
-        // Create a HeapTuple structure
+        // Create HeapTupleData structure
         let mut htup = pg_sys::HeapTupleData {
-            t_self: *ctid,
+            t_self: ipd,
             ..Default::default()
         };
         let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
 
-        // Get the heap tuple using the correct heap_fetch signature
+        // Fetch the heap tuple
         #[cfg(feature = "pg14")]
         let fetch_success = pg_sys::heap_fetch(
-            relation,
+            heaprel.as_ptr(),
             pg_sys::GetActiveSnapshot(),
             &mut htup,
             &mut buffer,
@@ -178,7 +174,7 @@ impl HeapFieldFilter {
 
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         let fetch_success = pg_sys::heap_fetch(
-            relation,
+            heaprel.as_ptr(),
             pg_sys::GetActiveSnapshot(),
             &mut htup,
             &mut buffer,
@@ -186,92 +182,161 @@ impl HeapFieldFilter {
         );
 
         if !fetch_success {
-            debug_log!("Failed to fetch heap tuple for ctid: {:?}", ctid);
-            pg_sys::RelationClose(relation);
+            debug_log!("Failed to fetch heap tuple for ctid: block={}, offset={}", block_num, offset_num);
+            if buffer != (pg_sys::InvalidBuffer as i32) {
+                pg_sys::ReleaseBuffer(buffer);
+            }
             return None;
         }
 
         debug_log!("Successfully fetched heap tuple");
 
-        // Get the tuple descriptor
-        let tuple_desc = (*relation).rd_att;
-
-        // Extract the field value
-        let mut is_null = false;
-        let datum = pg_sys::heap_getattr(&mut htup, attno as i32, tuple_desc, &mut is_null);
-
-        debug_log!("heap_getattr returned: is_null={}", is_null);
-
-        let result = if is_null {
-            debug_log!("Field value is NULL");
-            None
-        } else {
-            // Convert the datum to HeapValue based on the attribute type
-            let attr = (*tuple_desc).attrs.as_slice((*tuple_desc).natts as usize);
-            if (attno as usize) <= attr.len() {
-                let attr_type = attr[(attno - 1) as usize].atttypid;
-                debug_log!("Field type OID: {}", attr_type);
-                
-                let heap_value = match attr_type {
-                    pg_sys::TEXTOID => {
-                        let text_datum = unsafe { pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr()) };
-                        let text_str = unsafe { std::ffi::CStr::from_ptr(pg_sys::text_to_cstring(text_datum as *mut pg_sys::text)) };
-                        let string_value = text_str.to_string_lossy().into_owned();
-                        debug_log!("Extracted TEXT value: {}", string_value);
-                        Some(HeapValue::Text(string_value))
-                    }
-                    pg_sys::BOOLOID => {
-                        let bool_value = unsafe { bool::from_datum(datum, false).unwrap_or(false) };
-                        debug_log!("Extracted BOOL value: {}", bool_value);
-                        Some(HeapValue::Boolean(bool_value))
-                    }
-                    pg_sys::INT4OID => {
-                        let int_value = unsafe { i32::from_datum(datum, false).unwrap_or(0) };
-                        debug_log!("Extracted INT4 value: {}", int_value);
-                        Some(HeapValue::Integer(int_value as i64))
-                    }
-                    pg_sys::INT8OID => {
-                        let int_value = unsafe { i64::from_datum(datum, false).unwrap_or(0) };
-                        debug_log!("Extracted INT8 value: {}", int_value);
-                        Some(HeapValue::Integer(int_value))
-                    }
-                    pg_sys::FLOAT4OID => {
-                        let float_value = unsafe { f32::from_datum(datum, false).unwrap_or(0.0) };
-                        debug_log!("Extracted FLOAT4 value: {}", float_value);
-                        Some(HeapValue::Float(float_value as f64))
-                    }
-                    pg_sys::FLOAT8OID => {
-                        let float_value = unsafe { f64::from_datum(datum, false).unwrap_or(0.0) };
-                        debug_log!("Extracted FLOAT8 value: {}", float_value);
-                        Some(HeapValue::Float(float_value))
-                    }
-                    pg_sys::NUMERICOID => {
-                        if let Some(numeric) = unsafe { pgrx::AnyNumeric::from_datum(datum, false) } {
-                            let decimal_str = numeric.to_string();
-                            debug_log!("Extracted NUMERIC value: {}", decimal_str);
-                            Some(HeapValue::Decimal(decimal_str))
-                        } else {
-                            debug_log!("Failed to extract NUMERIC value");
+        // Use pgrx's high-level APIs
+        let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
+        let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
+        
+        // DEBUG: Basic tuple info
+        debug_log!("Tuple has {} attributes", tuple_desc.len());
+        
+        // Get the attribute by index (attno is 1-based)
+        let result = if let Some(attribute) = tuple_desc.get((attno - 1) as usize) {
+            let field_name = attribute.name();
+            debug_log!("Getting attribute {} (name: {}) from heap tuple", attno, field_name);
+            
+            // Get the attribute type
+            let attr_type = attribute.type_oid().value();
+            debug_log!("Field type OID: {}", attr_type);
+            
+            // Extract the value using the appropriate type
+            let heap_value = match attr_type {
+                pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                    match heap_tuple.get_by_name::<String>(field_name) {
+                        Ok(Some(text_value)) => {
+                            debug_log!("Extracted TEXT value: '{}' from ctid block={}, offset={}, attno={}", text_value, block_num, offset_num, attno);
+                            Some(HeapValue::Text(text_value))
+                        }
+                        Ok(None) => {
+                            debug_log!("TEXT field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract TEXT value: {:?}", e);
                             None
                         }
                     }
-                    _ => {
-                        debug_log!("Unsupported field type: {}", attr_type);
-                        None
+                }
+                pg_sys::BOOLOID => {
+                    match heap_tuple.get_by_name::<bool>(field_name) {
+                        Ok(Some(bool_value)) => {
+                            debug_log!("Extracted BOOL value: {}", bool_value);
+                            Some(HeapValue::Boolean(bool_value))
+                        }
+                        Ok(None) => {
+                            debug_log!("BOOL field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract BOOL value: {:?}", e);
+                            None
+                        }
                     }
-                };
-                heap_value
-            } else {
-                debug_log!("Invalid attribute number: {}", attno);
-                None
-            }
+                }
+                pg_sys::INT4OID => {
+                    match heap_tuple.get_by_name::<i32>(field_name) {
+                        Ok(Some(int_value)) => {
+                            debug_log!("Extracted INT4 value: {}", int_value);
+                            Some(HeapValue::Integer(int_value as i64))
+                        }
+                        Ok(None) => {
+                            debug_log!("INT4 field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract INT4 value: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                pg_sys::INT8OID => {
+                    match heap_tuple.get_by_name::<i64>(field_name) {
+                        Ok(Some(int_value)) => {
+                            debug_log!("Extracted INT8 value: {}", int_value);
+                            Some(HeapValue::Integer(int_value))
+                        }
+                        Ok(None) => {
+                            debug_log!("INT8 field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract INT8 value: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                pg_sys::FLOAT4OID => {
+                    match heap_tuple.get_by_name::<f32>(field_name) {
+                        Ok(Some(float_value)) => {
+                            debug_log!("Extracted FLOAT4 value: {}", float_value);
+                            Some(HeapValue::Float(float_value as f64))
+                        }
+                        Ok(None) => {
+                            debug_log!("FLOAT4 field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract FLOAT4 value: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                pg_sys::FLOAT8OID => {
+                    match heap_tuple.get_by_name::<f64>(field_name) {
+                        Ok(Some(float_value)) => {
+                            debug_log!("Extracted FLOAT8 value: {}", float_value);
+                            Some(HeapValue::Float(float_value))
+                        }
+                        Ok(None) => {
+                            debug_log!("FLOAT8 field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract FLOAT8 value: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                pg_sys::NUMERICOID => {
+                    match heap_tuple.get_by_name::<AnyNumeric>(field_name) {
+                        Ok(Some(numeric)) => {
+                            let decimal_str = numeric.to_string();
+                            debug_log!("Extracted NUMERIC value: {}", decimal_str);
+                            Some(HeapValue::Decimal(decimal_str))
+                        }
+                        Ok(None) => {
+                            debug_log!("NUMERIC field value is NULL");
+                            None
+                        }
+                        Err(e) => {
+                            debug_log!("Failed to extract NUMERIC value: {:?}", e);
+                            None
+                        }
+                    }
+                }
+                _ => {
+                    debug_log!("Unsupported field type: {}", attr_type);
+                    None
+                }
+            };
+            heap_value
+        } else {
+            debug_log!("Invalid attribute number: {}", attno);
+            None
         };
 
         // Clean up
         if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
         }
-        pg_sys::RelationClose(relation);
 
         debug_log!("get_field_value_from_heap returning: {:?}", result);
         result
@@ -466,6 +531,7 @@ struct IndexedWithHeapFilterScorer {
     field_filters: Vec<HeapFieldFilter>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
     relation_oid: pg_sys::Oid,
+    current_doc: DocId,
 }
 
 impl IndexedWithHeapFilterScorer {
@@ -477,22 +543,51 @@ impl IndexedWithHeapFilterScorer {
     ) -> Self {
         debug_log!("IndexedWithHeapFilterScorer::new called with {} field_filters, relation_oid: {}", field_filters.len(), relation_oid);
         
-        Self {
+        let mut scorer = Self {
             indexed_scorer,
             field_filters,
             ctid_ff,
             relation_oid,
+            current_doc: TERMINATED,
+        };
+        
+        // Position at the first valid document
+        scorer.current_doc = scorer.advance_to_next_valid();
+        debug_log!("IndexedWithHeapFilterScorer initialized with first doc: {}", scorer.current_doc);
+        
+        scorer
+    }
+    
+    fn advance_to_next_valid(&mut self) -> DocId {
+        loop {
+            let doc = self.indexed_scorer.advance();
+            debug_log!("advance_to_next_valid: underlying scorer advanced to doc: {}", doc);
+            
+            if doc == TERMINATED {
+                debug_log!("advance_to_next_valid: underlying scorer terminated");
+                return TERMINATED;
+            }
+            
+            if self.passes_heap_filters(doc) {
+                debug_log!("advance_to_next_valid: doc {} passes heap filters", doc);
+                return doc;
+            } else {
+                debug_log!("advance_to_next_valid: doc {} failed heap filters, continuing", doc);
+            }
         }
     }
 
     fn passes_heap_filters(&self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
         if let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) {
-            debug_log!("Extracted ctid: {} for doc_id: {}", ctid_value, doc_id);
+            debug_log!("Processing doc_id: {}, extracted ctid: {}", doc_id, ctid_value);
             
             // Convert u64 ctid back to ItemPointer
             let mut item_pointer = pg_sys::ItemPointerData::default();
             crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
+            let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(item_pointer);
+            debug_log!("Converted u64 ctid {} to ItemPointer: block={}, offset={}", 
+                      ctid_value, block_num, offset_num);
             
             // Evaluate all heap filters
             debug_log!("Evaluating {} heap filters for ctid: {}", self.field_filters.len(), ctid_value);
@@ -500,13 +595,13 @@ impl IndexedWithHeapFilterScorer {
             for filter in &self.field_filters {
                 unsafe {
                     if !filter.evaluate(&mut item_pointer as *mut pg_sys::ItemPointerData, self.relation_oid) {
-                        debug_log!("Document failed heap filters");
+                        debug_log!("Document FAILED heap filters - REJECTING doc_id {}", doc_id);
                         return false;
                     }
                 }
             }
             
-            debug_log!("Document passed all heap filters");
+            debug_log!("Document PASSED heap filters - ACCEPTING doc_id {}", doc_id);
             true
         } else {
             debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
@@ -524,30 +619,17 @@ impl Scorer for IndexedWithHeapFilterScorer {
 
 impl DocSet for IndexedWithHeapFilterScorer {
     fn advance(&mut self) -> DocId {
-        debug_log!("IndexedWithHeapFilterScorer::advance called");
+        debug_log!("IndexedWithHeapFilterScorer::advance called, current_doc: {}", self.current_doc);
         
-        loop {
-            let doc = self.indexed_scorer.advance();
-            debug_log!("Underlying scorer advanced to doc: {}", doc);
-            
-            if doc == TERMINATED {
-                debug_log!("Underlying scorer terminated");
-                return TERMINATED;
-            }
-            
-            if self.passes_heap_filters(doc) {
-                debug_log!("Doc {} passes heap filters, returning", doc);
-                return doc;
-            }
-            
-            debug_log!("Doc {} failed heap filters, continuing", doc);
-        }
+        // Move to the next valid document
+        self.current_doc = self.advance_to_next_valid();
+        debug_log!("IndexedWithHeapFilterScorer::advance returning: {}", self.current_doc);
+        self.current_doc
     }
 
     fn doc(&self) -> DocId {
-        let doc = self.indexed_scorer.doc();
-        debug_log!("IndexedWithHeapFilterScorer::doc called, returning: {}", doc);
-        doc
+        debug_log!("IndexedWithHeapFilterScorer::doc() returning current_doc: {}", self.current_doc);
+        self.current_doc
     }
 
     fn size_hint(&self) -> u32 {

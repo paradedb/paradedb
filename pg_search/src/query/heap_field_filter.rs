@@ -261,6 +261,44 @@ impl HeapFieldFilter {
             (HeapValue::Integer(a), HeapValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
             (HeapValue::Float(a), HeapValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
             
+            // Decimal cross-type comparisons
+            (HeapValue::Decimal(a), HeapValue::Integer(b)) => {
+                // Convert decimal string to f64 for comparison
+                if let Ok(a_f64) = a.parse::<f64>() {
+                    a_f64.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
+                } else {
+                    pgrx::warning!("Failed to parse decimal for comparison: {}", a);
+                    Ordering::Equal
+                }
+            },
+            (HeapValue::Integer(a), HeapValue::Decimal(b)) => {
+                // Convert decimal string to f64 for comparison
+                if let Ok(b_f64) = b.parse::<f64>() {
+                    (*a as f64).partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
+                } else {
+                    pgrx::warning!("Failed to parse decimal for comparison: {}", b);
+                    Ordering::Equal
+                }
+            },
+            (HeapValue::Decimal(a), HeapValue::Float(b)) => {
+                // Convert decimal string to f64 for comparison
+                if let Ok(a_f64) = a.parse::<f64>() {
+                    a_f64.partial_cmp(b).unwrap_or(Ordering::Equal)
+                } else {
+                    pgrx::warning!("Failed to parse decimal for comparison: {}", a);
+                    Ordering::Equal
+                }
+            },
+            (HeapValue::Float(a), HeapValue::Decimal(b)) => {
+                // Convert decimal string to f64 for comparison
+                if let Ok(b_f64) = b.parse::<f64>() {
+                    a.partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
+                } else {
+                    pgrx::warning!("Failed to parse decimal for comparison: {}", b);
+                    Ordering::Equal
+                }
+            },
+            
             // Add more cross-type comparisons as needed
             _ => {
                 pgrx::warning!("Type mismatch in heap field comparison: {:?} vs {:?}", left, right);

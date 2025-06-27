@@ -431,6 +431,10 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
+    // Add debug logging to see what node types we're processing
+    let node_tag = (*node).type_;
+    pgrx::warning!("extract_quals called with node type: {:?}", node_tag);
+    
     if node.is_null() {
         return None;
     }
@@ -473,16 +477,19 @@ pub unsafe fn extract_quals(
             )
         }
 
-        pg_sys::NodeTag::T_OpExpr => opexpr(
-            root,
-            rti,
-            OpExpr::from_single(node)?,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
+        pg_sys::NodeTag::T_OpExpr => {
+            pgrx::warning!("Processing OpExpr node");
+            opexpr(
+                root,
+                rti,
+                OpExpr::from_single(node)?,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                uses_tantivy_to_query,
+            )
+        }
 
         pg_sys::NodeTag::T_ScalarArrayOpExpr => opexpr(
             root,
@@ -517,9 +524,70 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            PushdownField::try_new(root, node.cast(), schema)
-                .map(|field| Qual::PushdownVarEqTrue { field })
+        pg_sys::NodeTag::T_Var => {
+            pgrx::warning!("Processing T_Var node - this might be a boolean field reference");
+            let var_node = nodecast!(Var, T_Var, node)?;
+            
+            // Check if this is a boolean field reference to our relation
+            if (*var_node).varno as pg_sys::Index == rti {
+                pgrx::warning!("Found boolean field reference: varno={}, attno={}", (*var_node).varno, (*var_node).varattno);
+                
+                // Try to create a HeapExpr for boolean field = true
+                if convert_external_to_special_qual {
+                    pgrx::warning!("Attempting HeapExpr creation for boolean field");
+                    
+                    // Check if root and parse are valid
+                    if root.is_null() || (*root).parse.is_null() {
+                        pgrx::warning!("Invalid root or parse pointer");
+                        return None;
+                    }
+                    
+                    let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                    if rte.is_null() {
+                        pgrx::warning!("Failed to fetch range table entry");
+                        return None;
+                    }
+                    
+                    let relation_oid = (*rte).relid;
+                    pgrx::warning!("Got relation_oid: {}", relation_oid);
+                    
+                    // Get the field name
+                    let attno = (*var_node).varattno;
+                    if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
+                        pgrx::warning!("Creating HeapExpr for boolean field: {}", field_name.root());
+                        
+                        // Create HeapExpr: field = true
+                        let left = HeapOperand::Field { field: field_name, attno };
+                        let right = HeapOperand::Value(HeapValue::Boolean(true));
+                        let heap_expr = Qual::HeapExpr {
+                            left,
+                            operator: HeapOperator::Equal,
+                            right,
+                            search_query_input: Box::new(SearchQueryInput::All),
+                        };
+                        
+                        pgrx::warning!("Successfully created HeapExpr for boolean field");
+                        *uses_tantivy_to_query = true;
+                        return Some(heap_expr);
+                    } else {
+                        pgrx::warning!("Failed to get field name for attno: {}", attno);
+                    }
+                } else {
+                    pgrx::warning!("convert_external_to_special_qual is false, skipping HeapExpr creation");
+                }
+                
+                // Fallback: try to create a PushdownVar if the field is indexed
+                if let Some(field) = PushdownField::try_new(root, var_node, schema) {
+                    pgrx::warning!("Creating PushdownVarIsTrue for indexed boolean field");
+                    Some(Qual::PushdownVarIsTrue { field })
+                } else {
+                    pgrx::warning!("Field not found in schema and HeapExpr creation failed");
+                    None
+                }
+            } else {
+                pgrx::warning!("T_Var node does not reference our relation");
+                None
+            }
         }
 
         pg_sys::NodeTag::T_NullTest => {
@@ -586,16 +654,19 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_BooleanTest => booltest(
-            root,
-            rti,
-            node,
-            pdbopoid,
-            ri_type,
-            schema,
-            convert_external_to_special_qual,
-            uses_tantivy_to_query,
-        ),
+        pg_sys::NodeTag::T_BooleanTest => {
+            pgrx::warning!("Processing BooleanTest node");
+            booltest(
+                root,
+                rti,
+                node,
+                pdbopoid,
+                ri_type,
+                schema,
+                convert_external_to_special_qual,
+                uses_tantivy_to_query,
+            )
+        }
 
         pg_sys::NodeTag::T_Const => {
             // Handle constants that result from join clause simplification
@@ -1304,25 +1375,27 @@ unsafe fn postgres_oid_to_heap_operator(opno: pg_sys::Oid) -> Option<HeapOperato
     // Check common comparison operators
     if opno == operator_oid("=(int4,int4)") || opno == operator_oid("=(int8,int8)") ||
        opno == operator_oid("=(float4,float4)") || opno == operator_oid("=(float8,float8)") ||
-       opno == operator_oid("=(text,text)") || opno == operator_oid("=(bool,bool)") {
+       opno == operator_oid("=(text,text)") || opno == operator_oid("=(bool,bool)") ||
+       opno == operator_oid("=(numeric,numeric)") {
         Some(HeapOperator::Equal)
     } else if opno == operator_oid(">(int4,int4)") || opno == operator_oid(">(int8,int8)") ||
               opno == operator_oid(">(float4,float4)") || opno == operator_oid(">(float8,float8)") ||
-              opno == operator_oid(">(text,text)") {
+              opno == operator_oid(">(text,text)") || opno == operator_oid(">(numeric,numeric)") {
         Some(HeapOperator::GreaterThan)
     } else if opno == operator_oid("<(int4,int4)") || opno == operator_oid("<(int8,int8)") ||
               opno == operator_oid("<(float4,float4)") || opno == operator_oid("<(float8,float8)") ||
-              opno == operator_oid("<(text,text)") {
+              opno == operator_oid("<(text,text)") || opno == operator_oid("<(numeric,numeric)") {
         Some(HeapOperator::LessThan)
     } else if opno == operator_oid(">=(int4,int4)") || opno == operator_oid(">=(int8,int8)") ||
               opno == operator_oid(">=(float4,float4)") || opno == operator_oid(">=(float8,float8)") ||
-              opno == operator_oid(">=(text,text)") {
+              opno == operator_oid(">=(text,text)") || opno == operator_oid(">=(numeric,numeric)") {
         Some(HeapOperator::GreaterThanOrEqual)
     } else if opno == operator_oid("<=(int4,int4)") || opno == operator_oid("<=(int8,int8)") ||
               opno == operator_oid("<=(float4,float4)") || opno == operator_oid("<=(float8,float8)") ||
-              opno == operator_oid("<=(text,text)") {
+              opno == operator_oid("<=(text,text)") || opno == operator_oid("<=(numeric,numeric)") {
         Some(HeapOperator::LessThanOrEqual)
     } else {
+        pgrx::warning!("Unsupported operator OID: {}", opno);
         None
     }
 }
@@ -1524,22 +1597,32 @@ unsafe fn try_create_heap_expr_from_null_test(
 
 /// Get field name from attribute number
 unsafe fn get_field_name_from_attno(relation_oid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> Option<FieldName> {
+    pgrx::warning!("get_field_name_from_attno called with relation_oid: {}, attno: {}", relation_oid, attno);
+    
     let relation = pg_sys::RelationIdGetRelation(relation_oid);
     if relation.is_null() {
+        pgrx::warning!("Failed to get relation for OID: {}", relation_oid);
         return None;
     }
     
     let tuple_desc = (*relation).rd_att;
-    if attno <= 0 || (attno as i32) > (*tuple_desc).natts {
+    let natts = (*tuple_desc).natts;
+    pgrx::warning!("Relation has {} attributes", natts);
+    
+    if attno <= 0 || (attno as i32) > natts {
+        pgrx::warning!("Invalid attno: {} (valid range: 1-{})", attno, natts);
         pg_sys::RelationClose(relation);
         return None;
     }
     
-    let attr_slice = (*tuple_desc).attrs.as_slice((*tuple_desc).natts as usize);
+    let attr_slice = (*tuple_desc).attrs.as_slice(natts as usize);
     let form_attr = &attr_slice[(attno - 1) as usize];
     let attr_name = std::ffi::CStr::from_ptr(form_attr.attname.data.as_ptr());
     
-    let result = attr_name.to_str().ok().map(|s| FieldName::from(s));
+    let field_name_str = attr_name.to_str().ok();
+    pgrx::warning!("Attribute {} name: {:?}", attno, field_name_str);
+    
+    let result = field_name_str.map(|s| FieldName::from(s));
     pg_sys::RelationClose(relation);
     result
 }

@@ -13,16 +13,22 @@ use tantivy::{
 /// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeapFieldFilter {
-    /// Serialized PostgreSQL expression string that can be reconstructed and evaluated
-    pub expr_string: String,
+    /// PostgreSQL expression node that can be serialized and reconstructed
+    pub expr_node: PostgresPointer,
     /// Human-readable description of the expression
     pub description: String,
 }
 
+// SAFETY: HeapFieldFilter is only used within PostgreSQL's single-threaded context
+// during query execution. The PostgresPointer serialization/deserialization handles
+// the cross-thread boundary properly via nodeToString/stringToNode.
+unsafe impl Send for HeapFieldFilter {}
+unsafe impl Sync for HeapFieldFilter {}
+
 impl PartialEq for HeapFieldFilter {
     fn eq(&self, other: &Self) -> bool {
-        // Compare by the serialized expression string
-        self.expr_string == other.expr_string
+        // Compare by the serialized expression node
+        self.expr_node == other.expr_node
     }
 }
 
@@ -34,19 +40,8 @@ impl HeapFieldFilter {
     pub unsafe fn new(expr_node: *mut pg_sys::Node, expr_description: String) -> Self {
         debug_log!("Creating HeapFieldFilter with description: {}", expr_description);
         
-        // Serialize the PostgreSQL node to a string for storage
-        let expr_string = if expr_node.is_null() {
-            String::new()
-        } else {
-            let node_str = pg_sys::nodeToString(expr_node.cast());
-            let cstr = std::ffi::CStr::from_ptr(node_str);
-            let string = cstr.to_str().unwrap_or("").to_owned();
-            pg_sys::pfree(node_str.cast());
-            string
-        };
-        
         Self {
-            expr_string,
+            expr_node: PostgresPointer(expr_node.cast()),
             description: expr_description,
         }
     }
@@ -59,24 +54,17 @@ impl HeapFieldFilter {
                   block_num, offset_num, relation_oid);
         
         // For now, use a simplified evaluation approach
-        // TODO: Implement full PostgreSQL expression evaluation using the stored expression string
+        // TODO: Implement full PostgreSQL expression evaluation using the stored expression node
         debug_log!("Using simplified evaluation for expression: {}", self.description);
-        debug_log!("Serialized expression: {}", self.expr_string);
         
         // Return true as placeholder - actual evaluation will be implemented later
-        // This will need to deserialize the expression string back to a PostgreSQL node
-        // and evaluate it against the heap tuple
+        // This will need to get the expression node and evaluate it against the heap tuple
         true
     }
 
-    /// Deserialize the stored expression string back to a PostgreSQL node
-    pub unsafe fn deserialize_expression(&self) -> *mut pg_sys::Node {
-        if self.expr_string.is_empty() {
-            return std::ptr::null_mut();
-        }
-        
-        let cstr = std::ffi::CString::new(self.expr_string.clone()).unwrap();
-        pg_sys::stringToNode(cstr.as_ptr()).cast()
+    /// Get the PostgreSQL expression node
+    pub unsafe fn get_expression_node(&self) -> *mut pg_sys::Node {
+        self.expr_node.0.cast()
     }
 
     // The new expression-based approach handles evaluation directly

@@ -235,7 +235,8 @@ impl<'a> BuildWorker<'a> {
             let nlaunched = self.coordination.nlaunched();
             let per_worker_memory_budget =
                 gucs::adjust_maintenance_work_mem(nlaunched).get() / nlaunched;
-            let target_segment_count = plan::adjusted_target_segment_count(&self.heaprel);
+            let target_segment_count =
+                plan::adjusted_target_segment_count(&self.heaprel, &self.indexrel);
             let (_, worker_segment_target) =
                 chunk_range(target_segment_count, nlaunched, worker_number as usize);
 
@@ -525,7 +526,7 @@ pub(super) fn build_index(
     });
 
     let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent);
-    let nworkers = plan::create_index_nworkers(&heaprel);
+    let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
     let total_tuples = if let Some(mut process) = launch_parallel_process!(
@@ -613,15 +614,19 @@ pub(super) fn build_index(
 
 mod plan {
     use super::*;
+    use crate::postgres::options::SearchIndexOptions;
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
     /// is greater than available parallelism, we use available parallelism.
     ///
     /// If the leader is participating, we subtract 1 from the number of workers because the leader also counts as a worker.
-    pub(super) fn create_index_nworkers(heaprel: &PgSearchRelation) -> usize {
+    pub(super) fn create_index_nworkers(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+    ) -> usize {
         // We don't want a parallel build to happen if we're creating a single segment
-        let target_segment_count = plan::adjusted_target_segment_count(heaprel);
+        let target_segment_count = plan::adjusted_target_segment_count(heaprel, indexrel);
         if target_segment_count == 1 {
             return 0;
         }
@@ -685,10 +690,14 @@ mod plan {
     }
 
     /// If we determine that the table is very small, we should just create a single segment
-    pub(super) fn adjusted_target_segment_count(heaprel: &PgSearchRelation) -> usize {
+    pub(super) fn adjusted_target_segment_count(
+        heaprel: &PgSearchRelation,
+        indexrel: &PgSearchRelation,
+    ) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
+        let options = unsafe { SearchIndexOptions::from_relation(indexrel) };
         let reltuples = plan::estimate_heap_reltuples(heaprel);
-        let target_segment_count = gucs::target_segment_count();
+        let target_segment_count = options.target_segment_count();
         if reltuples <= target_segment_count as f64 {
             pgrx::debug1!("number of reltuples ({reltuples}) is less than target segment count ({target_segment_count}), creating a single segment");
             return 1;

@@ -233,7 +233,7 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     .await
     .unwrap();
 
-    println!("EXPLAIN OUTPUT: {}", explain_bm25);
+    println!("EXPLAIN OUTPUT: {explain_bm25}");
 
     let plan_json = explain_bm25.to_string();
 
@@ -262,7 +262,7 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     .await
     .unwrap();
 
-    println!("SIMPLE QUERY EXPLAIN OUTPUT: {}", explain_simple);
+    println!("SIMPLE QUERY EXPLAIN OUTPUT: {explain_simple}");
 
     // Instead of checking for specific node types, check that:
     // 1. A Sort node exists to handle the sorting (either regular Sort or Incremental Sort)

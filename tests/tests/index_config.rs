@@ -27,7 +27,7 @@ use serde_json::Value;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
-    format!("unexpected error, received: {}", err)
+    format!("unexpected error, received: {err}")
 }
 
 #[rstest]
@@ -1104,7 +1104,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     .join("\n");
 
     // Print the explain plan for debugging
-    println!("EXPLAIN output:\n{}", explain_output);
+    println!("EXPLAIN output:\n{explain_output}");
 
     // Verify NormalScanExecState is used (not TopNScanExecState)
     assert!(
@@ -1125,7 +1125,7 @@ fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
 
-    println!("Query results: {:?}", results);
+    println!("Query results: {results:?}");
 
     // Verify we got the right number of results and correct order
     assert_eq!(results.len(), 5, "Expected 5 matching results");

@@ -169,7 +169,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 9;
+const NUM_REL_OPTS: usize = 10;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -221,6 +221,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(SearchIndexOptionsData, layer_sizes_offset) as i32,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "target_segment_count".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(SearchIndexOptionsData, target_segment_count) as i32,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -245,6 +250,7 @@ unsafe fn build_relopts(
 #[derive(Clone, Debug)]
 pub struct SearchIndexOptions {
     layer_sizes: Vec<u64>,
+    target_segment_count: Option<i32>,
     key_field_name: FieldName,
     text_configs: HashMap<FieldName, SearchFieldConfig>,
     inet_configs: HashMap<FieldName, SearchFieldConfig>,
@@ -315,6 +321,7 @@ impl SearchIndexOptions {
 
         Self {
             layer_sizes: data.layer_sizes(),
+            target_segment_count: data.target_segment_count(),
             key_field_name,
             text_configs,
             inet_configs,
@@ -329,6 +336,16 @@ impl SearchIndexOptions {
 
     pub fn layer_sizes(&self) -> Vec<u64> {
         self.layer_sizes.clone()
+    }
+
+    pub fn target_segment_count(&self) -> usize {
+        self.target_segment_count
+            .map(|count| count as usize)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .expect("your computer should have at least one CPU")
+                    .get()
+            })
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -428,6 +445,7 @@ struct SearchIndexOptionsData {
     key_field_offset: i32,
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
+    target_segment_count: i32,
 }
 
 impl SearchIndexOptionsData {
@@ -448,6 +466,14 @@ impl SearchIndexOptionsData {
             return DEFAULT_LAYER_SIZES.to_vec();
         }
         get_layer_sizes(&layer_sizes_str).collect()
+    }
+
+    pub fn target_segment_count(&self) -> Option<i32> {
+        if self.target_segment_count == 0 {
+            None
+        } else {
+            Some(self.target_segment_count)
+        }
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -598,6 +624,15 @@ pub unsafe fn init() {
         Some(validate_layer_sizes),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "target_segment_count".as_pg_cstr(),
+        "When creating or reindexing, how many segments should be created".as_pg_cstr(),
+        0,
+        0,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    )
 }
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
@@ -694,7 +729,7 @@ fn get_attribute_oid(field_name: &str, indexrel: &PgSearchRelation) -> Option<Pg
 
 fn get_field_type(field_name: &str, indexrel: &PgSearchRelation) -> SearchFieldType {
     let attribute_oid = get_attribute_oid(field_name, indexrel)
-        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name));
+        .unwrap_or_else(|| panic!("field type should have been set for `{field_name}`"));
     (&attribute_oid).try_into().unwrap()
 }
 
@@ -711,16 +746,14 @@ fn validate_field_config(
 
     if field_name.root() == key_field_name.root() {
         panic!(
-            "cannot override BM25 configuration for key_field '{}', you must use an aliased field name and 'column' configuration key",
-            field_name
+            "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
         );
     }
 
     if let Some(alias) = config.alias() {
         if get_attribute_oid(alias, indexrel).is_none() {
             panic!(
-                "the column `{}` referenced by the field configuration for '{}' does not exist",
-                alias, field_name
+                "the column `{alias}` referenced by the field configuration for '{field_name}' does not exist"
             );
         }
     }
@@ -730,5 +763,5 @@ fn validate_field_config(
     if matches(&field_type) {
         return;
     }
-    panic!("`{}` was configured with the wrong type", field_name);
+    panic!("`{field_name}` was configured with the wrong type");
 }

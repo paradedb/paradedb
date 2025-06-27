@@ -71,7 +71,7 @@ async fn main() {
             args.batch_size,
         )
         .await;
-        println!("Mixed Fast Fields Benchmark Completed: {:?}", res);
+        println!("Mixed Fast Fields Benchmark Completed: {res:?}");
     } else if args.benchmark == "sql" {
         if !args.existing {
             generate_test_data(&args.url, &args.dataset, args.rows);
@@ -136,7 +136,7 @@ fn write_test_info_csv(args: &Args) {
 }
 
 fn write_postgres_settings_csv(url: &str, test_type: &str) {
-    let filename = format!("results_{}_postgres_settings.csv", test_type);
+    let filename = format!("results_{test_type}_postgres_settings.csv");
     let mut file = File::create(&filename).expect("Failed to create postgres settings CSV");
 
     writeln!(file, "Setting,Value").unwrap();
@@ -151,11 +151,11 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
     ];
 
     for setting in settings {
-        let value = execute_psql_command(url, &format!("SHOW {};", setting))
+        let value = execute_psql_command(url, &format!("SHOW {setting};"))
             .expect("Failed to get postgres setting")
             .trim()
             .to_string();
-        writeln!(file, "{},{}", setting, value).unwrap();
+        writeln!(file, "{setting},{value}").unwrap();
     }
 }
 
@@ -171,7 +171,7 @@ fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
 
     let index_sql = format!("datasets/{dataset}/create_index/{test_type}.sql");
     for statement in queries(Path::new(&index_sql)) {
-        println!("{}", statement);
+        println!("{statement}");
 
         let duration_min = execute_sql_with_timing(url, &statement);
         let index_name = extract_index_name(&statement);
@@ -180,8 +180,7 @@ fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
 
         writeln!(
             file,
-            "{},{:.2},{},{}",
-            index_name, duration_min, index_size, segment_count
+            "{index_name},{duration_min:.2},{index_size},{segment_count}"
         )
         .unwrap();
     }
@@ -194,10 +193,10 @@ fn run_benchmarks_csv(args: &Args) {
     // Write header
     let mut header = String::from("Query Type");
     for i in 1..=args.runs {
-        header.push_str(&format!(",Run {} (ms)", i));
+        header.push_str(&format!(",Run {i} (ms)"));
     }
     header.push_str(",Rows Returned,Query");
-    writeln!(file, "{}", header).unwrap();
+    writeln!(file, "{header}").unwrap();
 
     if args.vacuum {
         execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
@@ -218,22 +217,22 @@ fn run_benchmarks_csv(args: &Args) {
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
         for query in queries(&path) {
-            println!("Query Type: {}\nQuery: {}", query_type, query);
+            println!("Query Type: {query_type}\nQuery: {query}");
 
             let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
-            let mut result_line = format!("{}", query_type);
+            let mut result_line = format!("{query_type}");
             for &result in &results {
-                result_line.push_str(&format!(",{:.0}", result));
+                result_line.push_str(&format!(",{result:.0}"));
             }
             result_line.push_str(&format!(
                 ",{},\"{}\"",
                 num_results,
                 query.replace("\"", "\"\"")
             ));
-            writeln!(file, "{}", result_line).unwrap();
+            writeln!(file, "{result_line}").unwrap();
 
-            println!("Results: {:?} | Rows Returned: {}\n", results, num_results);
+            println!("Results: {results:?} | Rows Returned: {num_results}\n");
         }
     }
 }
@@ -280,11 +279,11 @@ fn write_postgres_settings(file: &mut File, url: &str) {
     ];
 
     for setting in settings {
-        let value = execute_psql_command(url, &format!("SHOW {};", setting))
+        let value = execute_psql_command(url, &format!("SHOW {setting};"))
             .expect("Failed to get postgres setting")
             .trim()
             .to_string();
-        writeln!(file, "| {} | {} |", setting, value).unwrap();
+        writeln!(file, "| {setting} | {value} |").unwrap();
     }
 }
 
@@ -317,9 +316,9 @@ fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &st
     )
     .unwrap();
 
-    let index_sql = format!("datasets/{dataset}/create_index/{}.sql", r#type);
+    let index_sql = format!("datasets/{dataset}/create_index/{type}.sql");
     for statement in queries(Path::new(&index_sql)) {
-        println!("{}", statement);
+        println!("{statement}");
 
         let duration_min = execute_sql_with_timing(url, &statement);
         let index_name = extract_index_name(&statement);
@@ -328,8 +327,7 @@ fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &st
 
         writeln!(
             file,
-            "| {} | {:.2} | {} | {} |",
-            index_name, duration_min, index_size, segment_count
+            "| {index_name} | {duration_min:.2} | {index_size} | {segment_count} |"
         )
         .unwrap();
     }
@@ -360,14 +358,14 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
 
         let query_type = path.file_stem().unwrap().to_string_lossy();
         for query in queries(&path) {
-            println!("Query Type: {}\nQuery: {}", query_type, query);
+            println!("Query Type: {query_type}\nQuery: {query}");
 
             let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
 
             let md_query = query.replace("|", "\\|");
             write_benchmark_results(file, &query_type, &results, num_results, &md_query);
 
-            println!("Results: {:?} | Rows Returned: {}\n", results, num_results);
+            println!("Results: {results:?} | Rows Returned: {num_results}\n");
         }
     }
 }
@@ -377,15 +375,15 @@ fn write_benchmark_table_header(file: &mut File, runs: usize) {
     let mut separator = String::from("|------------");
 
     for i in 1..=runs {
-        header.push_str(&format!("| Run {} (ms) ", i));
+        header.push_str(&format!("| Run {i} (ms) "));
         separator.push_str("|------------");
     }
 
     header.push_str("| Rows Returned | Query |");
     separator.push_str("|---------------|--------|");
 
-    writeln!(file, "{}", header).unwrap();
-    writeln!(file, "{}", separator).unwrap();
+    writeln!(file, "{header}").unwrap();
+    writeln!(file, "{separator}").unwrap();
 }
 
 fn write_benchmark_results(
@@ -395,14 +393,14 @@ fn write_benchmark_results(
     num_results: usize,
     md_query: &str,
 ) {
-    let mut result_line = format!("| {} ", query_type);
+    let mut result_line = format!("| {query_type} ");
 
     for &result in results {
-        result_line.push_str(&format!("| {:.0} ", result));
+        result_line.push_str(&format!("| {result:.0} "));
     }
 
-    result_line.push_str(&format!("| {} | `{}` |", num_results, md_query));
-    writeln!(file, "{}", result_line).unwrap();
+    result_line.push_str(&format!("| {num_results} | `{md_query}` |"));
+    writeln!(file, "{result_line}").unwrap();
 }
 
 ///
@@ -479,7 +477,7 @@ fn extract_index_name(statement: &str) -> &str {
 }
 
 fn get_index_size(url: &str, index_name: &str) -> i64 {
-    let size_query = format!("SELECT pg_relation_size('{}') / (1024 * 1024);", index_name);
+    let size_query = format!("SELECT pg_relation_size('{index_name}') / (1024 * 1024);");
     let output = Command::new("psql")
         .arg(url)
         .arg("-t")
@@ -495,10 +493,7 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
 }
 
 fn get_segment_count(url: &str, index_name: &str) -> i64 {
-    let query = format!(
-        "SELECT count(*) FROM paradedb.index_info('{}');",
-        index_name
-    );
+    let query = format!("SELECT count(*) FROM paradedb.index_info('{index_name}');");
     let output = Command::new("psql")
         .arg(url)
         .arg("-t")
@@ -514,7 +509,7 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
 }
 
 fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
-    let prewarm_sql = format!("datasets/{dataset}/prewarm/{}.sql", r#type);
+    let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
     let status = Command::new("psql")
         .arg(url)
         .arg("-f")

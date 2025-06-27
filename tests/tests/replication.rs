@@ -105,14 +105,14 @@ impl EphemeralPostgres {
         // Write to postgresql.conf
         let config_content = match postgresql_conf {
             Some(config) => format!("port = {}\n{}", port, config.trim()),
-            None => format!("port = {}", port),
+            None => format!("port = {port}"),
         };
-        let config_path = format!("{}/postgresql.conf", tempdir_path);
+        let config_path = format!("{tempdir_path}/postgresql.conf");
         std::fs::write(config_path, config_content).expect("Failed to write to postgresql.conf");
 
         // Write to pg_hba.conf
         if let Some(config_content) = pg_hba_conf {
-            let config_path = format!("{}/pg_hba.conf", tempdir_path);
+            let config_path = format!("{tempdir_path}/pg_hba.conf");
 
             let mut file = std::fs::OpenOptions::new()
                 .append(true)
@@ -120,12 +120,12 @@ impl EphemeralPostgres {
                 .open(config_path)
                 .expect("Failed to open pg_hba.conf");
 
-            writeln!(file, "{}", config_content).expect("Failed to append to pg_hba.conf");
+            writeln!(file, "{config_content}").expect("Failed to append to pg_hba.conf");
         }
 
         // Create log directory
         let timestamp = chrono::Utc::now().timestamp_millis();
-        let logfile = format!("/tmp/ephemeral_postgres_logs/{}.log", timestamp);
+        let logfile = format!("/tmp/ephemeral_postgres_logs/{timestamp}.log");
         std::fs::create_dir_all(Path::new(&logfile).parent().unwrap())
             .expect("Failed to create log directory");
 

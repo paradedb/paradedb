@@ -168,15 +168,13 @@ impl LinkedBytesListWriter {
 impl Write for LinkedBytesListWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         unsafe {
-            self.write(buf)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            self.write(buf).map_err(std::io::Error::other)?;
         }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.flush_inner()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        self.flush_inner().map_err(std::io::Error::other)
     }
 }
 

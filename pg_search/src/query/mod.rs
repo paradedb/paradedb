@@ -467,7 +467,7 @@ impl AsHumanReadable for SearchQueryInput {
                 ));
             }
 
-            other => s.push_str(&format!("{:?}", other)),
+            other => s.push_str(&format!("{other:?}")),
         }
         s
     }

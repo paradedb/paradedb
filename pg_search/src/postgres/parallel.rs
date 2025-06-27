@@ -47,7 +47,9 @@ pub unsafe extern "C-unwind" fn amestimateparallelscan(
     ParallelScanState::size_of(u16::MAX as usize, &[])
 }
 
-unsafe fn bm25_shared_state(scan: &pg_sys::IndexScanDescData) -> Option<&mut ParallelScanState> {
+unsafe fn bm25_shared_state(
+    scan: &mut pg_sys::IndexScanDescData,
+) -> Option<&mut ParallelScanState> {
     if scan.parallel_scan.is_null() {
         None
     } else {
@@ -60,7 +62,7 @@ unsafe fn bm25_shared_state(scan: &pg_sys::IndexScanDescData) -> Option<&mut Par
 }
 
 pub unsafe fn maybe_init_parallel_scan(
-    scan: pg_sys::IndexScanDesc,
+    mut scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
 ) -> Option<i32> {
     if unsafe { (*scan).parallel_scan.is_null() } {
@@ -68,7 +70,7 @@ pub unsafe fn maybe_init_parallel_scan(
         return None;
     }
 
-    let state = get_bm25_scan_state(&scan)?;
+    let state = get_bm25_scan_state(&mut scan)?;
     let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
     let _mutex = state.acquire_mutex();
     if worker_number == -1 {
@@ -80,8 +82,8 @@ pub unsafe fn maybe_init_parallel_scan(
     Some(worker_number)
 }
 
-pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    let state = get_bm25_scan_state(&scan)?;
+pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
+    let state = get_bm25_scan_state(&mut scan)?;
 
     let _mutex = state.acquire_mutex();
     if state.remaining_segments() == 0 {
@@ -94,9 +96,9 @@ pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<Segment
     }
 }
 
-pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
+pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {
     Some(
-        get_bm25_scan_state(&scan)?
+        get_bm25_scan_state(&mut scan)?
             .segments()
             .keys()
             .cloned()
@@ -104,7 +106,7 @@ pub unsafe fn list_segment_ids(scan: pg_sys::IndexScanDesc) -> Option<HashSet<Se
     )
 }
 
-fn get_bm25_scan_state(scan: &pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {
+fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {
     unsafe {
         assert!(!scan.is_null());
         let scan = scan.as_mut().unwrap_unchecked();

@@ -93,18 +93,17 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
     let mixed_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
 
     // Get execution plan to verify method
-    let (mixed_plan,): (Value,) = sqlx::query_as(&format!("EXPLAIN (FORMAT JSON) {}", test_query))
+    let (mixed_plan,): (Value,) = sqlx::query_as(&format!("EXPLAIN (FORMAT JSON) {test_query}"))
         .fetch_one(&mut conn)
         .await?;
 
     let mixed_method = detect_exec_method(&mixed_plan);
-    println!("✓ Mixed index using → {}", mixed_method);
+    println!("✓ Mixed index using → {mixed_method}");
 
     // ENFORCE: Validate we're actually using the MixedFastFieldExec method
     assert!(
         mixed_method.contains("MixedFastFieldExec"),
-        "Expected MixedFastFieldExec execution method, but got: {}. Check index configuration and query settings.",
-        mixed_method
+        "Expected MixedFastFieldExec execution method, but got: {mixed_method}. Check index configuration and query settings."
     );
 
     set_execution_method(&mut conn, "NormalScanExecState", "test_benchmark_data").await?;
@@ -113,18 +112,17 @@ async fn validate_mixed_fast_fields_correctness(mut conn: PgConnection) -> Resul
     let normal_results = sqlx::query(test_query).fetch_all(&mut conn).await?;
 
     // Get execution plan to verify method
-    let (normal_plan,): (Value,) = sqlx::query_as(&format!("EXPLAIN (FORMAT JSON) {}", test_query))
+    let (normal_plan,): (Value,) = sqlx::query_as(&format!("EXPLAIN (FORMAT JSON) {test_query}"))
         .fetch_one(&mut conn)
         .await?;
 
     let normal_method = detect_exec_method(&normal_plan);
-    println!("✓ Normal index using → {}", normal_method);
+    println!("✓ Normal index using → {normal_method}");
 
     // ENFORCE: Validate we're actually using the NormalScanExecState method
     assert!(
         normal_method.contains("NormalScanExecState"),
-        "Expected NormalScanExecState execution method, but got: {}. Check index configuration and query settings.",
-        normal_method
+        "Expected NormalScanExecState execution method, but got: {normal_method}. Check index configuration and query settings."
     );
 
     // Compare result counts

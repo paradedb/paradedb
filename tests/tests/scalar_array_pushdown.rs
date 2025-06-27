@@ -147,7 +147,7 @@ impl ScalarArrayExpr {
                 let op = operator.to_sql();
                 let quant = quantifier.to_sql();
                 let array_literal = format!("ARRAY[{}]", final_values.join(", "));
-                format!("{} {} {}({})", column, op, quant, array_literal)
+                format!("{column} {op} {quant}({array_literal})")
             }
             ArrayOperation::ScalarArray { operator } => {
                 let op = operator.to_sql();
@@ -229,23 +229,21 @@ async fn scalar_array_pushdown_correctness(database: Db) {
             })
     )| {
         let setup_sql = scalar_array_setup(&mut pool.pull(), expr.tokenizer.clone());
-        eprintln!("Setup SQL:\n{}", setup_sql);
+        eprintln!("Setup SQL:\n{setup_sql}");
 
         let array_condition = expr.to_sql(&selected_values);
 
         // Test SELECT queries with actual results
         let pg_query = format!(
-            "SELECT id, text_col FROM scalar_array_test WHERE {} ORDER BY id",
-            array_condition
+            "SELECT id, text_col FROM scalar_array_test WHERE {array_condition} ORDER BY id"
         );
         let bm25_query = format!(
-            "SELECT id, text_col FROM scalar_array_test WHERE {} ORDER BY id",
-            array_condition
+            "SELECT id, text_col FROM scalar_array_test WHERE {array_condition} ORDER BY id"
         );
 
-        eprintln!("{}", array_condition);
-        eprintln!("pg_query: {}", pg_query);
-        eprintln!("bm25_query: {}", bm25_query);
+        eprintln!("{array_condition}");
+        eprintln!("pg_query: {pg_query}");
+        eprintln!("bm25_query: {bm25_query}");
         compare(
             pg_query,
             bm25_query,

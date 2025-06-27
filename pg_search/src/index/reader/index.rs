@@ -280,6 +280,16 @@ impl SearchIndexReader {
         })
     }
 
+    pub fn open_with_rel_oid(
+        rel_oid: pg_sys::Oid,
+        index_relation: &PgSearchRelation,
+        mvcc_style: MvccSatisfies,
+    ) -> Result<Self> {
+        let mut reader = Self::open(index_relation, mvcc_style)?;
+        reader.rel_oid = Some(rel_oid);
+        Ok(reader)
+    }
+
     pub fn segment_ids(&self) -> Vec<SegmentId> {
         self.searcher
             .segment_readers()
@@ -290,10 +300,6 @@ impl SearchIndexReader {
 
     pub fn key_field(&self) -> SearchField {
         self.schema.key_field()
-    }
-
-    pub fn set_rel_oid(&mut self, rel_oid: pg_sys::Oid) {
-        self.rel_oid = Some(rel_oid);
     }
 
     pub fn query(&self, search_query_input: &SearchQueryInput) -> Box<dyn Query> {

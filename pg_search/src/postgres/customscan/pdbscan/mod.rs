@@ -94,26 +94,27 @@ impl PdbScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let mut search_reader = SearchIndexReader::open(indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
+        let search_reader = SearchIndexReader::open_with_rel_oid(
+            state.custom_state().heaprelid,
+            indexrel,
+            unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // the leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // the workers have their own rules, which is literally every segment
+                    // this is because the workers pick a specific segment to query that
+                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                    // visibility test due to concurrent merges/garbage collects
+                    MvccSatisfies::ParallelWorker(list_segment_ids(
+                        state.custom_state().parallel_state.expect(
+                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                        ),
+                    ))
+                }
+            },
+        )
         .expect("should be able to open the search index reader");
-
-        // Set the relation OID for heap field filtering
-        search_reader.set_rel_oid(state.custom_state().heaprelid);
 
         state.custom_state_mut().search_reader = Some(search_reader);
 

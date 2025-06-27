@@ -88,7 +88,7 @@ pub enum Qual {
         /// The PostgreSQL expression node to evaluate
         expr_node: *mut pg_sys::Node,
         /// Description of the expression for debugging
-        expr_description: String,
+        expr_desc: String,
         /// The search query to execute before applying the heap filter
         /// Can be All (scan whole relation) or a more specific query
         search_query_input: Box<SearchQueryInput>,
@@ -309,12 +309,12 @@ impl From<&Qual> for SearchQueryInput {
             },
             Qual::HeapExpr {
                 expr_node,
-                expr_description,
+                expr_desc,
                 search_query_input,
             } => {
                 // Create HeapFieldFilter from the PostgreSQL expression
                 let field_filters =
-                    vec![unsafe { HeapFieldFilter::new(*expr_node, expr_description.clone()) }];
+                    vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
 
                 SearchQueryInput::IndexedWithFilter {
                     indexed_query: search_query_input.clone(),
@@ -561,10 +561,9 @@ pub unsafe fn extract_quals(
                 let attno = (*var_node).varattno;
                 if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
                     // Create HeapExpr using the new expression-based approach
-                    let expr_description = format!("Boolean field {} = true", field_name.root());
                     let heap_expr = Qual::HeapExpr {
                         expr_node: node, // Use the original T_Var node
-                        expr_description,
+                        expr_desc: format!("Boolean field {} = true", field_name.root()),
                         search_query_input: Box::new(SearchQueryInput::All),
                     };
 
@@ -649,10 +648,9 @@ pub unsafe fn extract_quals(
                 } else {
                     false
                 };
-                let expr_description = format!("Boolean constant = {}", bool_value);
                 let heap_expr = Qual::HeapExpr {
                     expr_node: node, // Use the original T_Const node
-                    expr_description,
+                    expr_desc: format!("Boolean constant = {bool_value}"),
                     search_query_input: Box::new(SearchQueryInput::All),
                 };
 
@@ -890,14 +888,11 @@ unsafe fn node_opexpr(
             let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
             let relation_oid = (*rte).relid;
 
-            // Create a description for debugging
-            let expr_description = format!("OpExpr with operator OID {}", opno);
-
             // Check if this expression references our relation
             if contains_relation_reference(opexpr_node, rti) {
                 let heap_expr = Qual::HeapExpr {
                     expr_node: opexpr_node,
-                    expr_description,
+                    expr_desc: format!("OpExpr with operator OID {opno}"),
                     search_query_input: Box::new(SearchQueryInput::All),
                 };
 
@@ -1391,11 +1386,9 @@ unsafe fn try_create_heap_expr_from_null_test(
                 "IS NOT NULL"
             };
 
-            let expr_description = format!("NULL test: field_{} {}", attno, test_type);
-
             Some(Qual::HeapExpr {
                 expr_node: nulltest as *mut pg_sys::Node,
-                expr_description,
+                expr_desc: format!("NULL test: field_{attno} {test_type}"),
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else {

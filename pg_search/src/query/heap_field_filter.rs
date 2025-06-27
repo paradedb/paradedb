@@ -35,10 +35,10 @@ impl PartialEq for HeapFieldFilter {
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
-    pub unsafe fn new(expr_node: *mut pg_sys::Node, expr_description: String) -> Self {
+    pub unsafe fn new(expr_node: *mut pg_sys::Node, expr_desc: String) -> Self {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
-            description: expr_description,
+            description: expr_desc,
         }
     }
 

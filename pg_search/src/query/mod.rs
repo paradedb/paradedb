@@ -1018,7 +1018,7 @@ impl SearchQueryInput {
                 // For example, NgramTokenizer can produce many tokens per word and all of them will
                 // have position=0 which won't be correctly interpreted when processing slop
                 if should_warn {
-                    // Note: Phrase query with multiple tokens per phrase may not be correctly interpreted
+                    pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
                 }
 
                 let mut query = PhraseQuery::new(terms);

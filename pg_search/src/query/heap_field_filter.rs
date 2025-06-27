@@ -1,10 +1,14 @@
-use crate::api::FieldName;
+use crate::index::fast_fields_helper::FFType;
 use pgrx::{pg_sys, FromDatum, AnyNumeric};
+use crate::debug_log;
+use crate::schema::SearchIndexSchema;
+use crate::api::FieldName;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use tantivy::{
     DocId, DocSet, Score, SegmentReader,
     query::{Query, Weight, EnableScoring, Explanation, Scorer},
+    TERMINATED,
 };
 
 /// Core heap-based field filter for flexible comparisons
@@ -87,88 +91,83 @@ impl HeapFieldFilter {
 
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Now supports flexible operand evaluation
-    pub fn evaluate(&self, ctid: u64, relation_oid: pg_sys::Oid) -> bool {
-        pgrx::warning!("HeapFieldFilter::evaluate called with ctid: {}, relation_oid: {}", ctid, relation_oid);
-        
-        // Extract values for both operands
-        let left_value = self.extract_operand_value(&self.left, ctid, relation_oid);
-        let right_value = self.extract_operand_value(&self.right, ctid, relation_oid);
+    pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> bool {
+        debug_log!("HeapFieldFilter::evaluate called with ctid: {:?}, relation_oid: {}", 
+                  (*ctid).ip_blkid.bi_hi as u32 * 65536 + (*ctid).ip_blkid.bi_lo as u32, 
+                  relation_oid);
 
-        pgrx::warning!("Left operand value: {:?}", left_value);
-        pgrx::warning!("Right operand value: {:?}", right_value);
-
-        // Store the references for later use
-        let left_is_none = left_value.is_none();
-        let right_is_none = right_value.is_none();
-
-        // Handle null values and perform comparison
-        let result = match (left_value, right_value) {
-            (Some(left), Some(right)) => {
-                let comparison_result = self.compare_values(&left, &right);
-                pgrx::warning!("Comparison result for {:?} {:?} {:?}: {}", left, self.operator, right, comparison_result);
-                comparison_result
+        // Get left operand value
+        let left_value = match &self.left {
+            HeapOperand::Field { field, attno } => {
+                debug_log!("Evaluating left operand: field {} (attno: {})", field.root(), attno);
+                self.get_field_value_from_heap(ctid, relation_oid, *attno)
             }
-            (None, None) => {
-                // Both null - only equal for equality checks
-                let result = matches!(self.operator, HeapOperator::Equal);
-                pgrx::warning!("Both operands null, result: {}", result);
-                result
-            }
-            (None, Some(_)) | (Some(_), None) => {
-                // One null, one not null
-                let result = match self.operator {
-                    HeapOperator::IsNull => left_is_none || right_is_none,
-                    HeapOperator::IsNotNull => !left_is_none && !right_is_none,
-                    _ => false, // NULL doesn't match other comparisons
-                };
-                pgrx::warning!("One operand null, result: {}", result);
-                result
+            HeapOperand::Value(value) => {
+                debug_log!("Left operand is constant value: {:?}", value);
+                Some(value.clone())
             }
         };
 
-        pgrx::warning!("HeapFieldFilter::evaluate final result: {}", result);
-        result
+        // Get right operand value
+        let right_value = match &self.right {
+            HeapOperand::Field { field, attno } => {
+                debug_log!("Evaluating right operand: field {} (attno: {})", field.root(), attno);
+                self.get_field_value_from_heap(ctid, relation_oid, *attno)
+            }
+            HeapOperand::Value(value) => {
+                debug_log!("Right operand is constant value: {:?}", value);
+                Some(value.clone())
+            }
+        };
+
+        debug_log!("Left operand value: {:?}", left_value);
+        debug_log!("Right operand value: {:?}", right_value);
+
+        // Handle NULL values
+        match (&left_value, &right_value) {
+            (None, _) | (_, None) => {
+                debug_log!("One or both operands are NULL, returning false");
+                false
+            }
+            (Some(left), Some(right)) => {
+                let result = self.compare_values(left, right);
+                debug_log!("Comparison result for {:?} {:?} {:?}: {}", left, self.operator, right, result);
+                result
+            }
+        }
     }
 
-    /// Extract value from an operand (field reference or constant)
-    fn extract_operand_value(
-        &self,
-        operand: &HeapOperand,
-        ctid: u64,
-        relation_oid: pg_sys::Oid,
-    ) -> Option<HeapValue> {
+    /// Extract the value of an operand (field or constant) for a given ctid
+    unsafe fn extract_operand_value(&self, operand: &HeapOperand, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> Option<HeapValue> {
         match operand {
-            HeapOperand::Field { field: _, attno } => {
-                // Extract field value from heap tuple
-                unsafe { self.extract_field_value_by_attno(*attno, ctid, relation_oid) }
+            HeapOperand::Field { attno, .. } => {
+                self.get_field_value_from_heap(ctid, relation_oid, *attno)
             }
             HeapOperand::Value(value) => Some(value.clone()),
         }
     }
 
-    /// Extract field value by attribute number
-    unsafe fn extract_field_value_by_attno(
-        &self,
-        attno: pg_sys::AttrNumber,
-        ctid: u64,
-        relation_oid: pg_sys::Oid,
-    ) -> Option<HeapValue> {
-        // Open relation and get heap tuple
+    /// Get field value from heap tuple
+    unsafe fn get_field_value_from_heap(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> Option<HeapValue> {
+        debug_log!("get_field_value_from_heap called with ctid: {:?}, attno: {}", 
+                  (*ctid).ip_blkid.bi_hi as u32 * 65536 + (*ctid).ip_blkid.bi_lo as u32, 
+                  attno);
+
+        // Open the relation
         let relation = pg_sys::RelationIdGetRelation(relation_oid);
         if relation.is_null() {
+            debug_log!("Failed to open relation with OID: {}", relation_oid);
             return None;
         }
 
-        let mut ipd = pg_sys::ItemPointerData::default();
-        crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);
-
+        // Create a HeapTuple structure
         let mut htup = pg_sys::HeapTupleData {
-            t_self: ipd,
+            t_self: *ctid,
             ..Default::default()
         };
         let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
 
-        // Use the appropriate heap_fetch based on PostgreSQL version
+        // Get the heap tuple using the correct heap_fetch signature
         #[cfg(feature = "pg14")]
         let fetch_success = pg_sys::heap_fetch(
             relation,
@@ -187,64 +186,95 @@ impl HeapFieldFilter {
         );
 
         if !fetch_success {
+            debug_log!("Failed to fetch heap tuple for ctid: {:?}", ctid);
             pg_sys::RelationClose(relation);
             return None;
         }
 
-        // Extract attribute value
+        debug_log!("Successfully fetched heap tuple");
+
+        // Get the tuple descriptor
         let tuple_desc = (*relation).rd_att;
+
+        // Extract the field value
         let mut is_null = false;
         let datum = pg_sys::heap_getattr(&mut htup, attno as i32, tuple_desc, &mut is_null);
-        
+
+        debug_log!("heap_getattr returned: is_null={}", is_null);
+
         let result = if is_null {
+            debug_log!("Field value is NULL");
             None
         } else {
-            // Get the attribute type OID
-            let attr_slice = (*tuple_desc).attrs.as_slice((*tuple_desc).natts as usize);
-            let attr_type_oid = attr_slice[(attno - 1) as usize].atttypid;
-            self.datum_to_heap_value(datum, attr_type_oid)
+            // Convert the datum to HeapValue based on the attribute type
+            let attr = (*tuple_desc).attrs.as_slice((*tuple_desc).natts as usize);
+            if (attno as usize) <= attr.len() {
+                let attr_type = attr[(attno - 1) as usize].atttypid;
+                debug_log!("Field type OID: {}", attr_type);
+                
+                let heap_value = match attr_type {
+                    pg_sys::TEXTOID => {
+                        let text_datum = unsafe { pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr()) };
+                        let text_str = unsafe { std::ffi::CStr::from_ptr(pg_sys::text_to_cstring(text_datum as *mut pg_sys::text)) };
+                        let string_value = text_str.to_string_lossy().into_owned();
+                        debug_log!("Extracted TEXT value: {}", string_value);
+                        Some(HeapValue::Text(string_value))
+                    }
+                    pg_sys::BOOLOID => {
+                        let bool_value = unsafe { bool::from_datum(datum, false).unwrap_or(false) };
+                        debug_log!("Extracted BOOL value: {}", bool_value);
+                        Some(HeapValue::Boolean(bool_value))
+                    }
+                    pg_sys::INT4OID => {
+                        let int_value = unsafe { i32::from_datum(datum, false).unwrap_or(0) };
+                        debug_log!("Extracted INT4 value: {}", int_value);
+                        Some(HeapValue::Integer(int_value as i64))
+                    }
+                    pg_sys::INT8OID => {
+                        let int_value = unsafe { i64::from_datum(datum, false).unwrap_or(0) };
+                        debug_log!("Extracted INT8 value: {}", int_value);
+                        Some(HeapValue::Integer(int_value))
+                    }
+                    pg_sys::FLOAT4OID => {
+                        let float_value = unsafe { f32::from_datum(datum, false).unwrap_or(0.0) };
+                        debug_log!("Extracted FLOAT4 value: {}", float_value);
+                        Some(HeapValue::Float(float_value as f64))
+                    }
+                    pg_sys::FLOAT8OID => {
+                        let float_value = unsafe { f64::from_datum(datum, false).unwrap_or(0.0) };
+                        debug_log!("Extracted FLOAT8 value: {}", float_value);
+                        Some(HeapValue::Float(float_value))
+                    }
+                    pg_sys::NUMERICOID => {
+                        if let Some(numeric) = unsafe { pgrx::AnyNumeric::from_datum(datum, false) } {
+                            let decimal_str = numeric.to_string();
+                            debug_log!("Extracted NUMERIC value: {}", decimal_str);
+                            Some(HeapValue::Decimal(decimal_str))
+                        } else {
+                            debug_log!("Failed to extract NUMERIC value");
+                            None
+                        }
+                    }
+                    _ => {
+                        debug_log!("Unsupported field type: {}", attr_type);
+                        None
+                    }
+                };
+                heap_value
+            } else {
+                debug_log!("Invalid attribute number: {}", attno);
+                None
+            }
         };
 
-        // Cleanup
-        if buffer != pg_sys::InvalidBuffer as i32 {
+        // Clean up
+        if buffer != (pg_sys::InvalidBuffer as i32) {
             pg_sys::ReleaseBuffer(buffer);
         }
         pg_sys::RelationClose(relation);
 
+        debug_log!("get_field_value_from_heap returning: {:?}", result);
         result
-    }
-
-    /// Convert PostgreSQL Datum to HeapValue based on type OID
-    unsafe fn datum_to_heap_value(&self, datum: pg_sys::Datum, type_oid: pg_sys::Oid) -> Option<HeapValue> {
-        match type_oid {
-            pg_sys::TEXTOID | pg_sys::VARCHAROID => {
-                String::from_datum(datum, false).map(|s| HeapValue::Text(s))
-            }
-            pg_sys::INT4OID => {
-                i32::from_datum(datum, false).map(|i| HeapValue::Integer(i as i64))
-            }
-            pg_sys::INT8OID => {
-                i64::from_datum(datum, false).map(|i| HeapValue::Integer(i))
-            }
-            pg_sys::FLOAT4OID => {
-                f32::from_datum(datum, false).map(|f| HeapValue::Float(f as f64))
-            }
-            pg_sys::FLOAT8OID => {
-                f64::from_datum(datum, false).map(|f| HeapValue::Float(f))
-            }
-            pg_sys::BOOLOID => {
-                bool::from_datum(datum, false).map(|b| HeapValue::Boolean(b))
-            }
-            pg_sys::NUMERICOID => {
-                // Handle DECIMAL/NUMERIC types using AnyNumeric
-                AnyNumeric::from_datum(datum, false)
-                    .map(|numeric| HeapValue::Decimal(numeric.to_string()))
-            }
-            _ => {
-                pgrx::warning!("Unsupported type OID for heap filtering: {}", type_oid);
-                None
-            }
-        }
     }
 
     /// Enhanced comparison supporting cross-type comparisons
@@ -267,7 +297,7 @@ impl HeapFieldFilter {
                 if let Ok(a_f64) = a.parse::<f64>() {
                     a_f64.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
                 } else {
-                    pgrx::warning!("Failed to parse decimal for comparison: {}", a);
+                    debug_log!("Failed to parse decimal for comparison: {}", a);
                     Ordering::Equal
                 }
             },
@@ -276,7 +306,7 @@ impl HeapFieldFilter {
                 if let Ok(b_f64) = b.parse::<f64>() {
                     (*a as f64).partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
                 } else {
-                    pgrx::warning!("Failed to parse decimal for comparison: {}", b);
+                    debug_log!("Failed to parse decimal for comparison: {}", b);
                     Ordering::Equal
                 }
             },
@@ -285,7 +315,7 @@ impl HeapFieldFilter {
                 if let Ok(a_f64) = a.parse::<f64>() {
                     a_f64.partial_cmp(b).unwrap_or(Ordering::Equal)
                 } else {
-                    pgrx::warning!("Failed to parse decimal for comparison: {}", a);
+                    debug_log!("Failed to parse decimal for comparison: {}", a);
                     Ordering::Equal
                 }
             },
@@ -294,14 +324,14 @@ impl HeapFieldFilter {
                 if let Ok(b_f64) = b.parse::<f64>() {
                     a.partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
                 } else {
-                    pgrx::warning!("Failed to parse decimal for comparison: {}", b);
+                    debug_log!("Failed to parse decimal for comparison: {}", b);
                     Ordering::Equal
                 }
             },
             
             // Add more cross-type comparisons as needed
             _ => {
-                pgrx::warning!("Type mismatch in heap field comparison: {:?} vs {:?}", left, right);
+                debug_log!("Type mismatch in heap field comparison: {:?} vs {:?}", left, right);
                 return false;
             }
         };
@@ -326,7 +356,7 @@ unsafe fn resolve_field_name_to_attno(
     // Open the relation
     let relation = pg_sys::RelationIdGetRelation(relation_oid);
     if relation.is_null() {
-        pgrx::warning!("Failed to open relation with OID: {}", relation_oid);
+        debug_log!("Failed to open relation with OID: {}", relation_oid);
         return None;
     }
 
@@ -402,14 +432,14 @@ struct IndexedWithHeapFilterWeight {
 
 impl Weight for IndexedWithHeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        pgrx::warning!("IndexedWithHeapFilterWeight::scorer called with boost: {}", boost);
+        debug_log!("IndexedWithHeapFilterWeight::scorer called with boost: {}", boost);
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
-        pgrx::warning!("Indexed scorer created successfully");
+        debug_log!("Indexed scorer created successfully");
         
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(&fast_fields_reader);
-        pgrx::warning!("ctid fast field created successfully");
+        debug_log!("ctid fast field created successfully");
 
         let scorer = IndexedWithHeapFilterScorer::new(
             indexed_scorer,
@@ -417,7 +447,7 @@ impl Weight for IndexedWithHeapFilterWeight {
             ctid_ff,
             self.relation_oid,
         );
-        pgrx::warning!("IndexedWithHeapFilterScorer created successfully");
+        debug_log!("IndexedWithHeapFilterScorer created successfully");
         
         Ok(Box::new(scorer))
     }
@@ -436,7 +466,6 @@ struct IndexedWithHeapFilterScorer {
     field_filters: Vec<HeapFieldFilter>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
     relation_oid: pg_sys::Oid,
-    current_doc: DocId,
 }
 
 impl IndexedWithHeapFilterScorer {
@@ -446,78 +475,43 @@ impl IndexedWithHeapFilterScorer {
         ctid_ff: crate::index::fast_fields_helper::FFType,
         relation_oid: pg_sys::Oid,
     ) -> Self {
-        pgrx::warning!("IndexedWithHeapFilterScorer::new called with {} field_filters, relation_oid: {}", field_filters.len(), relation_oid);
-        let mut scorer = Self {
+        debug_log!("IndexedWithHeapFilterScorer::new called with {} field_filters, relation_oid: {}", field_filters.len(), relation_oid);
+        
+        Self {
             indexed_scorer,
             field_filters,
             ctid_ff,
             relation_oid,
-            current_doc: tantivy::TERMINATED,
-        };
-        
-        // Advance to the first valid document
-        scorer.current_doc = scorer.advance_to_next_valid();
-        pgrx::warning!("IndexedWithHeapFilterScorer initialized with first doc: {}", scorer.current_doc);
-        
-        scorer
+        }
     }
 
-    fn advance_to_next_valid(&mut self) -> DocId {
-        pgrx::warning!("IndexedWithHeapFilterScorer::advance_to_next_valid called");
-        
-        // First, let's test what the underlying indexed scorer returns
-        let test_doc = self.indexed_scorer.doc();
-        pgrx::warning!("Underlying indexed scorer current doc: {}", test_doc);
-        
-        loop {
-            let doc_id = self.indexed_scorer.advance();
-            pgrx::warning!("Indexed scorer returned doc_id: {}", doc_id);
+    fn passes_heap_filters(&self, doc_id: DocId) -> bool {
+        // Extract ctid from the current document
+        if let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) {
+            debug_log!("Extracted ctid: {} for doc_id: {}", ctid_value, doc_id);
             
-            if doc_id == tantivy::TERMINATED {
-                pgrx::warning!("Indexed scorer terminated, no more documents");
-                self.current_doc = tantivy::TERMINATED;
-                return tantivy::TERMINATED;
-            }
-
-            // Extract ctid for this document
-            let ctid = match self.extract_ctid(doc_id) {
-                Some(ctid) => {
-                    pgrx::warning!("Extracted ctid: {} for doc_id: {}", ctid, doc_id);
-                    ctid
+            // Convert u64 ctid back to ItemPointer
+            let mut item_pointer = pg_sys::ItemPointerData::default();
+            crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
+            
+            // Evaluate all heap filters
+            debug_log!("Evaluating {} heap filters for ctid: {}", self.field_filters.len(), ctid_value);
+            
+            for filter in &self.field_filters {
+                unsafe {
+                    if !filter.evaluate(&mut item_pointer as *mut pg_sys::ItemPointerData, self.relation_oid) {
+                        debug_log!("Document failed heap filters");
+                        return false;
+                    }
                 }
-                None => {
-                    pgrx::warning!("Failed to extract ctid for doc_id: {}, skipping", doc_id);
-                    continue; // Skip documents without valid ctid
-                }
-            };
-
-            // Check if document passes all heap field filters
-            pgrx::warning!("Evaluating {} heap filters for ctid: {}", self.field_filters.len(), ctid);
-            if self.evaluate_heap_filters(ctid) {
-                pgrx::warning!("Document passed all heap filters, returning doc_id: {}", doc_id);
-                self.current_doc = doc_id;
-                return doc_id;
-            } else {
-                pgrx::warning!("Document failed heap filters, continuing to next document");
             }
+            
+            debug_log!("Document passed all heap filters");
+            true
+        } else {
+            debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
+            false
         }
-    }
-
-    fn extract_ctid(&self, doc_id: DocId) -> Option<u64> {
-        match &self.ctid_ff {
-            crate::index::fast_fields_helper::FFType::U64(ff) => ff.first(doc_id),
-            _ => None,
-        }
-    }
-
-    fn evaluate_heap_filters(&self, ctid: u64) -> bool {
-        // All heap filters must pass (AND logic)
-        for filter in &self.field_filters {
-            if !filter.evaluate(ctid, self.relation_oid) {
-                return false;
-            }
-        }
-        true
     }
 }
 
@@ -530,18 +524,35 @@ impl Scorer for IndexedWithHeapFilterScorer {
 
 impl DocSet for IndexedWithHeapFilterScorer {
     fn advance(&mut self) -> DocId {
-        pgrx::warning!("IndexedWithHeapFilterScorer::advance called");
-        self.advance_to_next_valid()
+        debug_log!("IndexedWithHeapFilterScorer::advance called");
+        
+        loop {
+            let doc = self.indexed_scorer.advance();
+            debug_log!("Underlying scorer advanced to doc: {}", doc);
+            
+            if doc == TERMINATED {
+                debug_log!("Underlying scorer terminated");
+                return TERMINATED;
+            }
+            
+            if self.passes_heap_filters(doc) {
+                debug_log!("Doc {} passes heap filters, returning", doc);
+                return doc;
+            }
+            
+            debug_log!("Doc {} failed heap filters, continuing", doc);
+        }
     }
 
     fn doc(&self) -> DocId {
-        pgrx::warning!("IndexedWithHeapFilterScorer::doc called, returning: {}", self.current_doc);
-        self.current_doc
+        let doc = self.indexed_scorer.doc();
+        debug_log!("IndexedWithHeapFilterScorer::doc called, returning: {}", doc);
+        doc
     }
 
     fn size_hint(&self) -> u32 {
         let hint = self.indexed_scorer.size_hint();
-        pgrx::warning!("IndexedWithHeapFilterScorer::size_hint called, returning: {}", hint);
+        debug_log!("IndexedWithHeapFilterScorer::size_hint called, returning: {}", hint);
         hint
     }
 }
@@ -569,3 +580,4 @@ mod tests {
         // (actual comparison happens in compare_values method)
     }
 } 
+

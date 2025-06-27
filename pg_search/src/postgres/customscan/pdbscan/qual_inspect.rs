@@ -1403,14 +1403,19 @@ pub unsafe fn optimize_quals_with_heap_expr(
 
 /// Optimize AND branches by pushing indexed predicates into HeapExpr search_query_input
 unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
+    pgrx::warning!("optimize_and_branch_with_heap_expr called with {} quals", quals.len());
+    
     let mut heap_expr_indices = Vec::new();
     let mut indexed_qual_indices = Vec::new();
     
     // Find HeapExpr and indexed quals
     for (i, qual) in quals.iter().enumerate() {
+        pgrx::warning!("Qual {}: {:?}", i, std::mem::discriminant(qual));
         match qual {
             Qual::HeapExpr { search_query_input, .. } => {
+                pgrx::warning!("Found HeapExpr at index {}", i);
                 if matches!(**search_query_input, SearchQueryInput::All) {
+                    pgrx::warning!("HeapExpr has All query, adding to heap_expr_indices");
                     heap_expr_indices.push(i);
                 }
             }
@@ -1418,14 +1423,25 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
             Qual::PushdownVarEqTrue { .. } | Qual::PushdownVarEqFalse { .. } |
             Qual::PushdownVarIsTrue { .. } | Qual::PushdownVarIsFalse { .. } |
             Qual::PushdownIsNotNull { .. } => {
+                pgrx::warning!("Found indexed qual at index {}", i);
                 indexed_qual_indices.push(i);
             }
-            _ => {}
+            Qual::Or(_) => {
+                pgrx::warning!("Found Or qual at index {} - this should be treated as indexed!", i);
+                indexed_qual_indices.push(i);
+            }
+            _ => {
+                pgrx::warning!("Found other qual type at index {}", i);
+            }
         }
     }
     
+    pgrx::warning!("Found {} HeapExpr indices and {} indexed qual indices", 
+                   heap_expr_indices.len(), indexed_qual_indices.len());
+    
     // If we have HeapExpr with All query and indexed predicates, optimize
     if !heap_expr_indices.is_empty() && !indexed_qual_indices.is_empty() {
+        pgrx::warning!("Proceeding with optimization");
         // First, collect the indexed queries before mutating quals
         let indexed_queries: Vec<SearchQueryInput> = indexed_qual_indices
             .iter()
@@ -1437,6 +1453,7 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
             if let Qual::HeapExpr { search_query_input, .. } = &mut quals[heap_idx] {
                 if matches!(**search_query_input, SearchQueryInput::All) {
                     if !indexed_queries.is_empty() {
+                        pgrx::warning!("Updating HeapExpr search_query_input with {} indexed queries", indexed_queries.len());
                         *search_query_input = Box::new(SearchQueryInput::Boolean {
                             must: indexed_queries.clone(),
                             should: vec![],
@@ -1450,8 +1467,12 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
         // Remove the indexed quals that were merged into HeapExpr
         // We need to do this in reverse order to maintain indices
         for &idx in indexed_qual_indices.iter().rev() {
+            pgrx::warning!("Removing indexed qual at index {}", idx);
             quals.remove(idx);
         }
+        pgrx::warning!("Optimization complete, {} quals remaining", quals.len());
+    } else {
+        pgrx::warning!("Skipping optimization: not enough quals");
     }
 }
 

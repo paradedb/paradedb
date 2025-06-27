@@ -88,30 +88,46 @@ impl HeapFieldFilter {
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Now supports flexible operand evaluation
     pub fn evaluate(&self, ctid: u64, relation_oid: pg_sys::Oid) -> bool {
+        pgrx::warning!("HeapFieldFilter::evaluate called with ctid: {}, relation_oid: {}", ctid, relation_oid);
+        
         // Extract values for both operands
         let left_value = self.extract_operand_value(&self.left, ctid, relation_oid);
         let right_value = self.extract_operand_value(&self.right, ctid, relation_oid);
+
+        pgrx::warning!("Left operand value: {:?}", left_value);
+        pgrx::warning!("Right operand value: {:?}", right_value);
 
         // Store the references for later use
         let left_is_none = left_value.is_none();
         let right_is_none = right_value.is_none();
 
         // Handle null values and perform comparison
-        match (left_value, right_value) {
-            (Some(left), Some(right)) => self.compare_values(&left, &right),
+        let result = match (left_value, right_value) {
+            (Some(left), Some(right)) => {
+                let comparison_result = self.compare_values(&left, &right);
+                pgrx::warning!("Comparison result for {:?} {:?} {:?}: {}", left, self.operator, right, comparison_result);
+                comparison_result
+            }
             (None, None) => {
                 // Both null - only equal for equality checks
-                matches!(self.operator, HeapOperator::Equal)
+                let result = matches!(self.operator, HeapOperator::Equal);
+                pgrx::warning!("Both operands null, result: {}", result);
+                result
             }
             (None, Some(_)) | (Some(_), None) => {
                 // One null, one not null
-                match self.operator {
+                let result = match self.operator {
                     HeapOperator::IsNull => left_is_none || right_is_none,
                     HeapOperator::IsNotNull => !left_is_none && !right_is_none,
                     _ => false, // NULL doesn't match other comparisons
-                }
+                };
+                pgrx::warning!("One operand null, result: {}", result);
+                result
             }
-        }
+        };
+
+        pgrx::warning!("HeapFieldFilter::evaluate final result: {}", result);
+        result
     }
 
     /// Extract value from an operand (field reference or constant)
@@ -297,8 +313,6 @@ unsafe fn resolve_field_name_to_attno(
     None
 }
 
-
-
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
 pub struct IndexedWithHeapFilterQuery {
@@ -350,18 +364,24 @@ struct IndexedWithHeapFilterWeight {
 
 impl Weight for IndexedWithHeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
+        pgrx::warning!("IndexedWithHeapFilterWeight::scorer called with boost: {}", boost);
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
+        pgrx::warning!("Indexed scorer created successfully");
         
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(&fast_fields_reader);
+        pgrx::warning!("ctid fast field created successfully");
 
-        Ok(Box::new(IndexedWithHeapFilterScorer::new(
+        let scorer = IndexedWithHeapFilterScorer::new(
             indexed_scorer,
             self.field_filters.clone(),
             ctid_ff,
             self.relation_oid,
-        )))
+        );
+        pgrx::warning!("IndexedWithHeapFilterScorer created successfully");
+        
+        Ok(Box::new(scorer))
     }
 
     fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
@@ -388,33 +408,59 @@ impl IndexedWithHeapFilterScorer {
         ctid_ff: crate::index::fast_fields_helper::FFType,
         relation_oid: pg_sys::Oid,
     ) -> Self {
-        Self {
+        pgrx::warning!("IndexedWithHeapFilterScorer::new called with {} field_filters, relation_oid: {}", field_filters.len(), relation_oid);
+        let mut scorer = Self {
             indexed_scorer,
             field_filters,
             ctid_ff,
             relation_oid,
             current_doc: tantivy::TERMINATED,
-        }
+        };
+        
+        // Advance to the first valid document
+        scorer.current_doc = scorer.advance_to_next_valid();
+        pgrx::warning!("IndexedWithHeapFilterScorer initialized with first doc: {}", scorer.current_doc);
+        
+        scorer
     }
 
     fn advance_to_next_valid(&mut self) -> DocId {
+        pgrx::warning!("IndexedWithHeapFilterScorer::advance_to_next_valid called");
+        
+        // First, let's test what the underlying indexed scorer returns
+        let test_doc = self.indexed_scorer.doc();
+        pgrx::warning!("Underlying indexed scorer current doc: {}", test_doc);
+        
         loop {
             let doc_id = self.indexed_scorer.advance();
+            pgrx::warning!("Indexed scorer returned doc_id: {}", doc_id);
+            
             if doc_id == tantivy::TERMINATED {
+                pgrx::warning!("Indexed scorer terminated, no more documents");
                 self.current_doc = tantivy::TERMINATED;
                 return tantivy::TERMINATED;
             }
 
             // Extract ctid for this document
             let ctid = match self.extract_ctid(doc_id) {
-                Some(ctid) => ctid,
-                None => continue, // Skip documents without valid ctid
+                Some(ctid) => {
+                    pgrx::warning!("Extracted ctid: {} for doc_id: {}", ctid, doc_id);
+                    ctid
+                }
+                None => {
+                    pgrx::warning!("Failed to extract ctid for doc_id: {}, skipping", doc_id);
+                    continue; // Skip documents without valid ctid
+                }
             };
 
             // Check if document passes all heap field filters
+            pgrx::warning!("Evaluating {} heap filters for ctid: {}", self.field_filters.len(), ctid);
             if self.evaluate_heap_filters(ctid) {
+                pgrx::warning!("Document passed all heap filters, returning doc_id: {}", doc_id);
                 self.current_doc = doc_id;
                 return doc_id;
+            } else {
+                pgrx::warning!("Document failed heap filters, continuing to next document");
             }
         }
     }
@@ -446,15 +492,19 @@ impl Scorer for IndexedWithHeapFilterScorer {
 
 impl DocSet for IndexedWithHeapFilterScorer {
     fn advance(&mut self) -> DocId {
+        pgrx::warning!("IndexedWithHeapFilterScorer::advance called");
         self.advance_to_next_valid()
     }
 
     fn doc(&self) -> DocId {
+        pgrx::warning!("IndexedWithHeapFilterScorer::doc called, returning: {}", self.current_doc);
         self.current_doc
     }
 
     fn size_hint(&self) -> u32 {
-        self.indexed_scorer.size_hint()
+        let hint = self.indexed_scorer.size_hint();
+        pgrx::warning!("IndexedWithHeapFilterScorer::size_hint called, returning: {}", hint);
+        hint
     }
 }
 

@@ -45,7 +45,7 @@ impl HeapFieldFilter {
 
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Uses PostgreSQL's expression evaluation system
-    pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> bool {
+    pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, rel_oid: pg_sys::Oid) -> bool {
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
         if expr_node.is_null() {
@@ -53,11 +53,11 @@ impl HeapFieldFilter {
         }
 
         // Open the relation using PgSearchRelation
-        let relation = PgSearchRelation::open(relation_oid);
+        let relation = PgSearchRelation::open(rel_oid);
 
         // Use a more careful approach to avoid crashes
         let result = std::panic::catch_unwind(|| {
-            self.evaluate_expression_inner(ctid, &relation, expr_node, relation_oid)
+            self.evaluate_expression_inner(ctid, &relation, expr_node, rel_oid)
         });
 
         result.unwrap_or(false)
@@ -69,13 +69,13 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
-        relation_oid: pg_sys::Oid,
+        rel_oid: pg_sys::Oid,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
             t_len: 0,
             t_self: *ctid, // Set the ctid we want to fetch
-            t_tableOid: relation_oid,
+            t_tableOid: rel_oid,
             t_data: std::ptr::null_mut(),
         };
         let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
@@ -187,19 +187,19 @@ impl HeapFieldFilter {
 pub struct IndexedWithHeapFilterQuery {
     indexed_query: Box<dyn Query>,
     field_filters: Vec<HeapFieldFilter>,
-    relation_oid: pg_sys::Oid,
+    rel_oid: pg_sys::Oid,
 }
 
 impl IndexedWithHeapFilterQuery {
     pub fn new(
         indexed_query: Box<dyn Query>,
         field_filters: Vec<HeapFieldFilter>,
-        relation_oid: pg_sys::Oid,
+        rel_oid: pg_sys::Oid,
     ) -> Self {
         Self {
             indexed_query,
             field_filters,
-            relation_oid,
+            rel_oid,
         }
     }
 }
@@ -209,7 +209,7 @@ impl tantivy::query::QueryClone for IndexedWithHeapFilterQuery {
         Box::new(Self {
             indexed_query: self.indexed_query.box_clone(),
             field_filters: self.field_filters.clone(),
-            relation_oid: self.relation_oid,
+            rel_oid: self.rel_oid,
         })
     }
 }
@@ -220,7 +220,7 @@ impl Query for IndexedWithHeapFilterQuery {
         Ok(Box::new(IndexedWithHeapFilterWeight {
             indexed_weight,
             field_filters: self.field_filters.clone(),
-            relation_oid: self.relation_oid,
+            rel_oid: self.rel_oid,
         }))
     }
 }
@@ -228,7 +228,7 @@ impl Query for IndexedWithHeapFilterQuery {
 struct IndexedWithHeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     field_filters: Vec<HeapFieldFilter>,
-    relation_oid: pg_sys::Oid,
+    rel_oid: pg_sys::Oid,
 }
 
 impl Weight for IndexedWithHeapFilterWeight {
@@ -243,7 +243,7 @@ impl Weight for IndexedWithHeapFilterWeight {
             indexed_scorer,
             self.field_filters.clone(),
             ctid_ff,
-            self.relation_oid,
+            self.rel_oid,
         );
 
         Ok(Box::new(scorer))
@@ -262,7 +262,7 @@ struct IndexedWithHeapFilterScorer {
     indexed_scorer: Box<dyn Scorer>,
     field_filters: Vec<HeapFieldFilter>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
-    relation_oid: pg_sys::Oid,
+    rel_oid: pg_sys::Oid,
     current_doc: DocId,
 }
 
@@ -271,13 +271,13 @@ impl IndexedWithHeapFilterScorer {
         indexed_scorer: Box<dyn Scorer>,
         field_filters: Vec<HeapFieldFilter>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
-        relation_oid: pg_sys::Oid,
+        rel_oid: pg_sys::Oid,
     ) -> Self {
         let mut scorer = Self {
             indexed_scorer,
             field_filters,
             ctid_ff,
-            relation_oid,
+            rel_oid,
             current_doc: TERMINATED,
         };
 
@@ -326,7 +326,7 @@ impl IndexedWithHeapFilterScorer {
                 unsafe {
                     let filter_result = filter.evaluate(
                         &mut item_pointer as *mut pg_sys::ItemPointerData,
-                        self.relation_oid,
+                        self.rel_oid,
                     );
                     if !filter_result {
                         return false;

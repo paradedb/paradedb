@@ -17,6 +17,7 @@
 
 use std::ops::{Bound, RangeBounds};
 use tantivy::query::{EmptyScorer, EnableScoring, Explanation, Query, QueryClone, Scorer, Weight};
+use tantivy::schema::Field;
 use tantivy::{DocId, DocSet, Score, SegmentReader, Term, TERMINATED};
 
 #[derive(Debug)]
@@ -114,7 +115,12 @@ impl Query for ScoreFilter {
         }))
     }
 
-    fn query_terms<'a>(&'a self, visitor: &mut dyn FnMut(&'a Term, bool)) {
-        self.query.query_terms(visitor);
+    fn query_terms(
+        &self,
+        field: Field,
+        segment_reader: &SegmentReader,
+        visitor: &mut dyn FnMut(&Term, bool),
+    ) {
+        self.query.query_terms(field, segment_reader, visitor)
     }
 }

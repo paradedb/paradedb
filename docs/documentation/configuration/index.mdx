@@ -22,16 +22,3 @@ SET max_parallel_maintenance_workers = 8;
 ```
 
 In order for `max_parallel_maintenance_workers` to take effect, it must be less than or equal to both `max_parallel_workers` and `max_worker_processes`.
-
-### Target Segment Count
-
-By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are CPUs on the host machine. This can be changed with
-`paradedb.target_segment_count`.
-
-For optimal performance, the segment count should equal the number of parallel workers that a query can receive, which is controlled by
-[`max_parallel_workers_per_gather`](/documentation/configuration/parallel#parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
-performance.
-
-```sql
-SET paradedb.target_segment_count = 32;
-```

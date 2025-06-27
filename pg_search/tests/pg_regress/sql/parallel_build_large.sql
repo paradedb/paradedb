@@ -5,8 +5,7 @@ SET max_parallel_workers = 8;
 -- This should return a "not enough memory" error
 SET maintenance_work_mem = '64MB';
 SET max_parallel_maintenance_workers = 8;
-SET paradedb.target_segment_count = 16;
-CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
+CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id', target_segment_count = 16);
 
 -- These should complete and create the target segment count
 DO $$
@@ -29,10 +28,9 @@ BEGIN
                     -- Set configuration
                     EXECUTE format('SET max_parallel_maintenance_workers = %s', mw);
                     EXECUTE format('SET parallel_leader_participation = %s', lp);
-                    EXECUTE format('SET paradedb.target_segment_count = %s', ts);
                     EXECUTE format('SET maintenance_work_mem = %L', mwm);
 
-                    CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = 'id');
+                    EXECUTE format('CREATE INDEX parallel_build_large_idx ON parallel_build_large USING bm25 (id, name) WITH (key_field = ''id'', target_segment_count = %s)', ts);
 
                     SELECT COUNT(*) INTO count_val FROM paradedb.index_info('parallel_build_large_idx');
                     IF ts = 4 THEN

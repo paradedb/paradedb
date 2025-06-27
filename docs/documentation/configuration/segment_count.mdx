@@ -1,0 +1,33 @@
+---
+title: Segment Count
+---
+
+By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are CPUs on the host machine. This can be changed using the
+`target_segment_count` index option.
+
+```sql
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
+```
+
+This property is attached to the index so that during `REINDEX`, the same value will be used.
+
+It can be changed with ALTER INDEX, like so:
+
+```sql
+ALTER INDEX search_idx SET (target_segment_count = 8);
+```
+
+However, a `REINDEX` is required to rebalance the index to that segment count.
+
+For optimal performance, the segment count should equal the number of parallel workers that a query can receive, which is controlled by
+[`max_parallel_workers_per_gather`](/documentation/configuration/parallel#parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
+performance.
+
+<Note>
+`target_segment_count` is merely a suggestion.
+
+While `pg_search` will endeavor to ensure the created index will have exactly this many segments, it is possible for it
+to have less or more. Mostly this depends on the distribution of work across parallel builder processes, memory
+constraints, and heap size.
+
+</Note>

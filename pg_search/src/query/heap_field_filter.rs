@@ -552,10 +552,25 @@ impl IndexedWithHeapFilterScorer {
         };
         
         // Position at the first valid document
-        scorer.current_doc = scorer.advance_to_next_valid();
+        // For initialization, we need to check the current document first, then advance if needed
+        scorer.current_doc = scorer.find_first_valid_document();
         debug_log!("IndexedWithHeapFilterScorer initialized with first doc: {}", scorer.current_doc);
         
         scorer
+    }
+    
+    fn find_first_valid_document(&mut self) -> DocId {
+        // For initialization, check the current document first
+        let current_doc = self.indexed_scorer.doc();
+        debug_log!("find_first_valid_document: checking current doc: {}", current_doc);
+        
+        if current_doc != TERMINATED && self.passes_heap_filters(current_doc) {
+            debug_log!("find_first_valid_document: current doc {} passes heap filters", current_doc);
+            return current_doc;
+        }
+        
+        // If current document doesn't pass, advance to find the next valid one
+        self.advance_to_next_valid()
     }
     
     fn advance_to_next_valid(&mut self) -> DocId {

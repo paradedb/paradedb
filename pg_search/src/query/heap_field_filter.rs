@@ -53,13 +53,165 @@ impl HeapFieldFilter {
         debug_log!("HeapFieldFilter::evaluate called with ctid: block={}, offset={}, relation_oid: {}", 
                   block_num, offset_num, relation_oid);
         
-        // For now, use a simplified evaluation approach
-        // TODO: Implement full PostgreSQL expression evaluation using the stored expression node
-        debug_log!("Using simplified evaluation for expression: {}", self.description);
+        // Get the expression node
+        let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+        if expr_node.is_null() {
+            debug_log!("Expression node is null, returning true");
+            return true;
+        }
         
-        // Return true as placeholder - actual evaluation will be implemented later
-        // This will need to get the expression node and evaluate it against the heap tuple
-        true
+        debug_log!("Expression node is valid, proceeding with heap tuple access");
+        
+        // Open the relation
+        let relation = pg_sys::RelationIdGetRelation(relation_oid);
+        if relation.is_null() {
+            debug_log!("Failed to open relation with OID: {}", relation_oid);
+            return false;
+        }
+        
+        // Use a more careful approach to avoid crashes
+        let result = std::panic::catch_unwind(|| {
+            self.evaluate_expression_inner(ctid, relation, expr_node, relation_oid)
+        });
+        
+        // Always close the relation
+        pg_sys::RelationClose(relation);
+        
+        match result {
+            Ok(eval_result) => {
+                debug_log!("Expression evaluation completed successfully: {}", eval_result);
+                eval_result
+            }
+            Err(_) => {
+                debug_log!("Expression evaluation panicked, returning false");
+                false
+            }
+        }
+    }
+    
+    /// Inner expression evaluation method that can be wrapped in panic handling
+    unsafe fn evaluate_expression_inner(&self, ctid: pg_sys::ItemPointer, relation: pg_sys::Relation, expr_node: *mut pg_sys::Node, relation_oid: pg_sys::Oid) -> bool {
+        debug_log!("Starting expression evaluation for ctid");
+        
+        // Use heap_fetch to safely get the tuple
+        let mut heap_tuple = pg_sys::HeapTupleData {
+            t_len: 0,
+            t_self: *ctid, // Set the ctid we want to fetch
+            t_tableOid: relation_oid,
+            t_data: std::ptr::null_mut(),
+        };
+        let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+        
+        // Fetch the heap tuple using PostgreSQL's heap_fetch API
+        // Function signature differs between PostgreSQL versions
+        #[cfg(feature = "pg14")]
+        let valid_tuple = pg_sys::heap_fetch(
+            relation,
+            pgrx::pg_sys::GetActiveSnapshot(),
+            &mut heap_tuple,
+            &mut buffer,
+        );
+
+        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+        let valid_tuple = pg_sys::heap_fetch(
+            relation,
+            pgrx::pg_sys::GetActiveSnapshot(),
+            &mut heap_tuple,
+            &mut buffer,
+            false, // keep_buf
+        );
+        
+        if !valid_tuple {
+            debug_log!("heap_fetch returned false - tuple not found or not visible");
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+            return false;
+        }
+        
+        debug_log!("heap_fetch successful, tuple length: {}", heap_tuple.t_len);
+        
+        // Create a tuple table slot for expression evaluation
+        let tuple_desc = (*relation).rd_att;
+        let slot = pg_sys::MakeTupleTableSlot(tuple_desc, &pg_sys::TTSOpsHeapTuple);
+        if slot.is_null() {
+            debug_log!("Failed to create tuple table slot");
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+            return false;
+        }
+        
+        // Store the heap tuple in the slot
+        let stored_slot = pg_sys::ExecStoreHeapTuple(&mut heap_tuple, slot, false);
+        if stored_slot.is_null() {
+            debug_log!("Failed to store heap tuple in slot");
+            pg_sys::ExecDropSingleTupleTableSlot(slot);
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+            return false;
+        }
+        
+        debug_log!("Successfully stored tuple in slot");
+        
+        // Create an expression context for evaluation
+        let econtext = pg_sys::CreateStandaloneExprContext();
+        if econtext.is_null() {
+            debug_log!("Failed to create expression context");
+            pg_sys::ExecDropSingleTupleTableSlot(slot);
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+            return false;
+        }
+        
+        // Set the tuple slot in the expression context
+        (*econtext).ecxt_scantuple = slot;
+        
+        debug_log!("Expression context set up, preparing expression");
+        
+        // Initialize the expression for execution  
+        let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut());
+        if expr_state.is_null() {
+            debug_log!("Failed to initialize expression");
+            pg_sys::FreeExprContext(econtext, false);
+            pg_sys::ExecDropSingleTupleTableSlot(slot);
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+            return false;
+        }
+        
+        debug_log!("Expression initialized successfully, evaluating...");
+        
+        // Evaluate the expression
+        let mut is_null = false;
+        let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+        
+        debug_log!("Expression evaluated, is_null: {}", is_null);
+        
+        // Convert the result to a boolean
+        let eval_result = if is_null {
+            debug_log!("Expression result is NULL, treating as false");
+            false
+        } else {
+            // Convert PostgreSQL Datum to boolean
+            let bool_result = pg_sys::DatumGetBool(result);
+            debug_log!("Expression result: {}", bool_result);
+            bool_result
+        };
+        
+        // Cleanup resources in reverse order
+        debug_log!("Starting cleanup...");
+        pg_sys::FreeExprContext(econtext, false);
+        pg_sys::ExecDropSingleTupleTableSlot(slot);
+        if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+            pg_sys::ReleaseBuffer(buffer);
+        }
+        
+        debug_log!("Cleanup completed, returning: {}", eval_result);
+        eval_result
     }
 
     /// Get the PostgreSQL expression node

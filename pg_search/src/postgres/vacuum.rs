@@ -15,26 +15,76 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::bgworkers::BackgroundWorkerBuilder;
-use pgrx::*;
+use crate::gucs;
+use crate::postgres::index::IndexKind;
+use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::storage::LinkedItemList;
+use crate::postgres::PgSearchRelation;
+
+use pgrx::bgworkers::*;
+use pgrx::pg_sys;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    direct_function_call, function_name, pg_guard, FromDatum, IntoDatum, PgLogLevel, PgSqlErrorCode,
+};
+use std::ffi::CStr;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
-    let worker = BackgroundWorkerBuilder::new("background merger")
+    let index_oid = (*(*info).index).rd_id;
+    let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
+    let target_byte_size = {
+        let index_kind = IndexKind::for_index(index.clone()).unwrap();
+        let index_byte_size = index_kind
+            .partitions()
+            .map(|index| {
+                let segment_components =
+                    LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+                let all_entries = unsafe { segment_components.list() };
+                all_entries
+                    .iter()
+                    .map(|entry| entry.byte_size())
+                    .sum::<u64>()
+            })
+            .sum::<u64>();
+        let target_segment_count = gucs::target_segment_count();
+        index_byte_size / target_segment_count as u64
+    };
+
+    let index_options = SearchIndexOptions::from_relation(&index);
+    let layer_sizes = index_options.layer_sizes();
+    let max_layer_size = layer_sizes.iter().max().unwrap();
+
+    let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
+        .to_string_lossy()
+        .into_owned();
+
+    if let Ok(worker) = BackgroundWorkerBuilder::new("background merger")
+        .enable_spi_access()
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("merge_in_background")
-        .set_argument((*(*info).index).rd_id.into_datum())
+        .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic()
-        .expect("background merger should have loaded");
-    let pid = worker
-        .wait_for_startup()
-        .expect("background merger should have started");
-    assert!(pid > 0, "background mergershould have a valid PID");
+    {
+        let pid = worker
+            .wait_for_startup()
+            .expect("background merger should have started");
+        assert!(pid > 0, "background merger should have a valid PID");
+    } else {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            "background merger for the BM25 index was not launched, likely because there were not enough `max_worker_processes` available",
+            function_name!(),
+        )
+        .set_hint("`SET max_worker_processes = <number>`")
+        .report(PgLogLevel::ERROR);
+    }
 
     stats
 }
@@ -42,7 +92,6 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
 #[pg_guard]
 #[no_mangle]
 pub extern "C-unwind" fn merge_in_background(arg: pg_sys::Datum) {
-    use pgrx::bgworkers::*;
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
-    let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
+    BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
 }

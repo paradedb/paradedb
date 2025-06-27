@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
+use crate::index::merge_policy::LayeredMergePolicy;
+use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::index::IndexKind;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
@@ -36,29 +38,6 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let index_oid = (*(*info).index).rd_id;
-    let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
-    let target_byte_size = {
-        let index_kind = IndexKind::for_index(index.clone()).unwrap();
-        let index_byte_size = index_kind
-            .partitions()
-            .map(|index| {
-                let segment_components =
-                    LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
-                let all_entries = unsafe { segment_components.list() };
-                all_entries
-                    .iter()
-                    .map(|entry| entry.byte_size())
-                    .sum::<u64>()
-            })
-            .sum::<u64>();
-        let target_segment_count = gucs::target_segment_count();
-        index_byte_size / target_segment_count as u64
-    };
-
-    let index_options = SearchIndexOptions::from_relation(&index);
-    let layer_sizes = index_options.layer_sizes();
-    let max_layer_size = layer_sizes.iter().max().unwrap();
-
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
@@ -68,6 +47,7 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("merge_in_background")
+        .set_argument(index_oid.into_datum())
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic()
@@ -94,4 +74,12 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
 pub extern "C-unwind" fn merge_in_background(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
+    BackgroundWorker::transaction(|| {
+        let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
+        let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
+        let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
+        let layer_sizes = index_options.layer_sizes();
+        let merge_policy = LayeredMergePolicy::new(layer_sizes);
+        unsafe { merge_index_with_policy(&index, merge_policy, true, true, true) };
+    });
 }

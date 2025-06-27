@@ -37,7 +37,7 @@ impl From<u8> for ChunkStyleTag {
             4 => ChunkStyleTag::StrictlySorted4x,
             5 => ChunkStyleTag::StrictlySorted8x,
             6 => ChunkStyleTag::Uncompressed,
-            other => panic!("invalid chunk style tag: {}", other),
+            other => panic!("invalid chunk style tag: {other}"),
         }
     }
 }

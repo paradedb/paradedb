@@ -67,7 +67,7 @@ fn create_bm25_test_table(
     let table_name = table_name.unwrap_or("bm25_test_table");
     let schema_name = schema_name.unwrap_or("paradedb");
     let table_type = table_type.unwrap_or(TestTable::Items);
-    let full_table_name = format!("{}.{}", schema_name, table_name);
+    let full_table_name = format!("{schema_name}.{table_name}");
 
     Spi::connect_mut(|client| {
         let original_client_min_messages: String = client
@@ -81,8 +81,7 @@ fn create_bm25_test_table(
         let table_not_found = client
             .select(
                 &format!(
-                    "SELECT FROM pg_catalog.pg_tables WHERE schemaname = '{}' AND tablename = '{}'",
-                    schema_name, table_name
+                    "SELECT FROM pg_catalog.pg_tables WHERE schemaname = '{schema_name}' AND tablename = '{table_name}'"
                 ),
                 None,
                 &[],
@@ -94,7 +93,7 @@ fn create_bm25_test_table(
                 TestTable::Items => {
                     client.update(
                         &format!(
-                            "CREATE TABLE {} (
+                            "CREATE TABLE {full_table_name} (
                                 id SERIAL PRIMARY KEY,
                                 description TEXT,
                                 rating INTEGER CHECK (rating BETWEEN 1 AND 5),
@@ -105,8 +104,7 @@ fn create_bm25_test_table(
                                 last_updated_date DATE,
                                 latest_available_time TIME,
                                 weight_range INT4RANGE
-                            )",
-                            full_table_name
+                            )"
                         ),
                         None,
                         &[],
@@ -115,8 +113,7 @@ fn create_bm25_test_table(
                     for record in mock_items_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                                full_table_name
+                                "INSERT INTO {full_table_name} (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
                             ),
                             Some(1),
                             &[
@@ -136,14 +133,13 @@ fn create_bm25_test_table(
                 TestTable::Orders => {
                     client.update(
                         &format!(
-                            "CREATE TABLE {} (
+                            "CREATE TABLE {full_table_name} (
                                 order_id SERIAL PRIMARY KEY,
                                 product_id INTEGER NOT NULL,
                                 order_quantity INTEGER NOT NULL,
                                 order_total DECIMAL(10, 2) NOT NULL,
                                 customer_name VARCHAR(255) NOT NULL
-                            )",
-                            full_table_name
+                            )"
                         ),
                         None,
                         &[],
@@ -152,8 +148,7 @@ fn create_bm25_test_table(
                     for record in mock_orders_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (product_id, order_quantity, order_total, customer_name) VALUES ($1, $2, $3, $4)",
-                                full_table_name
+                                "INSERT INTO {full_table_name} (product_id, order_quantity, order_total, customer_name) VALUES ($1, $2, $3, $4)"
                             ),
                             Some(1),
                             &[
@@ -168,12 +163,11 @@ fn create_bm25_test_table(
                 TestTable::Parts => {
                     client.update(
                         &format!(
-                            "CREATE TABLE {} (
+                            "CREATE TABLE {full_table_name} (
                                 part_id SERIAL PRIMARY KEY,
                                 parent_part_id INTEGER NOT NULL,
                                 description VARCHAR(255) NOT NULL
-                            )",
-                            full_table_name
+                            )"
                         ),
                         None,
                         &[],
@@ -182,8 +176,7 @@ fn create_bm25_test_table(
                     for record in mock_parts_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (part_id, parent_part_id, description) VALUES ($1, $2, $3)",
-                                full_table_name
+                                "INSERT INTO {full_table_name} (part_id, parent_part_id, description) VALUES ($1, $2, $3)"
                             ),
                             Some(1),
                             &[
@@ -197,7 +190,7 @@ fn create_bm25_test_table(
                 TestTable::Deliveries => {
                     client.update(
                         &format!(
-                            "CREATE TABLE {} (
+                            "CREATE TABLE {full_table_name} (
                                 delivery_id SERIAL PRIMARY KEY,
                                 weights INT4RANGE,
                                 quantities INT8RANGE,
@@ -205,8 +198,7 @@ fn create_bm25_test_table(
                                 ship_dates DATERANGE,
                                 facility_arrival_times TSRANGE,
                                 delivery_times TSTZRANGE
-                            )",
-                            full_table_name
+                            )"
                         ),
                         None,
                         &[],
@@ -215,9 +207,8 @@ fn create_bm25_test_table(
                     for record in mock_deliveries_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times) 
-                                VALUES ($1, $2, $3, $4, $5, $6)",
-                                full_table_name
+                                "INSERT INTO {full_table_name} (weights, quantities, prices, ship_dates, facility_arrival_times, delivery_times) 
+                                VALUES ($1, $2, $3, $4, $5, $6)"
                             ),
                             Some(1),
                             &[
@@ -235,12 +226,11 @@ fn create_bm25_test_table(
                 TestTable::Customers => {
                     client.update(
                         &format!(
-                            "CREATE TABLE {} (
+                            "CREATE TABLE {full_table_name} (
                 id SERIAL PRIMARY KEY,
                 name TEXT,
                 crm_data JSONB
-            )",
-                            full_table_name
+            )"
                         ),
                         None,
                         &[],
@@ -249,8 +239,7 @@ fn create_bm25_test_table(
                     for record in mock_customers_data() {
                         client.update(
                             &format!(
-                                "INSERT INTO {} (name, crm_data) VALUES ($1, $2)",
-                                full_table_name
+                                "INSERT INTO {full_table_name} (name, crm_data) VALUES ($1, $2)"
                             ),
                             Some(1),
                             &[record.0.into(), JsonB(record.1).into()],
@@ -263,10 +252,7 @@ fn create_bm25_test_table(
         }
 
         client.update(
-            &format!(
-                "SET client_min_messages TO '{}'",
-                original_client_min_messages
-            ),
+            &format!("SET client_min_messages TO '{original_client_min_messages}'"),
             None,
             &[],
         )?;

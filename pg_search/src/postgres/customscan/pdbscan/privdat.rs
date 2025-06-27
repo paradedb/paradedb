@@ -72,10 +72,10 @@ mod var_attname_lookup_serializer {
 
         let p1 = p1_str
             .parse::<Varno>()
-            .map_err(|e| format!("Failed to parse first key part '{}': {}", p1_str, e))?;
+            .map_err(|e| format!("Failed to parse first key part '{p1_str}': {e}"))?;
         let p2 = p2_str
             .parse::<i16>()
-            .map_err(|e| format!("Failed to parse second key part '{}': {}", p2_str, e))?;
+            .map_err(|e| format!("Failed to parse second key part '{p2_str}': {e}"))?;
 
         Ok((p1, p2))
     }
@@ -116,7 +116,7 @@ mod var_attname_lookup_serializer {
 
         for (k_str, v) in string_map {
             let key_tuple = key_from_string(k_str)
-                .map_err(|e| D::Error::custom(format!("Invalid key format '{}': {}", k_str, e)))?;
+                .map_err(|e| D::Error::custom(format!("Invalid key format '{k_str}': {e}")))?;
             map.insert(key_tuple, v);
         }
         Ok(Some(map))

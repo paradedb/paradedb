@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+// TODO: See https://github.com/pgcentralfoundation/pgrx/pull/2089
+#![allow(for_loops_over_fallibles)]
+
 pub mod aggregate;
 pub mod builder_fns;
 pub mod config;

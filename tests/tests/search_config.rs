@@ -410,30 +410,26 @@ fn language_stem_tokenizer_deprecated(mut conn: PgConnection) {
                 message TEXT
             );
             INSERT INTO test_table (author, title, message)
-            VALUES {};
+            VALUES {data};
             CREATE INDEX stem_test ON test_table
                 USING bm25 (id, author, title, message)
                 WITH (key_field='id', text_fields='{{
-                    "author": {{"tokenizer": {{"type": "stem", "language": "{}"}}}},
-                    "title": {{"tokenizer": {{"type": "stem", "language": "{}"}}}},
-                    "message": {{"tokenizer": {{"type": "stem", "language": "{}"}}}}
-                }}');"#,
-            data, language_str, language_str, language_str
+                    "author": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}},
+                    "title": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}},
+                    "message": {{"tokenizer": {{"type": "stem", "language": "{language_str}"}}}}
+                }}');"#
         );
 
         setup_query.execute(&mut conn);
 
         let author_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'author:{}' ORDER BY id",
-            author_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'author:{author_query}' ORDER BY id"
         );
         let title_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'title:{}' ORDER BY id",
-            title_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'title:{title_query}' ORDER BY id"
         );
         let message_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'message:{}' ORDER BY id",
-            message_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'message:{message_query}' ORDER BY id"
         );
 
         let row: (i32,) = author_search_query.fetch_one(&mut conn);
@@ -467,30 +463,26 @@ fn language_stem_filter(mut conn: PgConnection) {
                 message TEXT
             );
             INSERT INTO test_table (author, title, message)
-            VALUES {};
+            VALUES {data};
             CREATE INDEX stem_test ON test_table
                 USING bm25 (id, author, title, message)
                 WITH (key_field='id', text_fields='{{
-                    "author": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}},
-                    "title": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}},
-                    "message": {{"tokenizer": {{"type": "default", "stemmer": "{}"}}}}
-                }}');"#,
-            data, language_str, language_str, language_str
+                    "author": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
+                    "title": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}},
+                    "message": {{"tokenizer": {{"type": "default", "stemmer": "{language_str}"}}}}
+                }}');"#
         );
 
         setup_query.execute(&mut conn);
 
         let author_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'author:{}' ORDER BY id",
-            author_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'author:{author_query}' ORDER BY id"
         );
         let title_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'title:{}' ORDER BY id",
-            title_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'title:{title_query}' ORDER BY id"
         );
         let message_search_query = format!(
-            "SELECT id FROM test_table WHERE test_table @@@ 'message:{}' ORDER BY id",
-            message_query
+            "SELECT id FROM test_table WHERE test_table @@@ 'message:{message_query}' ORDER BY id"
         );
 
         let row: (i32,) = author_search_query.fetch_one(&mut conn);

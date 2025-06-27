@@ -31,36 +31,31 @@ pub async fn setup_benchmark_database(
         .await?;
 
     // First check if the table exists
-    let table_exists_query = &format!(
-        "SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = '{}')",
-        table_name
-    );
+    let table_exists_query =
+        &format!("SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = '{table_name}')");
     let table_exists: bool = sqlx::query(table_exists_query)
         .fetch_one(&mut *conn)
         .await?
         .get(0);
 
-    println!("Table exists check: {}", table_exists);
+    println!("Table exists check: {table_exists}");
 
     let mut current_rows = if table_exists {
         // Count existing rows more reliably with explicit casting to bigint
-        let count_result = sqlx::query(&format!("SELECT COUNT(*)::bigint FROM {}", table_name))
+        let count_result = sqlx::query(&format!("SELECT COUNT(*)::bigint FROM {table_name}"))
             .fetch_one(&mut *conn)
             .await;
 
         match count_result {
             Ok(row) => {
                 let count: i64 = row.get(0);
-                println!("Found existing table with {} rows", count);
+                println!("Found existing table with {count} rows");
                 count as usize
             }
             Err(e) => {
-                println!(
-                    "Error counting rows: {}, assuming table needs recreation",
-                    e
-                );
+                println!("Error counting rows: {e}, assuming table needs recreation");
                 // If we can't count rows, the table might be corrupted
-                sqlx::query(&format!("DROP TABLE IF EXISTS {} CASCADE", table_name))
+                sqlx::query(&format!("DROP TABLE IF EXISTS {table_name} CASCADE"))
                     .execute(&mut *conn)
                     .await?;
 
@@ -76,15 +71,12 @@ pub async fn setup_benchmark_database(
         0
     };
 
-    println!(
-        "Table {} already exists with {} rows (requested: {})",
-        table_name, current_rows, num_rows
-    );
+    println!("Table {table_name} already exists with {current_rows} rows (requested: {num_rows})");
 
     if current_rows == num_rows {
         // Run a full VACUUM ANALYZE to update statistics after index creation
         println!("Running VACUUM ANALYZE after index creation...");
-        sqlx::query(&format!("VACUUM ANALYZE {}", table_name))
+        sqlx::query(&format!("VACUUM ANALYZE {table_name}"))
             .execute(&mut *conn)
             .await?;
         return Ok(());
@@ -92,11 +84,8 @@ pub async fn setup_benchmark_database(
 
     if current_rows > num_rows {
         // Drop table if exists
-        println!(
-            "Table has more rows than needed ({}), recreating...",
-            current_rows
-        );
-        sqlx::query(&format!("DROP TABLE IF EXISTS {} CASCADE", table_name))
+        println!("Table has more rows than needed ({current_rows}), recreating...");
+        sqlx::query(&format!("DROP TABLE IF EXISTS {table_name} CASCADE"))
             .execute(&mut *conn)
             .await?;
 
@@ -106,7 +95,7 @@ pub async fn setup_benchmark_database(
     }
 
     let rows_to_add = num_rows - current_rows;
-    println!("Adding {} more rows to {}", rows_to_add, table_name);
+    println!("Adding {rows_to_add} more rows to {table_name}");
 
     // Create arrays for test data - with longer, more complex strings
     let string_array1 = vec![
@@ -243,7 +232,7 @@ pub async fn setup_benchmark_database(
     while inserted < rows_to_add {
         // Create a batch insert statement
         let mut batch_query = String::from(
-            &format!("INSERT INTO {} (string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3) VALUES ", table_name),
+            &format!("INSERT INTO {table_name} (string_field1, string_field2, long_text, json_data, numeric_field1, numeric_field2, numeric_field3) VALUES "),
         );
 
         let batch_end = (inserted + batch_size).min(rows_to_add);
@@ -273,7 +262,7 @@ pub async fn setup_benchmark_database(
                     let template = json_templates[1];
                     template
                         .replace("%ID%", &i.to_string())
-                        .replace("%NAME%", &format!("{} {}", string1, string2))
+                        .replace("%NAME%", &format!("{string1} {string2}"))
                         .replace("%PRICE%", &((i % 100) + 10).to_string())
                         .replace("%CATEGORY%", categories[i % categories.len()])
                         .replace("%TAG1%", tags[i % tags.len()])
@@ -323,7 +312,7 @@ pub async fn setup_benchmark_database(
                         .replace("%HOUR%", &(i % 24).to_string())
                         .replace("%MINUTE%", &(i % 60).to_string())
                         .replace("%MESSAGE%", event_type)
-                        .replace("%COMP1%", &format!("service-{}", i))
+                        .replace("%COMP1%", &format!("service-{i}"))
                         .replace("%COMP2%", &format!("component-{}", i % 10))
                         .replace("%DURATION%", &((i % 1000) + 100).to_string())
                         .replace("%RESOURCE%", &(i % 100).to_string())
@@ -344,8 +333,7 @@ pub async fn setup_benchmark_database(
 
             // Add values to batch query
             batch_query.push_str(&format!(
-                "('{}', '{}', '{}', '{}', {}, {}, {})",
-                string1, string2, escaped_long_text, escaped_json, num1, num2, num3
+                "('{string1}', '{string2}', '{escaped_long_text}', '{escaped_json}', {num1}, {num2}, {num3})"
             ));
         }
 
@@ -355,35 +343,33 @@ pub async fn setup_benchmark_database(
         inserted += batch_end - (current_rows + inserted);
 
         if inserted % 10000 == 0 && inserted > 0 {
-            println!("Inserted {} of {} rows...", inserted, rows_to_add);
+            println!("Inserted {inserted} of {rows_to_add} rows...");
         }
     }
 
     println!(
-        "Database setup complete with {} rows (was: {}, added: {})",
-        num_rows, current_rows, rows_to_add
+        "Database setup complete with {num_rows} rows (was: {current_rows}, added: {rows_to_add})"
     );
 
     // Verify the actual row count
-    let final_count: i64 = sqlx::query(&format!("SELECT COUNT(*)::bigint FROM {}", table_name))
+    let final_count: i64 = sqlx::query(&format!("SELECT COUNT(*)::bigint FROM {table_name}"))
         .fetch_one(&mut *conn)
         .await?
         .get(0);
 
-    println!("Final table verification: contains {} rows", final_count);
+    println!("Final table verification: contains {final_count} rows");
 
     // Ensure count matches what we expect
     assert_eq!(
         final_count as usize, num_rows,
-        "Table contains {} rows but should have {} rows",
-        final_count, num_rows
+        "Table contains {final_count} rows but should have {num_rows} rows"
     );
 
     create_bm25_index(conn, table_name).await?;
 
     // Run a full VACUUM ANALYZE to update statistics
     println!("Running VACUUM ANALYZE after index creation...");
-    sqlx::query(&format!("VACUUM ANALYZE {}", table_name))
+    sqlx::query(&format!("VACUUM ANALYZE {table_name}"))
         .execute(&mut *conn)
         .await?;
 
@@ -393,7 +379,7 @@ pub async fn setup_benchmark_database(
 async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Result<()> {
     // Create the table
     let create_table_query = format!(
-        "CREATE TABLE {} (
+        "CREATE TABLE {table_name} (
         id SERIAL PRIMARY KEY,
         string_field1 TEXT NOT NULL,
         string_field2 TEXT NOT NULL,
@@ -402,8 +388,7 @@ async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Re
         numeric_field1 INTEGER NOT NULL,
         numeric_field2 FLOAT NOT NULL,
         numeric_field3 NUMERIC(10,2) NOT NULL
-    )",
-        table_name
+    )"
     );
 
     sqlx::query(&create_table_query).execute(&mut *conn).await?;
@@ -414,8 +399,8 @@ async fn create_benchmark_table(conn: &mut PgConnection, table_name: &str) -> Re
 /// Creates an index with the specified configuration
 pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Result<()> {
     // First drop any existing index
-    let index_name = format!("{}_idx", table_name);
-    sqlx::query(&format!("DROP INDEX IF EXISTS {} CASCADE", index_name))
+    let index_name = format!("{table_name}_idx");
+    sqlx::query(&format!("DROP INDEX IF EXISTS {index_name} CASCADE"))
         .execute(&mut *conn)
         .await?;
 
@@ -424,7 +409,7 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
     // IMPORTANT: ALL fields, including ID and those used in SELECT must be fast
     // Use keyword tokenizer for string fields to ensure exact matching
     let index_definition = format!(
-        "CREATE INDEX {} ON {} 
+        "CREATE INDEX {index_name} ON {table_name} 
         USING bm25(
             id, 
             string_field1,
@@ -447,12 +432,11 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
                 \"numeric_field2\": {{\"fast\": true}}, 
                 \"numeric_field3\": {{\"fast\": true}}
             }}'
-        )",
-        index_name, table_name
+        )"
     );
 
     // Create the index
-    println!("Creating index {}...", index_name);
+    println!("Creating index {index_name}...");
     sqlx::query(&index_definition).execute(&mut *conn).await?;
 
     // Wait a moment for the index to be fully ready
@@ -462,16 +446,15 @@ pub async fn create_bm25_index(conn: &mut PgConnection, table_name: &str) -> Res
 
     // Verify the index was created
     let verify_index = sqlx::query(&format!(
-        "SELECT indexname FROM pg_indexes WHERE indexname = '{}'",
-        index_name
+        "SELECT indexname FROM pg_indexes WHERE indexname = '{index_name}'"
     ))
     .fetch_optional(&mut *conn)
     .await?;
 
     if verify_index.is_some() {
-        println!("Index '{}' created successfully", index_name);
+        println!("Index '{index_name}' created successfully");
     } else {
-        println!("WARNING: Index '{}' not found!", index_name);
+        println!("WARNING: Index '{index_name}' not found!");
     }
 
     Ok(())

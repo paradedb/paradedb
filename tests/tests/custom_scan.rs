@@ -465,7 +465,7 @@ fn leaky_file_handles(mut conn: PgConnection) {
             .expect("`lsof` command should not fail`");
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        eprintln!("stdout: {}", stdout);
+        eprintln!("stdout: {stdout}");
         stdout.contains("/tantivy/")
     }
 
@@ -922,7 +922,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
         has_company_15,
         "Results should include user with company_id 15"
     );
-    println!("minimal_results: {:?}", minimal_results);
+    println!("minimal_results: {minimal_results:?}");
     let company_15_result = minimal_results
         .iter()
         .find(|(_, company_id, _, _)| *company_id == 15)
@@ -980,7 +980,7 @@ fn nested_loop_rescan_issue_2472(mut conn: PgConnection) {
 
     // Due to small data sizes, PostgreSQL might choose not to use parallelism
     // even when the settings allow it, so we don't assert but print info
-    println!("Parallelism indicators in plan: {}", parallel_enabled);
+    println!("Parallelism indicators in plan: {parallel_enabled}");
 
     // First test in parallel mode
     let parallel_complex_results = r#"

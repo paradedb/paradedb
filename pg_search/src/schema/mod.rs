@@ -267,15 +267,11 @@ impl SearchField {
                 .map(|(_, type_oid)| type_oid.into())
                 .unwrap_or_else(|| {
                     panic!(
-                        "the column {} referenced by the field configuration for {} should exist",
-                        field_name, attribute_name
+                        "the column {field_name} referenced by the field configuration for {attribute_name} should exist"
                     )
                 });
             (&attribute_type_oid).try_into().unwrap_or_else(|_| {
-                panic!(
-                    "failed to convert attribute {} to search field type",
-                    attribute_name
-                )
+                panic!("failed to convert attribute {attribute_name} to search field type")
             })
         };
 

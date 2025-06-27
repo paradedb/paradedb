@@ -446,7 +446,7 @@ impl AsHumanReadable for SearchQueryInput {
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
 
-            other => s.push_str(&format!("{:?}", other)),
+            other => s.push_str(&format!("{other:?}")),
         }
         s
     }

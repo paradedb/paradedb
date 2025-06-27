@@ -805,7 +805,7 @@ fn timetz_key(mut conn: PgConnection) {
     SELECT CAST(id AS TEXT) FROM test_table"#
         .fetch_collect(&mut conn);
 
-    println!("{:#?}", rows);
+    println!("{rows:#?}");
 
     // stable_sort
     let rows: Vec<(String, f32)> = r#"

@@ -434,18 +434,15 @@ fn execute_range_test<T>(
                         start: lower_bound_type.to_bound(lower_bound.clone()),
                         end: upper_bound_type.to_bound(upper_bound.clone()),
                     };
-                    format!(
-                        "INSERT INTO {} ({}) VALUES ('{}'::{})",
-                        table, field, range, range_type
-                    )
-                    .execute(conn);
+                    format!("INSERT INTO {table} ({field}) VALUES ('{range}'::{range_type})")
+                        .execute(conn);
                 }
             }
         }
     }
 
     // Insert null range value
-    format!("INSERT INTO {} ({}) VALUES (NULL)", table, field).execute(conn);
+    format!("INSERT INTO {table} ({field}) VALUES (NULL)").execute(conn);
 
     // Run all combinations of range queries
     for lower_bound_type in BoundType::iter() {
@@ -529,10 +526,9 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE '{}'::{} @> {}
-        ORDER BY delivery_id",
-        table, range, range_type, field
+        SELECT delivery_id FROM {table}
+        WHERE '{range}'::{range_type} @> {field}
+        ORDER BY delivery_id"
     )
 }
 
@@ -547,10 +543,9 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE {} @> '{}'::{}
-        ORDER BY delivery_id",
-        table, field, range, range_type
+        SELECT delivery_id FROM {table}
+        WHERE {field} @> '{range}'::{range_type}
+        ORDER BY delivery_id"
     )
 }
 
@@ -565,10 +560,9 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE '{}'::{} && {}
-        ORDER BY delivery_id",
-        table, range, range_type, field
+        SELECT delivery_id FROM {table}
+        WHERE '{range}'::{range_type} && {field}
+        ORDER BY delivery_id"
     )
 }
 
@@ -583,10 +577,9 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Contains')
-        ORDER BY delivery_id",
-        table, field, range, range_type
+        SELECT delivery_id FROM {table}
+        WHERE delivery_id @@@ paradedb.range_term('{field}', '{range}'::{range_type}, 'Contains')
+        ORDER BY delivery_id"
     )
 }
 
@@ -604,7 +597,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -612,7 +605,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -624,7 +617,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -632,7 +625,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -642,16 +635,15 @@ where
 
     format!(
         r#"
-        SELECT delivery_id FROM {}
+        SELECT delivery_id FROM {table}
         WHERE delivery_id @@@ '{{
             "range_contains": {{
-                "field": "{}",
-                "lower_bound": {},
-                "upper_bound": {}
+                "field": "{field}",
+                "lower_bound": {lower_bound},
+                "upper_bound": {upper_bound}
             }}
         }}'::jsonb
-        ORDER BY delivery_id"#,
-        table, field, lower_bound, upper_bound
+        ORDER BY delivery_id"#
     )
 }
 
@@ -669,7 +661,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -677,7 +669,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -689,7 +681,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -697,7 +689,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -707,16 +699,15 @@ where
 
     format!(
         r#"
-        SELECT delivery_id FROM {}
+        SELECT delivery_id FROM {table}
         WHERE delivery_id @@@ '{{
             "range_within": {{
-                "field": "{}",
-                "lower_bound": {},
-                "upper_bound": {}
+                "field": "{field}",
+                "lower_bound": {lower_bound},
+                "upper_bound": {upper_bound}
             }}
         }}'::jsonb
-        ORDER BY delivery_id"#,
-        table, field, lower_bound, upper_bound
+        ORDER BY delivery_id"#
     )
 }
 
@@ -734,7 +725,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -742,7 +733,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -754,7 +745,7 @@ where
         Bound::Included(ref val) => format!(
             r#"{{"included": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -762,7 +753,7 @@ where
         Bound::Excluded(ref val) => format!(
             r#"{{"excluded": {}}}"#,
             if is_datetime {
-                format!(r#""{}""#, val)
+                format!(r#""{val}""#)
             } else {
                 val.to_string()
             }
@@ -772,16 +763,15 @@ where
 
     format!(
         r#"
-        SELECT delivery_id FROM {}
+        SELECT delivery_id FROM {table}
         WHERE delivery_id @@@ '{{
             "range_intersects": {{
-                "field": "{}",
-                "lower_bound": {},
-                "upper_bound": {}
+                "field": "{field}",
+                "lower_bound": {lower_bound},
+                "upper_bound": {upper_bound}
             }}
         }}'::jsonb
-        ORDER BY delivery_id"#,
-        table, field, lower_bound, upper_bound
+        ORDER BY delivery_id"#
     )
 }
 
@@ -796,10 +786,9 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Within')
-        ORDER BY delivery_id",
-        table, field, range, range_type
+        SELECT delivery_id FROM {table}
+        WHERE delivery_id @@@ paradedb.range_term('{field}', '{range}'::{range_type}, 'Within')
+        ORDER BY delivery_id"
     )
 }
 
@@ -814,9 +803,8 @@ where
 {
     format!(
         "
-        SELECT delivery_id FROM {}
-        WHERE delivery_id @@@ paradedb.range_term('{}', '{}'::{}, 'Intersects')
-        ORDER BY delivery_id",
-        table, field, range, range_type
+        SELECT delivery_id FROM {table}
+        WHERE delivery_id @@@ paradedb.range_term('{field}', '{range}'::{range_type}, 'Intersects')
+        ORDER BY delivery_id"
     )
 }

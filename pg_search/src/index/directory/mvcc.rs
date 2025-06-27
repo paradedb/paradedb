@@ -217,8 +217,7 @@ impl Directory for MVCCDirectory {
                                 }
                             } else {
                                 return Err(OpenReadError::IoError {
-                                    io_error: io::Error::new(io::ErrorKind::Other, err.to_string())
-                                        .into(),
+                                    io_error: io::Error::other(err.to_string()).into(),
                                     filepath: PathBuf::from(path),
                                 });
                             }

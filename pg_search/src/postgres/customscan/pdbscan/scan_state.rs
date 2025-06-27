@@ -394,8 +394,7 @@ impl PdbScanState {
                                 .get_by_name::<pgrx::datum::Json>(&root)
                                 .unwrap_or_else(|_| {
                                     panic!(
-                                        "doc_from_heap: should be able to read json field {}",
-                                        root
+                                        "doc_from_heap: should be able to read json field {root}"
                                     )
                                 })?
                                 .0;
@@ -406,8 +405,7 @@ impl PdbScanState {
                                 .get_by_name::<pgrx::datum::JsonB>(&root)
                                 .unwrap_or_else(|_| {
                                     panic!(
-                                        "doc_from_heap: should be able to read jsonb field {}",
-                                        root
+                                        "doc_from_heap: should be able to read jsonb field {root}"
                                     )
                                 })?
                                 .0;
@@ -432,7 +430,7 @@ impl PdbScanState {
                 }
                 (root, None) => heap_tuple
                     .get_by_name(&root)
-                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {}", root)),
+                    .unwrap_or_else(|_| panic!("doc_from_heap: should be able to read {root}")),
             }
         }
     }

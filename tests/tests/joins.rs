@@ -66,8 +66,8 @@ fn joins_return_correct_results(mut conn: PgConnection) -> Result<(), sqlx::Erro
         eprintln!("pg_search: {pg_search:?}");
         eprintln!("postgres: {postgres:?}");
 
-        let (pg_search_plan,) = format!("EXPLAIN (ANALYZE, FORMAT JSON) {}", pg_search)
-            .fetch_one::<(Value,)>(&mut conn);
+        let (pg_search_plan,) =
+            format!("EXPLAIN (ANALYZE, FORMAT JSON) {pg_search}").fetch_one::<(Value,)>(&mut conn);
         eprintln!("pg_search_plan: {pg_search_plan:#?}");
         assert!(format!("{pg_search_plan:?}").contains("ParadeDB Scan"));
 

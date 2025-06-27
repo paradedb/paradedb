@@ -121,8 +121,7 @@ impl MergePolicy for LayeredMergePolicy {
         logger(
             directory,
             &format!(
-                "compute_merge_candidates: candidates before min merge count are {:?}",
-                candidates
+                "compute_merge_candidates: candidates before min merge count are {candidates:?}"
             ),
         );
 
@@ -162,10 +161,7 @@ impl MergePolicy for LayeredMergePolicy {
 
         logger(
             directory,
-            &format!(
-                "compute_merge_candidates: final candidates are {:?}",
-                candidates
-            ),
+            &format!("compute_merge_candidates: final candidates are {candidates:?}"),
         );
 
         candidates

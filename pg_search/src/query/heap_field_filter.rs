@@ -195,8 +195,37 @@ impl HeapFieldFilter {
         let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
         let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
         
-        // DEBUG: Basic tuple info
+        // DEBUG: Print the entire tuple contents
+        debug_log!("=== TUPLE DEBUG INFO ===");
         debug_log!("Tuple has {} attributes", tuple_desc.len());
+        for i in 0..tuple_desc.len() {
+            if let Some(attr) = tuple_desc.get(i) {
+                let attr_name = attr.name();
+                let attr_type = attr.type_oid().value();
+                
+                // Try to get the value for debugging
+                match heap_tuple.get_by_name::<String>(attr_name) {
+                    Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = '{}'", i+1, attr_name, attr_type, val),
+                    Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
+                    Err(_) => {
+                        // Try as integer
+                        match heap_tuple.get_by_name::<i32>(attr_name) {
+                            Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = {}", i+1, attr_name, attr_type, val),
+                            Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
+                            Err(_) => {
+                                // Try as boolean
+                                match heap_tuple.get_by_name::<bool>(attr_name) {
+                                    Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = {}", i+1, attr_name, attr_type, val),
+                                    Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
+                                    Err(_) => debug_log!("  Attr {}: {} (type {}) = <unparseable>", i+1, attr_name, attr_type),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        debug_log!("=== END TUPLE DEBUG ===");
         
         // Get the attribute by index (attno is 1-based)
         let result = if let Some(attribute) = tuple_desc.get((attno - 1) as usize) {
@@ -350,7 +379,16 @@ impl HeapFieldFilter {
             (HeapValue::Float(a), HeapValue::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
             (HeapValue::Text(a), HeapValue::Text(b)) => a.cmp(b),
             (HeapValue::Boolean(a), HeapValue::Boolean(b)) => a.cmp(b),
-            (HeapValue::Decimal(a), HeapValue::Decimal(b)) => a.cmp(b),
+            (HeapValue::Decimal(a), HeapValue::Decimal(b)) => {
+                // Parse decimal strings as f64 for proper numeric comparison
+                match (a.parse::<f64>(), b.parse::<f64>()) {
+                    (Ok(a_f64), Ok(b_f64)) => a_f64.partial_cmp(&b_f64).unwrap_or(Ordering::Equal),
+                    _ => {
+                        debug_log!("Failed to parse decimals for comparison: {} vs {}", a, b);
+                        Ordering::Equal
+                    }
+                }
+            },
             
             // Cross-type numeric comparisons
             (HeapValue::Integer(a), HeapValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
@@ -595,6 +633,7 @@ impl IndexedWithHeapFilterScorer {
     fn passes_heap_filters(&self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
         if let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) {
+            debug_log!("=== HEAP FILTER CHECK ===");
             debug_log!("Processing doc_id: {}, extracted ctid: {}", doc_id, ctid_value);
             
             // Convert u64 ctid back to ItemPointer
@@ -607,16 +646,21 @@ impl IndexedWithHeapFilterScorer {
             // Evaluate all heap filters
             debug_log!("Evaluating {} heap filters for ctid: {}", self.field_filters.len(), ctid_value);
             
-            for filter in &self.field_filters {
+            for (filter_idx, filter) in self.field_filters.iter().enumerate() {
+                debug_log!("Evaluating filter {} of {}", filter_idx + 1, self.field_filters.len());
                 unsafe {
-                    if !filter.evaluate(&mut item_pointer as *mut pg_sys::ItemPointerData, self.relation_oid) {
-                        debug_log!("Document FAILED heap filters - REJECTING doc_id {}", doc_id);
+                    let filter_result = filter.evaluate(&mut item_pointer as *mut pg_sys::ItemPointerData, self.relation_oid);
+                    debug_log!("Filter {} result: {}", filter_idx + 1, filter_result);
+                    if !filter_result {
+                        debug_log!("Document FAILED heap filter {} - REJECTING doc_id {}", filter_idx + 1, doc_id);
+                        debug_log!("=== HEAP FILTER REJECTED ===");
                         return false;
                     }
                 }
             }
             
-            debug_log!("Document PASSED heap filters - ACCEPTING doc_id {}", doc_id);
+            debug_log!("Document PASSED all {} heap filters - ACCEPTING doc_id {}", self.field_filters.len(), doc_id);
+            debug_log!("=== HEAP FILTER ACCEPTED ===");
             true
         } else {
             debug_log!("Failed to extract ctid for doc_id: {}", doc_id);
@@ -634,17 +678,34 @@ impl Scorer for IndexedWithHeapFilterScorer {
 
 impl DocSet for IndexedWithHeapFilterScorer {
     fn advance(&mut self) -> DocId {
-        debug_log!("IndexedWithHeapFilterScorer::advance called, current_doc: {}", self.current_doc);
+        debug_log!("=== SCORER ADVANCE ===");
+        debug_log!("IndexedWithHeapFilterScorer::advance called");
         
-        // Move to the next valid document
-        self.current_doc = self.advance_to_next_valid();
-        debug_log!("IndexedWithHeapFilterScorer::advance returning: {}", self.current_doc);
-        self.current_doc
+        loop {
+            let doc = self.indexed_scorer.advance();
+            debug_log!("Underlying scorer advanced to doc: {}", doc);
+            
+            if doc == TERMINATED {
+                debug_log!("Underlying scorer terminated");
+                debug_log!("=== SCORER TERMINATED ===");
+                return TERMINATED;
+            }
+            
+            debug_log!("Checking if doc {} passes heap filters...", doc);
+            if self.passes_heap_filters(doc) {
+                debug_log!("Doc {} PASSES heap filters, returning from advance()", doc);
+                debug_log!("=== SCORER ADVANCE RETURNING {} ===", doc);
+                return doc;
+            } else {
+                debug_log!("Doc {} FAILED heap filters, continuing to next doc", doc);
+            }
+        }
     }
 
     fn doc(&self) -> DocId {
-        debug_log!("IndexedWithHeapFilterScorer::doc() returning current_doc: {}", self.current_doc);
-        self.current_doc
+        let doc = self.indexed_scorer.doc();
+        debug_log!("IndexedWithHeapFilterScorer::doc called, returning: {}", doc);
+        doc
     }
 
     fn size_hint(&self) -> u32 {

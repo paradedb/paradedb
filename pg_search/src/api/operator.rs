@@ -147,7 +147,7 @@ pub(crate) fn estimate_selectivity(
         MvccSatisfies::LargestSegment,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");
-    let estimate = search_reader.estimate_docs().unwrap_or(1) as f64;
+    let estimate = search_reader.estimate_docs(reltuples).unwrap_or(1) as f64;
     let mut selectivity = estimate / reltuples;
     if selectivity > 1.0 {
         selectivity = 1.0;

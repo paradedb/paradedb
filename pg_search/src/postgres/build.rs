@@ -167,9 +167,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     for (name, type_oid) in extract_field_attributes(index_relation) {
         let type_oid: PgOid = type_oid.into();
         let name = FieldName::from(name);
-        let field_type: SearchFieldType = (&type_oid).try_into().unwrap_or_else(|_| {
-            panic!("failed to convert attribute {} to search field type", name)
-        });
+        let field_type: SearchFieldType = (&type_oid)
+            .try_into()
+            .unwrap_or_else(|_| panic!("failed to convert attribute {name} to search field type"));
         let config = options.field_config_or_default(&name);
 
         match field_type {

@@ -393,7 +393,7 @@ pub unsafe fn merge_index_with_policy(
         check_for_interrupts!();
 
         if let Err(e) = merge_result {
-            panic!("failed to merge: {:?}", e);
+            panic!("failed to merge: {e:?}");
         }
     } else {
         drop(merge_lock);

@@ -182,13 +182,12 @@ fn test_complex_aggregation_with_mixed_fast_fields(mut conn: PgConnection) {
 
     // Get execution methods
     let methods = get_all_exec_methods(&plan);
-    println!("Complex aggregation execution methods: {:?}", methods);
+    println!("Complex aggregation execution methods: {methods:?}");
 
     // Assert that a fast field execution state is used
     assert!(
         methods.iter().any(|m| m.contains("FastFieldExecState")),
-        "Expected a FastFieldExecState to be used for complex aggregation, got: {:?}",
-        methods
+        "Expected a FastFieldExecState to be used for complex aggregation, got: {methods:?}"
     );
 
     // Actually execute the query to verify results

@@ -289,10 +289,10 @@ impl fmt::Display for TantivyValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tantivy_schema_value() {
             tantivy::schema::OwnedValue::Str(string) => write!(f, "{}", string.clone()),
-            tantivy::schema::OwnedValue::U64(u64) => write!(f, "{}", u64),
-            tantivy::schema::OwnedValue::I64(i64) => write!(f, "{}", i64),
-            tantivy::schema::OwnedValue::F64(f64) => write!(f, "{}", f64),
-            tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{}", bool),
+            tantivy::schema::OwnedValue::U64(u64) => write!(f, "{u64}"),
+            tantivy::schema::OwnedValue::I64(i64) => write!(f, "{i64}"),
+            tantivy::schema::OwnedValue::F64(f64) => write!(f, "{f64}"),
+            tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{bool}"),
             tantivy::schema::OwnedValue::Date(datetime) => {
                 write!(f, "{}", datetime.into_primitive())
             }
@@ -303,7 +303,7 @@ impl fmt::Display for TantivyValue {
                     String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
                 )
             }
-            tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{}", addr),
+            tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{addr}"),
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             tantivy::schema::OwnedValue::Null => write!(f, "<null>"),
             _ => panic!("tantivy owned value not supported"),
@@ -543,7 +543,7 @@ impl TryFrom<f32> for TantivyValue {
     fn try_from(val: f32) -> Result<Self, Self::Error> {
         // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
         //     To avoid this, we string format the f32 and then read it as f64.
-        let f32_string = format!("{}", val);
+        let f32_string = format!("{val}");
         let val_as_f64 = f64::from_str(&f32_string)?;
 
         Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val_as_f64)))
@@ -557,7 +557,7 @@ impl TryFrom<TantivyValue> for f32 {
         if let tantivy::schema::OwnedValue::F64(val) = value.0 {
             // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
             //     To avoid this, we string format the stored f64 and then read it as f32.
-            let f64_string = format!("{}", val);
+            let f64_string = format!("{val}");
             let val_as_f32 = f32::from_str(&f64_string)?;
 
             Ok(val_as_f32)

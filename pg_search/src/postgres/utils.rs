@@ -156,7 +156,7 @@ pub fn extract_field_attributes(indexrel: &PgSearchRelation) -> Vec<(String, Oid
                 panic!("Expected expression for index attribute {i}.");
             };
             let node = expression.cast();
-            (format!("{}{}", PG_SEARCH_PREFIX, i), unsafe {
+            (format!("{PG_SEARCH_PREFIX}{i}"), unsafe {
                 pg_sys::exprType(node)
             })
         } else {

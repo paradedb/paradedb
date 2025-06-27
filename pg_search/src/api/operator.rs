@@ -412,7 +412,7 @@ pub unsafe fn fieldname_from_node(
                 .expect("could not find bm25 index for heaprelid");
 
             let attnum = find_expr_attnum(&indexrel, node)?;
-            let expression_str = format!("{}{}", PG_SEARCH_PREFIX, attnum).into();
+            let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
             Some((heaprelid, Some(expression_str)))
         }
         NodeTag::T_Var => {

@@ -88,7 +88,7 @@ pub fn collect_json_field_values(json: &Value, field_name: &str) -> Vec<Value> {
 /// Collects and prints all important metrics from an execution plan
 pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
     let plan_str = plan.to_string();
-    println!("Execution plan: {}", plan_str);
+    println!("Execution plan: {plan_str}");
 
     // Define metrics to collect
     let metrics = ["Heap Fetches", "Virtual Tuples", "Invisible Tuples"];
@@ -131,7 +131,7 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
             }
         }
         if !values.is_empty() {
-            println!(" - {}: {:?}", metric, values);
+            println!(" - {metric}: {values:?}");
         }
     }
 }
@@ -153,7 +153,7 @@ pub fn detect_exec_method(plan: &Value) -> String {
         } else if plan_str.contains("NormalScanExecState") {
             return "NormalScanExecState".to_string();
         } else if uses_custom_scan {
-            panic!("Unknown execution method: {}", plan_str);
+            panic!("Unknown execution method: {plan_str}");
         }
     }
 
@@ -184,13 +184,13 @@ pub async fn run_benchmark(
     }
 
     // Get the execution plan to determine which execution method is used
-    let explain_query = format!("EXPLAIN (VERBOSE, ANALYZE, FORMAT JSON) {}", query_to_run);
+    let explain_query = format!("EXPLAIN (VERBOSE, ANALYZE, FORMAT JSON) {query_to_run}");
     let (plan,): (Value,) = sqlx::query_as(&explain_query).fetch_one(&mut *conn).await?;
 
     let exec_method = detect_exec_method(&plan);
 
     // Debug: print out the execution method being used
-    println!("Test '{}' → using {}", test_name, exec_method);
+    println!("Test '{test_name}' → using {exec_method}");
 
     // Print comprehensive metrics from the execution plan
     check_execution_plan_metrics(execution_method, &plan);
@@ -311,10 +311,10 @@ pub async fn run_benchmarks_with_methods(
     results: &mut Vec<BenchmarkResult>,
     config: &BenchmarkConfig,
 ) -> Result<()> {
-    println!("Running {} test...", benchmark_name);
+    println!("Running {benchmark_name} test...");
 
     for method_name in methods {
-        let full_benchmark_name = format!("{} ({})", benchmark_name, method_name);
+        let full_benchmark_name = format!("{benchmark_name} ({method_name})");
 
         let result = run_benchmark(conn, query, &full_benchmark_name, method_name, config).await?;
 
@@ -328,7 +328,7 @@ pub async fn run_benchmarks_with_methods(
         );
 
         // Print the result
-        println!("{:?}", result);
+        println!("{result:?}");
 
         results.push(result);
     }
@@ -386,8 +386,7 @@ pub async fn set_execution_method(
         .await?;
 
     let _count: i64 = sqlx::query(&format!(
-        "SELECT COUNT(*) FROM {} WHERE id @@@ paradedb.all()",
-        table_name
+        "SELECT COUNT(*) FROM {table_name} WHERE id @@@ paradedb.all()"
     ))
     .fetch_one(&mut *conn)
     .await?

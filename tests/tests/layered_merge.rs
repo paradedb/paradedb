@@ -122,9 +122,7 @@ fn dont_merge_create_index_segments(mut conn: PgConnection) {
 
     assert!(
         num_deleted_after < num_deleted_before,
-        "num_deleted_after {}, num_deleted_before {}",
-        num_deleted_after,
-        num_deleted_before
+        "num_deleted_after {num_deleted_after}, num_deleted_before {num_deleted_before}"
     );
 }
 

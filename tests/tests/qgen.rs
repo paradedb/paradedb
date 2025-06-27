@@ -79,8 +79,7 @@ CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
 ANALYZE;
-"#,
-            tname = tname
+"#
         );
 
         (&sql).execute(conn);

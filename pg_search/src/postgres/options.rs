@@ -729,7 +729,7 @@ fn get_attribute_oid(field_name: &str, indexrel: &PgSearchRelation) -> Option<Pg
 
 fn get_field_type(field_name: &str, indexrel: &PgSearchRelation) -> SearchFieldType {
     let attribute_oid = get_attribute_oid(field_name, indexrel)
-        .unwrap_or_else(|| panic!("field type should have been set for `{}`", field_name));
+        .unwrap_or_else(|| panic!("field type should have been set for `{field_name}`"));
     (&attribute_oid).try_into().unwrap()
 }
 
@@ -746,16 +746,14 @@ fn validate_field_config(
 
     if field_name.root() == key_field_name.root() {
         panic!(
-            "cannot override BM25 configuration for key_field '{}', you must use an aliased field name and 'column' configuration key",
-            field_name
+            "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
         );
     }
 
     if let Some(alias) = config.alias() {
         if get_attribute_oid(alias, indexrel).is_none() {
             panic!(
-                "the column `{}` referenced by the field configuration for '{}' does not exist",
-                alias, field_name
+                "the column `{alias}` referenced by the field configuration for '{field_name}' does not exist"
             );
         }
     }
@@ -765,5 +763,5 @@ fn validate_field_config(
     if matches(&field_type) {
         return;
     }
-    panic!("`{}` was configured with the wrong type", field_name);
+    panic!("`{field_name}` was configured with the wrong type");
 }

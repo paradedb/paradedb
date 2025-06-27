@@ -167,8 +167,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     let duration = start_time.elapsed();
     assert!(
         duration.as_secs() >= 3 && duration.as_secs() < 5,
-        "Expected duration to be around 3 seconds, but it took {:?}",
-        duration
+        "Expected duration to be around 3 seconds, but it took {duration:?}"
     );
 
     // Verify the results

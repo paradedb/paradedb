@@ -204,7 +204,7 @@ where
 
     // If lowercase deserialization fails, try with capitalized keys.
     let bound = CapitalizedBoundDef::deserialize(value)
-        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {}", e)))?; // Convert serde_json error to D::Error
+        .map_err(|e| D::Error::custom(format!("Failed to deserialize: {e}")))?; // Convert serde_json error to D::Error
 
     match bound {
         CapitalizedBoundDef::Included { Included } => Ok(Bound::Included(Included)),

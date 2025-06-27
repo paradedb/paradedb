@@ -25,8 +25,7 @@ use sqlx::PgConnection;
 // Helper function to run tokenize and collect results
 fn get_tokens(conn: &mut PgConnection, tokenizer_type: &str, text: &str) -> Vec<(String, i32)> {
     let query_str = format!(
-        "SELECT token, position FROM paradedb.tokenize(paradedb.tokenizer('{}'), '{}') ORDER BY position;",
-        tokenizer_type, text
+        "SELECT token, position FROM paradedb.tokenize(paradedb.tokenizer('{tokenizer_type}'), '{text}') ORDER BY position;"
     );
     query_str.fetch(conn)
 }

@@ -308,10 +308,7 @@ pub unsafe fn pullup_fast_fields(
                 let restype = (*te.expr).type_;
                 let resno = te.resno;
                 let isjunk = te.resjunk;
-                format!(
-                    "{}(resno={}, restype={:?}, resjunk={})",
-                    base, resno, restype, isjunk
-                )
+                format!("{base}(resno={resno}, restype={restype:?}, resjunk={isjunk})")
             };
             let resname = if (*te).resname.is_null() {
                 create_resname("NONAME", &*te)

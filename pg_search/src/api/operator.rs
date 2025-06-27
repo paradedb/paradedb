@@ -142,7 +142,7 @@ pub(crate) fn estimate_selectivity(
 
     let search_reader = SearchIndexReader::open(
         indexrel,
-        search_query_input.clone(),
+        search_query_input,
         false,
         MvccSatisfies::LargestSegment,
     )

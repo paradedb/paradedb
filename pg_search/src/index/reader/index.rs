@@ -696,11 +696,7 @@ impl SearchIndexReader {
     }
 
     pub fn estimate_docs(&self) -> Option<usize> {
-        let largest_reader = self
-            .searcher
-            .segment_readers()
-            .iter()
-            .max_by_key(|reader| reader.num_docs())?;
+        let largest_reader = self.searcher.segment_reader(0);
         let weight = self
             .query
             .weight(enable_scoring(self.need_scores, &self.searcher))

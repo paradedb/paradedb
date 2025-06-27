@@ -297,7 +297,7 @@ pub fn query_input_restrict(
             let search_query_input =
                 SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
 
-            estimate_selectivity(&indexrel, &search_query_input)
+            estimate_selectivity(&indexrel, search_query_input)
         }
     }
 

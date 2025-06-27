@@ -128,7 +128,7 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
 
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
-    search_query_input: &SearchQueryInput,
+    search_query_input: SearchQueryInput,
 ) -> Option<f64> {
     let reltuples = indexrel
         .heap_relation()
@@ -144,7 +144,7 @@ pub(crate) fn estimate_selectivity(
         indexrel,
         search_query_input.clone(),
         false,
-        MvccSatisfies::Snapshot,
+        MvccSatisfies::LargestSegment,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");
     let estimate = search_reader.estimate_docs().unwrap_or(1) as f64;

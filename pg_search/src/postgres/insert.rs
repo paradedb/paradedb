@@ -22,6 +22,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
+use crate::postgres::merge::try_launch_background_merger;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
@@ -195,7 +196,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             .expect("must be able to commit inserts in paradedb_aminsertcleanup")
         {
             unsafe {
-                do_merge(indexrel);
+                try_launch_background_merger(indexrel.oid());
             }
         }
     }
@@ -207,31 +208,6 @@ pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
     1 * 1024 * 1024,   // 1MB
     100 * 1024 * 1024, // 100MB
 ];
-
-unsafe fn do_merge(indexrel: PgSearchRelation) -> (NumCandidates, NumMerged) {
-    let indexrel = {
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index should belong to a heap relation");
-
-        /*
-         * Recompute VACUUM XID boundaries.
-         *
-         * We don't actually care about the oldest non-removable XID.  Computing
-         * the oldest such XID has a useful side-effect that we rely on: it
-         * forcibly updates the XID horizon state for this backend.  This step is
-         * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-         * that it is now safe to recycle newly deleted pages without this step.
-         */
-        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-        indexrel
-    };
-
-    let layer_sizes = indexrel.options().layer_sizes();
-    let merge_policy = LayeredMergePolicy::new(layer_sizes);
-
-    merge_index_with_policy(&indexrel, merge_policy, false, false, false)
-}
 
 pub unsafe fn merge_index_with_policy(
     indexrel: &PgSearchRelation,

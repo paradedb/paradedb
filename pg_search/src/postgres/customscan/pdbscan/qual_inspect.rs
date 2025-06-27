@@ -22,6 +22,7 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
+use crate::postgres::rel::PgSearchRelation;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -1404,16 +1405,12 @@ unsafe fn get_field_name_from_attno(
     relation_oid: pg_sys::Oid,
     attno: pg_sys::AttrNumber,
 ) -> Option<FieldName> {
-    let relation = pg_sys::RelationIdGetRelation(relation_oid);
-    if relation.is_null() {
-        return None;
-    }
+    let relation = PgSearchRelation::open(relation_oid);
 
-    let tuple_desc = (*relation).rd_att;
+    let tuple_desc = relation.rd_att;
     let natts = (*tuple_desc).natts;
 
     if attno <= 0 || (attno as i32) > natts {
-        pg_sys::RelationClose(relation);
         return None;
     }
 
@@ -1423,9 +1420,7 @@ unsafe fn get_field_name_from_attno(
 
     let field_name_str = attr_name.to_str().ok();
 
-    let result = field_name_str.map(FieldName::from);
-    pg_sys::RelationClose(relation);
-    result
+    field_name_str.map(FieldName::from)
 }
 
 unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {

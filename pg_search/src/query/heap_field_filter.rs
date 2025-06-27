@@ -1,3 +1,4 @@
+use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
@@ -51,19 +52,13 @@ impl HeapFieldFilter {
             return true;
         }
 
-        // Open the relation
-        let relation = pg_sys::RelationIdGetRelation(relation_oid);
-        if relation.is_null() {
-            return false;
-        }
+        // Open the relation using PgSearchRelation
+        let relation = PgSearchRelation::open(relation_oid);
 
         // Use a more careful approach to avoid crashes
         let result = std::panic::catch_unwind(|| {
-            self.evaluate_expression_inner(ctid, relation, expr_node, relation_oid)
+            self.evaluate_expression_inner(ctid, &relation, expr_node, relation_oid)
         });
-
-        // Always close the relation
-        pg_sys::RelationClose(relation);
 
         result.unwrap_or(false)
     }
@@ -72,7 +67,7 @@ impl HeapFieldFilter {
     unsafe fn evaluate_expression_inner(
         &self,
         ctid: pg_sys::ItemPointer,
-        relation: pg_sys::Relation,
+        relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
         relation_oid: pg_sys::Oid,
     ) -> bool {
@@ -89,7 +84,7 @@ impl HeapFieldFilter {
         // Function signature differs between PostgreSQL versions
         #[cfg(feature = "pg14")]
         let valid_tuple = pg_sys::heap_fetch(
-            relation,
+            relation.as_ptr(),
             pgrx::pg_sys::GetActiveSnapshot(),
             &mut heap_tuple,
             &mut buffer,
@@ -97,7 +92,7 @@ impl HeapFieldFilter {
 
         #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
         let valid_tuple = pg_sys::heap_fetch(
-            relation,
+            relation.as_ptr(),
             pgrx::pg_sys::GetActiveSnapshot(),
             &mut heap_tuple,
             &mut buffer,
@@ -112,7 +107,7 @@ impl HeapFieldFilter {
         }
 
         // Create a tuple table slot for expression evaluation
-        let tuple_desc = (*relation).rd_att;
+        let tuple_desc = relation.rd_att;
         let slot = pg_sys::MakeTupleTableSlot(tuple_desc, &pg_sys::TTSOpsHeapTuple);
         if slot.is_null() {
             if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {

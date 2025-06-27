@@ -1,10 +1,9 @@
-use pgrx::pg_sys;
 use crate::query::PostgresPointer;
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::{
-    DocId, DocSet, Score, SegmentReader,
-    query::{Query, Weight, EnableScoring, Explanation, Scorer},
-    TERMINATED,
+    query::{EnableScoring, Explanation, Query, Scorer, Weight},
+    DocId, DocSet, Score, SegmentReader, TERMINATED,
 };
 
 /// Core heap-based field filter using PostgreSQL expression evaluation
@@ -13,7 +12,7 @@ use tantivy::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeapFieldFilter {
     /// PostgreSQL expression node that can be serialized and reconstructed
-    pub expr_node: PostgresPointer,
+    expr_node: PostgresPointer,
     /// Human-readable description of the expression
     pub description: String,
 }
@@ -46,41 +45,37 @@ impl HeapFieldFilter {
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Uses PostgreSQL's expression evaluation system
     pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> bool {
-        let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(*ctid);
-        
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
         if expr_node.is_null() {
             return true;
         }
-        
+
         // Open the relation
         let relation = pg_sys::RelationIdGetRelation(relation_oid);
         if relation.is_null() {
             return false;
         }
-        
+
         // Use a more careful approach to avoid crashes
         let result = std::panic::catch_unwind(|| {
             self.evaluate_expression_inner(ctid, relation, expr_node, relation_oid)
         });
-        
+
         // Always close the relation
         pg_sys::RelationClose(relation);
-        
-        match result {
-            Ok(eval_result) => {
-                eval_result
-            }
-            Err(_) => {
-                false
-            }
-        }
+
+        result.unwrap_or(false)
     }
-    
+
     /// Inner expression evaluation method that can be wrapped in panic handling
-    unsafe fn evaluate_expression_inner(&self, ctid: pg_sys::ItemPointer, relation: pg_sys::Relation, expr_node: *mut pg_sys::Node, relation_oid: pg_sys::Oid) -> bool {
-        
+    unsafe fn evaluate_expression_inner(
+        &self,
+        ctid: pg_sys::ItemPointer,
+        relation: pg_sys::Relation,
+        expr_node: *mut pg_sys::Node,
+        relation_oid: pg_sys::Oid,
+    ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
             t_len: 0,
@@ -89,7 +84,7 @@ impl HeapFieldFilter {
             t_data: std::ptr::null_mut(),
         };
         let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
-        
+
         // Fetch the heap tuple using PostgreSQL's heap_fetch API
         // Function signature differs between PostgreSQL versions
         #[cfg(feature = "pg14")]
@@ -108,14 +103,14 @@ impl HeapFieldFilter {
             &mut buffer,
             false, // keep_buf
         );
-        
+
         if !valid_tuple {
             if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 pg_sys::ReleaseBuffer(buffer);
             }
             return false;
         }
-        
+
         // Create a tuple table slot for expression evaluation
         let tuple_desc = (*relation).rd_att;
         let slot = pg_sys::MakeTupleTableSlot(tuple_desc, &pg_sys::TTSOpsHeapTuple);
@@ -125,7 +120,7 @@ impl HeapFieldFilter {
             }
             return false;
         }
-        
+
         // Store the heap tuple in the slot
         let stored_slot = pg_sys::ExecStoreHeapTuple(&mut heap_tuple, slot, false);
         if stored_slot.is_null() {
@@ -135,7 +130,7 @@ impl HeapFieldFilter {
             }
             return false;
         }
-        
+
         // Create an expression context for evaluation
         let econtext = pg_sys::CreateStandaloneExprContext();
         if econtext.is_null() {
@@ -145,11 +140,11 @@ impl HeapFieldFilter {
             }
             return false;
         }
-        
+
         // Set the tuple slot in the expression context
         (*econtext).ecxt_scantuple = slot;
-        
-        // Initialize the expression for execution  
+
+        // Initialize the expression for execution
         let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut());
         if expr_state.is_null() {
             pg_sys::FreeExprContext(econtext, false);
@@ -159,27 +154,26 @@ impl HeapFieldFilter {
             }
             return false;
         }
-        
+
         // Evaluate the expression
         let mut is_null = false;
         let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
-        
+
         // Convert the result to a boolean
         let eval_result = if is_null {
             false
         } else {
             // Convert PostgreSQL Datum to boolean
-            let bool_result = pg_sys::DatumGetBool(result);
-            bool_result
+            pg_sys::DatumGetBool(result)
         };
-        
+
         // Cleanup resources in reverse order
         pg_sys::FreeExprContext(econtext, false);
         pg_sys::ExecDropSingleTupleTableSlot(slot);
         if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
             pg_sys::ReleaseBuffer(buffer);
         }
-        
+
         eval_result
     }
 
@@ -245,10 +239,10 @@ struct IndexedWithHeapFilterWeight {
 impl Weight for IndexedWithHeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
-        
+
         // Get ctid fast field for heap access
         let fast_fields_reader = reader.fast_fields();
-        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(&fast_fields_reader);
+        let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
 
         let scorer = IndexedWithHeapFilterScorer::new(
             indexed_scorer,
@@ -256,7 +250,7 @@ impl Weight for IndexedWithHeapFilterWeight {
             ctid_ff,
             self.relation_oid,
         );
-        
+
         Ok(Box::new(scorer))
     }
 
@@ -291,34 +285,34 @@ impl IndexedWithHeapFilterScorer {
             relation_oid,
             current_doc: TERMINATED,
         };
-        
+
         // Position at the first valid document
         // For initialization, we need to check the current document first, then advance if needed
         scorer.current_doc = scorer.find_first_valid_document();
-        
+
         scorer
     }
-    
+
     fn find_first_valid_document(&mut self) -> DocId {
         // For initialization, check the current document first
         let current_doc = self.indexed_scorer.doc();
-        
+
         if current_doc != TERMINATED && self.passes_heap_filters(current_doc) {
             return current_doc;
         }
-        
+
         // If current document doesn't pass, advance to find the next valid one
         self.advance_to_next_valid()
     }
-    
+
     fn advance_to_next_valid(&mut self) -> DocId {
         loop {
             let doc = self.indexed_scorer.advance();
-            
+
             if doc == TERMINATED {
                 return TERMINATED;
             }
-            
+
             if self.passes_heap_filters(doc) {
                 return doc;
             }
@@ -331,18 +325,20 @@ impl IndexedWithHeapFilterScorer {
             // Convert u64 ctid back to ItemPointer
             let mut item_pointer = pg_sys::ItemPointerData::default();
             crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
-            let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(item_pointer);
-            
+
             // Evaluate all heap filters
-            for (filter_idx, filter) in self.field_filters.iter().enumerate() {
+            for filter in self.field_filters.iter() {
                 unsafe {
-                    let filter_result = filter.evaluate(&mut item_pointer as *mut pg_sys::ItemPointerData, self.relation_oid);
+                    let filter_result = filter.evaluate(
+                        &mut item_pointer as *mut pg_sys::ItemPointerData,
+                        self.relation_oid,
+                    );
                     if !filter_result {
                         return false;
                     }
                 }
             }
-            
+
             true
         } else {
             false
@@ -361,11 +357,11 @@ impl DocSet for IndexedWithHeapFilterScorer {
     fn advance(&mut self) -> DocId {
         loop {
             let doc = self.indexed_scorer.advance();
-            
+
             if doc == TERMINATED {
                 return TERMINATED;
             }
-            
+
             if self.passes_heap_filters(doc) {
                 return doc;
             }
@@ -373,25 +369,10 @@ impl DocSet for IndexedWithHeapFilterScorer {
     }
 
     fn doc(&self) -> DocId {
-        let doc = self.indexed_scorer.doc();
-        doc
+        self.indexed_scorer.doc()
     }
 
     fn size_hint(&self) -> u32 {
-        let hint = self.indexed_scorer.size_hint();
-        hint
+        self.indexed_scorer.size_hint()
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_heap_field_filter_equality() {
-        // Test that HeapFieldFilter equality works based on expression content
-        // This is a placeholder test - actual tests would require PostgreSQL nodes
-        assert!(true); // Placeholder until we can create actual PostgreSQL expressions in tests
-    }
-} 
-

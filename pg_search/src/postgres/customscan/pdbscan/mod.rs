@@ -111,10 +111,10 @@ impl PdbScan {
             }
         })
         .expect("should be able to open the search index reader");
-        
+
         // Set the relation OID for heap field filtering
         search_reader.set_relation_oid(state.custom_state().heaprelid);
-        
+
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -244,14 +244,14 @@ impl PdbScan {
                 true, // Join quals should convert external to all
                 &mut join_uses_tantivy_to_query,
             );
-            
+
             // Apply HeapExpr optimization to the extracted quals
             if let Some(ref mut q) = quals {
                 let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
                 let relation_oid = (*rte).relid;
-                qual_inspect::optimize_quals_with_heap_expr(q, root, rti, relation_oid);
+                qual_inspect::optimize_quals_with_heap_expr(q);
             }
-            
+
             // If we have used our operator in the join, or if we have used our operator in the
             // base relation, then we can use the join quals
             if uses_tantivy_to_query || join_uses_tantivy_to_query {
@@ -264,9 +264,9 @@ impl PdbScan {
             if let Some(ref mut q) = quals {
                 let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
                 let relation_oid = (*rte).relid;
-                qual_inspect::optimize_quals_with_heap_expr(q, root, rti, relation_oid);
+                qual_inspect::optimize_quals_with_heap_expr(q);
             }
-            
+
             (quals, ri_type, restrict_info)
         }
     }
@@ -1639,7 +1639,7 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
-        
+
         // IndexedWithFilter contains search predicates
         SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
             base_query_has_search_predicates(indexed_query, current_index_oid)

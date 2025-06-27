@@ -306,7 +306,13 @@ impl SearchIndexReader {
         );
         search_query_input
             .clone()
-            .into_tantivy_query(&self.schema, &mut parser, &self.searcher, self.index_oid, self.relation_oid)
+            .into_tantivy_query(
+                &self.schema,
+                &mut parser,
+                &self.searcher,
+                self.index_oid,
+                self.relation_oid,
+            )
             .expect("must be able to parse query")
     }
 

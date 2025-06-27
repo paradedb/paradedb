@@ -30,7 +30,7 @@ use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
@@ -306,7 +306,7 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
-            let directory = MVCCDirectory::snapshot(&bm25_index);
+            let directory = MvccSatisfies::Snapshot.directory(&bm25_index);
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
             let schema = SearchIndexSchema::from_index(&bm25_index, &index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
@@ -623,7 +623,7 @@ impl CustomScan for PdbScan {
             // Extract the indexrelid early to avoid borrow checker issues later
             let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
             let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-            let directory = MVCCDirectory::snapshot(&indexrel);
+            let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
             let schema = SearchIndexSchema::from_index(&indexrel, &index);
@@ -1234,7 +1234,7 @@ fn compute_exec_which_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = builder.custom_state().indexrel();
-        let directory = MVCCDirectory::snapshot(indexrel);
+        let directory = MvccSatisfies::Snapshot.directory(indexrel);
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
         let schema = SearchIndexSchema::from_index(indexrel, &index);

@@ -17,7 +17,7 @@
 
 use crate::api::FieldName;
 use crate::gucs;
-use crate::index::mvcc::MVCCDirectory;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -423,7 +423,7 @@ impl WorkerBuildState {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-        let directory = MVCCDirectory::mergeable(&self.indexrel);
+        let directory = MvccSatisfies::Mergeable.directory(&self.indexrel);
         let mut merger = SearchIndexMerger::open(directory)?;
         merger.merge_segments(&segment_ids_to_merge)?;
 

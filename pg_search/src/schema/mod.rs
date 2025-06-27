@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::index::mvcc::MVCCDirectory;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::utils::resolve_base_type;
 pub use anyenum::AnyEnum;
@@ -155,7 +155,7 @@ impl SearchIndexSchema {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Result<Self> {
-        let directory = MVCCDirectory::snapshot(indexrel);
+        let directory = MvccSatisfies::Snapshot.directory(indexrel);
         let index = Index::open(directory)?;
         Ok(Self::from_index(indexrel, &index))
     }

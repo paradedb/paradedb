@@ -86,9 +86,10 @@ pub enum Qual {
     /// Heap-based expression evaluation for non-indexed predicates
     /// Contains an underlying search query that must be executed first
     HeapExpr {
-        left: HeapOperand,
-        operator: HeapOperator,
-        right: HeapOperand,
+        /// The PostgreSQL expression node to evaluate
+        expr_node: *mut pg_sys::Node,
+        /// Description of the expression for debugging
+        expr_description: String,
         /// The search query to execute before applying the heap filter
         /// Can be All (scan whole relation) or a more specific query
         search_query_input: Box<SearchQueryInput>,
@@ -305,13 +306,9 @@ impl From<&Qual> for SearchQueryInput {
                     query: None,
                 }
             },
-            Qual::HeapExpr { left, operator, right, search_query_input } => {
-                // Create HeapFieldFilter from the operands
-                let field_filters = vec![HeapFieldFilter {
-                    left: left.clone(),
-                    operator: *operator,
-                    right: right.clone(),
-                }];
+            Qual::HeapExpr { expr_node, expr_description, search_query_input } => {
+                // Create HeapFieldFilter from the PostgreSQL expression
+                let field_filters = vec![unsafe { HeapFieldFilter::new(*expr_node, expr_description.clone()) }];
                 
                 SearchQueryInput::IndexedWithFilter {
                     indexed_query: search_query_input.clone(),
@@ -556,13 +553,11 @@ pub unsafe fn extract_quals(
                     if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
                         debug_log!("Creating HeapExpr for boolean field: {}", field_name.root());
                         
-                        // Create HeapExpr: field = true
-                        let left = HeapOperand::Field { field: field_name, attno };
-                        let right = HeapOperand::Value(HeapValue::Boolean(true));
+                        // Create HeapExpr using the new expression-based approach
+                        let expr_description = format!("Boolean field {} = true", field_name.root());
                         let heap_expr = Qual::HeapExpr {
-                            left,
-                            operator: HeapOperator::Equal,
-                            right,
+                            expr_node: node, // Use the original T_Var node
+                            expr_description,
                             search_query_input: Box::new(SearchQueryInput::All),
                         };
                         
@@ -596,13 +591,11 @@ pub unsafe fn extract_quals(
                     if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
                         debug_log!("Creating HeapExpr for boolean field (even with convert_external_to_special_qual=false): {}", field_name.root());
                         
-                        // Create HeapExpr: field = true
-                        let left = HeapOperand::Field { field: field_name, attno };
-                        let right = HeapOperand::Value(HeapValue::Boolean(true));
+                        // Create HeapExpr using the new expression-based approach
+                        let expr_description = format!("Boolean field {} = true", field_name.root());
                         let heap_expr = Qual::HeapExpr {
-                            left,
-                            operator: HeapOperator::Equal,
-                            right,
+                            expr_node: node, // Use the original T_Var node
+                            expr_description,
                             search_query_input: Box::new(SearchQueryInput::All),
                         };
                         
@@ -714,13 +707,11 @@ pub unsafe fn extract_quals(
                     if let Some(heap_value) = postgres_const_to_heap_value(const_node) {
                         debug_log!("Creating HeapExpr for boolean constant: {:?}", heap_value);
                         
-                        // Create HeapExpr: constant = true
-                        let left = HeapOperand::Value(heap_value);
-                        let right = HeapOperand::Value(HeapValue::Boolean(true));
+                        // Create HeapExpr using the new expression-based approach
+                        let expr_description = format!("Boolean constant = true");
                         let heap_expr = Qual::HeapExpr {
-                            left,
-                            operator: HeapOperator::Equal,
-                            right,
+                            expr_node: node, // Use the original T_Const node
+                            expr_description,
                             search_query_input: Box::new(SearchQueryInput::All),
                         };
                         
@@ -958,8 +949,14 @@ unsafe fn node_opexpr(
         }
     } else {
         // it doesn't use our operator.
-        // Save the operator OID before the move
+        // Save the operator OID and node pointer before the move
         let opno = opexpr.opno();
+        
+        // Save the node pointer before the move so we can recreate the OpExpr later
+        let opexpr_node = match &opexpr {
+            OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+            OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+        };
         
         // we'll try to convert it into a pushdown
         let pushdown_result = try_pushdown(root, rti, opexpr, schema);
@@ -971,16 +968,27 @@ unsafe fn node_opexpr(
             let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
             let relation_oid = (*rte).relid;
             
-            // Create HeapExpr directly from the lhs, rhs, and operator we already have
-            if let Some(heap_expr) = try_create_heap_expr_from_nodes(root, rti, lhs, rhs.cast(), opno, relation_oid) {
+            // Create a description for debugging
+            let expr_description = format!("OpExpr with operator OID {}", opno);
+            
+            // Check if this expression references our relation
+            if contains_relation_reference(opexpr_node, rti) {
+                debug_log!("Creating HeapExpr with PostgreSQL expression: {}", expr_description);
+                
+                let heap_expr = Qual::HeapExpr {
+                    expr_node: opexpr_node,
+                    expr_description,
+                    search_query_input: Box::new(SearchQueryInput::All),
+                };
+                
                 debug_log!("Successfully created HeapExpr for non-indexed predicate");
                 *uses_tantivy_to_query = true; // We do use search (with heap filtering)
                 Some(heap_expr)
             } else if convert_external_to_special_qual {
-                debug_log!("HeapExpr creation failed, falling back to ExternalExpr");
+                debug_log!("OpExpr doesn't reference our relation, falling back to ExternalExpr");
                 Some(Qual::ExternalExpr)
             } else {
-                debug_log!("HeapExpr creation failed, returning None");
+                debug_log!("OpExpr doesn't reference our relation, returning None");
                 None
             }
         } else {
@@ -1355,48 +1363,31 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
 unsafe fn try_create_heap_expr_from_opexpr(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
-    opexpr: OpExpr,
+    opexpr: &OpExpr,  // Take a reference to avoid move
     relation_oid: pg_sys::Oid,
 ) -> Option<Qual> {
     debug_log!("try_create_heap_expr_from_opexpr called with opno: {}", opexpr.opno());
     
-    let args = opexpr.args();
-    let lhs = args.get_ptr(0)?;
-    let rhs = args.get_ptr(1)?;
+    // Get the node pointer from the OpExpr
+    let opexpr_node = match opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
     
-    try_create_heap_expr_from_nodes(root, rti, lhs, rhs, opexpr.opno(), relation_oid)
-}
-
-/// Try to create a HeapExpr from individual nodes and operator
-unsafe fn try_create_heap_expr_from_nodes(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    lhs: *mut pg_sys::Node,
-    rhs: *mut pg_sys::Node,
-    opno: pg_sys::Oid,
-    relation_oid: pg_sys::Oid,
-) -> Option<Qual> {
-    debug_log!("try_create_heap_expr_from_nodes called with opno: {}", opno);
+    // Check if this expression references our relation
+    if !contains_relation_reference(opexpr_node, rti) {
+        debug_log!("OpExpr doesn't reference our relation, skipping");
+        return None;
+    }
     
-    debug_log!("Extracting left operand");
-    // Try to extract operands
-    let left_operand = try_extract_heap_operand(root, rti, lhs, relation_oid)?;
-    debug_log!("Left operand extracted successfully");
+    // Create a description for debugging
+    let expr_description = format!("OpExpr with operator OID {}", opexpr.opno());
     
-    debug_log!("Extracting right operand");
-    let right_operand = try_extract_heap_operand(root, rti, rhs, relation_oid)?;
-    debug_log!("Right operand extracted successfully");
+    debug_log!("Creating HeapExpr with PostgreSQL expression: {}", expr_description);
     
-    debug_log!("Converting operator OID to HeapOperator");
-    // Convert operator OID to HeapOperator
-    let heap_operator = postgres_oid_to_heap_operator(opno)?;
-    debug_log!("Converted to HeapOperator: {:?}", heap_operator);
-    
-    debug_log!("Successfully created HeapExpr from nodes");
     Some(Qual::HeapExpr {
-        left: left_operand,
-        operator: heap_operator,
-        right: right_operand,
+        expr_node: opexpr_node,
+        expr_description,
         search_query_input: Box::new(SearchQueryInput::All),
     })
 }
@@ -1654,24 +1645,18 @@ unsafe fn try_create_heap_expr_from_null_test(
             let attno = (*var).varattno;
             debug_log!("Creating HeapExpr for NULL test on attno: {}", attno);
             
-            // For NULL tests, we don't need the actual field name since we're just using attno
-            let field_name = FieldName::from(format!("field_{}", attno));
-            
-            let operator = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
-                HeapOperator::IsNull
+            let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                "IS NULL"
             } else {
-                HeapOperator::IsNotNull
+                "IS NOT NULL"
             };
             
-            debug_log!("Created HeapExpr with operator: {:?}", operator);
+            let expr_description = format!("NULL test: field_{} {}", attno, test_type);
+            debug_log!("Created HeapExpr with description: {}", expr_description);
             
             Some(Qual::HeapExpr {
-                left: HeapOperand::Field { 
-                    field: field_name, 
-                    attno 
-                },
-                operator,
-                right: HeapOperand::Value(HeapValue::Text("".to_string())), // Dummy value for null tests
+                expr_node: nulltest as *mut pg_sys::Node,
+                expr_description,
                 search_query_input: Box::new(SearchQueryInput::All),
             })
         } else {

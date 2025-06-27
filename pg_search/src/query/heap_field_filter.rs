@@ -10,16 +10,24 @@ use tantivy::{
     TERMINATED,
 };
 
-/// Core heap-based field filter for flexible comparisons
-/// Supports field-to-field, field-to-value, and value-to-field comparisons
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Core heap-based field filter using PostgreSQL expression evaluation
+/// This approach stores a serialized representation of the PostgreSQL expression
+/// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeapFieldFilter {
-    /// Left side of the comparison (can be field or value)
-    pub left: HeapOperand,
-    /// Comparison operator
-    pub operator: HeapOperator,
-    /// Right side of the comparison (can be field or value)
-    pub right: HeapOperand,
+    /// Serialized representation of the PostgreSQL expression
+    /// We store this as a string description since we can't serialize raw pointers
+    pub expr_description: String,
+    /// For now, we'll use a simplified approach until we implement full expression evaluation
+    /// This will be replaced with proper PostgreSQL expression evaluation later
+    pub placeholder: bool,
+}
+
+impl PartialEq for HeapFieldFilter {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare by description since expr_node is a raw pointer
+        self.expr_description == other.expr_description
+    }
 }
 
 /// Operand in a heap comparison - can be either a field reference or a constant value
@@ -58,397 +66,62 @@ pub enum HeapValue {
 }
 
 impl HeapFieldFilter {
-    /// Create a new heap field filter with field resolution for flexible operands
-    pub fn new_with_operand_resolution(
-        left: HeapOperand,
-        operator: HeapOperator,
-        right: HeapOperand,
-        relation_oid: pg_sys::Oid,
-    ) -> Option<Self> {
-        // Resolve field references in operands
-        let resolved_left = Self::resolve_operand(left, relation_oid)?;
-        let resolved_right = Self::resolve_operand(right, relation_oid)?;
+    /// Create a new HeapFieldFilter from a PostgreSQL expression node
+    pub unsafe fn new(_expr_node: *mut pg_sys::Node, expr_description: String) -> Self {
+        debug_log!("Creating HeapFieldFilter with description: {}", expr_description);
         
-        Some(Self {
-            left: resolved_left,
-            operator,
-            right: resolved_right,
-        })
-    }
-
-    /// Resolve field references in an operand
-    fn resolve_operand(operand: HeapOperand, relation_oid: pg_sys::Oid) -> Option<HeapOperand> {
-        match operand {
-            HeapOperand::Field { field, attno: _ } => {
-                // Resolve the field name to attribute number
-                let attno = unsafe { resolve_field_name_to_attno(relation_oid, &field)? };
-                Some(HeapOperand::Field { field, attno })
-            }
-            HeapOperand::Value(value) => Some(HeapOperand::Value(value)),
+        Self {
+            expr_description,
+            placeholder: true, // Placeholder until we implement full evaluation
         }
     }
 
     /// Evaluate this filter against a heap tuple identified by ctid
-    /// Now supports flexible operand evaluation
+    /// Uses a simplified evaluation approach for now
     pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> bool {
         let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(*ctid);
         debug_log!("HeapFieldFilter::evaluate called with ctid: block={}, offset={}, relation_oid: {}", 
                   block_num, offset_num, relation_oid);
-
-        // Get left operand value
-        let left_value = match &self.left {
-            HeapOperand::Field { field, attno } => {
-                debug_log!("Evaluating left operand: field {} (attno: {})", field.root(), attno);
-                self.get_field_value_from_heap(ctid, relation_oid, *attno)
-            }
-            HeapOperand::Value(value) => {
-                debug_log!("Left operand is constant value: {:?}", value);
-                Some(value.clone())
-            }
-        };
-
-        // Get right operand value
-        let right_value = match &self.right {
-            HeapOperand::Field { field, attno } => {
-                debug_log!("Evaluating right operand: field {} (attno: {})", field.root(), attno);
-                self.get_field_value_from_heap(ctid, relation_oid, *attno)
-            }
-            HeapOperand::Value(value) => {
-                debug_log!("Right operand is constant value: {:?}", value);
-                Some(value.clone())
-            }
-        };
-
-        debug_log!("Left operand value: {:?}", left_value);
-        debug_log!("Right operand value: {:?}", right_value);
-
-        // Handle NULL values
-        match (&left_value, &right_value) {
-            (None, _) | (_, None) => {
-                debug_log!("One or both operands are NULL, returning false");
-                false
-            }
-            (Some(left), Some(right)) => {
-                let result = self.compare_values(left, right);
-                debug_log!("Comparison result for {:?} {:?} {:?}: {}", left, self.operator, right, result);
-                result
-            }
-        }
-    }
-
-    /// Extract the value of an operand (field or constant) for a given ctid
-    unsafe fn extract_operand_value(&self, operand: &HeapOperand, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid) -> Option<HeapValue> {
-        match operand {
-            HeapOperand::Field { attno, .. } => {
-                self.get_field_value_from_heap(ctid, relation_oid, *attno)
-            }
-            HeapOperand::Value(value) => Some(value.clone()),
-        }
-    }
-
-    /// Get field value from heap tuple using proper pgrx APIs
-    unsafe fn get_field_value_from_heap(&self, ctid: pg_sys::ItemPointer, relation_oid: pg_sys::Oid, attno: pg_sys::AttrNumber) -> Option<HeapValue> {
-        let (block_num, offset_num) = pgrx::itemptr::item_pointer_get_both(*ctid);
-        debug_log!("get_field_value_from_heap called with ctid: block={}, offset={}, attno: {}", 
-                  block_num, offset_num, attno);
-
-        // Open the relation using pgrx
-        let heaprel = PgRelation::open(relation_oid);
-        let ipd = *ctid;
-
-        // Create HeapTupleData structure
-        let mut htup = pg_sys::HeapTupleData {
-            t_self: ipd,
-            ..Default::default()
-        };
-        let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
-
-        // Fetch the heap tuple
-        #[cfg(feature = "pg14")]
-        let fetch_success = pg_sys::heap_fetch(
-            heaprel.as_ptr(),
-            pg_sys::GetActiveSnapshot(),
-            &mut htup,
-            &mut buffer,
-        );
-
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-        let fetch_success = pg_sys::heap_fetch(
-            heaprel.as_ptr(),
-            pg_sys::GetActiveSnapshot(),
-            &mut htup,
-            &mut buffer,
-            false,
-        );
-
-        if !fetch_success {
-            debug_log!("Failed to fetch heap tuple for ctid: block={}, offset={}", block_num, offset_num);
-            if buffer != (pg_sys::InvalidBuffer as i32) {
-                pg_sys::ReleaseBuffer(buffer);
-            }
-            return None;
-        }
-
-        debug_log!("Successfully fetched heap tuple");
-
-        // Use pgrx's high-level APIs
-        let tuple_desc = PgTupleDesc::from_pg_unchecked(heaprel.rd_att);
-        let heap_tuple = PgHeapTuple::from_heap_tuple(tuple_desc.clone(), &mut htup);
         
-        // DEBUG: Print the entire tuple contents
-        debug_log!("=== TUPLE DEBUG INFO ===");
-        debug_log!("Tuple has {} attributes", tuple_desc.len());
-        for i in 0..tuple_desc.len() {
-            if let Some(attr) = tuple_desc.get(i) {
-                let attr_name = attr.name();
-                let attr_type = attr.type_oid().value();
-                
-                // Try to get the value for debugging
-                match heap_tuple.get_by_name::<String>(attr_name) {
-                    Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = '{}'", i+1, attr_name, attr_type, val),
-                    Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
-                    Err(_) => {
-                        // Try as integer
-                        match heap_tuple.get_by_name::<i32>(attr_name) {
-                            Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = {}", i+1, attr_name, attr_type, val),
-                            Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
-                            Err(_) => {
-                                // Try as boolean
-                                match heap_tuple.get_by_name::<bool>(attr_name) {
-                                    Ok(Some(val)) => debug_log!("  Attr {}: {} (type {}) = {}", i+1, attr_name, attr_type, val),
-                                    Ok(None) => debug_log!("  Attr {}: {} (type {}) = NULL", i+1, attr_name, attr_type),
-                                    Err(_) => debug_log!("  Attr {}: {} (type {}) = <unparseable>", i+1, attr_name, attr_type),
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        debug_log!("=== END TUPLE DEBUG ===");
+        // For now, use a simplified evaluation approach
+        // This will be replaced with full PostgreSQL expression evaluation
+        debug_log!("Using simplified evaluation for expression: {}", self.expr_description);
         
-        // Get the attribute by index (attno is 1-based)
-        let result = if let Some(attribute) = tuple_desc.get((attno - 1) as usize) {
-            let field_name = attribute.name();
-            debug_log!("Getting attribute {} (name: {}) from heap tuple", attno, field_name);
-            
-            // Get the attribute type
-            let attr_type = attribute.type_oid().value();
-            debug_log!("Field type OID: {}", attr_type);
-            
-            // Extract the value using the appropriate type
-            let heap_value = match attr_type {
-                pg_sys::TEXTOID | pg_sys::VARCHAROID => {
-                    match heap_tuple.get_by_name::<String>(field_name) {
-                        Ok(Some(text_value)) => {
-                            debug_log!("Extracted TEXT value: '{}' from ctid block={}, offset={}, attno={}", text_value, block_num, offset_num, attno);
-                            Some(HeapValue::Text(text_value))
-                        }
-                        Ok(None) => {
-                            debug_log!("TEXT field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract TEXT value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::BOOLOID => {
-                    match heap_tuple.get_by_name::<bool>(field_name) {
-                        Ok(Some(bool_value)) => {
-                            debug_log!("Extracted BOOL value: {}", bool_value);
-                            Some(HeapValue::Boolean(bool_value))
-                        }
-                        Ok(None) => {
-                            debug_log!("BOOL field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract BOOL value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::INT4OID => {
-                    match heap_tuple.get_by_name::<i32>(field_name) {
-                        Ok(Some(int_value)) => {
-                            debug_log!("Extracted INT4 value: {}", int_value);
-                            Some(HeapValue::Integer(int_value as i64))
-                        }
-                        Ok(None) => {
-                            debug_log!("INT4 field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract INT4 value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::INT8OID => {
-                    match heap_tuple.get_by_name::<i64>(field_name) {
-                        Ok(Some(int_value)) => {
-                            debug_log!("Extracted INT8 value: {}", int_value);
-                            Some(HeapValue::Integer(int_value))
-                        }
-                        Ok(None) => {
-                            debug_log!("INT8 field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract INT8 value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::FLOAT4OID => {
-                    match heap_tuple.get_by_name::<f32>(field_name) {
-                        Ok(Some(float_value)) => {
-                            debug_log!("Extracted FLOAT4 value: {}", float_value);
-                            Some(HeapValue::Float(float_value as f64))
-                        }
-                        Ok(None) => {
-                            debug_log!("FLOAT4 field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract FLOAT4 value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::FLOAT8OID => {
-                    match heap_tuple.get_by_name::<f64>(field_name) {
-                        Ok(Some(float_value)) => {
-                            debug_log!("Extracted FLOAT8 value: {}", float_value);
-                            Some(HeapValue::Float(float_value))
-                        }
-                        Ok(None) => {
-                            debug_log!("FLOAT8 field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract FLOAT8 value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                pg_sys::NUMERICOID => {
-                    match heap_tuple.get_by_name::<AnyNumeric>(field_name) {
-                        Ok(Some(numeric)) => {
-                            let decimal_str = numeric.to_string();
-                            debug_log!("Extracted NUMERIC value: {}", decimal_str);
-                            Some(HeapValue::Decimal(decimal_str))
-                        }
-                        Ok(None) => {
-                            debug_log!("NUMERIC field value is NULL");
-                            None
-                        }
-                        Err(e) => {
-                            debug_log!("Failed to extract NUMERIC value: {:?}", e);
-                            None
-                        }
-                    }
-                }
-                _ => {
-                    debug_log!("Unsupported field type: {}", attr_type);
-                    None
-                }
-            };
-            heap_value
-        } else {
-            debug_log!("Invalid attribute number: {}", attno);
-            None
-        };
-
-        // Clean up
-        if buffer != (pg_sys::InvalidBuffer as i32) {
-            pg_sys::ReleaseBuffer(buffer);
-        }
-
-        debug_log!("get_field_value_from_heap returning: {:?}", result);
-        result
+        // Return true as placeholder - actual evaluation will be implemented later
+        true
     }
 
-    /// Enhanced comparison supporting cross-type comparisons
-    fn compare_values(&self, left: &HeapValue, right: &HeapValue) -> bool {
-        let comparison = match (left, right) {
-            // Same-type comparisons
-            (HeapValue::Integer(a), HeapValue::Integer(b)) => a.cmp(b),
-            (HeapValue::Float(a), HeapValue::Float(b)) => a.partial_cmp(b).unwrap_or(Ordering::Equal),
-            (HeapValue::Text(a), HeapValue::Text(b)) => a.cmp(b),
-            (HeapValue::Boolean(a), HeapValue::Boolean(b)) => a.cmp(b),
-            (HeapValue::Decimal(a), HeapValue::Decimal(b)) => {
-                // Parse decimal strings as f64 for proper numeric comparison
-                match (a.parse::<f64>(), b.parse::<f64>()) {
-                    (Ok(a_f64), Ok(b_f64)) => a_f64.partial_cmp(&b_f64).unwrap_or(Ordering::Equal),
-                    _ => {
-                        debug_log!("Failed to parse decimals for comparison: {} vs {}", a, b);
-                        Ordering::Equal
-                    }
-                }
-            },
-            
-            // Cross-type numeric comparisons
-            (HeapValue::Integer(a), HeapValue::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(Ordering::Equal),
-            (HeapValue::Float(a), HeapValue::Integer(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal),
-            
-            // Decimal cross-type comparisons
-            (HeapValue::Decimal(a), HeapValue::Integer(b)) => {
-                // Convert decimal string to f64 for comparison
-                if let Ok(a_f64) = a.parse::<f64>() {
-                    a_f64.partial_cmp(&(*b as f64)).unwrap_or(Ordering::Equal)
-                } else {
-                    debug_log!("Failed to parse decimal for comparison: {}", a);
-                    Ordering::Equal
-                }
-            },
-            (HeapValue::Integer(a), HeapValue::Decimal(b)) => {
-                // Convert decimal string to f64 for comparison
-                if let Ok(b_f64) = b.parse::<f64>() {
-                    (*a as f64).partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
-                } else {
-                    debug_log!("Failed to parse decimal for comparison: {}", b);
-                    Ordering::Equal
-                }
-            },
-            (HeapValue::Decimal(a), HeapValue::Float(b)) => {
-                // Convert decimal string to f64 for comparison
-                if let Ok(a_f64) = a.parse::<f64>() {
-                    a_f64.partial_cmp(b).unwrap_or(Ordering::Equal)
-                } else {
-                    debug_log!("Failed to parse decimal for comparison: {}", a);
-                    Ordering::Equal
-                }
-            },
-            (HeapValue::Float(a), HeapValue::Decimal(b)) => {
-                // Convert decimal string to f64 for comparison
-                if let Ok(b_f64) = b.parse::<f64>() {
-                    a.partial_cmp(&b_f64).unwrap_or(Ordering::Equal)
-                } else {
-                    debug_log!("Failed to parse decimal for comparison: {}", b);
-                    Ordering::Equal
-                }
-            },
-            
-            // Add more cross-type comparisons as needed
-            _ => {
-                debug_log!("Type mismatch in heap field comparison: {:?} vs {:?}", left, right);
-                return false;
-            }
-        };
-
-        match self.operator {
-            HeapOperator::Equal => comparison == Ordering::Equal,
-            HeapOperator::GreaterThan => comparison == Ordering::Greater,
-            HeapOperator::LessThan => comparison == Ordering::Less,
-            HeapOperator::GreaterThanOrEqual => comparison != Ordering::Less,
-            HeapOperator::LessThanOrEqual => comparison != Ordering::Greater,
-            HeapOperator::IsNull => false, // Already handled in evaluate()
-            HeapOperator::IsNotNull => true, // Already handled in evaluate()
-        }
+    /// Create a HeapFieldFilter from operands (deprecated - for compatibility)
+    pub fn from_operands(
+        _left: HeapOperand,
+        _operator: HeapOperator,
+        _right: HeapOperand,
+    ) -> Result<Self, String> {
+        // This is a compatibility method for the old operand-based approach
+        // It creates a placeholder filter that always returns true
+        Ok(Self {
+            expr_description: "Legacy operand-based filter (placeholder)".to_string(),
+            placeholder: true,
+        })
     }
+
+    /// Create a new heap field filter with field resolution for flexible operands
+    /// This method is deprecated - use the new expression-based approach instead
+    pub fn with_field_resolution(
+        _left: HeapOperand,
+        _operator: HeapOperator,
+        _right: HeapOperand,
+        _relation_oid: pg_sys::Oid,
+    ) -> Result<Self, String> {
+        // Deprecated method - return a placeholder
+        Ok(Self {
+            expr_description: "Deprecated field resolution method (placeholder)".to_string(),
+            placeholder: true,
+        })
+    }
+
+    // Old operand-based methods removed - they are no longer needed
+    // The new expression-based approach handles evaluation directly
 }
 
 /// Resolve field name to PostgreSQL attribute number

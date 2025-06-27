@@ -15,10 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashMap;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
-use parking_lot::Mutex;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
 use std::fmt::Debug;
@@ -84,7 +82,6 @@ impl BM25Page for pg_sys::Page {
 #[derive(Debug)]
 pub struct BM25BufferCache {
     rel: PgSearchRelation,
-    cache: Mutex<HashMap<pg_sys::BlockNumber, Vec<u8>>>,
     bulkwrite_bas: pg_sys::BufferAccessStrategy,
 }
 
@@ -96,7 +93,6 @@ impl BM25BufferCache {
         unsafe {
             Self {
                 rel: Clone::clone(rel),
-                cache: Default::default(),
                 bulkwrite_bas: PgMemoryContexts::TopTransactionContext.switch_to(|_| {
                     pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
                 }),
@@ -253,21 +249,6 @@ impl BM25BufferCache {
             pg_sys::LockBuffer(buffer, lock as i32);
         }
         buffer
-    }
-
-    pub unsafe fn get_page_slice(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> &[u8] {
-        let mut cache = self.cache.lock();
-        let slice = cache.entry(blockno).or_insert_with(|| {
-            let buffer = self.get_buffer(blockno, lock);
-            let page = pg_sys::BufferGetPage(buffer);
-            let data =
-                std::slice::from_raw_parts(page as *mut u8, pg_sys::BLCKSZ as usize).to_vec();
-            pg_sys::UnlockReleaseBuffer(buffer);
-
-            data
-        });
-
-        std::slice::from_raw_parts(slice.as_ptr(), slice.len())
     }
 }
 

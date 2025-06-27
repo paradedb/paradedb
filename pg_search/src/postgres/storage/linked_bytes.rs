@@ -204,7 +204,6 @@ impl LinkedList for LinkedBytesList {
 
 #[derive(Debug)]
 pub enum RangeData {
-    OnePage(*const u8, usize),
     MultiPage(Vec<u8>),
 }
 
@@ -221,7 +220,6 @@ impl RangeData {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
-            RangeData::OnePage(_, len) => *len,
             RangeData::MultiPage(vec) => vec.len(),
         }
     }
@@ -229,7 +227,6 @@ impl RangeData {
     #[inline]
     pub fn as_ptr(&self) -> *const u8 {
         match self {
-            RangeData::OnePage(ptr, _) => *ptr,
             RangeData::MultiPage(vec) => vec.as_ptr(),
         }
     }
@@ -240,7 +237,6 @@ impl Deref for RangeData {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            RangeData::OnePage(ptr, len) => unsafe { std::slice::from_raw_parts(*ptr, *len) },
             RangeData::MultiPage(vec) => &vec[..],
         }
     }
@@ -339,32 +335,6 @@ impl LinkedBytesList {
         self.bman.page_is_empty(self.get_start_blockno().0)
     }
 
-    #[inline]
-    pub unsafe fn get_cached_page_slice(&self, blockno: pg_sys::BlockNumber) -> &[u8] {
-        self.bman
-            .bm25cache()
-            .get_page_slice(blockno, Some(pg_sys::BUFFER_LOCK_SHARE))
-    }
-
-    #[inline]
-    pub unsafe fn get_cached_range(
-        &self,
-        blockno: pg_sys::BlockNumber,
-        range: Range<usize>,
-    ) -> RangeData {
-        const ITEM_SIZE: usize = bm25_max_free_space();
-        let page = self.get_cached_page_slice(blockno);
-        let slice_start = range.start % ITEM_SIZE;
-        let slice_len = range.len();
-        let header_size = std::mem::offset_of!(pg_sys::PageHeaderData, pd_linp);
-        let slice_start = slice_start + header_size;
-        let slice_end = slice_start + slice_len;
-        let slice = &page[slice_start..slice_end];
-
-        // it's all on one page
-        RangeData::OnePage(slice.as_ptr(), slice_len)
-    }
-
     pub unsafe fn get_bytes_range(&self, range: Range<usize>) -> RangeData {
         const ITEM_SIZE: usize = bm25_max_free_space();
 
@@ -374,33 +344,27 @@ impl LinkedBytesList {
             .block_for_ord(start_block_ord)
             .expect("block not found");
 
-        if range.start % ITEM_SIZE + range.len() < ITEM_SIZE {
-            // fits on one page -- use our page cache.  many individual pages are read multiple
-            // times, and using a cache avoids copying the same data
-            self.get_cached_range(blockno, range)
-        } else {
-            // finally, read in the bytes from the blocks that contain the range -- these are specifically not cached
-            let mut data = Vec::with_capacity(range.len());
-            let mut remaining = range.len();
-            while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
-                let buffer = self.bman.get_buffer(blockno);
-                let page = buffer.page();
-                let special = page.special::<BM25PageSpecialData>();
-                let slice_start = if data.is_empty() {
-                    range.start % ITEM_SIZE
-                } else {
-                    0
-                };
-                let slice_len = (ITEM_SIZE - slice_start).min(remaining);
-                let slice = page.as_slice_range(slice_start, slice_len);
+        // finally, read in the bytes from the blocks that contain the range -- these are specifically not cached
+        let mut data = Vec::with_capacity(range.len());
+        let mut remaining = range.len();
+        while data.len() != range.len() && blockno != pg_sys::InvalidBlockNumber {
+            let buffer = self.bman.get_buffer(blockno);
+            let page = buffer.page();
+            let special = page.special::<BM25PageSpecialData>();
+            let slice_start = if data.is_empty() {
+                range.start % ITEM_SIZE
+            } else {
+                0
+            };
+            let slice_len = (ITEM_SIZE - slice_start).min(remaining);
+            let slice = page.as_slice_range(slice_start, slice_len);
 
-                data.extend_from_slice(slice);
-                blockno = special.next_blockno;
-                remaining -= slice_len;
-            }
-
-            RangeData::MultiPage(data)
+            data.extend_from_slice(slice);
+            blockno = special.next_blockno;
+            remaining -= slice_len;
         }
+
+        RangeData::MultiPage(data)
     }
 }
 

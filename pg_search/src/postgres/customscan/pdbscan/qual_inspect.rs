@@ -665,8 +665,10 @@ unsafe fn list(
             uses_tantivy_to_query,
         ) {
             quals.push(qual);
+        } else {
+            // even if one of the children returns None, we can't do anything
+            return None;
         }
-        // If extract_quals returns None, we just skip this child instead of failing
     }
 
     // Only return None if we couldn't extract any quals at all
@@ -692,6 +694,12 @@ unsafe fn opexpr(
     let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
 
+    // Get the original expression node pointer before moving opexpr
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
+
     // relabel types are essentially a cast, but for types that are directly compatible without
     // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
     // keep chasing its arg until we get a final node type
@@ -700,7 +708,7 @@ unsafe fn opexpr(
         lhs = (*relabel_type).arg as _;
     }
 
-    match (*lhs).type_ {
+    let result = match (*lhs).type_ {
         pg_sys::NodeTag::T_Var => node_opexpr(
             root,
             rti,
@@ -755,7 +763,23 @@ unsafe fn opexpr(
         ),
 
         _ => None,
+    };
+
+    // If the normal processing didn't return a result, try to create a HeapExpr as fallback
+    // Check if this expression references our relation
+    if result.is_none() && contains_relation_reference(opexpr_node, rti) {
+        let opno = unsafe { (*opexpr_node.cast::<pg_sys::OpExpr>()).opno };
+        let heap_expr = Qual::HeapExpr {
+            expr_node: opexpr_node,
+            expr_desc: format!("Non-pushable expression with operator OID {opno}"),
+            search_query_input: Box::new(SearchQueryInput::All),
+        };
+
+        *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+        return Some(heap_expr);
     }
+
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

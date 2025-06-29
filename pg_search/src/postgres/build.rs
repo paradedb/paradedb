@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
-use crate::index::mvcc::MVCCDirectory;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -201,7 +201,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     );
 
     let schema = builder.build();
-    let directory = MVCCDirectory::snapshot(index_relation);
+    let directory = MvccSatisfies::Snapshot.directory(index_relation);
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false,
         ..IndexSettings::default()
@@ -212,7 +212,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 
 unsafe fn record_create_index_segment_ids(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
     let metadata = MetaPageMut::new(indexrel);
-    let directory = MVCCDirectory::snapshot(indexrel);
+    let directory = MvccSatisfies::Snapshot.directory(indexrel);
     let index = Index::open(directory.clone())?;
     let segment_ids = index.searchable_segment_ids()?;
 

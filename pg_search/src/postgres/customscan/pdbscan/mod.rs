@@ -30,7 +30,7 @@ use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
@@ -72,6 +72,7 @@ use pgrx::pg_sys::CustomExecMethods;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
+use std::sync::atomic::Ordering;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -94,23 +95,27 @@ impl PdbScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
-        .expect("should be able to open the search index reader");
+        let search_query_input = state.custom_state().search_query_input();
+        let need_scores = state.custom_state().need_scores();
+
+        let search_reader =
+            SearchIndexReader::open(indexrel, search_query_input.clone(), need_scores, unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // the leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // the workers have their own rules, which is literally every segment
+                    // this is because the workers pick a specific segment to query that
+                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                    // visibility test due to concurrent merges/garbage collects
+                    MvccSatisfies::ParallelWorker(list_segment_ids(
+                        state.custom_state().parallel_state.expect(
+                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                        ),
+                    ))
+                }
+            })
+            .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -151,7 +156,7 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use);
+                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
@@ -302,8 +307,10 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
-            let directory = MVCCDirectory::snapshot(&bm25_index);
+            let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+            let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = SearchIndexSchema::from_index(&bm25_index, &index);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
@@ -406,7 +413,7 @@ impl CustomScan for PdbScan {
                 PARAMETERIZED_SELECTIVITY
             } else {
                 // ask the index
-                estimate_selectivity(&bm25_index, &query).unwrap_or(UNKNOWN_SELECTIVITY)
+                estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
             // we must use this path if we need to do const projections for scores or snippets
@@ -418,12 +425,7 @@ impl CustomScan for PdbScan {
             builder.custom_private().set_range_table_index(rti);
             builder.custom_private().set_query(query);
             builder.custom_private().set_limit(limit);
-            builder.custom_private().set_segment_count(
-                index
-                    .searchable_segments()
-                    .map(|segments| segments.len())
-                    .unwrap_or(0),
-            );
+            builder.custom_private().set_segment_count(segment_count);
 
             if is_topn && pathkey.is_some() {
                 let pathkey = pathkey.as_ref().unwrap();
@@ -454,7 +456,6 @@ impl CustomScan for PdbScan {
             }
 
             let nworkers = if (*builder.args().rel).consider_parallel {
-                let segment_count = index.searchable_segments().unwrap_or_default().len();
                 compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
             } else {
                 0
@@ -476,7 +477,7 @@ impl CustomScan for PdbScan {
                     let cardinality = {
                         let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
                             // NB:  '4' is a magic number
-                            fast_fields::estimate_cardinality(&bm25_index, field).unwrap_or(0) * 4
+                            fast_fields::estimate_cardinality(&index, field).unwrap_or(0) * 4
                         } else {
                             0
                         };
@@ -619,7 +620,7 @@ impl CustomScan for PdbScan {
             // Extract the indexrelid early to avoid borrow checker issues later
             let indexrelid = private_data.indexrelid().expect("indexrelid should be set");
             let indexrel = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-            let directory = MVCCDirectory::snapshot(&indexrel);
+            let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
             let schema = SearchIndexSchema::from_index(&indexrel, &index);
@@ -1120,7 +1121,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
-            need_scores: privdata.need_scores(),
         }
     } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
@@ -1158,14 +1158,8 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             sort_direction,
-            need_scores,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(
-                heaprelid,
-                limit,
-                sort_direction,
-                need_scores,
-            ),
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
         ExecMethodType::FastFieldString {
@@ -1237,7 +1231,7 @@ fn compute_exec_which_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = builder.custom_state().indexrel();
-        let directory = MVCCDirectory::snapshot(indexrel);
+        let directory = MvccSatisfies::Snapshot.directory(indexrel);
         let index =
             Index::open(directory).expect("create_custom_scan_state: should be able to open index");
         let schema = SearchIndexSchema::from_index(indexrel, &index);

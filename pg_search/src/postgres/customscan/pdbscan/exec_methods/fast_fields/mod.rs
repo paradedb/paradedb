@@ -23,8 +23,7 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::SearchResults;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
@@ -39,7 +38,7 @@ use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
 use std::rc::Rc;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
-use tantivy::DocAddress;
+use tantivy::{DocAddress, Index, ReloadPolicy};
 
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
@@ -540,15 +539,15 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     }
 }
 
-pub fn estimate_cardinality(indexrel: &PgSearchRelation, field: &FieldName) -> Option<usize> {
-    let reader = SearchIndexReader::open(indexrel, MvccSatisfies::Snapshot)
-        .expect("estimate_cardinality: should be able to open SearchIndexReader");
+pub fn estimate_cardinality(index: &Index, field: &FieldName) -> Option<usize> {
+    let reader = index
+        .reader_builder()
+        .reload_policy(ReloadPolicy::Manual)
+        .try_into()
+        .expect("estimate_cardinality: should be able to open the IndexReader");
     let searcher = reader.searcher();
-    let largest_segment_reader = searcher
-        .segment_readers()
-        .iter()
-        .max_by_key(|sr| sr.num_docs())
-        .unwrap();
+    debug_assert!(searcher.segment_readers().len() == 1, "estimate_cardinality(): expected an index with only one segment, which is assumed to be the largest segment by num_docs");
+    let largest_segment_reader = searcher.segment_reader(0);
 
     Some(
         largest_segment_reader

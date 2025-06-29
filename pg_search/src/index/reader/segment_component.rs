@@ -1,13 +1,10 @@
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{bm25_max_free_space, FileEntry, LinkedList};
+use crate::postgres::storage::block::FileEntry;
 use crate::postgres::storage::linked_bytes::RangeData;
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
-use pgrx::*;
 use std::io::Error;
 use std::ops::Range;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
 use tantivy::directory::FileHandle;
 use tantivy::directory::OwnedBytes;
 use tantivy::HasLen;
@@ -15,8 +12,6 @@ use tantivy::HasLen;
 #[derive(Debug)]
 pub struct SegmentComponentReader {
     block_list: LinkedBytesList,
-    npages: Arc<AtomicU32>,
-    last_blockno: Arc<AtomicU32>,
     entry: FileEntry,
 }
 
@@ -24,51 +19,16 @@ impl SegmentComponentReader {
     pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
 
-        Self {
-            block_list,
-            entry,
-            npages: Arc::new(AtomicU32::new(0)),
-            last_blockno: Arc::new(AtomicU32::new(pg_sys::InvalidBlockNumber)),
-        }
-    }
-
-    #[inline]
-    fn last_blockno(&self) -> u32 {
-        let mut last_blockno = self.last_blockno.load(Ordering::Relaxed);
-        if last_blockno == pg_sys::InvalidBlockNumber {
-            last_blockno = self.block_list.get_last_blockno();
-            self.last_blockno.store(last_blockno, Ordering::Relaxed);
-        }
-        last_blockno
-    }
-
-    #[inline]
-    fn npages(&self) -> u32 {
-        let mut npages = self.npages.load(Ordering::Relaxed);
-        if npages == 0 {
-            npages = self.block_list.npages();
-            self.npages.store(npages, Ordering::Relaxed);
-        }
-        npages
+        Self { block_list, entry }
     }
 
     fn read_bytes_raw(&self, range: Range<usize>) -> Result<RangeData, Error> {
         unsafe {
-            const ITEM_SIZE: usize = bm25_max_free_space();
-
             let end = range.end.min(self.len());
             let range = range.start..end;
-            let start = range.start;
-            let start_block_ordinal = start / ITEM_SIZE;
 
-            if start_block_ordinal == self.npages() as usize {
-                // short-circuit for when the last block is being read -- this is a common access pattern
-
-                Ok(self.block_list.get_cached_range(self.last_blockno(), range))
-            } else {
-                // read one or more pages
-                Ok(self.block_list.get_bytes_range(range.clone()))
-            }
+            // read one or more pages
+            Ok(self.block_list.get_bytes_range(range))
         }
     }
 }
@@ -95,6 +55,7 @@ mod tests {
 
     use crate::index::writer::segment_component::SegmentComponentWriter;
     use crate::postgres::rel::PgSearchRelation;
+    use pgrx::*;
     use std::io::Write;
     use std::path::Path;
     use tantivy::directory::TerminatingWrite;

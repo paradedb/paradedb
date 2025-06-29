@@ -312,11 +312,19 @@ pub unsafe fn save_new_metas(
     Ok(())
 }
 
+pub struct LoadedMetas {
+    pub entries: Vec<SegmentMetaEntry>,
+    pub meta: IndexMeta,
+    pub pin_cushion: PinCushion,
+    pub total_segments: usize,
+}
+
 pub unsafe fn load_metas(
     indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
-) -> tantivy::Result<(Vec<SegmentMetaEntry>, IndexMeta, PinCushion)> {
+) -> tantivy::Result<LoadedMetas> {
+    let mut total_segments = 0;
     let mut alive_segments = vec![];
     let mut alive_entries = vec![];
     let mut opstamp = None;
@@ -326,6 +334,8 @@ pub unsafe fn load_metas(
     let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
     let mut exhausted_metas_lists = false;
 
+    let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
+    let mut largest_doc_count = 0;
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, entry| {
@@ -334,33 +344,54 @@ pub unsafe fn load_metas(
                 // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
                 matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
-                // vacuum sees everything that hasn't been deleted by a merge
-                || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+                    // vacuum sees everything that hasn't been deleted by a merge
+                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
-                // a snapshot can see any that are visible in its snapshot
-                || (matches!(solve_mvcc, MvccSatisfies::Snapshot) && entry.visible())
+                    // a snapshot or ::LargestSegment can see any that are visible in its snapshot
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
 
-                // mergeable can see any that are known to be mergeable
-                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+                    // mergeable can see any that are known to be mergeable
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
             );
             if !accept {
                 return;
             };
 
-            pin_cushion.push(bman, &entry);
-            let inner_segment_meta = InnerSegmentMeta {
-                max_doc: entry.max_doc,
-                segment_id: entry.segment_id,
-                deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                    num_deleted_docs: delete_entry.num_deleted_docs,
-                    opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                }),
-                include_temp_doc_store: Arc::new(AtomicBool::new(false)),
-            };
-            alive_segments.push(inner_segment_meta.track(inventory));
-            alive_entries.push(entry);
+            total_segments += 1;
 
-            opstamp = opstamp.max(Some(entry.opstamp()));
+            let mut need_entry = true;
+            if is_largest_only {
+                if entry.num_docs() > largest_doc_count {
+                    largest_doc_count = entry.num_docs();
+
+                    // the entry we're processing right now is known to be the largest so far
+                    // and it's the only one we want
+                    alive_segments.clear();
+                    alive_entries.clear();
+                    pin_cushion.clear();
+                } else {
+                    // we already have the largest so we don't need this entry
+                    need_entry = false;
+                }
+            }
+
+            if need_entry {
+                pin_cushion.push(bman, &entry);
+                let inner_segment_meta = InnerSegmentMeta {
+                    max_doc: entry.max_doc,
+                    segment_id: entry.segment_id,
+                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                        num_deleted_docs: delete_entry.num_deleted_docs,
+                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                    }),
+                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+                };
+
+                alive_segments.push(inner_segment_meta.track(inventory));
+                alive_entries.push(entry);
+
+                opstamp = opstamp.max(Some(entry.opstamp()));
+            }
         });
 
         match solve_mvcc {
@@ -414,9 +445,9 @@ pub unsafe fn load_metas(
     let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
-    Ok((
-        alive_entries,
-        IndexMeta {
+    Ok(LoadedMetas {
+        entries: alive_entries,
+        meta: IndexMeta {
             segments: alive_segments,
             schema: deserialized_schema,
             index_settings: deserialized_settings,
@@ -424,5 +455,6 @@ pub unsafe fn load_metas(
             payload: None,
         },
         pin_cushion,
-    ))
+        total_segments,
+    })
 }

@@ -185,6 +185,8 @@ impl<'a> ParallelAggregationWorker<'a> {
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
         let reader = SearchIndexReader::open(
             &indexrel,
+            self.query.clone(),
+            false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
         )?;
 
@@ -207,9 +209,9 @@ impl<'a> ParallelAggregationWorker<'a> {
                     pg_sys::GetActiveSnapshot()
                 }),
             );
-            reader.collect(&self.query, mvcc_collector, false)
+            reader.collect(mvcc_collector)
         } else {
-            reader.collect(&self.query, base_collector, false)
+            reader.collect(base_collector)
         };
         pgrx::debug1!(
             "Worker #{}: collected {segment_ids:?} in {:?}",
@@ -283,7 +285,8 @@ pub fn aggregate(
 ) -> Result<JsonB, Box<dyn Error>> {
     unsafe {
         let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-        let reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
+        let reader =
+            SearchIndexReader::open(&index, query.clone(), false, MvccSatisfies::Snapshot)?;
         let agg_req = serde_json::from_value(agg.0)?;
         let process = ParallelAggregation::new(
             index.oid(),

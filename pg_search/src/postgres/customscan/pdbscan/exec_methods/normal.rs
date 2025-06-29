@@ -84,12 +84,11 @@ impl ExecMethod for NormalScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = state.search_reader.as_ref().unwrap().search_segments(
-                    state.need_scores(),
-                    [segment_id].into_iter(),
-                    state.search_query_input(),
-                    0,
-                );
+                self.search_results = state
+                    .search_reader
+                    .as_ref()
+                    .unwrap()
+                    .search_segments([segment_id].into_iter(), 0);
                 return true;
             }
 
@@ -181,12 +180,7 @@ impl NormalScanExecState {
             .search_reader
             .as_ref()
             .expect("must have a search_reader to do a query")
-            .search(
-                state.need_scores(),
-                false,
-                state.search_query_input(),
-                state.limit,
-            );
+            .search(state.limit);
         self.did_query = true;
         true
     }

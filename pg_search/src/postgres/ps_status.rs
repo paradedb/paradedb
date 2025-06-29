@@ -6,29 +6,14 @@ pub const INDEXING: &CStr = c"indexing";
 pub const MERGING: &CStr = c"merging";
 
 pub unsafe fn set_ps_display_suffix(suffix: *const c_char) {
-    #[cfg(any(feature = "pg16", feature = "pg17"))]
-    pg_sys::ffi::pg_guard_ffi_boundary(|| {
-        extern "C-unwind" {
-            pub fn set_ps_display_suffix(suffix: *const c_char);
-        }
-        set_ps_display_suffix(suffix);
-    });
-
     #[cfg(any(feature = "pg14", feature = "pg15"))]
-    pg_sys::ffi::pg_guard_ffi_boundary(|| {
-        extern "C-unwind" {
-            pub fn set_ps_display(suffix: *const c_char);
-        }
-        set_ps_display(suffix);
-    });
+    pg_sys::set_ps_display(suffix);
+
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    pg_sys::set_ps_display_suffix(suffix);
 }
 
 pub unsafe fn set_ps_display_remove_suffix() {
     #[cfg(any(feature = "pg16", feature = "pg17"))]
-    pg_sys::ffi::pg_guard_ffi_boundary(|| {
-        extern "C-unwind" {
-            pub fn set_ps_display_remove_suffix();
-        }
-        set_ps_display_remove_suffix();
-    });
+    pg_sys::set_ps_display_remove_suffix();
 }

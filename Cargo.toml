@@ -28,8 +28,8 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stopwords",
   "lz4-compression",
 ], default-features = false }
-pgrx = "=0.14.3"
-pgrx-tests = "=0.14.3"
+pgrx = "=0.15.0"
+pgrx-tests = "=0.15.0"
 tantivy-jieba = "0.11.0"
 
 [patch.crates-io]

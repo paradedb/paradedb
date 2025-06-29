@@ -94,22 +94,26 @@ impl PdbScan {
             .as_ref()
             .expect("custom_state.indexrel should already be open");
 
-        let search_reader = SearchIndexReader::open(indexrel, unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        })
+        let search_reader = SearchIndexReader::open_with_rel_oid(
+            state.custom_state().heaprelid,
+            indexrel,
+            unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // the leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // the workers have their own rules, which is literally every segment
+                    // this is because the workers pick a specific segment to query that
+                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                    // visibility test due to concurrent merges/garbage collects
+                    MvccSatisfies::ParallelWorker(list_segment_ids(
+                        state.custom_state().parallel_state.expect(
+                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                        ),
+                    ))
+                }
+            },
+        )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
@@ -213,7 +217,7 @@ impl PdbScan {
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut uses_tantivy_to_query = false;
-        let quals = extract_quals(
+        let mut quals = extract_quals(
             root,
             rti,
             restrict_info.as_ptr().cast(),
@@ -230,7 +234,7 @@ impl PdbScan {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
             let mut join_uses_tantivy_to_query = false;
-            let quals = extract_quals(
+            quals = extract_quals(
                 root,
                 rti,
                 joinri.as_ptr().cast(),
@@ -240,6 +244,14 @@ impl PdbScan {
                 true, // Join quals should convert external to all
                 &mut join_uses_tantivy_to_query,
             );
+
+            // Apply HeapExpr optimization to the extracted quals
+            if let Some(ref mut q) = quals {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                let relation_oid = (*rte).relid;
+                qual_inspect::optimize_quals_with_heap_expr(q);
+            }
+
             // If we have used our operator in the join, or if we have used our operator in the
             // base relation, then we can use the join quals
             if uses_tantivy_to_query || join_uses_tantivy_to_query {
@@ -248,6 +260,13 @@ impl PdbScan {
                 (quals, ri_type, restrict_info)
             }
         } else {
+            // Apply HeapExpr optimization to the base relation quals
+            if let Some(ref mut q) = quals {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                let relation_oid = (*rte).relid;
+                qual_inspect::optimize_quals_with_heap_expr(q);
+            }
+
             (quals, ri_type, restrict_info)
         }
     }
@@ -1620,6 +1639,11 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // IndexedWithFilter contains search predicates
+        SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 

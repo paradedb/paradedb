@@ -913,15 +913,20 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-                                                                                                                               QUERY PLAN                                                                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                                                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: r.rating DESC, p.price DESC
    ->  Hash Join
          Hash Cond: (pc.product_id = p.id)
          ->  Nested Loop
-               ->  Seq Scan on categories c
-                     Filter: (name = 'Electronics'::text)
+               ->  Custom Scan (ParadeDB Scan) on categories c
+                     Table: categories
+                     Index: categories_idx
+                     Exec Method: NumericFastFieldExecState
+                     Fast Fields: id
+                     Scores: false
+                     Tantivy Query: {"indexed_with_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 6 :varattno 2 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 6 :varattnosyn 2 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}
                ->  Bitmap Heap Scan on product_categories pc
                      Recheck Cond: (category_id = c.id)
                      ->  Bitmap Index Scan on product_categories_pkey
@@ -941,7 +946,7 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Numeric Fast Fields: id, price
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
-(26 rows)
+(31 rows)
 
 SELECT p.name, p.price, r.content, r.rating
 FROM products p

@@ -231,6 +231,7 @@ impl Iterator for SearchResults {
 #[derive(Clone)]
 pub struct SearchIndexReader {
     index_oid: pg_sys::Oid,
+    rel_oid: Option<pg_sys::Oid>,
     searcher: Searcher,
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
@@ -270,12 +271,23 @@ impl SearchIndexReader {
 
         Ok(Self {
             index_oid: index_relation.oid(),
+            rel_oid: None,
             searcher,
             schema,
             underlying_reader: reader,
             underlying_index: index,
             _cleanup_lock: Arc::new(cleanup_lock),
         })
+    }
+
+    pub fn open_with_rel_oid(
+        rel_oid: pg_sys::Oid,
+        index_relation: &PgSearchRelation,
+        mvcc_style: MvccSatisfies,
+    ) -> Result<Self> {
+        let mut reader = Self::open(index_relation, mvcc_style)?;
+        reader.rel_oid = Some(rel_oid);
+        Ok(reader)
     }
 
     pub fn segment_ids(&self) -> Vec<SegmentId> {
@@ -300,7 +312,13 @@ impl SearchIndexReader {
         );
         search_query_input
             .clone()
-            .into_tantivy_query(&self.schema, &mut parser, &self.searcher, self.index_oid)
+            .into_tantivy_query(
+                &self.schema,
+                &mut parser,
+                &self.searcher,
+                self.index_oid,
+                self.rel_oid,
+            )
             .expect("must be able to parse query")
     }
 

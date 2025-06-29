@@ -16,11 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::opexpr::OpExpr;
+use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
+use crate::postgres::rel::PgSearchRelation;
+use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
@@ -80,6 +83,17 @@ pub enum Qual {
         opoid: pg_sys::Oid,
         value: *mut pg_sys::Node,
     },
+    /// Heap-based expression evaluation for non-indexed predicates
+    /// Contains an underlying search query that must be executed first
+    HeapExpr {
+        /// The PostgreSQL expression node to evaluate
+        expr_node: *mut pg_sys::Node,
+        /// Description of the expression for debugging
+        expr_desc: String,
+        /// The search query to execute before applying the heap filter
+        /// Can be All (scan whole relation) or a more specific query
+        search_query_input: Box<SearchQueryInput>,
+    },
     And(Vec<Qual>),
     Or(Vec<Qual>),
     Not(Box<Qual>),
@@ -100,6 +114,9 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
+            Qual::HeapExpr {
+                search_query_input, ..
+            } => matches!(**search_query_input, SearchQueryInput::All),
             Qual::And(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_all()),
             Qual::Not(qual) => qual.contains_all(),
@@ -120,6 +137,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
+            Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_external_var()),
             Qual::Not(qual) => qual.contains_external_var(),
@@ -140,6 +158,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
+            Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exec_param()),
             Qual::Not(qual) => qual.contains_exec_param(),
@@ -160,6 +179,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => true,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => false,
+            Qual::HeapExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_exprs()),
             Qual::Not(qual) => qual.contains_exprs(),
@@ -180,6 +200,7 @@ impl Qual {
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
             Qual::ScoreExpr { .. } => true,
+            Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Or(quals) => quals.iter().any(|q| q.contains_score_exprs()),
             Qual::Not(qual) => qual.contains_score_exprs(),
@@ -189,6 +210,7 @@ impl Qual {
     pub fn collect_exprs<'a>(&'a mut self, exprs: &mut Vec<&'a mut Qual>) {
         match self {
             Qual::Expr { .. } => exprs.push(self),
+            Qual::HeapExpr { .. } => exprs.push(self),
             Qual::And(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Or(quals) => quals.iter_mut().for_each(|q| q.collect_exprs(exprs)),
             Qual::Not(qual) => qual.collect_exprs(exprs),
@@ -286,6 +308,20 @@ impl From<&Qual> for SearchQueryInput {
                     query: None,
                 }
             },
+            Qual::HeapExpr {
+                expr_node,
+                expr_desc,
+                search_query_input,
+            } => {
+                // Create HeapFieldFilter from the PostgreSQL expression
+                let field_filters =
+                    vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
+
+                SearchQueryInput::IndexedWithFilter {
+                    indexed_query: search_query_input.clone(),
+                    field_filters,
+                }
+            }
             Qual::And(quals) => {
                 let mut must = quals.iter().map(SearchQueryInput::from).collect::<Vec<_>>();
                 let popscore = |vec: &mut Vec<SearchQueryInput>| -> Option<SearchQueryInput> {
@@ -485,9 +521,59 @@ pub unsafe fn extract_quals(
             }
         }
 
-        pg_sys::NodeTag::T_Var if (*(node as *mut pg_sys::Var)).vartype == pg_sys::BOOLOID => {
-            PushdownField::try_new(root, node.cast(), schema)
-                .map(|field| Qual::PushdownVarEqTrue { field })
+        pg_sys::NodeTag::T_Var => {
+            let var_node = nodecast!(Var, T_Var, node)?;
+
+            // Check if this is a boolean field reference to our relation
+            if (*var_node).varno as pg_sys::Index == rti {
+                // First, try to create a PushdownField to see if this is an indexed boolean field
+                if let Some(field) = PushdownField::try_new(root, var_node, schema) {
+                    if let Some(search_field) = schema.search_field(field.attname()) {
+                        if search_field.is_fast() {
+                            // This is an indexed boolean field, create proper pushdown qual
+                            // T_Var alone represents "field = true"
+                            *uses_tantivy_to_query = true;
+                            return Some(Qual::PushdownVarEqTrue { field });
+                        }
+                    }
+                }
+
+                // If we reach here, the field is not indexed or not fast, so create HeapExpr
+                // T_Var nodes represent boolean field references without explicit "= true" comparison
+                // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
+                // We need to handle both cases since they're semantically equivalent
+
+                // Check if root and parse are valid
+                if root.is_null() || (*root).parse.is_null() {
+                    return None;
+                }
+
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                if rte.is_null() {
+                    return None;
+                }
+
+                let relation_oid = (*rte).relid;
+
+                // Get the field name
+                let attno = (*var_node).varattno;
+                if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
+                    // Create HeapExpr using the new expression-based approach
+                    let heap_expr = Qual::HeapExpr {
+                        expr_node: node, // Use the original T_Var node
+                        expr_desc: format!("Boolean field {} = true", field_name.root()),
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    };
+
+                    *uses_tantivy_to_query = true;
+                    return Some(heap_expr);
+                }
+
+                // If we can't handle this boolean field, return None
+                None
+            } else {
+                None
+            }
         }
 
         pg_sys::NodeTag::T_NullTest => {
@@ -500,10 +586,16 @@ pub unsafe fn extract_quals(
                         } else {
                             return Some(Qual::Not(Box::new(Qual::PushdownIsNotNull { field })));
                         }
+                    } else {
+                        // Field is not fast, try creating HeapExpr
                     }
+                } else {
+                    // Field not found in schema, try creating HeapExpr
                 }
+            } else {
+                // Try to create a HeapExpr for non-indexed field NULL tests
             }
-            None
+            try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
         }
 
         pg_sys::NodeTag::T_BooleanTest => booltest(
@@ -518,18 +610,29 @@ pub unsafe fn extract_quals(
         ),
 
         pg_sys::NodeTag::T_Const => {
-            // Handle constants that result from join clause simplification
             let const_node = nodecast!(Const, T_Const, node)?;
-            if (*const_node).consttype == pg_sys::BOOLOID && !(*const_node).constisnull {
-                let bool_value = bool::from_datum((*const_node).constvalue, false).unwrap_or(false);
-                if bool_value {
-                    Some(Qual::All)
+
+            // Check if this is a boolean constant
+            if (*const_node).consttype == pg_sys::BOOLOID {
+                // Convert boolean constant to HeapExpr using the expression-based approach
+
+                // Create HeapExpr using the new expression-based approach
+                let bool_value = if !(*const_node).constisnull {
+                    bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                 } else {
-                    Some(Qual::Not(Box::new(Qual::All)))
-                }
-            } else {
-                None
+                    false
+                };
+                let heap_expr = Qual::HeapExpr {
+                    expr_node: node, // Use the original T_Const node
+                    expr_desc: format!("Boolean constant = {bool_value}"),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                };
+
+                *uses_tantivy_to_query = true;
+                return Some(heap_expr);
             }
+
+            None
         }
 
         // we don't understand this clause so we can't do anything
@@ -551,7 +654,7 @@ unsafe fn list(
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(
+        if let Some(qual) = extract_quals(
             root,
             rti,
             child,
@@ -560,9 +663,20 @@ unsafe fn list(
             schema,
             convert_external_to_special_qual,
             uses_tantivy_to_query,
-        )?)
+        ) {
+            quals.push(qual);
+        } else {
+            // even if one of the children returns None, we can't do anything
+            return None;
+        }
     }
-    Some(quals)
+
+    // Only return None if we couldn't extract any quals at all
+    if quals.is_empty() {
+        None
+    } else {
+        Some(quals)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -580,6 +694,12 @@ unsafe fn opexpr(
     let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
 
+    // Get the original expression node pointer before moving opexpr
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
+
     // relabel types are essentially a cast, but for types that are directly compatible without
     // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
     // keep chasing its arg until we get a final node type
@@ -588,7 +708,7 @@ unsafe fn opexpr(
         lhs = (*relabel_type).arg as _;
     }
 
-    match (*lhs).type_ {
+    let result = match (*lhs).type_ {
         pg_sys::NodeTag::T_Var => node_opexpr(
             root,
             rti,
@@ -643,7 +763,23 @@ unsafe fn opexpr(
         ),
 
         _ => None,
+    };
+
+    // If the normal processing didn't return a result, try to create a HeapExpr as fallback
+    // Check if this expression references our relation
+    if result.is_none() && contains_relation_reference(opexpr_node, rti) {
+        let opno = unsafe { (*opexpr_node.cast::<pg_sys::OpExpr>()).opno };
+        let heap_expr = Qual::HeapExpr {
+            expr_node: opexpr_node,
+            expr_desc: format!("Non-pushable expression with operator OID {opno}"),
+            search_query_input: Box::new(SearchQueryInput::All),
+        };
+
+        *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+        return Some(heap_expr);
     }
+
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -733,17 +869,41 @@ unsafe fn node_opexpr(
         }
     } else {
         // it doesn't use our operator.
+        // Save the operator OID and node pointer before the move
+        let opno = opexpr.opno();
+
+        // Save the node pointer before the move so we can recreate the OpExpr later
+        let opexpr_node = match &opexpr {
+            OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+            OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+        };
+
         // we'll try to convert it into a pushdown
-        let result = try_pushdown(root, rti, opexpr, schema);
-        if result.is_none() {
-            if convert_external_to_special_qual {
+        let pushdown_result = try_pushdown(root, rti, opexpr, schema);
+        if pushdown_result.is_none() {
+            // Try to create a HeapExpr for non-indexed field comparisons
+            // We need the relation OID - get it from the range table
+            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+            let relation_oid = (*rte).relid;
+
+            // Check if this expression references our relation
+            if contains_relation_reference(opexpr_node, rti) {
+                let heap_expr = Qual::HeapExpr {
+                    expr_node: opexpr_node,
+                    expr_desc: format!("OpExpr with operator OID {opno}"),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                };
+
+                *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+                Some(heap_expr)
+            } else if convert_external_to_special_qual {
                 Some(Qual::ExternalExpr)
             } else {
                 None
             }
         } else {
             *uses_tantivy_to_query = true;
-            result
+            pushdown_result
         }
     }
 }
@@ -1108,7 +1268,161 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
     walker(node, target_rti as *mut core::ffi::c_void)
 }
 
-/// Check if a node contains any relation reference (Var nodes)
+/// Optimize qual tree by converting ExternalVar and ExternalExpr to HeapExpr where possible
+/// This is the second pass optimization mentioned in the implementation plan
+pub unsafe fn optimize_quals_with_heap_expr(qual: &mut Qual) {
+    match qual {
+        Qual::And(quals) => {
+            // Process each qual in the AND
+            for q in quals.iter_mut() {
+                optimize_quals_with_heap_expr(q);
+            }
+
+            // Try to optimize AND branches by pushing indexed predicates into HeapExpr search_query_input
+            optimize_and_branch_with_heap_expr(quals);
+        }
+        Qual::Or(quals) => {
+            // Process each qual in the OR
+            for q in quals.iter_mut() {
+                optimize_quals_with_heap_expr(q);
+            }
+        }
+        Qual::Not(qual) => {
+            optimize_quals_with_heap_expr(qual);
+        }
+        Qual::ExternalVar | Qual::ExternalExpr => {
+            // Try to convert to HeapExpr
+            // For now, we'll keep the original behavior and handle this in a future iteration
+            // The actual conversion would require access to the original OpExpr
+        }
+        _ => {
+            // Other qual types don't need optimization
+        }
+    }
+}
+
+/// Optimize AND branches by pushing indexed predicates into HeapExpr search_query_input
+unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
+    let mut heap_expr_indices = Vec::new();
+    let mut indexed_qual_indices = Vec::new();
+
+    // Find HeapExpr and indexed quals
+    for (i, qual) in quals.iter().enumerate() {
+        match qual {
+            Qual::HeapExpr {
+                search_query_input, ..
+            } => {
+                if matches!(**search_query_input, SearchQueryInput::All) {
+                    heap_expr_indices.push(i);
+                }
+            }
+            Qual::OpExpr { .. }
+            | Qual::PushdownExpr { .. }
+            | Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. } => {
+                indexed_qual_indices.push(i);
+            }
+            Qual::Or(_) => {
+                indexed_qual_indices.push(i);
+            }
+            _ => {}
+        }
+    }
+
+    // If we have HeapExpr with All query and indexed predicates, optimize
+    if !heap_expr_indices.is_empty() && !indexed_qual_indices.is_empty() {
+        // First, collect the indexed queries before mutating quals
+        let indexed_queries: Vec<SearchQueryInput> = indexed_qual_indices
+            .iter()
+            .map(|&i| SearchQueryInput::from(&quals[i]))
+            .collect();
+
+        // Now update the HeapExpr search_query_input
+        for &heap_idx in &heap_expr_indices {
+            if let Qual::HeapExpr {
+                search_query_input, ..
+            } = &mut quals[heap_idx]
+            {
+                if matches!(**search_query_input, SearchQueryInput::All)
+                    && !indexed_queries.is_empty()
+                {
+                    *search_query_input = Box::new(SearchQueryInput::Boolean {
+                        must: indexed_queries.clone(),
+                        should: vec![],
+                        must_not: vec![],
+                    });
+                }
+            }
+        }
+
+        // Remove the indexed quals that were merged into HeapExpr
+        // We need to do this in reverse order to maintain indices
+        for &idx in indexed_qual_indices.iter().rev() {
+            quals.remove(idx);
+        }
+    }
+}
+
+/// Try to create a HeapExpr from a NullTest for non-indexed fields
+unsafe fn try_create_heap_expr_from_null_test(
+    nulltest: *mut pg_sys::NullTest,
+    rti: pg_sys::Index,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Qual> {
+    // Extract the field being tested
+    let arg = (*nulltest).arg;
+    if let Some(var) = nodecast!(Var, T_Var, arg) {
+        if (*var).varno as pg_sys::Index == rti {
+            // This is a field reference to our relation
+            let attno = (*var).varattno;
+
+            let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                "IS NULL"
+            } else {
+                "IS NOT NULL"
+            };
+
+            *uses_tantivy_to_query = true;
+
+            Some(Qual::HeapExpr {
+                expr_node: nulltest as *mut pg_sys::Node,
+                expr_desc: format!("NULL test: field_{attno} {test_type}"),
+                search_query_input: Box::new(SearchQueryInput::All),
+            })
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/// Get field name from attribute number
+unsafe fn get_field_name_from_attno(
+    relation_oid: pg_sys::Oid,
+    attno: pg_sys::AttrNumber,
+) -> Option<FieldName> {
+    let relation = PgSearchRelation::open(relation_oid);
+
+    let tuple_desc = relation.rd_att;
+    let natts = (*tuple_desc).natts;
+
+    if attno <= 0 || (attno as i32) > natts {
+        return None;
+    }
+
+    let attr_slice = (*tuple_desc).attrs.as_slice(natts as usize);
+    let form_attr = &attr_slice[(attno - 1) as usize];
+    let attr_name = std::ffi::CStr::from_ptr(form_attr.attname.data.as_ptr());
+
+    let field_name_str = attr_name.to_str().ok();
+
+    field_name_str.map(FieldName::from)
+}
+
 unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
     if node.is_null() {
         return false;

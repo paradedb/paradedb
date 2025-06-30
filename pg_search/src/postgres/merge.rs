@@ -15,13 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexOptions;
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -29,9 +25,59 @@ use pgrx::pg_sys;
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 
+#[derive(Debug, Clone)]
+struct LayerSizes {
+    layer_sizes: Vec<u64>,
+    background_layer_size_threshold: u64,
+}
+
+impl From<SearchIndexOptions> for LayerSizes {
+    fn from(index_options: SearchIndexOptions) -> Self {
+        Self {
+            layer_sizes: index_options.layer_sizes(),
+            background_layer_size_threshold: index_options.background_layer_size_threshold(),
+        }
+    }
+}
+impl LayerSizes {
+    fn foreground(&self) -> Vec<u64> {
+        self.layer_sizes
+            .iter()
+            .filter(|&&size| size < self.background_layer_size_threshold)
+            .cloned()
+            .collect::<Vec<u64>>()
+    }
+
+    fn background(&self) -> Vec<u64> {
+        self.layer_sizes
+            .iter()
+            .filter(|&&size| size >= self.background_layer_size_threshold)
+            .cloned()
+            .collect::<Vec<u64>>()
+    }
+}
+
+/// Kick of a merge of the index.
+///
+/// First merge into the smaller layers in the foreground,
+/// then launch a background worker to merge down the larger layers.
+pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
+    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
+    let layer_sizes = LayerSizes::from(index_options);
+    let foreground_layers = layer_sizes.foreground();
+
+    // first merge down the foreground layers
+    let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
+    unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false, false) };
+
+    // then launch a background process to merge down the background layers
+    try_launch_background_merger(index_oid);
+}
+
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-pub unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
+unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
@@ -40,7 +86,7 @@ pub unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
         .enable_spi_access()
         .enable_shmem_access(None)
         .set_library("pg_search")
-        .set_function("do_merge")
+        .set_function("background_merge")
         .set_argument(index_oid.into_datum())
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
@@ -51,7 +97,7 @@ pub unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
 /// This function is called by the background worker.
 #[pg_guard]
 #[no_mangle]
-pub extern "C-unwind" fn do_merge(arg: pg_sys::Datum) {
+extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
     BackgroundWorker::transaction(|| {
@@ -72,40 +118,11 @@ pub extern "C-unwind" fn do_merge(arg: pg_sys::Datum) {
          */
         unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
 
-        // compute how big the largest segments should be to achieve the target segment count
-        // assuming the index consisted only of these largest segments
-        // let target_byte_size = {
-        //     let index_kind = IndexKind::for_index(index.clone()).unwrap();
-        //     let index_byte_size = index_kind
-        //         .partitions()
-        //         .map(|index| {
-        //             let segment_components =
-        //                 LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
-        //             let all_entries = unsafe { segment_components.list() };
-        //             all_entries
-        //                 .iter()
-        //                 .map(|entry| entry.byte_size())
-        //                 .sum::<u64>()
-        //         })
-        //         .sum::<u64>();
-        //     let target_segment_count = gucs::target_segment_count();
-        //     index_byte_size / target_segment_count as u64
-        // };
-
         let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
-        let mut layer_sizes = index_options.layer_sizes();
+        let layer_sizes = LayerSizes::from(index_options);
+        let background_layers = layer_sizes.background();
 
-        // if the uppermost layer is not big enough to create the target number of segments,
-        // add the `target_byte_size` as the uppermost layer
-        //
-        // we arbitrarily say that the `target_byte_size` must be at least 3x the size of the
-        // uppermost layer to avoid having two layers be too close together
-        // if target_byte_size > layer_sizes.iter().max().unwrap() * 3 {
-        //     // add the target byte size as the uppermost layer
-        //     layer_sizes.push(target_byte_size);
-        // }
-
-        let merge_policy = LayeredMergePolicy::new(layer_sizes);
+        let merge_policy = LayeredMergePolicy::new(background_layers);
         unsafe { merge_index_with_policy(&index, merge_policy, true, true, true) };
     });
 }

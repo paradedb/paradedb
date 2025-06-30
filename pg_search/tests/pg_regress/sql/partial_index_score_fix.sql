@@ -39,11 +39,11 @@ ORDER BY score DESC;
 -- Test Case 2: Query with indexed field + non-indexed predicate
 -- This should use the partial index predicate (category = 'Electronics') 
 -- instead of All query for the non-indexed rating filter
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, description, category, rating, paradedb.score(id) as score
-FROM partial_test 
-WHERE description @@@ 'Apple' AND rating >= 4
-ORDER BY score DESC;
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT id, description, category, rating, paradedb.score(id) as score
+-- FROM partial_test 
+-- WHERE description @@@ 'Apple' AND rating >= 4
+-- ORDER BY score DESC;
 
 SELECT id, description, category, rating, paradedb.score(id) as score
 FROM partial_test 

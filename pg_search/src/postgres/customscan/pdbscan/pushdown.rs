@@ -69,12 +69,12 @@ macro_rules! pushdown {
         let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
 
         if !is_complex(funcexpr.cast()) {
-            Some(Qual::PushdownExpr { funcexpr })
+            Qual::PushdownExpr { funcexpr }
         } else {
-            Some(Qual::Expr {
+            Qual::Expr {
                 node: funcexpr.cast(),
                 expr_state: std::ptr::null_mut(),
-            })
+            }
         }
     }};
 }
@@ -159,18 +159,15 @@ pub unsafe fn try_pushdown(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
-            if let Some(pushed_down_qual) = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs) {
-                // the `opexpr` is one we can pushdown
-                if (*var).varno as pg_sys::Index == rti {
-                    // and it's in this RTI, so we can use it directly
-                    Some(pushed_down_qual)
-                } else {
-                    // it's not in this RTI, which means it's in some other table due to a join, so
-                    // we need to indicate an arbitrary external var
-                    Some(Qual::ExternalVar)
-                }
+            let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);
+            // the `opexpr` is one we can pushdown
+            if (*var).varno as pg_sys::Index == rti {
+                // and it's in this RTI, so we can use it directly
+                Some(pushed_down_qual)
             } else {
-                None
+                // it's not in this RTI, which means it's in some other table due to a join, so
+                // we need to indicate an arbitrary external var
+                Some(Qual::ExternalVar)
             }
         },
         None => {

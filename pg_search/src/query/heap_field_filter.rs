@@ -1,6 +1,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::pg_sys;
+use pgrx::FromDatum;
 use serde::{Deserialize, Serialize};
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
@@ -155,12 +156,7 @@ impl HeapFieldFilter {
         let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
 
         // Convert the result to a boolean
-        let eval_result = if is_null {
-            false
-        } else {
-            // Convert PostgreSQL Datum to boolean
-            pg_sys::DatumGetBool(result)
-        };
+        let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
         pg_sys::FreeExprContext(econtext, false);

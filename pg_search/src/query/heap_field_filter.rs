@@ -279,35 +279,21 @@ impl IndexedWithHeapFilterScorer {
 
         // Position at the first valid document
         // For initialization, we need to check the current document first, then advance if needed
-        scorer.current_doc = scorer.find_first_valid_document();
+        scorer.find_first_valid_document();
 
         scorer
     }
 
-    fn find_first_valid_document(&mut self) -> DocId {
+    fn find_first_valid_document(&mut self) {
         // For initialization, check the current document first
-        let current_doc = self.indexed_scorer.doc();
+        self.current_doc = self.indexed_scorer.doc();
 
-        if current_doc != TERMINATED && self.passes_heap_filters(current_doc) {
-            return current_doc;
+        if self.current_doc != TERMINATED && self.passes_heap_filters(self.current_doc) {
+            return;
         }
 
         // If current document doesn't pass, advance to find the next valid one
-        self.advance_to_next_valid()
-    }
-
-    fn advance_to_next_valid(&mut self) -> DocId {
-        loop {
-            let doc = self.indexed_scorer.advance();
-
-            if doc == TERMINATED {
-                return TERMINATED;
-            }
-
-            if self.passes_heap_filters(doc) {
-                return doc;
-            }
-        }
+        self.advance();
     }
 
     fn passes_heap_filters(&self, doc_id: DocId) -> bool {
@@ -350,17 +336,19 @@ impl DocSet for IndexedWithHeapFilterScorer {
             let doc = self.indexed_scorer.advance();
 
             if doc == TERMINATED {
+                self.current_doc = TERMINATED;
                 return TERMINATED;
             }
 
             if self.passes_heap_filters(doc) {
+                self.current_doc = doc;
                 return doc;
             }
         }
     }
 
     fn doc(&self) -> DocId {
-        self.indexed_scorer.doc()
+        self.current_doc
     }
 
     fn size_hint(&self) -> u32 {

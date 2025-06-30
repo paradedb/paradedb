@@ -1,0 +1,295 @@
+[[server]]
+name = "Primary"
+[server.style.Automatic]
+
+[server.setup]
+sql = """
+DROP EXTENSION IF EXISTS pg_search CASCADE;
+DROP TABLE IF EXISTS test CASCADE;
+CREATE EXTENSION pg_search;
+
+CREATE OR REPLACE FUNCTION create_test_table_with_bm25_index(
+    table_name TEXT,
+    index_name TEXT
+) RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    EXECUTE format($fmt$
+        CREATE TABLE %I (
+            id SERIAL8 NOT NULL PRIMARY KEY,
+            message TEXT
+        );
+    $fmt$, table_name);
+
+    EXECUTE format($fmt$
+        INSERT INTO %I (message) VALUES
+            ('beer wine cheese a'),
+            ('beer wine a'),
+            ('beer cheese a'),
+            ('beer a'),
+            ('wine cheese a'),
+            ('wine a'),
+            ('cheese a'),
+            ('beer wine cheese a'),
+            ('beer wine a'),
+            ('beer cheese a'),
+            ('beer a'),
+            ('wine cheese a'),
+            ('wine a'),
+            ('cheese a');
+    $fmt$, table_name);
+
+    EXECUTE format(
+        'CREATE INDEX %I ON %I USING bm25(id, message) WITH (key_field = %L);',
+        index_name,
+        table_name,
+        'id'
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
+DECLARE
+    current_txid bigint;
+BEGIN
+    -- Get the current transaction ID
+    current_txid := txid_current();
+
+    -- Check if the values are not equal
+    IF a <> b THEN
+        RAISE EXCEPTION 'Assertion failed: % <> %. Transaction ID: %', a, b, current_txid;
+    END IF;
+
+    RETURN true;
+END;
+$$;
+
+SELECT create_test_table_with_bm25_index('test1', 'idx_test1');
+SELECT create_test_table_with_bm25_index('test2', 'idx_test2');
+SELECT create_test_table_with_bm25_index('test3', 'idx_test3');
+SELECT create_test_table_with_bm25_index('test4', 'idx_test4');
+SELECT create_test_table_with_bm25_index('test5', 'idx_test5');
+SELECT create_test_table_with_bm25_index('test6', 'idx_test6');
+SELECT create_test_table_with_bm25_index('test7', 'idx_test7');
+SELECT create_test_table_with_bm25_index('test8', 'idx_test8');
+SELECT create_test_table_with_bm25_index('test9', 'idx_test9');
+SELECT create_test_table_with_bm25_index('test10', 'idx_test10');
+SELECT create_test_table_with_bm25_index('test11', 'idx_test11');
+SELECT create_test_table_with_bm25_index('test12', 'idx_test12');
+
+"""
+
+[server.teardown]
+sql = """
+DROP EXTENSION pg_search CASCADE;
+"""
+
+[server.monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = [
+    "idx_test1_blocks", "idx_test1_segments",
+    "idx_test2_blocks", "idx_test2_segments",
+    "idx_test3_blocks", "idx_test3_segments",
+    "idx_test4_blocks", "idx_test4_segments",
+    "idx_test5_blocks", "idx_test5_segments",
+    "idx_test6_blocks", "idx_test6_segments",
+    "idx_test7_blocks", "idx_test7_segments",
+    "idx_test8_blocks", "idx_test8_segments",
+    "idx_test9_blocks", "idx_test9_segments",
+    "idx_test10_blocks", "idx_test10_segments",
+    "idx_test11_blocks", "idx_test11_segments",
+    "idx_test12_blocks", "idx_test12_segments"
+]
+
+# Combined query returning both columns
+sql = """
+WITH index_stats AS (
+    SELECT 'idx_test1' as idx_name, pg_relation_size('idx_test1') / current_setting('block_size')::int AS block_count,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test1')) AS segment_count
+    UNION ALL
+    SELECT 'idx_test2', pg_relation_size('idx_test2') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test2'))
+    UNION ALL
+    SELECT 'idx_test3', pg_relation_size('idx_test3') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test3'))
+    UNION ALL
+    SELECT 'idx_test4', pg_relation_size('idx_test4') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test4'))
+    UNION ALL
+    SELECT 'idx_test5', pg_relation_size('idx_test5') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test5'))
+    UNION ALL
+    SELECT 'idx_test6', pg_relation_size('idx_test6') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test6'))
+    UNION ALL
+    SELECT 'idx_test7', pg_relation_size('idx_test7') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test7'))
+    UNION ALL
+    SELECT 'idx_test8', pg_relation_size('idx_test8') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test8'))
+    UNION ALL
+    SELECT 'idx_test9', pg_relation_size('idx_test9') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test9'))
+    UNION ALL
+    SELECT 'idx_test10', pg_relation_size('idx_test10') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test10'))
+    UNION ALL
+    SELECT 'idx_test11', pg_relation_size('idx_test11') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test11'))
+    UNION ALL
+    SELECT 'idx_test12', pg_relation_size('idx_test12') / current_setting('block_size')::int,
+        (SELECT COUNT(*)::bigint FROM paradedb.index_info('idx_test12'))
+)
+SELECT
+    MAX(CASE WHEN idx_name = 'idx_test1' THEN block_count END) as idx_test1_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test1' THEN segment_count END) as idx_test1_segments,
+    MAX(CASE WHEN idx_name = 'idx_test2' THEN block_count END) as idx_test2_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test2' THEN segment_count END) as idx_test2_segments,
+    MAX(CASE WHEN idx_name = 'idx_test3' THEN block_count END) as idx_test3_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test3' THEN segment_count END) as idx_test3_segments,
+    MAX(CASE WHEN idx_name = 'idx_test4' THEN block_count END) as idx_test4_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test4' THEN segment_count END) as idx_test4_segments,
+    MAX(CASE WHEN idx_name = 'idx_test5' THEN block_count END) as idx_test5_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test5' THEN segment_count END) as idx_test5_segments,
+    MAX(CASE WHEN idx_name = 'idx_test6' THEN block_count END) as idx_test6_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test6' THEN segment_count END) as idx_test6_segments,
+    MAX(CASE WHEN idx_name = 'idx_test7' THEN block_count END) as idx_test7_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test7' THEN segment_count END) as idx_test7_segments,
+    MAX(CASE WHEN idx_name = 'idx_test8' THEN block_count END) as idx_test8_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test8' THEN segment_count END) as idx_test8_segments,
+    MAX(CASE WHEN idx_name = 'idx_test9' THEN block_count END) as idx_test9_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test9' THEN segment_count END) as idx_test9_segments,
+    MAX(CASE WHEN idx_name = 'idx_test10' THEN block_count END) as idx_test10_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test10' THEN segment_count END) as idx_test10_segments,
+    MAX(CASE WHEN idx_name = 'idx_test11' THEN block_count END) as idx_test11_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test11' THEN segment_count END) as idx_test11_segments,
+    MAX(CASE WHEN idx_name = 'idx_test12' THEN block_count END) as idx_test12_blocks,
+    MAX(CASE WHEN idx_name = 'idx_test12' THEN segment_count END) as idx_test12_segments
+FROM index_stats;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Custom Scan"
+log_tps = true
+on_connect = """
+SET enable_indexonlyscan to OFF;
+SET enable_indexscan to OFF;
+"""
+sql = """
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test1 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test2 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test3 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test4 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test5 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test6 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test7 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test8 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test9 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test10 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test11 where id @@@ 'message:cheese';
+SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test12 where id @@@ 'message:cheese';
+"""
+
+[[jobs]]
+refresh_ms = 25
+title = "Update random values"
+log_tps = true
+sql = """
+UPDATE test1
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test2
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test3
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test4
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test5
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test6
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test7
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test8
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test9
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test10
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test11
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+
+UPDATE test12
+SET message = substring(message FROM 1 FOR length(message)-1)
+              || chr((trunc(random() * 26) + 65)::int)
+WHERE id < 10;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Insert value"
+log_tps = true
+sql = """
+INSERT INTO test1 (message) VALUES ('test');
+INSERT INTO test2 (message) VALUES ('test');
+INSERT INTO test3 (message) VALUES ('test');
+INSERT INTO test4 (message) VALUES ('test');
+INSERT INTO test5 (message) VALUES ('test');
+INSERT INTO test6 (message) VALUES ('test');
+INSERT INTO test7 (message) VALUES ('test');
+INSERT INTO test8 (message) VALUES ('test');
+INSERT INTO test9 (message) VALUES ('test');
+INSERT INTO test10 (message) VALUES ('test');
+INSERT INTO test11 (message) VALUES ('test');
+INSERT INTO test12 (message) VALUES ('test');
+"""
+
+[[jobs]]
+refresh_ms = 10
+title = "Delete values"
+sql = """
+DELETE FROM test1 WHERE id > 14;
+DELETE FROM test2 WHERE id > 14;
+DELETE FROM test3 WHERE id > 14;
+DELETE FROM test4 WHERE id > 14;
+DELETE FROM test5 WHERE id > 14;
+DELETE FROM test6 WHERE id > 14;
+DELETE FROM test7 WHERE id > 14;
+DELETE FROM test8 WHERE id > 14;
+DELETE FROM test9 WHERE id > 14;
+DELETE FROM test10 WHERE id > 14;
+DELETE FROM test11 WHERE id > 14;
+DELETE FROM test12 WHERE id > 14;
+"""

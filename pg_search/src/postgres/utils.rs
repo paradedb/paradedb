@@ -335,7 +335,7 @@ pub fn resolve_base_type(oid: PgOid) -> Option<(PgOid, IsArray)> {
         oid.value()
     };
 
-    // check if its an array type
+    // check if it's an array type
     let array_type = PgOid::from(unsafe { pg_sys::get_element_type(base_oid) });
 
     match array_type {

@@ -163,8 +163,7 @@ impl ProximityWeight {
                         }
                         num_regex_terms += term_infos.len();
                         if num_regex_terms > *max_expansions {
-                            // we have more regex matches than our max_expansions
-                            // just stop maching regular expressions now
+                            // we have more regex matches than our max_expansions -- stop matching now
                             continue;
                             // return Err(TantivyError::InvalidArgument(format!(
                             //     "Regex ProximityClause(s) exceeded max expansions: {num_regex_terms} > {max_expansions}",

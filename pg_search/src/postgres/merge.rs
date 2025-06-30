@@ -74,23 +74,23 @@ pub extern "C-unwind" fn do_merge(arg: pg_sys::Datum) {
 
         // compute how big the largest segments should be to achieve the target segment count
         // assuming the index consisted only of these largest segments
-        let target_byte_size = {
-            let index_kind = IndexKind::for_index(index.clone()).unwrap();
-            let index_byte_size = index_kind
-                .partitions()
-                .map(|index| {
-                    let segment_components =
-                        LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
-                    let all_entries = unsafe { segment_components.list() };
-                    all_entries
-                        .iter()
-                        .map(|entry| entry.byte_size())
-                        .sum::<u64>()
-                })
-                .sum::<u64>();
-            let target_segment_count = gucs::target_segment_count();
-            index_byte_size / target_segment_count as u64
-        };
+        // let target_byte_size = {
+        //     let index_kind = IndexKind::for_index(index.clone()).unwrap();
+        //     let index_byte_size = index_kind
+        //         .partitions()
+        //         .map(|index| {
+        //             let segment_components =
+        //                 LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+        //             let all_entries = unsafe { segment_components.list() };
+        //             all_entries
+        //                 .iter()
+        //                 .map(|entry| entry.byte_size())
+        //                 .sum::<u64>()
+        //         })
+        //         .sum::<u64>();
+        //     let target_segment_count = gucs::target_segment_count();
+        //     index_byte_size / target_segment_count as u64
+        // };
 
         let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
         let mut layer_sizes = index_options.layer_sizes();
@@ -100,10 +100,10 @@ pub extern "C-unwind" fn do_merge(arg: pg_sys::Datum) {
         //
         // we arbitrarily say that the `target_byte_size` must be at least 3x the size of the
         // uppermost layer to avoid having two layers be too close together
-        if target_byte_size > layer_sizes.iter().max().unwrap() * 3 {
-            // add the target byte size as the uppermost layer
-            layer_sizes.push(target_byte_size);
-        }
+        // if target_byte_size > layer_sizes.iter().max().unwrap() * 3 {
+        //     // add the target byte size as the uppermost layer
+        //     layer_sizes.push(target_byte_size);
+        // }
 
         let merge_policy = LayeredMergePolicy::new(layer_sizes);
         unsafe { merge_index_with_policy(&index, merge_policy, true, true, true) };

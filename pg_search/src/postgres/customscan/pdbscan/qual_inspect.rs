@@ -764,34 +764,15 @@ unsafe fn opexpr(
 
         _ => {
             // it doesn't use our operator.
-            // Save the operator OID and node pointer before the move
-            let opno = opexpr.opno();
-            let opexpr_node = match &opexpr {
-                OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
-                OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
-            };
-
             // we'll try to convert it into a pushdown
-            let pushdown_result = try_pushdown(root, rti, opexpr, schema);
-            if pushdown_result.is_none() {
-                // Try to create a HeapExpr for non-indexed field comparisons
-                if contains_relation_reference(opexpr_node, rti) {
-                    let heap_expr = Qual::HeapExpr {
-                        expr_node: opexpr_node,
-                        expr_desc: format!("OpExpr with operator OID {opno}"),
-                        search_query_input: Box::new(SearchQueryInput::All),
-                    };
-                    *uses_tantivy_to_query = true;
-                    Some(heap_expr)
-                } else if convert_external_to_special_qual {
-                    Some(Qual::ExternalExpr)
-                } else {
-                    None
-                }
-            } else {
-                *uses_tantivy_to_query = true;
-                pushdown_result
-            }
+            try_pushdown_and_handle_result(
+                root,
+                rti,
+                opexpr,
+                schema,
+                uses_tantivy_to_query,
+                convert_external_to_special_qual,
+            )
         }
     }
 }
@@ -884,36 +865,55 @@ unsafe fn node_opexpr(
         }
     } else {
         // it doesn't use our operator.
-        // Save the operator OID and node pointer before the move
-        let opno = opexpr.opno();
-
-        // Save the node pointer before the move so we can recreate the OpExpr later
-        let opexpr_node = match &opexpr {
-            OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
-            OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
-        };
-
         // we'll try to convert it into a pushdown
-        let pushdown_result = try_pushdown(root, rti, opexpr, schema);
-        if pushdown_result.is_none() {
-            // Check if this expression references our relation
-            if contains_relation_reference(opexpr_node, rti) {
-                let heap_expr = Qual::HeapExpr {
-                    expr_node: opexpr_node,
-                    expr_desc: format!("OpExpr with operator OID {opno}"),
-                    search_query_input: Box::new(SearchQueryInput::All),
-                };
-                *uses_tantivy_to_query = true; // We do use search (with heap filtering)
-                Some(heap_expr)
-            } else if convert_external_to_special_qual {
-                Some(Qual::ExternalExpr)
-            } else {
-                None
-            }
+        try_pushdown_and_handle_result(
+            root,
+            rti,
+            opexpr,
+            schema,
+            uses_tantivy_to_query,
+            convert_external_to_special_qual,
+        )
+    }
+}
+
+unsafe fn try_pushdown_and_handle_result(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    opexpr: OpExpr,
+    schema: &SearchIndexSchema,
+    uses_tantivy_to_query: &mut bool,
+    convert_external_to_special_qual: bool,
+) -> Option<Qual> {
+    // Save the operator OID and node pointer before the move
+    let opno = opexpr.opno();
+
+    // Save the node pointer before the move so we can recreate the OpExpr later
+    let opexpr_node = match &opexpr {
+        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+    };
+
+    // we'll try to convert it into a pushdown
+    let pushdown_result = try_pushdown(root, rti, opexpr, schema);
+    if pushdown_result.is_none() {
+        // Check if this expression references our relation
+        if contains_relation_reference(opexpr_node, rti) {
+            let heap_expr = Qual::HeapExpr {
+                expr_node: opexpr_node,
+                expr_desc: format!("OpExpr with operator OID {opno}"),
+                search_query_input: Box::new(SearchQueryInput::All),
+            };
+            *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+            Some(heap_expr)
+        } else if convert_external_to_special_qual {
+            Some(Qual::ExternalExpr)
         } else {
-            *uses_tantivy_to_query = true;
-            pushdown_result
+            None
         }
+    } else {
+        *uses_tantivy_to_query = true;
+        pushdown_result
     }
 }
 
@@ -1097,21 +1097,7 @@ unsafe fn simplify_join_clause_for_relation(
     let input_type = (*node).type_;
 
     match (*node).type_ {
-        pg_sys::NodeTag::T_OpExpr => {
-            let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
-
-            // Check if this operation involves our current relation
-            if contains_relation_reference(node, current_rti) {
-                // Keep the original expression if it involves our relation
-                Some(node)
-            } else if contains_any_relation_reference(node) {
-                // Replace with TRUE if it only involves other relations
-                create_bool_const_true()
-            } else {
-                // Keep non-relation expressions (constants, etc.)
-                Some(node)
-            }
-        }
+        pg_sys::NodeTag::T_OpExpr => simplify_node_for_relation(node, current_rti),
 
         pg_sys::NodeTag::T_BoolExpr => {
             let boolexpr = nodecast!(BoolExpr, T_BoolExpr, node)?;
@@ -1175,16 +1161,24 @@ unsafe fn simplify_join_clause_for_relation(
             simplify_join_clause_for_relation(clause.cast(), current_rti)
         }
 
-        _ => {
-            // For other node types, check if they reference our relation
-            if contains_relation_reference(node, current_rti) {
-                Some(node)
-            } else if contains_any_relation_reference(node) {
-                create_bool_const_true()
-            } else {
-                Some(node)
-            }
-        }
+        _ => simplify_node_for_relation(node, current_rti),
+    }
+}
+
+unsafe fn simplify_node_for_relation(
+    node: *mut pg_sys::Node,
+    current_rti: pg_sys::Index,
+) -> Option<*mut pg_sys::Node> {
+    // Check if this operation involves our current relation
+    if contains_relation_reference(node, current_rti) {
+        // Keep the original expression if it involves our relation
+        Some(node)
+    } else if contains_any_relation_reference(node) {
+        // Replace with TRUE if it only involves other relations
+        create_bool_const_true()
+    } else {
+        // Keep non-relation expressions (constants, etc.)
+        Some(node)
     }
 }
 

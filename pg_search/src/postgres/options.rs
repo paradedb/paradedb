@@ -17,7 +17,6 @@
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::insert::DEFAULT_LAYER_SIZES;
 use crate::postgres::utils::extract_field_attributes;
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
@@ -46,6 +45,20 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 */
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
+
+#[allow(clippy::identity_op)]
+pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
+    100 * 1024,             // 100KB
+    1 * 1024 * 1024,        // 1MB
+    100 * 1024 * 1024,      // 100MB
+    1000 * 1024 * 1024,     // 1GB
+    10000 * 1024 * 1024,    // 10GB
+    100000 * 1024 * 1024,   // 100GB
+    1000000 * 1024 * 1024,  // 1TB
+    10000000 * 1024 * 1024, // 10TB
+];
+
+const DEFAULT_BACKGROUND_LAYER_SIZE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {
@@ -157,6 +170,18 @@ fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
     })
 }
 
+fn get_background_layer_size_threshold(s: &str) -> u64 {
+    unsafe {
+        u64::try_from(
+            direct_function_call::<i64>(pg_sys::pg_size_bytes, &[s.into_datum()])
+                .expect("`pg_size_bytes()` should not return NULL"),
+        )
+        .ok()
+        .filter(|b| b > &0)
+        .expect("`background_layer_size_threshold` must be greater than zero")
+    }
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -169,7 +194,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 10;
+const NUM_REL_OPTS: usize = 11;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -226,6 +251,14 @@ pub unsafe extern "C-unwind" fn amoptions(
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: offset_of!(SearchIndexOptionsData, target_segment_count) as i32,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "background_layer_size_threshold".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
+            offset: offset_of!(
+                SearchIndexOptionsData,
+                background_layer_size_threshold_offset
+            ) as i32,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -250,6 +283,7 @@ unsafe fn build_relopts(
 #[derive(Clone, Debug)]
 pub struct SearchIndexOptions {
     layer_sizes: Vec<u64>,
+    background_layer_size_threshold: u64,
     target_segment_count: Option<i32>,
     key_field_name: FieldName,
     text_configs: HashMap<FieldName, SearchFieldConfig>,
@@ -321,6 +355,7 @@ impl SearchIndexOptions {
 
         Self {
             layer_sizes: data.layer_sizes(),
+            background_layer_size_threshold: data.background_layer_size_threshold(),
             target_segment_count: data.target_segment_count(),
             key_field_name,
             text_configs,
@@ -336,6 +371,10 @@ impl SearchIndexOptions {
 
     pub fn layer_sizes(&self) -> Vec<u64> {
         self.layer_sizes.clone()
+    }
+
+    pub fn background_layer_size_threshold(&self) -> u64 {
+        self.background_layer_size_threshold
     }
 
     pub fn target_segment_count(&self) -> usize {
@@ -446,6 +485,7 @@ struct SearchIndexOptionsData {
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
+    background_layer_size_threshold_offset: i32,
 }
 
 impl SearchIndexOptionsData {
@@ -466,6 +506,17 @@ impl SearchIndexOptionsData {
             return DEFAULT_LAYER_SIZES.to_vec();
         }
         get_layer_sizes(&layer_sizes_str).collect()
+    }
+
+    pub fn background_layer_size_threshold(&self) -> u64 {
+        let background_layer_size_threshold_str = self.get_str(
+            self.background_layer_size_threshold_offset,
+            Default::default(),
+        );
+        if background_layer_size_threshold_str.trim().is_empty() {
+            return DEFAULT_BACKGROUND_LAYER_SIZE_THRESHOLD;
+        }
+        get_background_layer_size_threshold(&background_layer_size_threshold_str)
     }
 
     pub fn target_segment_count(&self) -> Option<i32> {

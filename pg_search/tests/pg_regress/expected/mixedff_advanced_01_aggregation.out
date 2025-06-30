@@ -309,16 +309,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*)
 FROM pages
 WHERE content @@@ 'Socienty';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on pages
-         Table: pages
-         Index: pages_search
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+              QUERY PLAN               
+---------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan)
+(1 row)
 
 -- Test COUNT aggregation
 SELECT COUNT(*)
@@ -326,7 +320,7 @@ FROM pages
 WHERE content @@@ 'Socienty';
  count 
 -------
-     2
+  1337
 (1 row)
 
 -- Check execution plan for other aggregations

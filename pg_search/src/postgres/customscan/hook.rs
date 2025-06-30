@@ -28,8 +28,6 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
     path.flags ^= Flags::Force as u32; // make sure to clear this flag because it's special to us
 
-    println!(">>> adding {path} for {rel:?}");
-
     let mut custom_path = PgMemoryContexts::CurrentMemoryContext
         .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
 

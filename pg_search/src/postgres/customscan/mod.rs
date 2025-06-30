@@ -26,16 +26,16 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
+pub mod aggregatescan;
 mod builders;
 mod dsm;
 mod exec;
+mod explainer;
 mod hook;
 mod path;
-mod scan;
-
-pub mod aggregatescan;
-mod explainer;
 pub mod pdbscan;
+mod range_table;
+mod scan;
 
 use crate::api::HashMap;
 use crate::postgres::customscan::exec::{
@@ -53,7 +53,8 @@ use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{register_rel_pathlist, register_upper_path};
 
-// TODO: This trait is never used as a trait, as far as I can tell.
+// TODO: This trait should be expanded to include a `reset` method, which would become the
+// default/only implementation of `rescan_custom_scan`.
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
 }
@@ -252,9 +253,11 @@ impl RelPathlistHookArgs {
 #[derive(Debug)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
+    #[allow(dead_code)]
     pub stage: pg_sys::UpperRelationKind::Type,
     pub input_rel: *mut pg_sys::RelOptInfo,
     pub output_rel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
     pub extra: *mut ::std::os::raw::c_void,
 }
 

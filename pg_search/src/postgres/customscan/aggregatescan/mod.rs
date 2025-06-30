@@ -28,8 +28,10 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::{
-    CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod, PlainExecCapable,
+    range_table, CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod,
+    PlainExecCapable,
 };
+use crate::postgres::rel_get_bm25_index;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 
@@ -43,6 +45,37 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+        let args = builder.args();
+
+        // We can only handle single-relation aggregates.
+        if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+            return None;
+        }
+
+        // Are there any group (/distinct/order-by) or having clauses?
+        if !args.root().group_pathkeys.is_null() || args.root().hasHavingQual {
+            // we can't handle GROUP BY or HAVING
+            return None;
+        }
+
+        // Is it an aggregate on a single relation?
+        if !is_single_relation_agg(args) {
+            return None;
+        }
+
+        // Does that relation have a bm25 index?
+        let parent_relids = args.input_rel().relids;
+        let rte_idx = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+        let rte = unsafe {
+            // NOTE: The docs indicate that `simple_rte_array` is always the same length as `simple_rel_array`.
+            range_table::get_rte(
+                args.root().simple_rel_array_size as usize,
+                args.root().simple_rte_array,
+                rte_idx,
+            )?
+        };
+        rel_get_bm25_index(unsafe { (*rte).relid })?;
+
         Some(builder.build())
     }
 
@@ -75,10 +108,7 @@ impl CustomScan for AggregateScan {
     fn create_custom_scan_state(
         builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        println!(">>> in `create_custom_scan_state`");
-        let built = builder.build();
-        println!(">>> in `create_custom_scan_state`: created `CustomScanStateWrapper`");
-        built
+        builder.build()
     }
 
     fn explain_custom_scan(
@@ -98,7 +128,7 @@ impl CustomScan for AggregateScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        todo!("TODO: rescan_custom_scan")
+        state.custom_state_mut().has_emitted = false;
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -138,6 +168,27 @@ impl CustomScan for AggregateScan {
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         println!("TODO: end_custom_scan")
+    }
+}
+
+fn is_single_relation_agg(args: &CreateUpperPathsHookArgs) -> bool {
+    // The PathTarget `exprs` are the closest that we have to a target list at this point.
+    let target_list =
+        unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
+    if target_list.len() != 1 {
+        return false;
+    }
+
+    // The single target list entry must be a `count(*)` (aggstar).
+    unsafe {
+        let expr = target_list
+            .iter_ptr()
+            .next()
+            .expect("target list is non-empty");
+        let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) else {
+            return false;
+        };
+        (*aggref).aggstar
     }
 }
 

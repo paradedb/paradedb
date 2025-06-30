@@ -10,3 +10,9 @@ EXPLAIN SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
  Custom Scan (ParadeDB Aggregate Scan)  (cost=0.00..0.00 rows=0 width=8)
 (1 row)
 
+SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
+ count 
+-------
+  1337
+(1 row)
+

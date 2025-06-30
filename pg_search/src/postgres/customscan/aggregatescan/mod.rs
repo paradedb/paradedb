@@ -31,7 +31,7 @@ use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod, PlainExecCapable,
 };
 
-use pgrx::{pg_sys, IntoDatum, PgList};
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -102,11 +102,38 @@ impl CustomScan for AggregateScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        todo!("TODO: exec_custom_scan")
+        if state.custom_state().has_emitted {
+            return std::ptr::null_mut();
+        }
+        state.custom_state_mut().has_emitted = true;
+
+        unsafe {
+            let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
+            let slot = pg_sys::MakeTupleTableSlot(
+                (*state.planstate()).ps_ResultTupleDesc,
+                &pg_sys::TTSOpsVirtual,
+            );
+            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+
+            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
+            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+            (*slot).tts_nvalid = natts as _;
+
+            let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+            let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+            // TODO: Actually execute.
+            for (i, att) in tupdesc.iter().enumerate() {
+                datums[i] = 1337.into_datum().unwrap();
+                isnull[i] = false;
+            }
+
+            slot
+        }
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        todo!("TODO: shutdown_custom_scan")
+        println!("TODO: shutdown_custom_scan")
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
@@ -150,7 +177,10 @@ impl ExecMethod for AggregateScan {
 impl PlainExecCapable for AggregateScan {}
 
 #[derive(Default)]
-pub struct AggregateScanState;
+pub struct AggregateScanState {
+    // True if we have already emitted a tuple.
+    has_emitted: bool,
+}
 
 impl CustomScanState for AggregateScanState {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {

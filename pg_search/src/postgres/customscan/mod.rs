@@ -53,6 +53,7 @@ use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_
 use crate::postgres::customscan::scan::create_custom_scan_state;
 pub use hook::{register_rel_pathlist, register_upper_path};
 
+// TODO: This trait is never used as a trait, as far as I can tell.
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
 }

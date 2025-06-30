@@ -63,6 +63,21 @@ impl LayerSizes {
 /// then launch a background worker to merge down the larger layers.
 pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
     let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    let heaprel = index
+        .heap_relation()
+        .expect("index should belong to a heap relation");
+
+    /*
+     * Recompute VACUUM XID boundaries.
+     *
+     * We don't actually care about the oldest non-removable XID.  Computing
+     * the oldest such XID has a useful side-effect that we rely on: it
+     * forcibly updates the XID horizon state for this backend.  This step is
+     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+     * that it is now safe to recycle newly deleted pages without this step.
+     */
+    unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
+
     let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
     let layer_sizes = LayerSizes::from(index_options);
     let foreground_layers = layer_sizes.foreground();
@@ -103,26 +118,11 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::transaction(|| {
         let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
-        let heaprel = index
-            .heap_relation()
-            .expect("index should belong to a heap relation");
-
-        /*
-         * Recompute VACUUM XID boundaries.
-         *
-         * We don't actually care about the oldest non-removable XID.  Computing
-         * the oldest such XID has a useful side-effect that we rely on: it
-         * forcibly updates the XID horizon state for this backend.  This step is
-         * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-         * that it is now safe to recycle newly deleted pages without this step.
-         */
-        unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
-
         let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
         let layer_sizes = LayerSizes::from(index_options);
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);
-        unsafe { merge_index_with_policy(&index, merge_policy, true, true, true) };
+        unsafe { merge_index_with_policy(&index, merge_policy, false, true, true) };
     });
 }

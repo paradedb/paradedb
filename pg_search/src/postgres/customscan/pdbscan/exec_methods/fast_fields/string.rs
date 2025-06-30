@@ -35,7 +35,6 @@ use pgrx::pg_sys::CustomScanState;
 use pgrx::IntoDatum;
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
-use tantivy::query::Query;
 use tantivy::schema::Schema;
 use tantivy::termdict::TermOrdinal;
 use tantivy::{DocAddress, Executor, SegmentOrdinal};
@@ -73,12 +72,7 @@ impl ExecMethod for StringFastFieldExecState {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
                 let searcher = StringAggSearcher(state.search_reader.as_ref().unwrap());
-                self.search_results = searcher.string_agg_by_segment(
-                    state.need_scores(),
-                    state.search_query_input(),
-                    &self.field,
-                    segment_id,
-                );
+                self.search_results = searcher.string_agg_by_segment(&self.field, segment_id);
                 return true;
             }
 
@@ -243,13 +237,13 @@ impl StringAggSearcher<'_> {
             field: field.into(),
         };
 
-        let query = self.0.query(query);
+        let query = self.0.query();
         let schema = Schema::from(self.0.schema().clone());
         let results = self
             .0
             .searcher()
             .search_with_executor(
-                &query,
+                query,
                 &collector,
                 &Executor::SingleThread,
                 if need_scores {
@@ -269,13 +263,7 @@ impl StringAggSearcher<'_> {
         StringAggResults::new(results)
     }
 
-    pub fn string_agg_by_segment(
-        &self,
-        need_scores: bool,
-        query: &SearchQueryInput,
-        field: &str,
-        segment_id: SegmentId,
-    ) -> StringAggResults {
+    pub fn string_agg_by_segment(&self, field: &str, segment_id: SegmentId) -> StringAggResults {
         let (segment_ord, segment_reader) = self
             .0
             .segment_readers()
@@ -284,25 +272,10 @@ impl StringAggSearcher<'_> {
             .find(|(_, reader)| reader.segment_id() == segment_id)
             .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
         let collector = term_ord_collector::TermOrdCollector {
-            need_scores,
+            need_scores: self.0.need_scores(),
             field: field.into(),
         };
-        let schema = Schema::from(self.0.schema().clone());
-        let weight = self
-            .0
-            .query(query)
-            .weight(if need_scores {
-                tantivy::query::EnableScoring::Enabled {
-                    searcher: self.0.searcher(),
-                    statistics_provider: self.0.searcher(),
-                }
-            } else {
-                tantivy::query::EnableScoring::Disabled {
-                    schema: &schema,
-                    searcher_opt: Some(self.0.searcher()),
-                }
-            })
-            .expect("weight should be constructable");
+        let weight = self.0.weight();
 
         let results = collector
             .collect_segment(

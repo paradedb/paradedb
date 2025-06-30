@@ -123,7 +123,6 @@ pub enum ExecMethodType {
         heaprelid: pg_sys::Oid,
         limit: usize,
         sort_direction: SortDirection,
-        need_scores: bool,
     },
     FastFieldString {
         field: String,

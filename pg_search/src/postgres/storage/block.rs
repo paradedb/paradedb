@@ -130,11 +130,6 @@ pub trait LinkedList {
         last_blockno
     }
 
-    fn npages(&self) -> u32 {
-        let buffer = self.bman().get_buffer(self.get_header_blockno());
-        buffer.page().contents::<LinkedListData>().npages - 1
-    }
-
     fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber>;
 
     ///

@@ -20,6 +20,7 @@ use pgrx::{
     function_name, pg_sys, GucContext, GucFlags, GucRegistry, GucSetting, PgLogLevel,
     PgSqlErrorCode,
 };
+use std::ffi::CStr;
 use std::num::NonZeroUsize;
 
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
@@ -39,8 +40,8 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// generally costs one. But with a wide enough row, fetching multiple columns might still result
 /// in better cache performance than fetching a row.
 static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i32>::new(3);
-static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &str =
-    "paradedb.mixed_fast_field_exec_column_threshold";
+static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
+    c"paradedb.mixed_fast_field_exec_column_threshold";
 
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
@@ -62,27 +63,27 @@ pub fn init() {
     // They must be namespaced... we use 'paradedb.<variable>' below.
 
     GucRegistry::define_bool_guc(
-        "paradedb.enable_custom_scan",
-        "Enable ParadeDB's custom scan",
-        "Enable ParadeDB's custom scan",
+        c"paradedb.enable_custom_scan",
+        c"Enable ParadeDB's custom scan",
+        c"Enable ParadeDB's custom scan",
         &ENABLE_CUSTOM_SCAN,
         GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_bool_guc(
-        "paradedb.enable_fast_field_exec",
-        "Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
-        "Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string fast field or multiple numeric fast fields",
+        c"paradedb.enable_fast_field_exec",
+        c"Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
+        c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string fast field or multiple numeric fast fields",
         &ENABLE_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
     );
 
     GucRegistry::define_bool_guc(
-        "paradedb.enable_mixed_fast_field_exec",
-        "Enable MixedFastFieldExecState executor",
-        "Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
+        c"paradedb.enable_mixed_fast_field_exec",
+        c"Enable MixedFastFieldExecState executor",
+        c"Enable the MixedFastFieldExecState executor for handling multiple string fast fields or mixed string/numeric fast fields",
         &ENABLE_MIXED_FAST_FIELD_EXEC,
         GucContext::Userset,
         GucFlags::default(),
@@ -90,8 +91,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME,
-        "Threshold of fetched columns below which MixedFastFieldExecState will be used.",
-        "The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
+        c"Threshold of fetched columns below which MixedFastFieldExecState will be used.",
+        c"The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather \
          than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas \
          the Normal mode fetches data as row-oriented.",
         &MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD,
@@ -102,9 +103,9 @@ pub fn init() {
     );
 
     GucRegistry::define_float_guc(
-        "paradedb.per_tuple_cost",
-        "Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
-        "Default is 100,000,000.0.  It is very expensive to use a USING bm25 index in the wrong query plan",
+        c"paradedb.per_tuple_cost",
+        c"Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
+        c"Default is 100,000,000.0.  It is very expensive to use a USING bm25 index in the wrong query plan",
         &PER_TUPLE_COST,
         0.0,
         f64::MAX,
@@ -130,7 +131,12 @@ pub fn mixed_fast_field_exec_column_threshold() -> usize {
         .get()
         .try_into()
         .unwrap_or_else(|e| {
-            panic!("{MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME} must be positive. {e}");
+            panic!(
+                "{} must be positive. {e}",
+                MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME
+                    .to_str()
+                    .unwrap()
+            );
         })
 }
 

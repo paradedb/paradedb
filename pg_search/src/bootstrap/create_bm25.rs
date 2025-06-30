@@ -212,19 +212,15 @@ fn index_info(
 #[pg_extern]
 fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-
-    let search_index = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
     let ctid_u64 = item_pointer_to_u64(ctid);
-    let results = search_index.search(
-        false,
-        false,
-        &SearchQueryInput::Term {
-            field: Some("ctid".into()),
-            value: ctid_u64.into(),
-            is_datetime: false,
-        },
-        None,
-    );
+    let query = SearchQueryInput::Term {
+        field: Some("ctid".into()),
+        value: ctid_u64.into(),
+        is_datetime: false,
+    };
+    let search_index =
+        SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot, None)?;
+    let results = search_index.search(None);
 
     let results = results
         .map(|(_, doc_address)| {
@@ -258,7 +254,7 @@ fn validate_checksum(index: PgRelation) -> Result<SetOfIterator<'static, String>
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
 
     // open the specified index
-    let search_reader = SearchIndexReader::open(&index, MvccSatisfies::Snapshot)?;
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)?;
 
     let failed = search_reader.validate_checksum()?;
     Ok(SetOfIterator::new(

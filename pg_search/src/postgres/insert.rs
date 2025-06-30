@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -250,7 +250,7 @@ pub unsafe fn merge_index_with_policy(
     let cleanup_lock = BufferManager::new(indexrel).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrel);
     let merge_lock = metadata.acquire_merge_lock();
-    let directory = MVCCDirectory::mergeable(indexrel);
+    let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let merger =
         SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
     let merger_segment_ids = merger

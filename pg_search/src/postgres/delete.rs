@@ -19,7 +19,7 @@ use pgrx::{pg_sys::ItemPointerData, *};
 
 use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
-use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
@@ -70,7 +70,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     );
     drop(cleanup_lock);
 
-    let reader = SearchIndexReader::open(&index_relation, MvccSatisfies::Vacuum)
+    let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)
         .expect("ambulkdelete: should be able to open a SearchIndexReader");
     let writer_segment_ids = reader.segment_ids();
 
@@ -160,7 +160,7 @@ impl SegmentDeleter {
         let delete_queue = DeleteQueue::new();
         let delete_cursor = delete_queue.cursor();
 
-        let directory = MVCCDirectory::vacuum(index_relation);
+        let directory = MvccSatisfies::Vacuum.directory(index_relation);
         let index = Index::open(directory)?;
         let searchable_segment_metas = index.searchable_segment_metas()?;
         let segment_meta = searchable_segment_metas

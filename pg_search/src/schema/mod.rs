@@ -21,8 +21,9 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::index::mvcc::MVCCDirectory;
+use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::utils::resolve_base_type;
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
@@ -91,12 +92,8 @@ impl SearchFieldType {
 impl TryFrom<&PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
-        let array_type = unsafe { pg_sys::get_element_type(pg_oid.value()) };
-        let base_oid = if array_type != pg_sys::InvalidOid {
-            PgOid::from(array_type)
-        } else {
-            *pg_oid
-        };
+        let (base_oid, _) = resolve_base_type(*pg_oid)
+            .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
@@ -158,9 +155,13 @@ impl SearchIndexSchema {
     }
 
     pub fn open(indexrel: &PgSearchRelation) -> Result<Self> {
-        let directory = MVCCDirectory::snapshot(indexrel);
+        let directory = MvccSatisfies::Snapshot.directory(indexrel);
         let index = Index::open(directory)?;
         Ok(Self::from_index(indexrel, &index))
+    }
+
+    pub fn tantivy_schema(&self) -> &Schema {
+        &self.schema
     }
 
     pub fn ctid_field(&self) -> Field {

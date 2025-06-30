@@ -708,7 +708,7 @@ unsafe fn opexpr(
         lhs = (*relabel_type).arg as _;
     }
 
-    let result = match (*lhs).type_ {
+    match (*lhs).type_ {
         pg_sys::NodeTag::T_Var => node_opexpr(
             root,
             rti,
@@ -762,24 +762,38 @@ unsafe fn opexpr(
             convert_external_to_special_qual,
         ),
 
-        _ => None,
-    };
+        _ => {
+            // it doesn't use our operator.
+            // Save the operator OID and node pointer before the move
+            let opno = opexpr.opno();
+            let opexpr_node = match &opexpr {
+                OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
+                OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
+            };
 
-    // If the normal processing didn't return a result, try to create a HeapExpr as fallback
-    // Check if this expression references our relation
-    if result.is_none() && contains_relation_reference(opexpr_node, rti) {
-        let opno = unsafe { (*opexpr_node.cast::<pg_sys::OpExpr>()).opno };
-        let heap_expr = Qual::HeapExpr {
-            expr_node: opexpr_node,
-            expr_desc: format!("Non-pushable expression with operator OID {opno}"),
-            search_query_input: Box::new(SearchQueryInput::All),
-        };
-
-        *uses_tantivy_to_query = true; // We do use search (with heap filtering)
-        return Some(heap_expr);
+            // we'll try to convert it into a pushdown
+            let pushdown_result = try_pushdown(root, rti, opexpr, schema);
+            if pushdown_result.is_none() {
+                // Try to create a HeapExpr for non-indexed field comparisons
+                if contains_relation_reference(opexpr_node, rti) {
+                    let heap_expr = Qual::HeapExpr {
+                        expr_node: opexpr_node,
+                        expr_desc: format!("OpExpr with operator OID {opno}"),
+                        search_query_input: Box::new(SearchQueryInput::All),
+                    };
+                    *uses_tantivy_to_query = true;
+                    Some(heap_expr)
+                } else if convert_external_to_special_qual {
+                    Some(Qual::ExternalExpr)
+                } else {
+                    None
+                }
+            } else {
+                *uses_tantivy_to_query = true;
+                pushdown_result
+            }
+        }
     }
-
-    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -833,6 +847,7 @@ unsafe fn node_opexpr(
                 // we'll try to convert it into a pushdown
                 let result = try_pushdown(root, rti, opexpr, schema);
                 if result.is_none() {
+                    // Try to create a HeapExpr for non-indexed field comparisons
                     if convert_external_to_special_qual {
                         return Some(Qual::ExternalExpr);
                     } else {
@@ -881,11 +896,6 @@ unsafe fn node_opexpr(
         // we'll try to convert it into a pushdown
         let pushdown_result = try_pushdown(root, rti, opexpr, schema);
         if pushdown_result.is_none() {
-            // Try to create a HeapExpr for non-indexed field comparisons
-            // We need the relation OID - get it from the range table
-            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-            let relation_oid = (*rte).relid;
-
             // Check if this expression references our relation
             if contains_relation_reference(opexpr_node, rti) {
                 let heap_expr = Qual::HeapExpr {
@@ -893,7 +903,6 @@ unsafe fn node_opexpr(
                     expr_desc: format!("OpExpr with operator OID {opno}"),
                     search_query_input: Box::new(SearchQueryInput::All),
                 };
-
                 *uses_tantivy_to_query = true; // We do use search (with heap filtering)
                 Some(heap_expr)
             } else if convert_external_to_special_qual {

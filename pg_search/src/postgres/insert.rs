@@ -202,13 +202,6 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
     }
 }
 
-#[allow(clippy::identity_op)]
-pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
-    100 * 1024,        // 100KB
-    1 * 1024 * 1024,   // 1MB
-    100 * 1024 * 1024, // 100MB
-];
-
 pub unsafe fn merge_index_with_policy(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,

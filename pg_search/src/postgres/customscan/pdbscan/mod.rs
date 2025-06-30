@@ -245,7 +245,7 @@ impl PdbScan {
             if uses_tantivy_to_query || join_uses_tantivy_to_query {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
-                (quals, ri_type, restrict_info)
+                (None, ri_type, restrict_info)
             }
         } else {
             (quals, ri_type, restrict_info)

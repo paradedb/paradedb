@@ -399,6 +399,16 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
+
+            // Check if this is a partial index and if the query is compatible with it
+            if !bm25_index.rd_indpred.is_null() {
+                // This is a partial index - we need to check if the query can be satisfied by it
+                if !is_query_compatible_with_partial_index(&quals, &bm25_index, root, rti) {
+                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                    return None;
+                }
+            }
+
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
@@ -1656,4 +1666,43 @@ fn is_range_query_string(query_string: &str) -> bool {
         || query_string.trim_start().starts_with("<=")
         || query_string.contains("..")  // Range syntax like "1..10"
         || query_string.contains(" TO ") // Range syntax like "1 TO 10"
+}
+
+/// Check if a query can be satisfied by a partial index
+///
+/// For a partial index with predicate like "WHERE category = 'Electronics'",
+/// a query like "WHERE description = 'Product 3'" cannot be satisfied because
+/// Product 3 might have category = 'Footwear' and thus wouldn't be in the index.
+///
+/// This function implements a conservative approach: if the query contains any
+/// non-indexed predicates that could filter out rows that match the partial index
+/// predicate, we cannot use the partial index.
+unsafe fn is_query_compatible_with_partial_index(
+    quals: &Qual,
+    bm25_index: &PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+) -> bool {
+    // For now, implement a simple heuristic:
+    // If the query contains HeapExpr (non-indexed predicates), and this is a partial index,
+    // we cannot guarantee the query can be satisfied by the partial index alone.
+    //
+    // TODO(@mdashti): A more sophisticated implementation would:
+    // 1. Parse the partial index predicate from bm25_index.rd_indpred
+    // 2. Check if the query predicates are compatible with the partial index predicate
+    // 3. Use PostgreSQL's constraint exclusion logic
+    //
+    // For now, we use a conservative approach to fix the immediate bug.
+
+    !contains_heap_expr(quals)
+}
+
+/// Check if a Qual contains any HeapExpr (non-indexed predicates)
+fn contains_heap_expr(qual: &Qual) -> bool {
+    match qual {
+        Qual::HeapExpr { .. } => true,
+        Qual::Not(inner) => contains_heap_expr(inner),
+        Qual::And(quals) | Qual::Or(quals) => quals.iter().any(contains_heap_expr),
+        _ => false,
+    }
 }

@@ -92,7 +92,7 @@ pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
+pub unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();

@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
-};
+use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
-use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
+use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
 use anyhow::Result;
 use pgrx::pg_sys::BlockNumber;
 use pgrx::{check_for_interrupts, pg_sys};
@@ -79,6 +77,9 @@ pub struct LinkedBytesListWriter {
 
 impl LinkedBytesListWriter {
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
@@ -251,7 +252,21 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create(rel: &PgSearchRelation) -> Self {
+    pub unsafe fn create_direct(rel: pg_sys::Relation) -> pg_sys::BlockNumber {
+        let (mut header_buffer, mut start_buffer) = (init_new_buffer(rel), init_new_buffer(rel));
+        let header_blockno = header_buffer.number();
+        let start_blockno = start_buffer.number();
+
+        let mut header_page = header_buffer.page_mut();
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.start_blockno = start_blockno;
+        metadata.last_blockno = start_blockno;
+        metadata.npages = 1;
+        metadata.blocklist_start = pg_sys::InvalidBlockNumber;
+
+        header_blockno
+    }
+    pub fn create(rel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
@@ -314,10 +329,6 @@ impl LinkedBytesList {
         for starting_blockno in [metadata.start_blockno, metadata.blocklist_start] {
             let mut blockno = starting_blockno;
             while blockno != pg_sys::InvalidBlockNumber {
-                debug_assert!(
-                    FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                    "mark_deleted:  blockno {blockno} cannot ever be recycled"
-                );
                 let mut buffer = self.bman.get_buffer_mut(blockno);
                 let page = buffer.page_mut();
                 let special = page.special::<BM25PageSpecialData>();

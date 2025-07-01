@@ -169,10 +169,11 @@ impl SerialIndexWriter {
         &self.schema
     }
 
-    pub fn insert(
+    pub fn insert<OnFinalize: FnOnce()>(
         &mut self,
         mut document: TantivyDocument,
         ctid: u64,
+        on_finalize: OnFinalize,
     ) -> Result<Option<SegmentMeta>> {
         document.add_u64(self.ctid_field, ctid);
 
@@ -199,7 +200,7 @@ impl SerialIndexWriter {
                 self.config.memory_budget.get(),
                 self.new_metas.len()
             );
-            return self.finalize_segment();
+            return self.finalize_segment(on_finalize);
         }
 
         if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
@@ -211,7 +212,7 @@ impl SerialIndexWriter {
                     max_doc,
                     self.new_metas.len()
                 );
-                return self.finalize_segment();
+                return self.finalize_segment(on_finalize);
             }
         }
 
@@ -219,7 +220,7 @@ impl SerialIndexWriter {
     }
 
     pub fn commit(mut self) -> Result<Option<(SegmentMeta, PgSearchRelation)>> {
-        self.finalize_segment()
+        self.finalize_segment(|| {})
             .map(|segment_meta| segment_meta.map(|segment_meta| (segment_meta, self.indexrel)))
     }
 
@@ -244,13 +245,17 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
-    fn finalize_segment(&mut self) -> Result<Option<SegmentMeta>> {
+    fn finalize_segment<OnFinalize: FnOnce()>(
+        &mut self,
+        on_finalize: OnFinalize,
+    ) -> Result<Option<SegmentMeta>> {
         pgrx::debug1!("writer {}: finalizing segment", self.id);
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(None);
         };
 
+        on_finalize();
         let finalized_segment = pending_segment.finalize()?;
         Ok(Some(self.commit_segment(finalized_segment)?))
     }
@@ -427,7 +432,7 @@ mod tests {
             let mut document = TantivyDocument::new();
             document.add_text(text_field, "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor.");
             document.add_u64(ctid_field, i as u64);
-            if let Some(meta) = writer.insert(document, i as u64).unwrap() {
+            if let Some(meta) = writer.insert(document, i as u64, || {}).unwrap() {
                 segment_ids.insert(meta.id());
             }
         }

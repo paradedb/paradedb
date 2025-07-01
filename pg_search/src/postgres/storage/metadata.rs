@@ -17,9 +17,10 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
+    block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry,
 };
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
+use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
@@ -50,6 +51,15 @@ pub struct MetaPageData {
 
     /// Merge lock block number
     merge_lock: pg_sys::BlockNumber,
+
+    // these blocks used to be global constants but no longer are
+    cleanup_lock: pg_sys::BlockNumber,
+    schema_start: pg_sys::BlockNumber,
+    settings_start: pg_sys::BlockNumber,
+    segment_metas_start: pg_sys::BlockNumber,
+
+    /// The block where our FSM starts
+    fsm: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -60,49 +70,100 @@ pub struct MetaPage {
     bman: BufferManager,
 }
 
+const METAPAGE: pg_sys::BlockNumber = 0;
+
 impl MetaPage {
-    pub unsafe fn open(indexrel: &PgSearchRelation) -> Self {
+    pub unsafe fn init(indexrel: pg_sys::Relation) {
+        let mut buffer = init_new_buffer(indexrel);
+        assert_eq!(
+            buffer.number(),
+            0,
+            "the MetaPage must be initialized to block 0"
+        );
+        let mut page = buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+
+        unsafe {
+            // NB:  don't initialize `create_index_list`
+            metadata.active_vacuum_list = init_new_buffer(indexrel).number();
+            metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
+            metadata.segment_meta_garbage =
+                LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+            metadata.merge_lock = init_new_buffer(indexrel).number();
+            metadata.fsm = FreeSpaceManager::init(indexrel);
+
+            metadata.cleanup_lock = init_new_buffer(indexrel).number();
+            metadata.schema_start = LinkedBytesList::create_direct(indexrel);
+            metadata.settings_start = LinkedBytesList::create_direct(indexrel);
+            metadata.segment_metas_start =
+                LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+        }
+    }
+
+    pub fn open(indexrel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(indexrel);
-        let buffer = bman.get_buffer(METADATA);
+        let buffer = bman.get_buffer(METAPAGE);
         let page = buffer.page();
         let metadata = page.contents::<MetaPageData>();
 
         // Skip create_index_list because it doesn't need to be initialized yet
+        //
+        // also skip:
+        //      - cleanup_lock
+        //      - schema_start
+        //      - settings_start
+        //      - segment_metas_start
+        //
+        // These will have either been initialized in `MetaPage::init()` or known to be
+        // our old hardcoded values
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.segment_meta_garbage)
-            || !block_number_is_valid(metadata.merge_lock);
+            || !block_number_is_valid(metadata.merge_lock)
+            || !block_number_is_valid(metadata.fsm);
 
         drop(buffer);
 
         // If any of the fields are not initialized, we need to initialize them
         // We swap our share lock for an exclusive lock
         if may_need_init {
-            let mut buffer = bman.get_buffer_mut(METADATA);
+            let mut buffer = bman.get_buffer_mut(METAPAGE);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
+            let indexrel = indexrel.as_ptr();
 
-            if !block_number_is_valid(metadata.active_vacuum_list) {
-                metadata.active_vacuum_list = new_buffer_and_init_page(indexrel);
+            unsafe {
+                if !block_number_is_valid(metadata.active_vacuum_list) {
+                    metadata.active_vacuum_list = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
+                    metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.segment_meta_garbage) {
+                    metadata.segment_meta_garbage =
+                        LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+                }
+
+                if !block_number_is_valid(metadata.merge_lock) {
+                    metadata.merge_lock = init_new_buffer(indexrel).number();
+                }
+
+                if !block_number_is_valid(metadata.fsm) {
+                    metadata.fsm = FreeSpaceManager::init(indexrel);
+                }
             }
 
-            if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
-                metadata.ambulkdelete_sentinel = new_buffer_and_init_page(indexrel);
+            Self {
+                data: *metadata,
+                bman,
             }
-
-            if !block_number_is_valid(metadata.segment_meta_garbage) {
-                metadata.segment_meta_garbage =
-                    LinkedItemList::<SegmentMetaEntry>::create(indexrel).get_header_blockno();
+        } else {
+            Self {
+                data: metadata,
+                bman,
             }
-
-            if !block_number_is_valid(metadata.merge_lock) {
-                metadata.merge_lock = new_buffer_and_init_page(indexrel);
-            }
-        }
-
-        Self {
-            data: bman.get_buffer(METADATA).page().contents::<MetaPageData>(),
-            bman,
         }
     }
 
@@ -162,24 +223,53 @@ impl MetaPage {
             })
             .collect()
     }
+
+    pub fn fsm(&self) -> pg_sys::BlockNumber {
+        assert!(block_number_is_valid(self.data.fsm));
+        self.data.fsm
+    }
 }
 
-/// For actions that dirty the metadata page -- takes an exclusive lock on the metadata page
-/// and holds it until `MetaPageMut` is dropped.
-pub struct MetaPageMut {
-    buffer: BufferMut,
-    bman: BufferManager,
-}
+// legacy hardcoded page support for various index objects
+impl MetaPage {
+    const LEGACY_CLEANUP_LOCK: pg_sys::BlockNumber = 1;
+    const LEGACY_SCHEMA_START: pg_sys::BlockNumber = 2;
+    const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
+    const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-impl MetaPageMut {
-    pub fn new(indexrel: &PgSearchRelation) -> Self {
-        let mut bman = BufferManager::new(indexrel);
-        let buffer = bman.get_buffer_mut(METADATA);
-        Self { buffer, bman }
+    pub fn cleanup_lock(&self) -> PinnedBuffer {
+        let blockno = (self.data.cleanup_lock == 0)
+            .then_some(Self::LEGACY_CLEANUP_LOCK)
+            .unwrap_or(self.data.cleanup_lock);
+        self.bman.pinned_buffer(blockno)
     }
 
-    pub unsafe fn record_create_index_segment_ids(
-        mut self,
+    pub fn schema_bytes(&self) -> LinkedBytesList {
+        let blockno = (self.data.schema_start == 0)
+            .then_some(Self::LEGACY_SCHEMA_START)
+            .unwrap_or(self.data.schema_start);
+        LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
+    }
+
+    pub fn settings_bytes(&self) -> LinkedBytesList {
+        let blockno = (self.data.settings_start == 0)
+            .then_some(Self::LEGACY_SETTINGS_START)
+            .unwrap_or(self.data.settings_start);
+        LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
+    }
+
+    pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {
+        let blockno = (self.data.segment_metas_start == 0)
+            .then_some(Self::LEGACY_SEGMENT_METAS_START)
+            .unwrap_or(self.data.segment_metas_start);
+        LinkedItemList::<SegmentMetaEntry>::open(self.bman.bm25cache().rel(), blockno)
+    }
+}
+
+// mutable MetaPage operations
+impl MetaPage {
+    pub fn record_create_index_segment_ids(
+        &mut self,
         segment_ids: impl IntoIterator<Item = SegmentId>,
     ) -> anyhow::Result<()> {
         let segment_id_bytes = segment_ids
@@ -188,25 +278,16 @@ impl MetaPageMut {
             .collect::<Vec<_>>();
         let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
         let mut writer = segment_ids_list.writer();
-        writer.write(&segment_id_bytes)?;
+        unsafe {
+            writer.write(&segment_id_bytes)?;
+        }
         let segment_ids_list = writer.into_inner()?;
 
-        let mut page = self.buffer.page_mut();
+        let mut buffer = self.bman.get_buffer_mut(METAPAGE);
+        let mut page = buffer.page_mut();
         let metadata = page.contents_mut::<MetaPageData>();
         metadata.create_index_list = segment_ids_list.get_header_blockno();
 
         Ok(())
     }
-}
-
-#[inline(always)]
-fn new_buffer_and_init_page(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
-    let mut bman = BufferManager::new(indexrel);
-    let mut start_buffer = bman.new_buffer();
-    let mut start_page = start_buffer.init_page();
-
-    let special = start_page.special_mut::<BM25PageSpecialData>();
-    special.next_blockno = pg_sys::InvalidBlockNumber;
-
-    start_buffer.number()
 }

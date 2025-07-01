@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{BufferManager, BufferMut};
+use super::buffer::{init_new_buffer, BufferManager, BufferMut};
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -90,6 +90,22 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             bman: BufferManager::new(indexrel),
             _marker: std::marker::PhantomData,
         }
+    }
+
+    pub unsafe fn create_direct(indexrel: pg_sys::Relation) -> pg_sys::BlockNumber {
+        let mut header_buffer = init_new_buffer(indexrel);
+        let mut start_buffer = init_new_buffer(indexrel);
+
+        let header_blockno = header_buffer.number();
+        let start_blockno = start_buffer.number();
+
+        let mut header_page = header_buffer.page_mut();
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.start_blockno = start_blockno;
+        metadata.last_blockno = start_blockno;
+        metadata.npages = 0;
+
+        header_blockno
     }
 
     pub fn create(indexrel: &PgSearchRelation) -> Self {

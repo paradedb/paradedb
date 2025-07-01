@@ -21,9 +21,10 @@ use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
+    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use parking_lot::Mutex;
@@ -287,9 +288,8 @@ impl Directory for MVCCDirectory {
     /// identified by <uuid>.<ext> PathBufs
     fn list_managed_files(&self) -> tantivy::Result<std::collections::HashSet<PathBuf>> {
         unsafe {
-            let segment_metas =
-                LinkedItemList::<SegmentMetaEntry>::open(&self.indexrel, SEGMENT_METAS_START);
-            Ok(segment_metas
+            Ok(MetaPage::open(&self.indexrel)
+                .segment_metas()
                 .list()
                 .iter()
                 .flat_map(|entry| entry.get_component_paths())
@@ -471,7 +471,7 @@ mod tests {
                 .expect("spi should succeed")
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
-        let linked_list = LinkedItemList::<SegmentMetaEntry>::open(&indexrel, SEGMENT_METAS_START);
+        let linked_list = MetaPage::open(&indexrel).segment_metas();
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();

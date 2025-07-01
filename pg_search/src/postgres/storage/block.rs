@@ -26,22 +26,6 @@ use std::slice::from_raw_parts;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
-pub const METADATA: pg_sys::BlockNumber = 0;
-pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
-pub const SCHEMA_START: pg_sys::BlockNumber = 2;
-pub const SETTINGS_START: pg_sys::BlockNumber = 4;
-pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
-
-// keep this sorted, please
-// and update it if a new hardcoded block number is added in the future
-pub const FIXED_BLOCK_NUMBERS: [pg_sys::BlockNumber; 5] = [
-    METADATA,
-    CLEANUP_LOCK,
-    SCHEMA_START,
-    SETTINGS_START,
-    SEGMENT_METAS_START,
-];
-
 // ---------------------------------------------------------
 // BM25 page special data
 // ---------------------------------------------------------

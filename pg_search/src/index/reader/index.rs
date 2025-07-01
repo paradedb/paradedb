@@ -22,8 +22,8 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::scorer_iter::DeferredScorer;
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
+use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
@@ -283,7 +283,7 @@ impl SearchIndexReader {
         //
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
-        let cleanup_lock = BufferManager::new(index_relation).pinned_buffer(CLEANUP_LOCK);
+        let cleanup_lock = MetaPage::open(index_relation).cleanup_lock();
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;

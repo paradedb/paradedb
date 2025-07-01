@@ -29,7 +29,8 @@ use crate::parallel_worker::{
 };
 use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::ps_status::{
-    set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING,
+    set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
+    GARBAGE_COLLECTING, INDEXING, MERGING,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
@@ -252,6 +253,7 @@ impl<'a> BuildWorker<'a> {
                 worker_number,
             )?;
 
+            set_ps_display_suffix(INDEXING.as_ptr());
             let reltuples = pg_sys::table_index_build_scan(
                 self.heaprel.as_ptr(),
                 self.indexrel.as_ptr(),
@@ -296,6 +298,8 @@ struct WorkerBuildState {
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
+
+    cnt: usize,
 }
 
 impl WorkerBuildState {
@@ -338,10 +342,14 @@ impl WorkerBuildState {
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
+            cnt: 0,
         })
     }
 
     fn commit(&mut self) -> anyhow::Result<()> {
+        unsafe {
+            set_ps_display_suffix(FINALIZING.as_ptr());
+        }
         let writer = self.writer.take().expect("writer should be set");
         if let Some((segment_meta, _)) = writer.commit()? {
             self.unmerged_metas.push(segment_meta);
@@ -414,8 +422,6 @@ impl WorkerBuildState {
                 .collect::<Vec<_>>()
         };
 
-        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
-
         // do the merge
         pgrx::debug1!(
             "do_merge: last merge {}, about to merge {} segments: {:?}",
@@ -425,10 +431,14 @@ impl WorkerBuildState {
         );
         let directory = MvccSatisfies::Mergeable.directory(&self.indexrel);
         let mut merger = SearchIndexMerger::open(directory)?;
+        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
         merger.merge_segments(&segment_ids_to_merge)?;
 
         // garbage collect the index, returning to the fsm
         pgrx::debug1!("do_merge: garbage collecting");
+        unsafe {
+            set_ps_display_suffix(GARBAGE_COLLECTING.as_ptr());
+        };
         unsafe { garbage_collect_index(&self.indexrel) };
 
         self.nmerges += 1;
@@ -460,7 +470,6 @@ unsafe extern "C-unwind" fn build_callback(
     state: *mut std::os::raw::c_void,
 ) {
     check_for_interrupts!();
-    set_ps_display_suffix(INDEXING.as_ptr());
 
     let build_state = &mut *state.cast::<WorkerBuildState>();
     let ctid_u64 = crate::postgres::utils::item_pointer_to_u64(*ctid);
@@ -480,16 +489,19 @@ unsafe extern "C-unwind" fn build_callback(
             .writer
             .as_mut()
             .expect("build_callback: writer should be set")
-            .insert(doc, ctid_u64)
+            .insert(doc, ctid_u64, || set_ps_display_suffix(COMMITTING.as_ptr()))
             .unwrap_or_else(|e| panic!("{e}"))
     });
     build_state.per_row_context.reset();
+
+    build_state.cnt += 1;
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);
         build_state
             .try_merge(false)
             .unwrap_or_else(|e| panic!("{e}"));
+        set_ps_display_suffix(INDEXING.as_ptr());
     }
 }
 

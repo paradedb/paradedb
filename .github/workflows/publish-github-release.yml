@@ -42,7 +42,7 @@ jobs:
             GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
           else
-            echo 'Using staging configuration...'
+            echo 'Using beta configuration...'
             CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
 
             # Increment GHA variable version by -rc.1 for next release
@@ -87,13 +87,13 @@ jobs:
               -f value='${{ steps.version.outputs.gha_var_value }}'
           fi
 
-      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for staging releases,
+      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          target_commitish: "main"
+          target_commitish: "dev" # The `dev` branch is our default branch. This *needs* to point to the branch from which we publish the release.
           generate_release_notes: true
           prerelease: ${{ inputs.beta }}
         env:

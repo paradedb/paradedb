@@ -689,9 +689,13 @@ unsafe fn node_opexpr(
         } else {
             // it doesn't use our operator
             if contains_var(rhs) {
-                // the rhs is (or contains) a Var, which likely means its part of a join condition
-                // we choose to just select everything in this situation
-                return Some(Qual::ExternalVar);
+                // the rhs is (or contains) a Var. If it's part of a join condition,
+                // select everything in this situation
+                if convert_external_to_special_qual {
+                    return Some(Qual::ExternalVar);
+                } else {
+                    return None;
+                }
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown

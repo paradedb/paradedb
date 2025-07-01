@@ -29,7 +29,6 @@ use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::pg_sys;
-use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
@@ -727,46 +726,21 @@ impl SearchIndexReader {
 
     fn collect_segments<T>(
         &self,
-        mut segment_ids: impl Iterator<Item = SegmentId>,
+        segment_ids: impl Iterator<Item = SegmentId>,
         mut collect: impl FnMut(SegmentOrdinal, &SegmentReader) -> T,
     ) -> Vec<T> {
-        let upper = segment_ids.size_hint().1.unwrap_or(0);
-
-        if upper == 1 {
-            let segment_id = segment_ids
-                .next()
-                .unwrap_or_else(|| panic!("no segments provided"));
-
-            for (segment_ord, segment_reader) in self.searcher.segment_readers().iter().enumerate()
-            {
-                if segment_id == segment_reader.segment_id() {
-                    return vec![collect(segment_ord as SegmentOrdinal, segment_reader)];
-                }
-            }
-            panic!("missing segment: {segment_id}");
-        } else {
-            let segment_ids_lookup = segment_ids.collect::<FxHashSet<_>>();
-            let many = segment_ids_lookup.len();
-            let mut collection = Vec::with_capacity(many);
-            for (segment_ord, segment_reader) in self.searcher.segment_readers().iter().enumerate()
-            {
-                if segment_ids_lookup.contains(&segment_reader.segment_id()) {
-                    collection.push(collect(segment_ord as SegmentOrdinal, segment_reader));
-                }
-
-                if collection.len() == many {
-                    break;
-                }
-            }
-
-            if collection.len() != many {
-                // not sure if it's worth the effort to figure out which ones.  Knowing the segment_id
-                // wouldn't give us a lot of valuable information
-                panic!("missing segments");
-            }
-
-            collection
-        }
+        segment_ids
+            .map(|segment_id| {
+                let (segment_ord, segment_reader) = self
+                    .searcher
+                    .segment_readers()
+                    .iter()
+                    .enumerate()
+                    .find(|(_, reader)| reader.segment_id() == segment_id)
+                    .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
+                collect(segment_ord as SegmentOrdinal, segment_reader)
+            })
+            .collect()
     }
 }
 

@@ -156,6 +156,25 @@ extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
     assert!(cnt >= 2, "There must be at least 2 layers in `layer_sizes`");
 }
 
+#[pg_guard]
+extern "C-unwind" fn validate_background_layer_size_threshold(value: *const std::os::raw::c_char) {
+    if value.is_null() {
+        // a NULL value means we're to use whatever our defaults are
+        return;
+    }
+
+    let cstr = unsafe { CStr::from_ptr(value) };
+    let str = cstr
+        .to_str()
+        .expect("`background_layer_size_threshold` must be valid UTF-8");
+
+    let size = get_background_layer_size_threshold(str);
+    assert!(
+        size > 0,
+        "`background_layer_size_threshold` must be greater than zero"
+    );
+}
+
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
     s.split(",").map(|part| {
         unsafe {
@@ -780,7 +799,15 @@ pub unsafe fn init() {
         0,
         i32::MAX,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
-    )
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "background_layer_size_threshold".as_pg_cstr(),
+        "The size of the smallest segment merge layer to run in the background".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_background_layer_size_threshold),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
 }
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs

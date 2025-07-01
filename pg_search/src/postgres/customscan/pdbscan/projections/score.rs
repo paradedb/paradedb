@@ -18,13 +18,26 @@
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList,
+    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum,
+    PgList, PgLogLevel, PgSqlErrorCode,
 };
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
     None
+}
+
+#[pg_extern(name = "score")]
+fn score_invalid_signature() {
+    pg_sys::submodules::panic::ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_INVALID_COLUMN_REFERENCE,
+        "paradedb.score has an invalid signature.",
+        "",
+    )
+    .set_detail("Missing argument in paradedb.score")
+    .set_hint("Use paradedb.score(<column_name/key_field>) instead")
+    .report(PgLogLevel::ERROR);
 }
 
 extension_sql!(

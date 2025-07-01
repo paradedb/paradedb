@@ -219,48 +219,16 @@ pub unsafe fn merge_index_with_policy(
     let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let merger =
         SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
-    let merger_segment_ids = merger
-        .searchable_segment_ids()
-        .expect("SearchIndexMerger should have segment ids");
-
-    // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
-    let mut non_mergeable_segments = metadata.vacuum_list().read_list();
-    non_mergeable_segments.extend(merge_lock.merge_list().list_segment_ids());
-    let create_index_segment_ids = metadata.create_index_segment_ids();
-
-    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
-        pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
-        pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
-        pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
-    }
-
-    // tell the MergePolicy which segments it's initially allowed to consider for merging
-    merge_policy.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
-        |(segment_id, entry)| {
-            // skip segments that are already being vacuumed or merged
-            if non_mergeable_segments.contains(segment_id) {
-                return false;
-            }
-
-            // skip segments that were created by CREATE INDEX and have no deletes
-            if !consider_create_index_segments
-                && create_index_segment_ids.contains(segment_id)
-                && entry
-                    .delete
-                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
-            {
-                return false;
-            }
-
-            true
-        },
-    ));
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    let (merge_candidates, nmerged) = merge_policy.simulate();
-
+    let (merge_candidates, nmerged) = merge_policy.simulate(
+        &metadata,
+        &merge_lock,
+        &merger,
+        consider_create_index_segments,
+    );
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
@@ -365,7 +333,6 @@ pub unsafe fn merge_index_with_policy(
         drop(merge_lock);
     }
     drop(cleanup_lock);
-
     (ncandidates, nmerged)
 }
 

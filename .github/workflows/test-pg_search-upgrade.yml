@@ -46,6 +46,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      # TODO: This will require immediately setting the version to the next development version as part of the
+      # next PR, is this what we want?
       - name: Check Version Upgrade in Cargo.toml
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')

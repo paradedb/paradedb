@@ -30,16 +30,20 @@ on:
         required: false
         default: false
       hotfix_tag:
-        description: "Tag to base hotfix on, e.g. v0.16.0. Required if hotfix is true."
+        description: "Tag to base hotfix on, e.g. v0.16.0. Required if hotfix is true. Defaults to empty."
+        type: string
+        required: false
+        default: ""
+      hotfix_branch:
+        description: "The branch, branched off of hotfix_tag, to deploy as the hotfix release to hotfix_tag. Required if hotfix is true. Defaults to empty."
         type: string
         required: false
         default: ""
       confirmation:
-        description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
+        description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated. Defaults to false."
         type: boolean
         required: true
         default: false
-      # TODO: Remove this once we've confirmed that the workflow is working as expected
       dry_run:
         description: "Dry-run mode: prefix tag with `dryrun-` and skip variable updates. Defaults to false."
         type: boolean
@@ -59,6 +63,40 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
+
+      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`.
+      - name: Validate Cargo.toml Version Matches Release Type
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
+            BETA_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
+            if [ "$CARGO_VERSION" != "$BETA_VERSION" ]; then
+              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming beta version ($BETA_VERSION). Did you forget to increment it?"
+              exit 1
+            fi
+          elif [[ "${{ github.event.inputs.patch }}" == "true" ]]; then
+            PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+            if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
+              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming patch version ($PROD_VERSION). Did you forget to increment it?"
+              exit 1
+            fi
+          elif [[ "${{ github.event.inputs.minor }}" == "true" ]]; then
+            PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+            if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
+              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming minor version ($PROD_VERSION). Did you forget to increment it?"
+              exit 1
+            fi
+          elif [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
+            HOTFIX_TAG="${{ github.event.inputs.hotfix_tag }}"
+            if ! gh release view "$HOTFIX_TAG" > /dev/null 2>&1; then
+              echo "❌ specified hotfix tag '$HOTFIX_TAG' does not exist. Please provide a valid hotfix tag." >&2
+              exit 1
+            fi
+          else
+            echo "❌ must specify one of: beta, minor, patch, or hotfix" >&2
+            exit 1
+          fi
+          echo "Version check passed!"
 
       # We store the GitHub Release version number in GitHub Actions Variables. Since it's
       # not possible for a GHA variable to be negative, we store the version of the next
@@ -113,14 +151,6 @@ jobs:
           elif [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
             echo "Creating a hotfix release from the specified hotfix tag"
             HOTFIX_TAG="${{ github.event.inputs.hotfix_tag }}"
-            if [[ -z "$HOTFIX_TAG" ]]; then
-              echo "❌ hotfix_tag is required for a hotfix release. Please provide a valid hotfix tag." >&2
-              exit 1
-            fi
-            if ! gh release view "$HOTFIX_TAG" > /dev/null 2>&1; then
-              echo "❌ specified hotfix tag '$HOTFIX_TAG' does not exist. Please provide a valid hotfix tag." >&2
-              exit 1
-            fi
             TAG_VER="${HOTFIX_TAG#v}"
             IFS='.' read HT_MAJOR HT_MINOR HT_PATCH <<< "$TAG_VER"
             NEXT_PATCH=$((HT_PATCH+1))
@@ -134,13 +164,22 @@ jobs:
             exit 1
           fi
 
+          # Specify the target commit to deploy. For normal releases deploying the state of `dev`,
+          # which are minor, patch, or beta releases, we deploy `dev`. For hotfix releases, we deploy
+          # the provided hotfix_branch.
+          if [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
+            echo "commitish=${{ github.event.inputs.hotfix_branch }}" >> $GITHUB_OUTPUT
+          else
+            echo "commitish=dev" >> $GITHUB_OUTPUT
+          fi
+
       # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.determine-release-version.outputs.version }}
-          target_commitish: "dev" # The `dev` branch is our default branch. This *needs* to point to the branch from which we publish the release.
+          target_commitish: ${{ steps.determine-release-version.outputs.commitish }}
           generate_release_notes: true
           prerelease: ${{ steps.determine-release-version.outputs.is_prerelease }}
         env:

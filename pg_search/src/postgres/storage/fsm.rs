@@ -122,6 +122,8 @@ impl FreeSpaceManager {
         }
 
         // TODO:  it might make sense to sort this
+        // result.sort_unstable();
+
         result
     }
 
@@ -140,7 +142,9 @@ impl FreeSpaceManager {
             while (block.meta.len as usize) < FSM_BLOCK_SIZE {
                 match blocks.peek() {
                     // we've added every block from the iterator
-                    None => return,
+                    None => {
+                        return;
+                    }
 
                     // add the next block
                     Some(blockno) => {

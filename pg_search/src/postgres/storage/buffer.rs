@@ -460,7 +460,7 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BufferManager {
     bcache: BM25BufferCache,
     fsm_blockno: Option<pg_sys::BlockNumber>,
@@ -474,7 +474,7 @@ impl BufferManager {
         }
     }
 
-    fn fsm(&mut self) -> FreeSpaceManager {
+    pub fn fsm(&mut self) -> FreeSpaceManager {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.bcache.rel()).fsm());

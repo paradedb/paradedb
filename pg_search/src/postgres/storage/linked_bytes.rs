@@ -77,9 +77,6 @@ pub struct LinkedBytesListWriter {
 
 impl LinkedBytesListWriter {
     pub unsafe fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        if bytes.is_empty() {
-            return Ok(());
-        }
         let mut data_cursor = Cursor::new(bytes);
         let mut bytes_written = 0;
 
@@ -325,21 +322,32 @@ impl LinkedBytesList {
     pub unsafe fn return_to_fsm(mut self) {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
-        let metadata = self.get_linked_list_data();
-        for starting_blockno in [metadata.start_blockno, metadata.blocklist_start] {
-            let mut blockno = starting_blockno;
-            while blockno != pg_sys::InvalidBlockNumber {
-                let mut buffer = self.bman.get_buffer_mut(blockno);
-                let page = buffer.page_mut();
+
+        let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
+        let bman = self.bman.clone();
+        let all_blocks =
+            // iterate the BlockList contents -- this is every block used by this LinkedBytesList
+            self
+            .blocklist_reader
+            .take()
+            .unwrap_or_else(|| blocklist::reader::BlockList::new(&self.bman, blocklist_blockno))
+            .into_iter()
+            // include our header page
+            .chain(std::iter::once(self.header_blockno))
+            // the BlockList itself consumes one or more blocks -- make sure to include them too
+            .chain(std::iter::from_fn(move || {
+                if blocklist_blockno == pg_sys::InvalidBlockNumber {
+                    return None;
+                }
+                let blockno = blocklist_blockno;
+                let buffer = bman.get_buffer(blockno);
+                let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
+                blocklist_blockno = special.next_blockno;
+                Some(blockno)
+            }));
 
-                blockno = special.next_blockno;
-                buffer.return_to_fsm(&mut self.bman);
-            }
-        }
-
-        let header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        header_buffer.return_to_fsm(&mut self.bman);
+        self.bman.fsm().extend(&mut self.bman, all_blocks)
     }
 
     pub fn is_empty(&self) -> bool {

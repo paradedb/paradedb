@@ -17,10 +17,13 @@
 
 use pgrx::*;
 
+use crate::postgres::merge::try_launch_background_merger;
+
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
-    _info: *mut pg_sys::IndexVacuumInfo,
+    info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
+    try_launch_background_merger((*(*info).index).rd_id);
     stats
 }

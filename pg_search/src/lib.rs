@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+mod aggregate;
 mod api;
 mod bootstrap;
 mod index;

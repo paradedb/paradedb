@@ -18,8 +18,8 @@
 use crate::nodecast;
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
-    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum,
-    PgList, PgLogLevel, PgSqlErrorCode,
+    direct_function_call, error, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum,
+    PgList,
 };
 use std::ptr::addr_of_mut;
 
@@ -32,12 +32,12 @@ fn score_from_relation(_relation_reference: AnyElement) -> Option<f32> {
 fn score_invalid_signature() {
     pg_sys::submodules::panic::ErrorReport::new(
         PgSqlErrorCode::ERRCODE_INVALID_COLUMN_REFERENCE,
-        "paradedb.score has an invalid signature.",
-        "",
+        "paradedb.score invalid signature.",
+        function_name!(),
     )
     .set_detail("Missing argument in paradedb.score")
-    .set_hint("Use paradedb.score(<column_name/key_field>) instead")
-    .report(PgLogLevel::ERROR);
+    .set_hint("User paradedb.score(<column_name/key_error>) instead")
+        .report(PgLogLevel::ERROR);
 }
 
 extension_sql!(
@@ -64,10 +64,7 @@ pub unsafe fn uses_scores(
     rti: pg_sys::Index,
 ) -> bool {
     #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
+    unsafe extern "C" fn walker(node: *mut pg_sys::Node, data: *mut core::ffi::c_void) -> bool {
         if node.is_null() {
             return false;
         }

@@ -26,10 +26,34 @@ pub enum AggregateType {
     Count,
 }
 
+// TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
+// https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
+impl AggregateType {
+    pub fn to_json(&self, key_field: &str) -> serde_json::Value {
+        serde_json::from_str(&format!(
+            r#"{{"value_count": {{ "field": "{key_field}" }}}}"#
+        ))
+        .unwrap()
+    }
+
+    pub fn result_from_json(&self, result: &serde_json::Number) -> i64 {
+        let f64_val = result.as_f64().expect("invalid aggregate result size");
+
+        if f64_val.fract() != 0.0 {
+            panic!("COUNT should not have a fractional result");
+        }
+        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+            panic!("COUNT value was out of range");
+        }
+        f64_val as i64
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
-    pub query: SearchQueryInput,
     pub aggregate_types: Vec<AggregateType>,
+    pub indexrelid: pg_sys::Oid,
+    pub query: SearchQueryInput,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

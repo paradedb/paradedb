@@ -19,6 +19,7 @@ pub mod privdat;
 
 use std::ffi::CStr;
 
+use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -36,12 +37,13 @@ use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod,
     PlainExecCapable,
 };
-use crate::postgres::rel_get_bm25_index;
+use crate::postgres::{rel_get_bm25_index, PgSearchRelation};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::Index;
+use tinyvec::TinyVec;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -107,8 +109,9 @@ impl CustomScan for AggregateScan {
         };
 
         Some(builder.build(PrivateData {
-            query: SearchQueryInput::from(&quals),
             aggregate_types,
+            indexrelid: bm25_index.oid(),
+            query: SearchQueryInput::from(&quals),
         }))
     }
 
@@ -142,6 +145,8 @@ impl CustomScan for AggregateScan {
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
+        builder.custom_state().indexrelid = builder.custom_private().indexrelid;
+        builder.custom_state().query = builder.custom_private().query.clone();
         builder.build()
     }
 
@@ -162,14 +167,29 @@ impl CustomScan for AggregateScan {
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        state.custom_state_mut().has_emitted = false;
+        state.custom_state_mut().state = ExecutionState::NotStarted;
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        if state.custom_state().has_emitted {
+        let next = match &mut state.custom_state_mut().state {
+            ExecutionState::Completed => return std::ptr::null_mut(),
+            ExecutionState::NotStarted => {
+                // Execute the aggregate, and change the state to running.
+                let mut row_iter = execute(state);
+                let next = row_iter.next();
+                state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
+                next
+            }
+            ExecutionState::Emitting(row_iter) => {
+                // Fall through to consume the iterator.
+                row_iter.next()
+            }
+        };
+
+        let Some(row) = next else {
+            state.custom_state_mut().state = ExecutionState::Completed;
             return std::ptr::null_mut();
-        }
-        state.custom_state_mut().has_emitted = true;
+        };
 
         unsafe {
             let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
@@ -179,7 +199,7 @@ impl CustomScan for AggregateScan {
             );
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
-            assert_eq!(natts, state.custom_state().aggregate_types.len());
+            assert_eq!(natts, row.len());
 
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
@@ -188,9 +208,8 @@ impl CustomScan for AggregateScan {
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-            // TODO: Actually execute using the `AggregateType` on the `PrivateData`.
-            for (i, att) in tupdesc.iter().enumerate() {
-                datums[i] = 1337.into_datum().unwrap();
+            for (i, col_val) in row.into_iter().enumerate() {
+                datums[i] = col_val.into_datum().unwrap();
                 isnull[i] = false;
             }
 
@@ -259,6 +278,33 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
             .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
 }
 
+fn execute(state: &CustomScanStateWrapper<AggregateScan>) -> std::vec::IntoIter<AggregateRow> {
+    // TODO: Opening of the index could be deduped between custom scans: see
+    // `PdbScanState::open_relations`.
+    let indexrel = PgSearchRelation::with_lock(
+        state.custom_state().indexrelid,
+        pg_sys::AccessShareLock as _,
+    );
+    let relation = unsafe { pgrx::PgRelation::from_pg(indexrel.as_ptr()) };
+
+    let result = execute_aggregate(
+        relation,
+        state.custom_state().query.clone(),
+        // TODO: Actually look up key_field name.
+        state.custom_state().aggregates_to_json("id"),
+        true,      // solve_mvcc
+        500000000, // memory_limit
+        65000,     // bucket_limit
+    )
+    .expect("failed to execute aggregate");
+
+    // TODO: Since we don't support GROUP BY, we only ever have one result row.
+    state
+        .custom_state()
+        .json_to_aggregate_results(result)
+        .into_iter()
+}
+
 impl ExecMethod for AggregateScan {
     fn exec_methods() -> *const pg_sys::CustomExecMethods {
         <AggregateScan as PlainExecCapable>::exec_methods()
@@ -267,12 +313,66 @@ impl ExecMethod for AggregateScan {
 
 impl PlainExecCapable for AggregateScan {}
 
+// TODO: Placeholder.
+type AggregateRow = TinyVec<[i64; 4]>;
+
+#[derive(Default)]
+enum ExecutionState {
+    #[default]
+    NotStarted,
+    Emitting(std::vec::IntoIter<AggregateRow>),
+    Completed,
+}
+
 #[derive(Default)]
 pub struct AggregateScanState {
-    // True if we have already emitted a tuple.
-    has_emitted: bool,
+    // The state of this scan.
+    state: ExecutionState,
     // The aggregate types that we are executing for.
     aggregate_types: Vec<AggregateType>,
+    // The index that will be scanned.
+    indexrelid: pg_sys::Oid,
+    // The query that will be executed.
+    query: SearchQueryInput,
+}
+
+impl AggregateScanState {
+    fn aggregates_to_json(&self, key_field: &str) -> serde_json::Value {
+        serde_json::Value::Object(
+            self.aggregate_types
+                .iter()
+                .enumerate()
+                .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json(key_field)))
+                .collect(),
+        )
+    }
+
+    fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<AggregateRow> {
+        let result_map = result
+            .as_object()
+            .expect("unexpected aggregate result collection type");
+
+        let row = self
+            .aggregate_types
+            .iter()
+            .enumerate()
+            .map(move |(idx, aggregate)| {
+                let aggregate_val = result_map
+                    .get(&idx.to_string())
+                    .expect("missing aggregate result")
+                    .as_object()
+                    .expect("unexpected aggregate structure")
+                    .get("value")
+                    .expect("missing aggregate result value")
+                    .as_number()
+                    .expect("unexpected aggregate result type");
+
+                aggregate.result_from_json(aggregate_val)
+            })
+            .collect::<AggregateRow>();
+
+        vec![row]
+    }
 }
 
 impl CustomScanState for AggregateScanState {

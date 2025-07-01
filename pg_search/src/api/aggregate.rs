@@ -30,5 +30,12 @@ pub fn aggregate(
     memory_limit: default!(i64, 500000000),
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
-    execute_aggregate(index, query, agg, solve_mvcc, memory_limit, bucket_limit)
+    Ok(JsonB(execute_aggregate(
+        index,
+        query,
+        agg.0,
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    )?))
 }

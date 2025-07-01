@@ -320,7 +320,7 @@ FROM pages
 WHERE content @@@ 'Socienty';
  count 
 -------
-  1337
+     2
 (1 row)
 
 -- Check execution plan for other aggregations

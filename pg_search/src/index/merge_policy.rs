@@ -1,5 +1,8 @@
 use crate::api::{HashMap, HashSet};
+use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys;
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -195,7 +198,13 @@ impl LayeredMergePolicy {
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
-    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, NumMerged) {
+    pub fn simulate(
+        &mut self,
+        metadata: &MetaPage,
+        merge_lock: &MergeLock,
+        merger: &SearchIndexMerger,
+        consider_create_index_segments: bool,
+    ) -> (Vec<MergeCandidate>, NumMerged) {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -213,6 +222,43 @@ impl LayeredMergePolicy {
                 }
             }
         }
+
+        let merger_segment_ids = merger
+            .searchable_segment_ids()
+            .expect("SearchIndexMerger should have segment ids");
+
+        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+        let mut non_mergeable_segments = metadata.vacuum_list().read_list();
+        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
+        let create_index_segment_ids = unsafe { metadata.create_index_segment_ids() };
+
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+            pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
+            pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
+        }
+
+        // tell the MergePolicy which segments it's initially allowed to consider for merging
+        self.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
+            |(segment_id, entry)| {
+                // skip segments that are already being vacuumed or merged
+                if non_mergeable_segments.contains(segment_id) {
+                    return false;
+                }
+
+                // skip segments that were created by CREATE INDEX and have no deletes
+                if !consider_create_index_segments
+                    && create_index_segment_ids.contains(segment_id)
+                    && entry
+                        .delete
+                        .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
+                {
+                    return false;
+                }
+
+                true
+            },
+        ));
 
         let segment_metas = self
             .mergeable_segments

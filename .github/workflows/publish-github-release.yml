@@ -64,7 +64,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`.
+      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`. If the
+      # user forgot to increment the version, they will need to do it in a PR, which will trigger the workflow
+      # test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
       - name: Validate Cargo.toml Version Matches Release Type
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')

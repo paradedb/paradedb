@@ -89,5 +89,5 @@ To publish a patch for an older release:
 4. Run the Publish GitHub Release workflow with:
 
 - hotfix: `true`
-- hotfix_tag: <the-tag-from-which-you-branched>
-- hotfix_branch: <the-name-of-your-hotfix-branch>
+- hotfix_tag: `<the-tag-from-which-you-branched>`
+- hotfix_branch: `<the-name-of-your-hotfix-branch>`

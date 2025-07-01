@@ -23,10 +23,10 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
-use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, SnippetType,
 };
+use crate::postgres::customscan::score_funcoid;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars};
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{pg_extern, pg_guard, pg_sys, Internal, PgList};

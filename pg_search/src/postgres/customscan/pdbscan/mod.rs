@@ -17,12 +17,9 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
-mod opexpr;
 pub mod parallel;
 mod privdat;
 mod projections;
-mod pushdown;
-mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
@@ -47,19 +44,18 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-use crate::postgres::customscan::pdbscan::projections::score::{
-    is_score_func, score_funcoid, uses_scores,
-};
+use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, Qual, QualExtractState,
-};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
+use crate::postgres::customscan::qual_inspect::{
+    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
+};
+use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState, RelPathlistHookArgs};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -282,7 +278,7 @@ impl PdbScan {
         if let Some(ref mut q) = quals {
             let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
             let relation_oid = (*rte).relid;
-            qual_inspect::optimize_quals_with_heap_expr(q);
+            optimize_quals_with_heap_expr(q);
         }
 
         quals.clone()

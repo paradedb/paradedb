@@ -54,7 +54,7 @@ impl CustomScan for AggregateScan {
 
         // Are there any group (/distinct/order-by) or having clauses?
         if !args.root().group_pathkeys.is_null() || args.root().hasHavingQual {
-            // we can't handle GROUP BY or HAVING
+            // We can't handle GROUP BY or HAVING
             return None;
         }
 
@@ -67,7 +67,8 @@ impl CustomScan for AggregateScan {
         let parent_relids = args.input_rel().relids;
         let rte_idx = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
         let rte = unsafe {
-            // NOTE: The docs indicate that `simple_rte_array` is always the same length as `simple_rel_array`.
+            // NOTE: The docs indicate that `simple_rte_array` is always the same length
+            // as `simple_rel_array`.
             range_table::get_rte(
                 args.root().simple_rel_array_size as usize,
                 args.root().simple_rte_array,
@@ -76,10 +77,10 @@ impl CustomScan for AggregateScan {
         };
         rel_get_bm25_index(unsafe { (*rte).relid })?;
 
-        Some(builder.build())
+        Some(builder.build(PrivateData))
     }
 
-    fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
+    fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         // Create a new target list which replaces aggregates with FuncExprs which will be produced
         // by our CustomScan.
         //

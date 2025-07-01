@@ -53,32 +53,42 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Load current version vars
+      # We store the GitHub Release version number in GitHub Actions Variables. Since it's
+      # not possible for a GHA variable to be negative, we store the version of the next
+      # release, to allow 0-indexing. This is why we immediately release the version stored,
+      # and increment it after the GitHub release is created.
+      - name: Retrieve Release Version Variables
         run: |
           echo "MAJOR=${{ vars.VERSION_MAJOR }}" >> $GITHUB_ENV
           echo "MINOR=${{ vars.VERSION_MINOR }}" >> $GITHUB_ENV
           echo "PATCH=${{ vars.VERSION_PATCH }}" >> $GITHUB_ENV
           echo "RC=${{ vars.VERSION_RC }}"       >> $GITHUB_ENV
 
-      - name: Determine release version
-        id: calc
+      - name: Determine Upcoming Release Version
+        id: determine-release-version
         run: |
-          set -e
-
-          echo "::debug::Inputs: minor=${{ github.event.inputs.minor }}, patch=${{ github.event.inputs.patch }}, beta=${{ github.event.inputs.beta }}, hotfix=${{ github.event.inputs.hotfix }}, hotfix_tag='${{ github.event.inputs.hotfix_tag }}'"
-
           # 1) Beta prerelease (only when no bump flags)
           if [[ "${{ github.event.inputs.beta }}" == "true" && "${{ github.event.inputs.minor }}" == "false" && "${{ github.event.inputs.patch }}" == "false" && "${{ github.event.inputs.hotfix }}" == "false" ]]; then
-            echo "::debug::Creating beta prerelease of current version"
+            echo "Creating a beta `-rc.X` release of the current version"
             VERSION="${MAJOR}.${MINOR}.${PATCH}-rc.${RC}"
             echo "version=$VERSION"                      >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_RC"               >> $GITHUB_OUTPUT
             echo "gha_var_value=$((RC+1))"               >> $GITHUB_OUTPUT
             echo "is_prerelease=true"                    >> $GITHUB_OUTPUT
 
-          # 2) Minor bump
+          # 2) Patch bump
+          elif [[ "${{ github.event.inputs.patch }}" == "true" ]]; then
+            echo "Creating an official release of the next patch version"
+            NEXT_PATCH=$((PATCH+1))
+            VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
+            echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
+            echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
+            echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
+
+          # 3) Minor bump
           elif [[ "${{ github.event.inputs.minor }}" == "true" ]]; then
-            echo "::debug::Minor release"
+            echo "Creating an official release of the next minor version"
             NEXT_MINOR=$((MINOR+1))
             VERSION="${MAJOR}.${NEXT_MINOR}.0"
             echo "version=$VERSION"                      >> $GITHUB_OUTPUT
@@ -87,28 +97,18 @@ jobs:
             echo "reset_patch=true"                      >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
 
-          # 3) Patch bump
-          elif [[ "${{ github.event.inputs.patch }}" == "true" ]]; then
-            echo "::debug::Patch release"
-            NEXT_PATCH=$((PATCH+1))
-            VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
-            echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
-            echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
-            echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
-
           # 4) Hotfix
           elif [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
+            echo "Creating a hotfix release from the specified hotfix tag"
             HOTFIX_TAG="${{ github.event.inputs.hotfix_tag }}"
             if [[ -z "$HOTFIX_TAG" ]]; then
-              echo "❌ hotfix_tag is required for a hotfix release" >&2
+              echo "❌ hotfix_tag is required for a hotfix release. Please provide a valid hotfix tag." >&2
               exit 1
             fi
             if ! gh release view "$HOTFIX_TAG" > /dev/null 2>&1; then
-              echo "❌ specified hotfix tag '$HOTFIX_TAG' does not exist" >&2
+              echo "❌ specified hotfix tag '$HOTFIX_TAG' does not exist. Please provide a valid hotfix tag." >&2
               exit 1
             fi
-            echo "::debug::Hotfix based on $HOTFIX_TAG"
             TAG_VER="${HOTFIX_TAG#v}"
             IFS='.' read HT_MAJOR HT_MINOR HT_PATCH <<< "$TAG_VER"
             NEXT_PATCH=$((HT_PATCH+1))
@@ -117,31 +117,37 @@ jobs:
             echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
-
           else
             echo "❌ must specify one of: beta (no bumps), minor, patch, or hotfix" >&2
             exit 1
           fi
 
-      # We store the GitHub Release version number in GitHub Actions Variables. Since it's
-      # not possible for a GHA variable to be negative, we store the version of the next
-      # release, to allow 0-indexing. This is why we immediately release the version stored,
-      # and increment it after the GitHub release is created.
-      - name: Update GitHub Actions variables
-        if: always()
+      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
+      # and no suffix and marked as a full release for prod releases
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.determine-release-version.outputs.version }}
+          target_commitish: "dev" # The `dev` branch is our default branch. This *needs* to point to the branch from which we publish the release.
+          generate_release_notes: true
+          prerelease: ${{ steps.determine-release-version.outputs.is_prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+
+      - name: Update GitHub Actions Variables Post-Release
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          # primary var bump
+          # Update the version of the variable which changed after the release
           gh api --method PATCH \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/paradedb/paradedb/actions/variables/${{ steps.calc.outputs.gha_var_name }} \
-            -f name='${{ steps.calc.outputs.gha_var_name }}' \
-            -f value='${{ steps.calc.outputs.gha_var_value }}'
+            /repos/paradedb/paradedb/actions/variables/${{ steps.determine-release-version.outputs.gha_var_name }} \
+            -f name='${{ steps.determine-release-version.outputs.gha_var_name }}' \
+            -f value='${{ steps.determine-release-version.outputs.gha_var_value }}'
 
-          # reset patch to 0 on minor bump
-          if [[ "${{ steps.calc.outputs.reset_patch }}" == "true" ]]; then
+          # Reset patch version to 0 on minor release
+          if [[ "${{ steps.determine-release-version.outputs.reset_patch }}" == "true" ]]; then
             gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -150,8 +156,8 @@ jobs:
               -f value='0'
           fi
 
-          # reset RC on any full (non-prerelease) bump
-          if [[ "${{ steps.calc.outputs.is_prerelease }}" == "false" ]]; then
+          # Reset RC on any full (non-beta) release (e.g. minor or patch)
+          if [[ "${{ steps.determine-release-version.outputs.is_prerelease }}" == "false" ]]; then
             gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
@@ -159,15 +165,3 @@ jobs:
               -f name='VERSION_RC' \
               -f value='1'
           fi
-
-      # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
-      # and no suffix and marked as a full release for prod releases
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.calc.outputs.version }}
-          target_commitish: "dev" # The `dev` branch is our default branch. This *needs* to point to the branch from which we publish the release.
-          generate_release_notes: true
-          prerelease: ${{ steps.calc.outputs.is_prerelease }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

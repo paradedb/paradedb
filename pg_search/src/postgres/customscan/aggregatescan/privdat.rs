@@ -21,7 +21,14 @@ use pgrx::prelude::*;
 use pgrx::PgList;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct PrivateData;
+pub enum AggregateType {
+    Count,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PrivateData {
+    pub aggregate_types: Vec<AggregateType>,
+}
 
 impl From<*mut pg_sys::List> for PrivateData {
     fn from(list: *mut pg_sys::List) -> Self {

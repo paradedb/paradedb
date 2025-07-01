@@ -20,7 +20,7 @@ pub mod privdat;
 use std::ffi::CStr;
 
 use crate::nodecast;
-use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
+use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -59,9 +59,7 @@ impl CustomScan for AggregateScan {
         }
 
         // Is it an aggregate on a single relation?
-        if !is_single_relation_agg(args) {
-            return None;
-        }
+        let aggregate_types = get_single_relation_agg(args)?;
 
         // Does that relation have a bm25 index?
         let parent_relids = args.input_rel().relids;
@@ -77,7 +75,7 @@ impl CustomScan for AggregateScan {
         };
         rel_get_bm25_index(unsafe { (*rte).relid })?;
 
-        Some(builder.build(PrivateData))
+        Some(builder.build(PrivateData { aggregate_types }))
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -107,8 +105,9 @@ impl CustomScan for AggregateScan {
     }
 
     fn create_custom_scan_state(
-        builder: CustomScanStateBuilder<Self, Self::PrivateData>,
+        mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
+        builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.build()
     }
 
@@ -146,6 +145,8 @@ impl CustomScan for AggregateScan {
             );
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
 
+            assert_eq!(natts, state.custom_state().aggregate_types.len());
+
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as _;
@@ -153,7 +154,7 @@ impl CustomScan for AggregateScan {
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-            // TODO: Actually execute.
+            // TODO: Actually execute using the `AggregateType` on the `PrivateData`.
             for (i, att) in tupdesc.iter().enumerate() {
                 datums[i] = 1337.into_datum().unwrap();
                 isnull[i] = false;
@@ -172,25 +173,29 @@ impl CustomScan for AggregateScan {
     }
 }
 
-fn is_single_relation_agg(args: &CreateUpperPathsHookArgs) -> bool {
+/// If the given args consist only of AggregateTypes that we can handle, return them.
+fn get_single_relation_agg(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateType>> {
     // The PathTarget `exprs` are the closest that we have to a target list at this point.
     let target_list =
         unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
-    if target_list.len() != 1 {
-        return false;
+    if target_list.is_empty() {
+        return None;
     }
 
-    // The single target list entry must be a `count(*)` (aggstar).
-    unsafe {
-        let expr = target_list
-            .iter_ptr()
-            .next()
-            .expect("target list is non-empty");
-        let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) else {
-            return false;
-        };
-        (*aggref).aggstar
+    // We must recognize all target list entries as supported aggregates.
+    let mut aggregate_types = Vec::new();
+    for expr in target_list.iter_ptr() {
+        unsafe {
+            let aggref = nodecast!(Aggref, T_Aggref, expr)?;
+            if (*aggref).aggstar {
+                // Only `count(*)` (aggstar) is supported.
+                aggregate_types.push(AggregateType::Count);
+            } else {
+                return None;
+            }
+        }
     }
+    Some(aggregate_types)
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
@@ -232,6 +237,8 @@ impl PlainExecCapable for AggregateScan {}
 pub struct AggregateScanState {
     // True if we have already emitted a tuple.
     has_emitted: bool,
+    // The aggregate types that we are executing for.
+    aggregate_types: Vec<AggregateType>,
 }
 
 impl CustomScanState for AggregateScanState {

@@ -40,6 +40,22 @@ jobs:
         with:
           fetch-depth: 0 # Fetch the entire history
 
+      # This step is used to check if the PR author is a member of the org, since
+      # posting a comment to the PR requires write access to the repo, which is limited
+      # to org members.
+      - name: Check if PR author is member of org
+        id: org-check
+        run: |
+          echo "Checking if ${{ github.actor }} is a member of the org..."
+          result=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+            https://api.github.com/orgs/paradedb/members/${{ github.actor }})
+          if [ "$result" -eq 204 ]; then
+            echo "is_member=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_member=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Extract pgrx Version
         id: pgrx
         working-directory: pg_search/
@@ -148,7 +164,7 @@ jobs:
 
       - name: Attach Schema Diff to PR
         uses: actions/github-script@v7
-        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
+        if: steps.generate_commit_message.outputs.schema_diff_detected == 'true' && steps.org-check.outputs.is_member == 'true'
         with:
           script: |
             const comments = await github.rest.issues.listComments({

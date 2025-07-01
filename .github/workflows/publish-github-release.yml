@@ -39,6 +39,12 @@ on:
         type: boolean
         required: true
         default: false
+      # TODO: Remove this once we've confirmed that the workflow is working as expected
+      dry_run:
+        description: "Dry-run mode: prefix tag with `dryrun-` and skip variable updates. Defaults to false."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}
@@ -67,11 +73,16 @@ jobs:
       - name: Determine Upcoming Release Version
         id: determine-release-version
         run: |
+          PREFIX=""
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            PREFIX="dryrun-"
+          fi
+
           # 1) Beta prerelease (only when no bump flags)
           if [[ "${{ github.event.inputs.beta }}" == "true" && "${{ github.event.inputs.minor }}" == "false" && "${{ github.event.inputs.patch }}" == "false" && "${{ github.event.inputs.hotfix }}" == "false" ]]; then
             echo "Creating a beta `-rc.X` release of the current version"
             VERSION="${MAJOR}.${MINOR}.${PATCH}-rc.${RC}"
-            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_RC"               >> $GITHUB_OUTPUT
             echo "gha_var_value=$((RC+1))"               >> $GITHUB_OUTPUT
             echo "is_prerelease=true"                    >> $GITHUB_OUTPUT
@@ -81,7 +92,7 @@ jobs:
             echo "Creating an official release of the next patch version"
             NEXT_PATCH=$((PATCH+1))
             VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
@@ -91,7 +102,7 @@ jobs:
             echo "Creating an official release of the next minor version"
             NEXT_MINOR=$((MINOR+1))
             VERSION="${MAJOR}.${NEXT_MINOR}.0"
-            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_MINOR"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_MINOR"             >> $GITHUB_OUTPUT
             echo "reset_patch=true"                      >> $GITHUB_OUTPUT
@@ -113,7 +124,7 @@ jobs:
             IFS='.' read HT_MAJOR HT_MINOR HT_PATCH <<< "$TAG_VER"
             NEXT_PATCH=$((HT_PATCH+1))
             VERSION="${HT_MAJOR}.${HT_MINOR}.${NEXT_PATCH}"
-            echo "version=$VERSION"                      >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
@@ -135,6 +146,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Update GitHub Actions Variables Post-Release
+        if: ${{ github.event.inputs.dry_run == false }}
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |

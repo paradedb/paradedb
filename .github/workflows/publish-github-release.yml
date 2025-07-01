@@ -53,6 +53,7 @@ concurrency:
 jobs:
   publish-github-release:
     name: Publish ParadeDB GitHub Release
+    if: ${{ github.event.inputs.confirmation == true }}
     runs-on: ubuntu-latest
 
     steps:
@@ -82,7 +83,7 @@ jobs:
           if [[ "${{ github.event.inputs.beta }}" == "true" && "${{ github.event.inputs.minor }}" == "false" && "${{ github.event.inputs.patch }}" == "false" && "${{ github.event.inputs.hotfix }}" == "false" ]]; then
             echo "Creating a beta `-rc.X` release of the current version"
             VERSION="${MAJOR}.${MINOR}.${PATCH}-rc.${RC}"
-            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_RC"               >> $GITHUB_OUTPUT
             echo "gha_var_value=$((RC+1))"               >> $GITHUB_OUTPUT
             echo "is_prerelease=true"                    >> $GITHUB_OUTPUT
@@ -92,7 +93,7 @@ jobs:
             echo "Creating an official release of the next patch version"
             NEXT_PATCH=$((PATCH+1))
             VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
@@ -102,7 +103,7 @@ jobs:
             echo "Creating an official release of the next minor version"
             NEXT_MINOR=$((MINOR+1))
             VERSION="${MAJOR}.${NEXT_MINOR}.0"
-            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_MINOR"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_MINOR"             >> $GITHUB_OUTPUT
             echo "reset_patch=true"                      >> $GITHUB_OUTPUT
@@ -124,7 +125,7 @@ jobs:
             IFS='.' read HT_MAJOR HT_MINOR HT_PATCH <<< "$TAG_VER"
             NEXT_PATCH=$((HT_PATCH+1))
             VERSION="${HT_MAJOR}.${HT_MINOR}.${NEXT_PATCH}"
-            echo "version=${PREFIX}$VERSION"             >> $GITHUB_OUTPUT
+            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
             echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
             echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
             echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
@@ -138,7 +139,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.determine-release-version.outputs.version }}
+          tag_name: ${{ steps.determine-release-version.outputs.version }}
           target_commitish: "dev" # The `dev` branch is our default branch. This *needs* to point to the branch from which we publish the release.
           generate_release_notes: true
           prerelease: ${{ steps.determine-release-version.outputs.is_prerelease }}

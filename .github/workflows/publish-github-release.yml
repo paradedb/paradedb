@@ -20,10 +20,10 @@ on:
         required: false
         default: false
       beta:
-        description: "Whether this release is a beta prerelease. Defaults to true."
+        description: "Whether this release is a beta prerelease. Defaults to false."
         type: boolean
         required: false
-        default: true
+        default: false
       hotfix:
         description: "Whether this release is a hotfix release to a specific tag. Defaults to false."
         type: boolean

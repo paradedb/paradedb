@@ -52,8 +52,10 @@ jobs:
             https://api.github.com/orgs/paradedb/members/${{ github.actor }})
           if [ "$result" -eq 204 ]; then
             echo "is_member=true" >> $GITHUB_OUTPUT
+            echo "PR author is a member of the org"
           else
             echo "is_member=false" >> $GITHUB_OUTPUT
+            echo "PR author is not a member of the org"
           fi
 
       - name: Extract pgrx Version

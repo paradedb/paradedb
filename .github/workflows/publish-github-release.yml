@@ -34,6 +34,11 @@ on:
         type: string
         required: false
         default: ""
+      confirmation:
+        description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
+        type: boolean
+        required: true
+        default: false
 
 concurrency:
   group: publish-github-release-${{ github.head_ref || github.ref }}

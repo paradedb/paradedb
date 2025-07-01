@@ -8,10 +8,7 @@ name: Test pg_search Benchmark
 
 on:
   pull_request:
-    branches: # On the `main` branch, we run benchmarks in PRs to test thoroughly
-      - main
-  push:
-    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
+    branches: # On the default branch, we run benchmarks in PRs to test thoroughly
       - dev
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"

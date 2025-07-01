@@ -7,10 +7,7 @@ name: Test pg_search Stressgres
 
 on:
   pull_request:
-    branches: # On the `main` branch, we run Stressgres in PRs to test thoroughly
-      - main
-  push:
-    branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
+    branches: # On the default branch, we run Stressgres in PRs to test thoroughly
       - dev
     paths:
       - ".github/stressgres/**"

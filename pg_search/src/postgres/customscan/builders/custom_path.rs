@@ -175,11 +175,6 @@ pub struct CustomPathBuilder<CS: CustomScan> {
     custom_path_node: pg_sys::CustomPath,
 
     custom_paths: PgList<pg_sys::Path>,
-
-    /// `custom_private` can be used to store the custom path's private data. Private data should be
-    /// stored in a form that can be handled by nodeToString, so that debugging routines that attempt
-    /// to print the custom path will work as designed.
-    custom_private: CS::PrivateData,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -217,7 +212,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
                     ..Default::default()
                 },
                 custom_paths: PgList::default(),
-                custom_private: CS::PrivateData::default(),
             }
         }
     }
@@ -245,10 +239,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
     pub fn add_custom_path(mut self, path: *mut pg_sys::Path) -> Self {
         self.custom_paths.push(path);
         self
-    }
-
-    pub fn custom_private(&mut self) -> &mut CS::PrivateData {
-        &mut self.custom_private
     }
 
     pub fn set_rows(mut self, rows: Cardinality) -> Self {
@@ -299,9 +289,12 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
         self.custom_path_node.path.parallel_workers > 0
     }
 
-    pub fn build(mut self) -> pg_sys::CustomPath {
+    /// Build a CustomPath using the given private data.
+    ///
+    /// `custom_private` can be used to store the custom path's private data.
+    pub fn build(mut self, custom_private: CS::PrivateData) -> pg_sys::CustomPath {
         self.custom_path_node.custom_paths = self.custom_paths.into_pg();
-        self.custom_path_node.custom_private = self.custom_private.into();
+        self.custom_path_node.custom_private = custom_private.into();
         self.custom_path_node.flags = self
             .flags
             .into_iter()

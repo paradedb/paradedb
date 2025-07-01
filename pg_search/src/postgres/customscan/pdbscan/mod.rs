@@ -337,6 +337,10 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
+            // TODO: `impl Default for PrivateData` requires that many fields are in invalid
+            // states. Should consider having a separate builder for PrivateData.
+            let mut custom_private = PrivateData::default();
+
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
@@ -376,9 +380,7 @@ impl CustomScan for PdbScan {
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
             // Save the count of referenced columns for decision-making
-            builder
-                .custom_private()
-                .set_referenced_columns_count(referenced_columns.len());
+            custom_private.set_referenced_columns_count(referenced_columns.len());
 
             let is_topn = limit.is_some() && pathkey.is_some();
 
@@ -386,7 +388,7 @@ impl CustomScan for PdbScan {
             // not just those in the target list. To avoid execution-time surprises, the "planned"
             // fast fields must be a superset of the fast fields which are extracted from the
             // execution-time target list: see `assign_exec_method` for more info.
-            builder.custom_private().set_planned_which_fast_fields(
+            custom_private.set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
                     target_list,
                     &referenced_columns,
@@ -398,7 +400,7 @@ impl CustomScan for PdbScan {
                 .into_iter()
                 .collect(),
             );
-            let maybe_ff = builder.custom_private().maybe_ff();
+            let maybe_ff = custom_private.maybe_ff();
 
             //
             // look for quals we can support
@@ -462,12 +464,12 @@ impl CustomScan for PdbScan {
             builder = builder
                 .set_force_path(maybe_needs_const_projections || is_topn || quals.contains_all());
 
-            builder.custom_private().set_heaprelid(table.oid());
-            builder.custom_private().set_indexrelid(bm25_index.oid());
-            builder.custom_private().set_range_table_index(rti);
-            builder.custom_private().set_query(query);
-            builder.custom_private().set_limit(limit);
-            builder.custom_private().set_segment_count(segment_count);
+            custom_private.set_heaprelid(table.oid());
+            custom_private.set_indexrelid(bm25_index.oid());
+            custom_private.set_range_table_index(rti);
+            custom_private.set_query(query);
+            custom_private.set_limit(limit);
+            custom_private.set_segment_count(segment_count);
 
             if is_topn && pathkey.is_some() {
                 let pathkey = pathkey.as_ref().unwrap();
@@ -478,10 +480,10 @@ impl CustomScan for PdbScan {
                 // and sorting by score always works
                 match (maybe_needs_const_projections, pathkey) {
                     (false, OrderByStyle::Field(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                        custom_private.set_sort_info(pathkey);
                     }
                     (_, OrderByStyle::Score(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
+                        custom_private.set_sort_info(pathkey);
                     }
                     _ => {}
                 }
@@ -492,13 +494,11 @@ impl CustomScan for PdbScan {
                 // we have a limit but no order by, so record that.  this will let us go through
                 // our "top n" machinery, but getting "limit" (essentially) random docs, which
                 // is what the user asked for
-                builder
-                    .custom_private()
-                    .set_sort_direction(Some(SortDirection::None));
+                custom_private.set_sort_direction(Some(SortDirection::None));
             }
 
             let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
+                compute_nworkers(limit, segment_count, custom_private.is_sorted())
             } else {
                 0
             };
@@ -509,7 +509,7 @@ impl CustomScan for PdbScan {
             // See https://github.com/paradedb/paradedb/issues/2620
             if pathkey.is_some()
                 && !is_topn
-                && fast_fields::is_string_fast_field_capable(builder.custom_private()).is_some()
+                && fast_fields::is_string_fast_field_capable(&custom_private).is_some()
             {
                 let pathkey = pathkey.as_ref().unwrap();
 
@@ -543,20 +543,18 @@ impl CustomScan for PdbScan {
                     builder = builder.set_parallel(nworkers);
                 } else {
                     // otherwise we'll do a regular scan
-                    builder.custom_private().set_sort_info(pathkey);
+                    custom_private.set_sort_info(pathkey);
                 }
             } else if !quals.contains_external_var() && nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
             }
 
-            let exec_method_type = choose_exec_method(builder.custom_private());
-            builder
-                .custom_private()
-                .set_exec_method_type(exec_method_type);
+            let exec_method_type = choose_exec_method(&custom_private);
+            custom_private.set_exec_method_type(exec_method_type);
 
             // Once we have chosen an execution method type, we have a final determination of the
             // properties of the output, and can make claims about whether it is sorted.
-            if builder.custom_private().exec_method_type().is_sorted() {
+            if custom_private.exec_method_type().is_sorted() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
                 }
@@ -600,11 +598,11 @@ impl CustomScan for PdbScan {
             // indicate that we'll be doing projection ourselves
             builder = builder.set_flag(Flags::Projection);
 
-            Some(builder.build())
+            Some(builder.build(custom_private))
         }
     }
 
-    fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
+    fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 

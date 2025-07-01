@@ -32,8 +32,11 @@ mod dsm;
 mod exec;
 mod explainer;
 mod hook;
+mod opexpr;
 mod path;
 pub mod pdbscan;
+mod pushdown;
+mod qual_inspect;
 mod range_table;
 mod scan;
 
@@ -298,4 +301,14 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
         &[CString::new(signature).into_datum()],
     )
     .expect("should be able to lookup operator signature")
+}
+
+pub fn score_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.score(anyelement)".into_datum()],
+        )
+        .expect("the `paradedb.score(anyelement)` function should exist")
+    }
 }

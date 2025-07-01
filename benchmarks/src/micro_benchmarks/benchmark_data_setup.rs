@@ -222,7 +222,7 @@ pub async fn setup_benchmark_database(
     ];
 
     // Environments
-    let environments = ["production", "development", "testing", "qa"];
+    let environments = ["production", "staging", "development", "testing", "qa"];
 
     // Status values
     let statuses = ["completed", "pending", "failed", "processing", "refunded"];

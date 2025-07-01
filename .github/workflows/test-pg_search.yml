@@ -9,20 +9,12 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - main
       - dev
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
-  push:
-    branches: # Also run on `main` and `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - main
-      - dev
-    paths:
-      - "**/*.rs"
-      - "**/*.toml"
   workflow_dispatch:
 
 # - New commits to a feature branch PR cancel previous runs.

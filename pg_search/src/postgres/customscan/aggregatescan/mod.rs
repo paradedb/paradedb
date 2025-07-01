@@ -19,21 +19,29 @@ pub mod privdat;
 
 use std::ffi::CStr;
 
+use crate::api::operator::anyelement_query_input_opoid;
+use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
-use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
+use crate::postgres::customscan::builders::custom_path::{
+    restrict_info, CustomPathBuilder, RestrictInfoType,
+};
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::qual_inspect::extract_quals;
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod,
     PlainExecCapable,
 };
 use crate::postgres::rel_get_bm25_index;
+use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use tantivy::Index;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -47,8 +55,14 @@ impl CustomScan for AggregateScan {
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
 
-        // We can only handle single-relation aggregates.
+        // We can only handle single relations.
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
+            return None;
+        }
+        let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
+        if !matches!(ri_type, RestrictInfoType::BaseRelation) {
+            // this relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
+            // for us to do anything
             return None;
         }
 
@@ -58,24 +72,44 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // Is it an aggregate on a single relation?
-        let aggregate_types = get_single_relation_agg(args)?;
+        // Is the target list entirely aggregates?
+        let aggregate_types = extract_aggregates(args)?;
 
         // Does that relation have a bm25 index?
         let parent_relids = args.input_rel().relids;
-        let rte_idx = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+        let rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
         let rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
             range_table::get_rte(
                 args.root().simple_rel_array_size as usize,
                 args.root().simple_rte_array,
-                rte_idx,
+                rti,
             )?
         };
-        rel_get_bm25_index(unsafe { (*rte).relid })?;
+        let (table, bm25_index) = rel_get_bm25_index(unsafe { (*rte).relid })?;
+        let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
+        let index = Index::open(directory).expect("custom_scan: should be able to open index");
+        let schema = SearchIndexSchema::from_index(&bm25_index, &index);
 
-        Some(builder.build(PrivateData { aggregate_types }))
+        // Can we handle all of the quals?
+        let quals = unsafe {
+            extract_quals(
+                args.root,
+                rti,
+                restrict_info.as_ptr().cast(),
+                anyelement_query_input_opoid(),
+                ri_type,
+                &schema,
+                false, // Base relation quals should not convert external to all
+                &mut false,
+            )?
+        };
+
+        Some(builder.build(PrivateData {
+            query: SearchQueryInput::from(&quals),
+            aggregate_types,
+        }))
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
@@ -174,7 +208,7 @@ impl CustomScan for AggregateScan {
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.
-fn get_single_relation_agg(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateType>> {
+fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateType>> {
     // The PathTarget `exprs` are the closest that we have to a target list at this point.
     let target_list =
         unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };

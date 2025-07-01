@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
+use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
@@ -27,6 +28,7 @@ pub enum AggregateType {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
+    pub query: SearchQueryInput,
     pub aggregate_types: Vec<AggregateType>,
 }
 

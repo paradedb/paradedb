@@ -30,7 +30,8 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
+    SortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -209,7 +210,6 @@ impl PdbScan {
         root: *mut pg_sys::PlannerInfo,
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
-        pdbopoid: pg_sys::Oid,
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
@@ -218,7 +218,7 @@ impl PdbScan {
             root,
             rti,
             restrict_info.as_ptr().cast(),
-            pdbopoid,
+            anyelement_query_input_opoid(),
             ri_type,
             schema,
             false, // Base relation quals should not convert external to all
@@ -377,7 +377,6 @@ impl CustomScan for PdbScan {
                 root,
                 rti,
                 restrict_info,
-                anyelement_query_input_opoid(),
                 ri_type,
                 &schema,
             );
@@ -1213,24 +1212,6 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                     Some(ExecMethodType::Normal),
                 )
             }
-        }
-    }
-}
-
-fn restrict_info(rel: &pg_sys::RelOptInfo) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
-    unsafe {
-        let baseri = PgList::from_pg(rel.baserestrictinfo);
-        let joinri = PgList::from_pg(rel.joininfo);
-
-        if baseri.is_empty() && joinri.is_empty() {
-            // both lists are empty, so return an empty list
-            (PgList::new(), RestrictInfoType::None)
-        } else if !baseri.is_empty() {
-            // the baserestrictinfo has entries, so we prefer that first
-            (baseri, RestrictInfoType::BaseRelation)
-        } else {
-            // only the joininfo has entries, so that's what we'll use
-            (joinri, RestrictInfoType::Join)
         }
     }
 }

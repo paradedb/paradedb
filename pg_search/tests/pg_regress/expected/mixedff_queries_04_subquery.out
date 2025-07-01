@@ -159,8 +159,8 @@ WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
   id  |    title     | parents  | invoice_file_count 
 ------+--------------+----------+--------------------
- doc1 | Invoice 2023 | Factures |               1337
- doc2 | Receipt 2023 | Factures |               1337
+ doc1 | Invoice 2023 | Factures |                  2
+ doc2 | Receipt 2023 | Factures |                  0
 (2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -173,15 +173,20 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents = 'Factures'
 ORDER BY invoice_file_count DESC, d.id;
-                     QUERY PLAN                      
------------------------------------------------------
+                                             QUERY PLAN                                             
+----------------------------------------------------------------------------------------------------
  Sort
    Sort Key: ((SubPlan 1)) DESC, d.id
    ->  Seq Scan on documents d
          Filter: (parents = 'Factures'::text)
          SubPlan 1
-           ->  Custom Scan (ParadeDB Aggregate Scan)
-(6 rows)
+           ->  Aggregate
+                 ->  Bitmap Heap Scan on files f
+                       Recheck Cond: (documentid = d.id)
+                       Filter: ((title = 'Invoice Receipt'::text) OR (title = 'Invoice PDF'::text))
+                       ->  Bitmap Index Scan on files_pkey
+                             Index Cond: (documentid = d.id)
+(11 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

@@ -88,9 +88,7 @@ FROM products
 WHERE category_name = 'Electronics'
 ORDER BY id;
 
--- Test Case 2: Query using indexed + non-indexed columns - currently returns null/zero scores
--- This demonstrates the problem: even though 'Apple' matches in the indexed 'name' field,
--- the presence of 'category_name = Electronics' (non-indexed predicate) causes scores to be null
+-- Test Case 2: Query using indexed + non-indexed columns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,

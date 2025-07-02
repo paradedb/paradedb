@@ -19,7 +19,9 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{IndexWriterConfig, Mergeable, SerialIndexWriter};
+use crate::index::writer::index::{
+    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+};
 use crate::postgres::merge::do_merge;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -224,6 +226,7 @@ pub unsafe fn merge_index_with_policy(
     gc_after_merge: bool,
 ) {
     // keep track of how many segments we had before we started merging
+    // used to terminate this merge early if we predict we'll end up below the target segment count
     let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
         .expect("should be able to open index")
         .searchable_segment_ids()
@@ -239,9 +242,8 @@ pub unsafe fn merge_index_with_policy(
     let metadata = MetaPage::open(indexrel);
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
-    let merger = merge_lock
-        .merger()
-        .expect("should be able to open a SearchIndexMerger");
+    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
+        .expect("should be able to open merger");
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining

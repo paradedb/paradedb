@@ -16,8 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::LayeredMergePolicy;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::storage::metadata::MetaPage;
@@ -64,7 +62,7 @@ impl LayerSizes {
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
+pub unsafe fn do_merge(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
     let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
     let heaprel = index
         .heap_relation()
@@ -87,7 +85,7 @@ pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
 
     // first merge down the foreground layers
     let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-    unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false, false) };
+    unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false) };
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
@@ -96,20 +94,19 @@ pub unsafe fn do_merge(index_oid: pg_sys::Oid) {
 
     let metadata = MetaPage::open(&index);
     let merge_lock = metadata.acquire_merge_lock();
-    let directory = MvccSatisfies::Mergeable.directory(&index);
-    let merger =
-        SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
-    let (merge_candidates, _) =
-        background_merge_policy.simulate(&metadata, &merge_lock, &merger, false);
+    let merger = merge_lock.merger()?;
+    let (merge_candidates, _) = background_merge_policy.simulate(&metadata, &merge_lock, &merger);
+
     pgrx::debug1!(
         "background layers: {background_layers:?}, merge_candidates: {merge_candidates:?}"
     );
 
     if merge_candidates.is_empty() {
-        return;
+        return Ok(());
     }
 
     try_launch_background_merger(index_oid);
+    Ok(())
 }
 
 /// Try to launch a background process to merge down the index.
@@ -145,6 +142,6 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);
-        unsafe { merge_index_with_policy(&index, merge_policy, false, true, true) };
+        unsafe { merge_index_with_policy(&index, merge_policy, false, true) };
     });
 }

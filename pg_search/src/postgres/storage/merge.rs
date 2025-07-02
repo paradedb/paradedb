@@ -16,12 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::HashSet;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use anyhow::Result;
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
 use std::slice::from_raw_parts;
@@ -73,6 +76,10 @@ impl MergeLock {
             ),
             self.bman.buffer_access().rel(),
         )
+    }
+
+    pub fn merger(&self) -> Result<SearchIndexMerger> {
+        SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(self.bman.bm25cache().rel()))
     }
 }
 

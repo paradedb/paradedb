@@ -60,7 +60,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // garbage collecting the MergeList is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge
     merge_lock.merge_list().garbage_collect();
-    pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
 
     // and now we should not have any merges happening, and cannot
     assert!(

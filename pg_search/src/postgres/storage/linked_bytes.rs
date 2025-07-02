@@ -314,21 +314,11 @@ impl LinkedBytesList {
         bytes
     }
 
-    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
-    /// Free Space Map behind this index.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub unsafe fn return_to_fsm(mut self) {
-        // in addition to the list itself, we also have a secondary list of linked blocks (which
-        // contain the blocknumbers of this list) that needs to be marked deleted too
-
+    /// Returns a lazily-evaluated iterator of all the [`pg_sys::BlockNumber`]s used by this [`LinkedBytesList`].
+    pub fn used_blocks(mut self) -> impl Iterator<Item = BlockNumber> {
         let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
-        let bman = self.bman.clone();
-        let all_blocks =
-            // iterate the BlockList contents -- this is every block used by this LinkedBytesList
-            self
-            .blocklist_reader
+        // iterate the BlockList contents -- this is every block used by this LinkedBytesList
+        self.blocklist_reader
             .take()
             .unwrap_or_else(|| blocklist::reader::BlockList::new(&self.bman, blocklist_blockno))
             .into_iter()
@@ -340,14 +330,22 @@ impl LinkedBytesList {
                     return None;
                 }
                 let blockno = blocklist_blockno;
-                let buffer = bman.get_buffer(blockno);
+                let buffer = self.bman.get_buffer(blockno);
                 let page = buffer.page();
                 let special = page.special::<BM25PageSpecialData>();
                 blocklist_blockno = special.next_blockno;
                 Some(blockno)
-            }));
+            }))
+    }
 
-        self.bman.fsm().extend(&mut self.bman, all_blocks)
+    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
+    /// Free Space Map behind this index.
+    pub unsafe fn return_to_fsm(mut self) {
+        // in addition to the list itself, we also have a secondary list of linked blocks (which
+        // contain the blocknumbers of this list) that needs to be marked deleted too
+
+        let mut bman = self.bman.clone();
+        self.bman.fsm().extend(&mut bman, self.used_blocks());
     }
 
     pub fn is_empty(&self) -> bool {

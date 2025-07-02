@@ -110,9 +110,6 @@ impl BufferMut {
 
     /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
     /// it available for future reuse as a new buffer.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
     pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
         let blockno = self.number();
         bman.fsm().extend(bman, std::iter::once(blockno));

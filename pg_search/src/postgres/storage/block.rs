@@ -119,7 +119,7 @@ pub trait LinkedList {
     ///
     /// Note: It is not safe to begin iteration of the list using this method, as the buffer for
     /// the metadata is released when it returns. Use `get_start_blockno` to begin iteration.
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+    fn get_linked_list_data(&self) -> LinkedListData {
         self.bman()
             .get_buffer(self.get_header_blockno())
             .page()

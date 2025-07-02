@@ -290,14 +290,18 @@ impl MergeList {
 
     pub unsafe fn garbage_collect(&mut self) {
         let recycled_entries = self.entries.garbage_collect();
-        for recycled_entry in recycled_entries {
-            LinkedBytesList::open(
-                self.bman.bm25cache().rel(),
-                recycled_entry.segment_ids_start_blockno,
-            )
-            .return_to_fsm();
-            pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().rel().as_ptr());
-        }
+
+        let bman = self.bman.clone();
+        self.bman.fsm().extend(
+            &mut self.bman,
+            recycled_entries
+                .into_iter()
+                .map(move |entry| {
+                    LinkedBytesList::open(bman.bm25cache().rel(), entry.segment_ids_start_blockno)
+                        .used_blocks()
+                })
+                .flatten(),
+        );
     }
 
     pub unsafe fn add_segment_ids<'a>(
@@ -349,7 +353,6 @@ impl MergeList {
             removed_entry.segment_ids_start_blockno,
         )
         .return_to_fsm();
-        pg_sys::IndexFreeSpaceMapVacuum(self.bman.bm25cache().rel().as_ptr());
         Ok(removed_entry)
     }
 }

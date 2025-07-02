@@ -35,6 +35,10 @@ pub extern "C-unwind" fn ambuild(
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
+    unsafe {
+        ambuildempty(indexrel);
+    }
+
     let heap_relation = unsafe { PgSearchRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
 
@@ -60,8 +64,6 @@ pub extern "C-unwind" fn ambuild(
     }
 
     unsafe {
-        ambuildempty(indexrel);
-
         let heap_tuples = build_index(
             heap_relation,
             index_relation.clone(),

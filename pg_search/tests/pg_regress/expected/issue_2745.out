@@ -37,19 +37,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
-                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
  Hash Right Anti Join
    Hash Cond: (contact_list.id = contacts_companies.contact_id)
    ->  Seq Scan on contact_list
    ->  Hash
-         ->  Custom Scan (ParadeDB Scan) on contacts_companies
-               Table: contacts_companies
-               Index: contacts_companies_contact_id_company_id_contact_name_idx
-               Exec Method: NormalScanExecState
-               Scores: false
-               Tantivy Query: {"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 641 :opfuncid 1254 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 3 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 94 40 63 58 65 108 105 99 101 41 36 ]}) :location -1}","description":"OpExpr with operator OID 641"}]}}
-(10 rows)
+         ->  Index Scan using contacts_companies_pkey on contacts_companies
+               Filter: (contact_name ~ '^(?:Alice)$'::text)
+(6 rows)
 
 SET paradedb.enable_custom_scan = off;
 SELECT contact_name FROM contacts_companies

@@ -462,6 +462,7 @@ impl From<&Qual> for SearchQueryInput {
 pub struct QualExtractState {
     pub uses_tantivy_to_query: bool,
     pub uses_our_operator: bool,
+    pub uses_heap_expr: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -625,9 +626,6 @@ pub unsafe fn extract_quals(
 
             // Check if this is a boolean constant
             if (*const_node).consttype == pg_sys::BOOLOID {
-                // Convert boolean constant to HeapExpr using the expression-based approach
-
-                // Create HeapExpr using the new expression-based approach
                 let bool_value = if !(*const_node).constisnull {
                     bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                 } else {
@@ -767,7 +765,7 @@ unsafe fn opexpr(
                 rti,
                 opexpr,
                 schema,
-                &mut state.uses_tantivy_to_query,
+                state,
                 convert_external_to_special_qual,
             )
         }
@@ -833,7 +831,7 @@ unsafe fn node_opexpr(
                     rti,
                     opexpr,
                     schema,
-                    &mut state.uses_tantivy_to_query,
+                    state,
                     convert_external_to_special_qual,
                 );
             }
@@ -870,7 +868,7 @@ unsafe fn node_opexpr(
             rti,
             opexpr,
             schema,
-            &mut state.uses_tantivy_to_query,
+            state,
             convert_external_to_special_qual,
         )
     }
@@ -893,7 +891,7 @@ unsafe fn try_pushdown(
     rti: pg_sys::Index,
     opexpr: OpExpr,
     schema: &SearchIndexSchema,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
     convert_external_to_special_qual: bool,
 ) -> Option<Qual> {
     // Save the operator OID and node pointer before the move
@@ -919,7 +917,9 @@ unsafe fn try_pushdown(
                 expr_desc: format!("OpExpr with operator OID {opno}"),
                 search_query_input: Box::new(SearchQueryInput::All),
             };
-            *uses_tantivy_to_query = true; // We do use search (with heap filtering)
+            // We do use search (with heap filtering)
+            state.uses_heap_expr = true;
+            state.uses_tantivy_to_query = true;
             Some(heap_expr)
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
@@ -928,7 +928,7 @@ unsafe fn try_pushdown(
         }
     } else {
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
-        *uses_tantivy_to_query = true;
+        state.uses_tantivy_to_query = true;
         pushdown_result
     }
 }

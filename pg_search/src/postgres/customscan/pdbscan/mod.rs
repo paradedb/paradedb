@@ -246,6 +246,10 @@ impl PdbScan {
                 &mut state,
             );
 
+            if state.uses_heap_expr && !state.uses_our_operator {
+                return (None, ri_type, restrict_info);
+            }
+
             // Apply HeapExpr optimization to the extracted quals
             if let Some(ref mut q) = quals {
                 let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
@@ -261,6 +265,10 @@ impl PdbScan {
                 (None, ri_type, restrict_info)
             }
         } else {
+            if state.uses_heap_expr && !state.uses_our_operator {
+                return (None, ri_type, restrict_info);
+            }
+
             // Apply HeapExpr optimization to the base relation quals
             if let Some(ref mut q) = quals {
                 let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);

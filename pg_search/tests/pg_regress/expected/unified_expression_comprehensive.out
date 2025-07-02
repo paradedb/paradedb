@@ -741,17 +741,13 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
-         Table: products
-         Index: products_bm25_idx
-         Exec Method: NormalScanExecState
-         Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1757"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 44 1 ]}) :location -1}","description":"OpExpr with operator OID 1755"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}}
-(8 rows)
+   ->  Seq Scan on products
+         Filter: (in_stock AND (price >= 100.00) AND (price <= 300.00))
+(4 rows)
 
 SELECT 
     id,
@@ -765,9 +761,9 @@ WHERE price BETWEEN 100.00 AND 300.00
 ORDER BY score DESC;
  id |       name        | price  | in_stock | score 
 ----+-------------------+--------+----------+-------
-  3 | Nike Air Max      | 149.99 | t        |     0
-  5 | Adidas Ultraboost | 179.99 | t        |     0
-  8 | Sony Headphones   | 299.99 | t        |     0
+  3 | Nike Air Max      | 149.99 | t        |      
+  5 | Adidas Ultraboost | 179.99 | t        |      
+  8 | Sony Headphones   | 299.99 | t        |      
 (3 rows)
 
 -- Test Case 14: Array operations (if supported)

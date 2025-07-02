@@ -567,55 +567,54 @@ pub unsafe fn extract_quals(
             let var_node = nodecast!(Var, T_Var, node)?;
 
             // Check if this is a boolean field reference to our relation
-            if (*var_node).varno as pg_sys::Index == rti {
-                // First, try to create a PushdownField to see if this is an indexed boolean field
-                if let Some(field) = PushdownField::try_new(root, var_node, schema) {
-                    if let Some(search_field) = schema.search_field(field.attname()) {
-                        if search_field.is_fast() {
-                            // This is an indexed boolean field, create proper pushdown qual
-                            // T_Var alone represents "field = true"
-                            state.uses_tantivy_to_query = true;
-                            return Some(Qual::PushdownVarEqTrue { field });
-                        }
+            if (*var_node).varno as pg_sys::Index != rti {
+                return None;
+            }
+            // First, try to create a PushdownField to see if this is an indexed boolean field
+            if let Some(field) = PushdownField::try_new(root, var_node, schema) {
+                if let Some(search_field) = schema.search_field(field.attname()) {
+                    if search_field.is_fast() {
+                        // This is an indexed boolean field, create proper pushdown qual
+                        // T_Var alone represents "field = true"
+                        state.uses_tantivy_to_query = true;
+                        return Some(Qual::PushdownVarEqTrue { field });
                     }
                 }
-
-                // If we reach here, the field is not indexed or not fast, so create HeapExpr
-                // T_Var nodes represent boolean field references without explicit "= true" comparison
-                // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
-                // We need to handle both cases since they're semantically equivalent
-
-                // Check if root and parse are valid
-                if root.is_null() || (*root).parse.is_null() {
-                    return None;
-                }
-
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                if rte.is_null() {
-                    return None;
-                }
-
-                let relation_oid = (*rte).relid;
-
-                // Get the field name
-                let attno = (*var_node).varattno;
-                if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
-                    // Create HeapExpr using the new expression-based approach
-                    let heap_expr = Qual::HeapExpr {
-                        expr_node: node, // Use the original T_Var node
-                        expr_desc: format!("Boolean field {} = true", field_name.root()),
-                        search_query_input: Box::new(SearchQueryInput::All),
-                    };
-
-                    state.uses_tantivy_to_query = true;
-                    return Some(heap_expr);
-                }
-
-                // If we can't handle this boolean field, return None
-                None
-            } else {
-                None
             }
+
+            // If we reach here, the field is not indexed or not fast, so create HeapExpr
+            // T_Var nodes represent boolean field references without explicit "= true" comparison
+            // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
+            // We need to handle both cases since they're semantically equivalent
+
+            // Check if root and parse are valid
+            if root.is_null() || (*root).parse.is_null() {
+                return None;
+            }
+
+            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+            if rte.is_null() {
+                return None;
+            }
+
+            let relation_oid = (*rte).relid;
+
+            // Get the field name
+            let attno = (*var_node).varattno;
+            if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
+                // Create HeapExpr using the new expression-based approach
+                let heap_expr = Qual::HeapExpr {
+                    expr_node: node, // Use the original T_Var node
+                    expr_desc: format!("Boolean field {} = true", field_name.root()),
+                    search_query_input: Box::new(SearchQueryInput::All),
+                };
+
+                state.uses_tantivy_to_query = true;
+                return Some(heap_expr);
+            }
+
+            // If we can't handle this boolean field, return None
+            None
         }
 
         pg_sys::NodeTag::T_NullTest => {

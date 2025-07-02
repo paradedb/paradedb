@@ -907,6 +907,18 @@ unsafe fn node_opexpr(
     }
 }
 
+/// Critical decision point: determines whether a predicate can be pushed down to the index
+/// or must be evaluated via heap access.
+///
+/// This function attempts to convert PostgreSQL OpExpr nodes into indexed predicates.
+/// If the predicate can be satisfied using indexed fields (fast fields, search fields),
+/// it returns an indexed Qual (OpExpr, PushdownExpr, etc.).
+/// If the predicate references non-indexed fields, it returns a HeapExpr that will
+/// evaluate the predicate against heap tuples.
+///
+/// The decision made here directly impacts query performance:
+/// - Indexed predicates: Fast evaluation using Tantivy's index structures
+/// - HeapExpr predicates: Slower evaluation requiring heap tuple access
 unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
@@ -924,14 +936,18 @@ unsafe fn try_pushdown(
         OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
     };
 
-    // we'll try to convert it into a pushdown
+    // Try to convert this OpExpr into an indexed predicate (fast field, search field, etc.)
     let pushdown_result = try_pushdown_inner(root, rti, opexpr, schema);
+
     if pushdown_result.is_none() {
+        // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
         if contains_relation_reference(opexpr_node, rti) {
+            // Create HeapExpr: predicate will be evaluated via heap access
+            // This is slower but necessary for non-indexed fields
             let heap_expr = Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with operator OID {opno}"),
+                expr_desc: format!("Non-indexed OpExpr with operator OID {opno}"),
                 search_query_input: Box::new(SearchQueryInput::All),
             };
             *uses_tantivy_to_query = true; // We do use search (with heap filtering)
@@ -942,6 +958,7 @@ unsafe fn try_pushdown(
             None
         }
     } else {
+        // SUCCESS: Predicate can be pushed down to index for fast evaluation
         *uses_tantivy_to_query = true;
         pushdown_result
     }

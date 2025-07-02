@@ -18,6 +18,7 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::ps_status::{set_ps_display_suffix, MERGING_IN_BACKGROUND};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::PgSearchRelation;
 
@@ -141,6 +142,8 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
     BackgroundWorker::transaction(|| {
+        unsafe { set_ps_display_suffix(MERGING_IN_BACKGROUND.as_ptr()) };
+
         let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
         let index_options = unsafe { SearchIndexOptions::from_relation(&index) };

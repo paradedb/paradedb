@@ -29,7 +29,7 @@ use crate::parallel_worker::{
 };
 use crate::postgres::insert::garbage_collect_index;
 use crate::postgres::ps_status::{
-    set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING,
+    set_ps_display_remove_suffix, set_ps_display_suffix, INDEXING, MERGING_DURING_INDEXING,
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
@@ -414,7 +414,7 @@ impl WorkerBuildState {
                 .collect::<Vec<_>>()
         };
 
-        unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
+        unsafe { set_ps_display_suffix(MERGING_DURING_INDEXING.as_ptr()) };
 
         // do the merge
         pgrx::debug1!(

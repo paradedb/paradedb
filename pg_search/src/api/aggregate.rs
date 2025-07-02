@@ -152,7 +152,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = FxHashSet::default();
-        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
+        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number.max(0) as usize);
         while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
 

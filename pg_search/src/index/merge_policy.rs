@@ -203,7 +203,6 @@ impl LayeredMergePolicy {
         metadata: &MetaPage,
         merge_lock: &MergeLock,
         merger: &SearchIndexMerger,
-        consider_create_index_segments: bool,
     ) -> (Vec<MergeCandidate>, NumMerged) {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
@@ -230,33 +229,17 @@ impl LayeredMergePolicy {
         // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
         non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
-        let create_index_segment_ids = unsafe { metadata.create_index_segment_ids() };
 
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
             pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
-            pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
         }
 
         // tell the MergePolicy which segments it's initially allowed to consider for merging
         self.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
-            |(segment_id, entry)| {
+            |(segment_id, _)| {
                 // skip segments that are already being vacuumed or merged
-                if non_mergeable_segments.contains(segment_id) {
-                    return false;
-                }
-
-                // skip segments that were created by CREATE INDEX and have no deletes
-                if !consider_create_index_segments
-                    && create_index_segment_ids.contains(segment_id)
-                    && entry
-                        .delete
-                        .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
-                {
-                    return false;
-                }
-
-                true
+                !non_mergeable_segments.contains(segment_id)
             },
         ));
 

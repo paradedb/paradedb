@@ -106,9 +106,15 @@ fn default_layer_sizes(mut conn: PgConnection) {
     assert_eq!(
         layer_sizes,
         vec![
-            BigDecimal::from(100 * 1024),
-            BigDecimal::from(1024 * 1024),
-            BigDecimal::from(100 * 1024 * 1024)
+            BigDecimal::from(100u64 * 1024),
+            BigDecimal::from(1024u64 * 1024),
+            BigDecimal::from(10u64 * 1024 * 1024),
+            BigDecimal::from(100u64 * 1024 * 1024),
+            BigDecimal::from(1000u64 * 1024 * 1024),
+            BigDecimal::from(10000u64 * 1024 * 1024),
+            BigDecimal::from(100000u64 * 1024 * 1024),
+            BigDecimal::from(1000000u64 * 1024 * 1024),
+            BigDecimal::from(10000000u64 * 1024 * 1024)
         ]
     );
 }

@@ -20,7 +20,6 @@ use pgrx::{pg_sys::ItemPointerData, *};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 
 use crate::postgres::rel::PgSearchRelation;

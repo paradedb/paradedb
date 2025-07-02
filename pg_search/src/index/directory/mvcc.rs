@@ -25,7 +25,6 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use parking_lot::Mutex;
 use pgrx::pg_sys;

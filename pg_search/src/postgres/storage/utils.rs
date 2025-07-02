@@ -16,11 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::PgItem;
 use crate::postgres::storage::buffer::BufferMutVec;
 use pgrx::pg_sys::OffsetNumber;
 use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
-use std::cell::LazyCell;
 use std::fmt::Debug;
 use std::sync::LazyLock;
 

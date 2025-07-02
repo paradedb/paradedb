@@ -16,10 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{
-    block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry,
-};
-use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::block::{block_number_is_valid, LinkedList, SegmentMetaEntry};
+use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PinnedBuffer};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -238,30 +236,38 @@ impl MetaPage {
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
     pub fn cleanup_lock(&self) -> PinnedBuffer {
-        let blockno = (self.data.cleanup_lock == 0)
-            .then_some(Self::LEGACY_CLEANUP_LOCK)
-            .unwrap_or(self.data.cleanup_lock);
+        let blockno = if self.data.cleanup_lock == 0 {
+            Self::LEGACY_CLEANUP_LOCK
+        } else {
+            self.data.cleanup_lock
+        };
         self.bman.pinned_buffer(blockno)
     }
 
     pub fn schema_bytes(&self) -> LinkedBytesList {
-        let blockno = (self.data.schema_start == 0)
-            .then_some(Self::LEGACY_SCHEMA_START)
-            .unwrap_or(self.data.schema_start);
+        let blockno = if self.data.schema_start == 0 {
+            Self::LEGACY_SCHEMA_START
+        } else {
+            self.data.schema_start
+        };
         LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
     }
 
     pub fn settings_bytes(&self) -> LinkedBytesList {
-        let blockno = (self.data.settings_start == 0)
-            .then_some(Self::LEGACY_SETTINGS_START)
-            .unwrap_or(self.data.settings_start);
+        let blockno = if self.data.settings_start == 0 {
+            Self::LEGACY_SETTINGS_START
+        } else {
+            self.data.settings_start
+        };
         LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {
-        let blockno = (self.data.segment_metas_start == 0)
-            .then_some(Self::LEGACY_SEGMENT_METAS_START)
-            .unwrap_or(self.data.segment_metas_start);
+        let blockno = if self.data.segment_metas_start == 0 {
+            Self::LEGACY_SEGMENT_METAS_START
+        } else {
+            self.data.segment_metas_start
+        };
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.bm25cache().rel(), blockno)
     }
 }

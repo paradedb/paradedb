@@ -27,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::utils::{
     categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
 };

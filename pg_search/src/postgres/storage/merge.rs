@@ -294,13 +294,10 @@ impl MergeList {
         let bman = self.bman.clone();
         self.bman.fsm().extend(
             &mut self.bman,
-            recycled_entries
-                .into_iter()
-                .map(move |entry| {
-                    LinkedBytesList::open(bman.bm25cache().rel(), entry.segment_ids_start_blockno)
-                        .used_blocks()
-                })
-                .flatten(),
+            recycled_entries.into_iter().flat_map(move |entry| {
+                LinkedBytesList::open(bman.bm25cache().rel(), entry.segment_ids_start_blockno)
+                    .used_blocks()
+            }),
         );
     }
 

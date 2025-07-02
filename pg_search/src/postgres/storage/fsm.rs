@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::bm25_max_free_space;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager};
-use pgrx::{check_for_interrupts, pg_sys};
+use pgrx::pg_sys;
 
 #[derive(Debug)]
 #[repr(C, packed)]

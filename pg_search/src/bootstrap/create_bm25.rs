@@ -26,7 +26,6 @@ use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;

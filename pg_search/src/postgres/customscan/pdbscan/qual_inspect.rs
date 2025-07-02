@@ -327,7 +327,7 @@ impl From<&Qual> for SearchQueryInput {
                 let field_filters =
                     vec![unsafe { HeapFieldFilter::new(*expr_node, expr_desc.clone()) }];
 
-                SearchQueryInput::IndexedWithFilter {
+                SearchQueryInput::HeapFilter {
                     indexed_query: search_query_input.clone(),
                     field_filters,
                 }

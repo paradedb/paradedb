@@ -180,13 +180,13 @@ impl HeapFieldFilter {
 
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
-pub struct IndexedWithHeapFilterQuery {
+pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
 }
 
-impl IndexedWithHeapFilterQuery {
+impl HeapFilterQuery {
     pub fn new(
         indexed_query: Box<dyn Query>,
         field_filters: Vec<HeapFieldFilter>,
@@ -200,7 +200,7 @@ impl IndexedWithHeapFilterQuery {
     }
 }
 
-impl tantivy::query::QueryClone for IndexedWithHeapFilterQuery {
+impl tantivy::query::QueryClone for HeapFilterQuery {
     fn box_clone(&self) -> Box<dyn Query> {
         Box::new(Self {
             indexed_query: self.indexed_query.box_clone(),
@@ -210,10 +210,10 @@ impl tantivy::query::QueryClone for IndexedWithHeapFilterQuery {
     }
 }
 
-impl Query for IndexedWithHeapFilterQuery {
+impl Query for HeapFilterQuery {
     fn weight(&self, enable_scoring: EnableScoring) -> tantivy::Result<Box<dyn Weight>> {
         let indexed_weight = self.indexed_query.weight(enable_scoring)?;
-        Ok(Box::new(IndexedWithHeapFilterWeight {
+        Ok(Box::new(HeapFilterWeight {
             indexed_weight,
             field_filters: self.field_filters.clone(),
             rel_oid: self.rel_oid,
@@ -221,13 +221,13 @@ impl Query for IndexedWithHeapFilterQuery {
     }
 }
 
-struct IndexedWithHeapFilterWeight {
+struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
 }
 
-impl Weight for IndexedWithHeapFilterWeight {
+impl Weight for HeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
         let indexed_scorer = self.indexed_weight.scorer(reader, boost)?;
 
@@ -235,7 +235,7 @@ impl Weight for IndexedWithHeapFilterWeight {
         let fast_fields_reader = reader.fast_fields();
         let ctid_ff = crate::index::fast_fields_helper::FFType::new_ctid(fast_fields_reader);
 
-        let scorer = IndexedWithHeapFilterScorer::new(
+        let scorer = HeapFilterScorer::new(
             indexed_scorer,
             self.field_filters.clone(),
             ctid_ff,
@@ -247,14 +247,11 @@ impl Weight for IndexedWithHeapFilterWeight {
 
     fn explain(&self, reader: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
         let indexed_explanation = self.indexed_weight.explain(reader, doc)?;
-        Ok(Explanation::new(
-            "IndexedWithHeapFilter",
-            indexed_explanation.value(),
-        ))
+        Ok(Explanation::new("HeapFilter", indexed_explanation.value()))
     }
 }
 
-struct IndexedWithHeapFilterScorer {
+struct HeapFilterScorer {
     indexed_scorer: Box<dyn Scorer>,
     field_filters: Vec<HeapFieldFilter>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
@@ -262,7 +259,7 @@ struct IndexedWithHeapFilterScorer {
     current_doc: DocId,
 }
 
-impl IndexedWithHeapFilterScorer {
+impl HeapFilterScorer {
     fn new(
         indexed_scorer: Box<dyn Scorer>,
         field_filters: Vec<HeapFieldFilter>,
@@ -323,14 +320,14 @@ impl IndexedWithHeapFilterScorer {
     }
 }
 
-impl Scorer for IndexedWithHeapFilterScorer {
+impl Scorer for HeapFilterScorer {
     fn score(&mut self) -> Score {
         // Return the score from the indexed query (preserving BM25 scores)
         self.indexed_scorer.score()
     }
 }
 
-impl DocSet for IndexedWithHeapFilterScorer {
+impl DocSet for HeapFilterScorer {
     fn advance(&mut self) -> DocId {
         loop {
             let doc = self.indexed_scorer.advance();

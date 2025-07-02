@@ -275,7 +275,7 @@ pub enum SearchQueryInput {
         expr: PostgresExpression,
     },
     /// Mixed query with indexed search and heap field filters
-    IndexedWithFilter {
+    HeapFilter {
         indexed_query: Box<SearchQueryInput>,
         field_filters: Vec<HeapFieldFilter>,
     },
@@ -308,9 +308,7 @@ impl SearchQueryInput {
                 disjuncts.iter().any(Self::need_scores)
             }
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
-            SearchQueryInput::IndexedWithFilter { indexed_query, .. } => {
-                Self::need_scores(indexed_query)
-            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => Self::need_scores(indexed_query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
@@ -456,7 +454,7 @@ impl AsHumanReadable for SearchQueryInput {
                 }
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
-            SearchQueryInput::IndexedWithFilter {
+            SearchQueryInput::HeapFilter {
                 indexed_query,
                 field_filters,
             } => {
@@ -1767,7 +1765,7 @@ impl SearchQueryInput {
             Self::WithIndex { query, .. } => {
                 query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
             }
-            Self::IndexedWithFilter {
+            Self::HeapFilter {
                 indexed_query,
                 field_filters,
             } => {
@@ -1781,14 +1779,11 @@ impl SearchQueryInput {
                 )?;
 
                 // Create combined query with heap field filters
-                Ok(Box::new(
-                    heap_field_filter::IndexedWithHeapFilterQuery::new(
-                        indexed_tantivy_query,
-                        field_filters,
-                        relation_oid
-                            .expect("relation_oid is required for IndexedWithFilter queries"),
-                    ),
-                ))
+                Ok(Box::new(heap_field_filter::HeapFilterQuery::new(
+                    indexed_tantivy_query,
+                    field_filters,
+                    relation_oid.expect("relation_oid is required for HeapFilter queries"),
+                )))
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }

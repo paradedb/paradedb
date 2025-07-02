@@ -19,9 +19,7 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{
-    IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
-};
+use crate::index::writer::index::{IndexWriterConfig, Mergeable, SerialIndexWriter};
 use crate::postgres::merge::do_merge;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
@@ -196,7 +194,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             .expect("must be able to commit inserts in paradedb_aminsertcleanup")
         {
             unsafe {
-                do_merge(indexrel.oid());
+                do_merge(indexrel.oid()).expect("should be able to merge");
             }
         }
     }
@@ -207,7 +205,6 @@ pub unsafe fn merge_index_with_policy(
     mut merge_policy: LayeredMergePolicy,
     verbose: bool,
     gc_after_merge: bool,
-    consider_create_index_segments: bool,
 ) -> (NumCandidates, NumMerged) {
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
@@ -216,19 +213,14 @@ pub unsafe fn merge_index_with_policy(
     let metadata = MetaPage::open(indexrel);
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
-    let directory = MvccSatisfies::Mergeable.directory(indexrel);
-    let merger =
-        SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
+    let merger = merge_lock
+        .merger()
+        .expect("should be able to open a SearchIndexMerger");
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    let (merge_candidates, nmerged) = merge_policy.simulate(
-        &metadata,
-        &merge_lock,
-        &merger,
-        consider_create_index_segments,
-    );
+    let (merge_candidates, nmerged) = merge_policy.simulate(&metadata, &merge_lock, &merger);
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())

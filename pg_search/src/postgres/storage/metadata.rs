@@ -24,7 +24,6 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
-use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -206,22 +205,6 @@ impl MetaPage {
         VacuumSentinel(sentinel)
     }
 
-    pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
-        if !block_number_is_valid(self.data.create_index_list) {
-            return Vec::new();
-        }
-
-        let entries =
-            LinkedBytesList::open(self.bman.buffer_access().rel(), self.data.create_index_list);
-        let bytes = entries.read_all();
-        bytes
-            .chunks(size_of::<SegmentIdBytes>())
-            .map(|entry| {
-                SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
-            })
-            .collect()
-    }
-
     pub fn fsm(&self) -> pg_sys::BlockNumber {
         assert!(block_number_is_valid(self.data.fsm));
         self.data.fsm
@@ -296,31 +279,5 @@ impl MetaPage {
             self.data.segment_metas_start
         };
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
-    }
-}
-
-// mutable MetaPage operations
-impl MetaPage {
-    pub fn record_create_index_segment_ids(
-        &mut self,
-        segment_ids: impl IntoIterator<Item = SegmentId>,
-    ) -> anyhow::Result<()> {
-        let segment_id_bytes = segment_ids
-            .into_iter()
-            .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
-            .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create_with_fsm(self.bman.buffer_access().rel());
-        let mut writer = segment_ids_list.writer();
-        unsafe {
-            writer.write(&segment_id_bytes)?;
-        }
-        let segment_ids_list = writer.into_inner()?;
-
-        let mut buffer = self.bman.get_buffer_mut(METAPAGE);
-        let mut page = buffer.page_mut();
-        let metadata = page.contents_mut::<MetaPageData>();
-        metadata.create_index_list = segment_ids_list.get_header_blockno();
-
-        Ok(())
     }
 }

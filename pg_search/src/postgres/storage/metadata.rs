@@ -17,7 +17,9 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{block_number_is_valid, LinkedList, SegmentMetaEntry};
-use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PinnedBuffer};
+use crate::postgres::storage::buffer::{
+    init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
+};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
@@ -235,13 +237,40 @@ impl MetaPage {
     const LEGACY_SETTINGS_START: pg_sys::BlockNumber = 4;
     const LEGACY_SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
 
-    pub fn cleanup_lock(&self) -> PinnedBuffer {
+    pub fn cleanup_lock_pinned(&self) -> PinnedBuffer {
         let blockno = if self.data.cleanup_lock == 0 {
             Self::LEGACY_CLEANUP_LOCK
         } else {
             self.data.cleanup_lock
         };
         self.bman.pinned_buffer(blockno)
+    }
+
+    pub fn cleanup_lock_shared(&self) -> Buffer {
+        let blockno = if self.data.cleanup_lock == 0 {
+            Self::LEGACY_CLEANUP_LOCK
+        } else {
+            self.data.cleanup_lock
+        };
+        self.bman.get_buffer(blockno)
+    }
+
+    pub fn cleanup_lock_exclusive(&mut self) -> BufferMut {
+        let blockno = if self.data.cleanup_lock == 0 {
+            Self::LEGACY_CLEANUP_LOCK
+        } else {
+            self.data.cleanup_lock
+        };
+        self.bman.get_buffer_mut(blockno)
+    }
+
+    pub fn cleanup_lock_for_cleanup(&mut self) -> BufferMut {
+        let blockno = if self.data.cleanup_lock == 0 {
+            Self::LEGACY_CLEANUP_LOCK
+        } else {
+            self.data.cleanup_lock
+        };
+        self.bman.get_buffer_for_cleanup(blockno)
     }
 
     pub fn schema_bytes(&self) -> LinkedBytesList {

@@ -283,7 +283,7 @@ impl SearchIndexReader {
         //
         // It's sufficient, and **required** for parallel scans to operate correctly, for us to hold onto
         // a pinned but unlocked buffer.
-        let cleanup_lock = MetaPage::open(index_relation).cleanup_lock();
+        let cleanup_lock = MetaPage::open(index_relation).cleanup_lock_pinned();
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;

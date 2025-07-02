@@ -248,7 +248,7 @@ pub unsafe fn merge_index_with_policy(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
-    let cleanup_lock = metadata.cleanup_lock();
+    let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
     let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let merger =

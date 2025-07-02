@@ -17,9 +17,11 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
+use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
@@ -30,7 +32,7 @@ use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
@@ -362,24 +364,20 @@ fn version_info() -> TableIterator<
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_pretty_bytes(
-    _index: PgRelation,
-    _oversized_layer_size_pretty: String,
+    index: PgRelation,
+    oversized_layer_size_pretty: String,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    Err(anyhow::anyhow!(
-        "`force_merge` is deprecated, run `VACUUM` instead to trigger a background merge"
-    ))
+    anyhow::bail!("force_merge_pretty_bytes is deprecated");
 }
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_raw_bytes(
-    _index: PgRelation,
-    _oversized_layer_size_bytes: i64,
+    index: PgRelation,
+    oversized_layer_size_bytes: i64,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    Err(anyhow::anyhow!(
-        "`force_merge` is deprecated, run `VACUUM` instead to trigger a background merge"
-    ))
+    anyhow::bail!("force_merge_raw_bytes is deprecated");
 }
 
 #[pg_extern]

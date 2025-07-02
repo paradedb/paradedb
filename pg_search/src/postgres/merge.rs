@@ -16,10 +16,14 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::merge_policy::LayeredMergePolicy;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING_IN_BACKGROUND};
+use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -33,10 +37,47 @@ struct LayerSizes {
     background_layer_size_threshold: u64,
 }
 
-impl From<SearchIndexOptions> for LayerSizes {
-    fn from(index_options: SearchIndexOptions) -> Self {
+impl From<&PgSearchRelation> for LayerSizes {
+    fn from(index: &PgSearchRelation) -> Self {
+        let index_options = unsafe { SearchIndexOptions::from_relation(index) };
+        let segment_components =
+            LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+        let all_entries = unsafe { segment_components.list() };
+        let index_byte_size = all_entries
+            .iter()
+            .map(|entry| entry.byte_size())
+            .sum::<u64>();
+        let mut layer_sizes = index_options.layer_sizes();
+        let target_segment_count = index_options.target_segment_count();
+        let target_byte_size = index_byte_size / target_segment_count as u64;
+
+        // set the highest layer size to the following:
+        //
+        // `index_byte_size` / `target_segment_count`
+        //
+        // i.e. how big should each segment be if we want to have exactly `target_segment_count` segments?
+        //
+        // to prevent two layers from being too close together, ensure that the second highest layer
+        // is less than 1/3 the size of the highest layer
+        //
+        //
+        // for instance, assume:
+        // - layer sizes: [1mb, 10mb, 100mb]
+        // - index size: 200mb
+        // - target segment count: 10
+        //
+        // then our recomputed layer sizes would be:
+        // - [1mb, 20mb]
+        //
+        // the 100mb layer gets excluded because the target segment size is 20mb
+        // and the 10mb layer gets excluded because it's less than 1/3 the size of the 20mb layer
+        layer_sizes.retain(|&layer_size| layer_size < target_byte_size / 3);
+        layer_sizes.push(target_byte_size);
+
+        pgrx::debug1!("retained layer_sizes: {layer_sizes:?}");
+
         Self {
-            layer_sizes: index_options.layer_sizes(),
+            layer_sizes,
             background_layer_size_threshold: index_options.background_layer_size_threshold(),
         }
     }
@@ -70,7 +111,7 @@ impl LayerSizes {
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
 pub unsafe fn do_merge(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
-    let index = PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as _);
+    let index = PgSearchRelation::open(index_oid);
     let heaprel = index
         .heap_relation()
         .expect("index should belong to a heap relation");
@@ -87,7 +128,15 @@ pub unsafe fn do_merge(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
     unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
 
     let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
-    let layer_sizes = LayerSizes::from(index_options);
+    let directory = MvccSatisfies::Mergeable.directory(&index);
+    let merger = SearchIndexMerger::open(directory)?;
+
+    // if there's fewer segments than the target segment count, we don't need to merge
+    if merger.searchable_segment_ids()?.len() <= index_options.target_segment_count() {
+        return Ok(());
+    }
+
+    let layer_sizes = LayerSizes::from(&index);
     let foreground_layers = layer_sizes.foreground();
 
     // first merge down the foreground layers
@@ -96,39 +145,45 @@ pub unsafe fn do_merge(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
-    let background_layers = layer_sizes.background();
-    let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
+    let (merge_candidates, _) = {
+        let metadata = MetaPage::open(&index);
+        let merge_lock = metadata.acquire_merge_lock();
+        let background_layers = layer_sizes.background();
+        let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
 
-    let metadata = MetaPage::open(&index);
-    let merge_lock = metadata.acquire_merge_lock();
-    let merger = merge_lock.merger()?;
-    let (merge_candidates, _) = background_merge_policy.simulate(&metadata, &merge_lock, &merger);
+        pgrx::debug1!("background layers: {background_layers:?}");
 
-    pgrx::debug1!(
-        "background layers: {background_layers:?}, merge_candidates: {merge_candidates:?}"
-    );
+        background_merge_policy.simulate(&metadata, &merge_lock, &merger)
+    };
+
+    pgrx::debug1!("background merge_candidates: {merge_candidates:?}");
 
     if merge_candidates.is_empty() {
         return Ok(());
     }
 
-    try_launch_background_merger(index_oid);
+    try_launch_background_merger(&index);
     Ok(())
 }
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-pub unsafe fn try_launch_background_merger(index_oid: pg_sys::Oid) {
+pub unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
 
-    let _ = BackgroundWorkerBuilder::new("background merger")
+    let worker_name = format!(
+        "background merger for {}.{}",
+        index.namespace(),
+        index.name()
+    );
+    let _ = BackgroundWorkerBuilder::new(&worker_name)
         .enable_spi_access()
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(index_oid.into_datum())
+        .set_argument(index.oid().into_datum())
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic();
@@ -145,9 +200,8 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         unsafe { set_ps_display_suffix(MERGING_IN_BACKGROUND.as_ptr()) };
 
         let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
-        let index = PgSearchRelation::with_lock(index_oid.into(), pg_sys::AccessShareLock as _);
-        let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
-        let layer_sizes = LayerSizes::from(index_options);
+        let index = PgSearchRelation::open(index_oid.into());
+        let layer_sizes = LayerSizes::from(&index);
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);

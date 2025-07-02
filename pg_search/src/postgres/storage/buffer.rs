@@ -361,10 +361,6 @@ impl PageMut<'_> {
         header
     }
 
-    pub fn special<T>(&self) -> &T {
-        unsafe { &*(pg_sys::PageGetSpecialPointer(self.pg_page) as *const T) }
-    }
-
     pub fn special_mut<T>(&mut self) -> &mut T {
         let special = unsafe { &mut *(pg_sys::PageGetSpecialPointer(self.pg_page) as *mut T) };
         self.buffer.dirty = true;

@@ -192,9 +192,10 @@ impl LinkedList for LinkedBytesList {
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
         self.blocklist_reader
             .get_or_init(|| {
-                blocklist::reader::BlockList::new(&self.bman, unsafe {
-                    self.get_linked_list_data().blocklist_start
-                })
+                blocklist::reader::BlockList::new(
+                    &self.bman,
+                    self.get_linked_list_data().blocklist_start,
+                )
             })
             .get(ord)
     }

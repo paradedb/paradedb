@@ -44,7 +44,10 @@ impl LayerSizes {
     fn foreground(&self) -> Vec<u64> {
         self.layer_sizes
             .iter()
-            .filter(|&&size| size < self.background_layer_size_threshold)
+            .filter(|&&size| {
+                size < self.background_layer_size_threshold
+                    || self.background_layer_size_threshold == 0
+            })
             .cloned()
             .collect::<Vec<u64>>()
     }
@@ -52,7 +55,10 @@ impl LayerSizes {
     fn background(&self) -> Vec<u64> {
         self.layer_sizes
             .iter()
-            .filter(|&&size| size >= self.background_layer_size_threshold)
+            .filter(|&&size| {
+                size >= self.background_layer_size_threshold
+                    && self.background_layer_size_threshold > 0
+            })
             .cloned()
             .collect::<Vec<u64>>()
     }
@@ -144,4 +150,29 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(background_layers);
         unsafe { merge_index_with_policy(&index, merge_policy, false, true) };
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::*;
+
+    #[rstest]
+    fn test_layer_sizes() {
+        let layer_sizes = LayerSizes {
+            layer_sizes: vec![100, 1000, 10000, 100000],
+            background_layer_size_threshold: 10000,
+        };
+
+        assert_eq!(layer_sizes.foreground(), vec![100, 1000]);
+        assert_eq!(layer_sizes.background(), vec![10000, 100000]);
+
+        let layer_sizes = LayerSizes {
+            layer_sizes: vec![100, 1000, 10000, 100000],
+            background_layer_size_threshold: 0,
+        };
+
+        assert_eq!(layer_sizes.foreground(), vec![100, 1000, 10000, 100000]);
+        assert_eq!(layer_sizes.background(), Vec::<u64>::new());
+    }
 }

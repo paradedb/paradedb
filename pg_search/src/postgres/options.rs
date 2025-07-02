@@ -165,15 +165,8 @@ extern "C-unwind" fn validate_background_layer_size_threshold(value: *const std:
     }
 
     let cstr = unsafe { CStr::from_ptr(value) };
-    let str = cstr
-        .to_str()
+    cstr.to_str()
         .expect("`background_layer_size_threshold` must be valid UTF-8");
-
-    let size = get_background_layer_size_threshold(str);
-    assert!(
-        size > 0,
-        "`background_layer_size_threshold` must be greater than zero"
-    );
 }
 
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {

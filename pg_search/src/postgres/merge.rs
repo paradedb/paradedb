@@ -41,7 +41,7 @@ impl From<&PgSearchRelation> for LayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = unsafe { SearchIndexOptions::from_relation(index) };
         let segment_components =
-            LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+            LinkedItemList::<SegmentMetaEntry>::open(index, SEGMENT_METAS_START);
         let all_entries = unsafe { segment_components.list() };
         let index_byte_size = all_entries
             .iter()

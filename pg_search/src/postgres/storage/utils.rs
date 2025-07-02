@@ -110,7 +110,7 @@ impl BM25BufferCache {
 
                 // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked
                 bulk_extend_relation(rel, many, &mut buffers);
-                buffers
+                buffers.into_iter().take(many)
             })
             .inspect(move |&pg_buffer| {
                 // so we need to lock them here

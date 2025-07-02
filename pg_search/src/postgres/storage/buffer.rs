@@ -465,7 +465,7 @@ impl BufferManager {
                     inner: Buffer { pg_buffer },
                 }
             })
-            .chain(new_buffers.take(needed).map(|pg_buffer| BufferMut {
+            .chain(new_buffers.map(|pg_buffer| BufferMut {
                 dirty: false,
                 inner: Buffer { pg_buffer },
             }))

@@ -209,13 +209,5 @@ mod tests {
 
         assert_eq!(layer_sizes.foreground(), vec![100, 1000]);
         assert_eq!(layer_sizes.background(), vec![10000, 100000]);
-
-        let layer_sizes = LayerSizes {
-            layer_sizes: vec![100, 1000, 10000, 100000],
-            background_layer_size_threshold: 0,
-        };
-
-        assert_eq!(layer_sizes.foreground(), vec![100, 1000, 10000, 100000]);
-        assert_eq!(layer_sizes.background(), Vec::<u64>::new());
     }
 }

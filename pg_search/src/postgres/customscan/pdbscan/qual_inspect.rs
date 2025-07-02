@@ -946,7 +946,7 @@ unsafe fn try_pushdown(
             // This is slower but necessary for non-indexed fields
             let heap_expr = Qual::HeapExpr {
                 expr_node: opexpr_node,
-                expr_desc: format!("Non-indexed OpExpr with operator OID {opno}"),
+                expr_desc: format!("OpExpr with operator OID {opno}"),
                 search_query_input: Box::new(SearchQueryInput::All),
             };
             *uses_tantivy_to_query = true; // We do use search (with heap filtering)

@@ -618,6 +618,7 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
+            // TODO(@mdashti): we can use if-let chains here
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
                 if let Some(search_field) = schema.search_field(field.attname()) {
                     if search_field.is_fast() {
@@ -693,7 +694,7 @@ unsafe fn list(
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        if let Some(qual) = extract_quals(
+        quals.push(extract_quals(
             root,
             rti,
             child,
@@ -702,20 +703,10 @@ unsafe fn list(
             schema,
             convert_external_to_special_qual,
             state,
-        ) {
-            quals.push(qual);
-        } else {
-            // even if one of the children returns None, we can't do anything
-            return None;
-        }
+        )?)
     }
 
-    // Only return None if we couldn't extract any quals at all
-    if quals.is_empty() {
-        None
-    } else {
-        Some(quals)
-    }
+    Some(quals)
 }
 
 #[allow(clippy::too_many_arguments)]

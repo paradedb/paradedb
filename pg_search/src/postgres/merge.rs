@@ -30,6 +30,7 @@ use pgrx::bgworkers::*;
 use pgrx::pg_sys;
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
+use tantivy::index::Index;
 
 #[derive(Debug, Clone)]
 struct LayerSizes {
@@ -105,69 +106,69 @@ impl LayerSizes {
     }
 }
 
-/// Kick of a merge of the index.
+/// Kick of a merge of the index, if needed.
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(index_oid: pg_sys::Oid) -> anyhow::Result<()> {
+pub unsafe fn do_merge(
+    index_oid: pg_sys::Oid,
+    do_foreground_merge: bool,
+    do_background_merge: bool,
+) -> anyhow::Result<()> {
     let index = PgSearchRelation::open(index_oid);
-    let heaprel = index
-        .heap_relation()
-        .expect("index should belong to a heap relation");
-
-    /*
-     * Recompute VACUUM XID boundaries.
-     *
-     * We don't actually care about the oldest non-removable XID.  Computing
-     * the oldest such XID has a useful side-effect that we rely on: it
-     * forcibly updates the XID horizon state for this backend.  This step is
-     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-     * that it is now safe to recycle newly deleted pages without this step.
-     */
-    unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
-
     let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
-    let directory = MvccSatisfies::Mergeable.directory(&index);
-    let merger = SearchIndexMerger::open(directory)?;
+    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
 
     // if there's fewer segments than the target segment count, we don't need to merge
-    if merger.searchable_segment_ids()?.len() <= index_options.target_segment_count() {
+    let segment_count = Index::open(MvccSatisfies::Snapshot.directory(&index))?
+        .searchable_segment_ids()?
+        .len();
+    if segment_count <= index_options.target_segment_count() {
+        pgrx::debug1!(
+            "skipping merge: segment count {segment_count} less than target segment count {}",
+            index_options.target_segment_count()
+        );
         return Ok(());
     }
 
     let layer_sizes = LayerSizes::from(&index);
-    let foreground_layers = layer_sizes.foreground();
 
     // first merge down the foreground layers
-    let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-    unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false) };
+    if do_foreground_merge {
+        let foreground_layers = layer_sizes.foreground();
+        let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
+        unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false) };
+    }
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
-    let (merge_candidates, _) = {
-        let metadata = MetaPage::open(&index);
-        let merge_lock = metadata.acquire_merge_lock();
-        let background_layers = layer_sizes.background();
-        let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
+    if do_background_merge {
+        let (merge_candidates, _) = {
+            let metadata = MetaPage::open(&index);
+            let merge_lock = metadata.acquire_merge_lock();
+            let background_layers = layer_sizes.background();
+            let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
 
-        pgrx::debug1!("background layers: {background_layers:?}");
+            pgrx::debug1!("background layers: {background_layers:?}");
 
-        background_merge_policy.simulate(&metadata, &merge_lock, &merger)
-    };
+            background_merge_policy.simulate(&metadata, &merge_lock, &merger)
+        };
 
-    pgrx::debug1!("background merge_candidates: {merge_candidates:?}");
+        pgrx::debug1!("background merge_candidates: {merge_candidates:?}");
 
-    if merge_candidates.is_empty() {
-        return Ok(());
+        if merge_candidates.is_empty() {
+            return Ok(());
+        }
+
+        try_launch_background_merger(&index);
     }
 
-    try_launch_background_merger(&index);
     Ok(())
 }
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-pub unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
+unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
@@ -196,7 +197,13 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM);
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
     BackgroundWorker::transaction(|| {
-        unsafe { set_ps_display_suffix(MERGING_IN_BACKGROUND.as_ptr()) };
+        unsafe {
+            set_ps_display_suffix(MERGING_IN_BACKGROUND.as_ptr());
+            pg_sys::pgstat_report_activity(
+                pg_sys::BackendState::STATE_RUNNING,
+                MERGING_IN_BACKGROUND.as_ptr(),
+            );
+        };
 
         let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::open(index_oid.into());

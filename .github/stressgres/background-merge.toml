@@ -39,6 +39,8 @@ BEGIN
     RETURN true;
 END;
 $$;
+
+ALTER DATABASE stressgres SET work_mem = '1GB';
 """
 
 [server.teardown]

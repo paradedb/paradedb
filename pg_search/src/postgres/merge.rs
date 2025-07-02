@@ -30,7 +30,6 @@ use pgrx::bgworkers::*;
 use pgrx::pg_sys;
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
-use tantivy::index::Index;
 
 #[derive(Debug, Clone)]
 struct LayerSizes {
@@ -109,21 +108,7 @@ pub unsafe fn do_merge(
     do_background_merge: bool,
 ) -> anyhow::Result<()> {
     let index = PgSearchRelation::open(index_oid);
-    let index_options = unsafe { SearchIndexOptions::from_relation(&index) };
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
-
-    // if there's fewer segments than the target segment count, we don't need to merge
-    let segment_count = Index::open(MvccSatisfies::Snapshot.directory(&index))?
-        .searchable_segment_ids()?
-        .len();
-    if segment_count <= index_options.target_segment_count() {
-        pgrx::debug1!(
-            "skipping merge: segment count {segment_count} less than target segment count {}",
-            index_options.target_segment_count()
-        );
-        return Ok(());
-    }
-
     let layer_sizes = LayerSizes::from(&index);
 
     // first merge down the foreground layers

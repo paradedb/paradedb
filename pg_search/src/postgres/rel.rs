@@ -132,6 +132,14 @@ impl PgSearchRelation {
         unsafe { (*self.as_ptr()).rd_id }
     }
 
+    pub fn rel_oid(&self) -> Option<pg_sys::Oid> {
+        if self.rd_index.is_null() {
+            None
+        } else {
+            unsafe { Some((*self.rd_index).indrelid) }
+        }
+    }
+
     pub fn name(&self) -> &str {
         unsafe { name_data_to_str(&(*self.rd_rel).relname) }
     }

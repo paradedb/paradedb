@@ -145,7 +145,6 @@ pub(crate) fn estimate_selectivity(
         search_query_input,
         false,
         MvccSatisfies::LargestSegment,
-        None,
     )
     .expect("estimate_selectivity: should be able to open a SearchIndexReader");
     let estimate = search_reader.estimate_docs(reltuples).unwrap_or(1) as f64;

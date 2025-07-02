@@ -104,28 +104,22 @@ pub extern "C-unwind" fn amrescan(
     }
 
     // Create the index and scan state
-    let search_reader = SearchIndexReader::open(
-        &indexrel,
-        search_query_input,
-        false,
-        unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
-                // the leader only sees snapshot-visible segments.
-                // we're the leader because our WorkerNumber is -1
-                // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(
-                    list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
-                )
-            }
-        },
-        None,
-    )
+    let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
+        if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
+            // the leader only sees snapshot-visible segments.
+            // we're the leader because our WorkerNumber is -1
+            // alternatively, we're not actually a parallel scan because (*scan).parallen_scan is null
+            MvccSatisfies::Snapshot
+        } else {
+            // the workers have their own rules, which is literally every segment
+            // this is because the workers pick a specific segment to query that
+            // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+            // visibility test due to concurrent merges/garbage collects
+            MvccSatisfies::ParallelWorker(
+                list_segment_ids(scan).expect("IndexScan parallel state should have segments"),
+            )
+        }
+    })
     .expect("amrescan: should be able to open a SearchIndexReader");
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader);

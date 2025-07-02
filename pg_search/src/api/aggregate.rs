@@ -188,7 +188,6 @@ impl<'a> ParallelAggregationWorker<'a> {
             self.query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
-            None,
         )?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
@@ -287,7 +286,7 @@ pub fn aggregate(
     unsafe {
         let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
         let reader =
-            SearchIndexReader::open(&index, query.clone(), false, MvccSatisfies::Snapshot, None)?;
+            SearchIndexReader::open(&index, query.clone(), false, MvccSatisfies::Snapshot)?;
         let agg_req = serde_json::from_value(agg.0)?;
         let process = ParallelAggregation::new(
             index.oid(),

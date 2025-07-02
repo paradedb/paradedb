@@ -185,7 +185,6 @@ pub fn search_with_query_input(
             search_query_input,
             false,
             MvccSatisfies::Snapshot,
-            None,
         )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();

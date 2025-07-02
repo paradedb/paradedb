@@ -28,7 +28,6 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
-use pgrx::pg_sys;
 use rustc_hash::FxHashSet;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
@@ -230,8 +229,7 @@ impl Iterator for SearchResults {
 }
 
 pub struct SearchIndexReader {
-    index_oid: pg_sys::Oid,
-    rel_oid: Option<pg_sys::Oid>,
+    index_rel: PgSearchRelation,
     searcher: Searcher,
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
@@ -249,8 +247,7 @@ pub struct SearchIndexReader {
 impl Clone for SearchIndexReader {
     fn clone(&self) -> Self {
         Self {
-            index_oid: self.index_oid,
-            rel_oid: self.rel_oid,
+            index_rel: self.index_rel.clone(),
             searcher: self.searcher.clone(),
             schema: self.schema.clone(),
             underlying_reader: self.underlying_reader.clone(),
@@ -266,13 +263,7 @@ impl SearchIndexReader {
     /// Open a tantivy index where, if searched, will return zero results, but has access to all
     /// the underlying [`SegmentReader`]s and such as specified by the `mvcc_style`.
     pub fn empty(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        Self::open(
-            index_relation,
-            SearchQueryInput::Empty,
-            false,
-            mvcc_style,
-            None,
-        )
+        Self::open(index_relation, SearchQueryInput::Empty, false, mvcc_style)
     }
 
     /// Open a tantivy index that, when searched, will return the results of the specified [`SearchQueryInput`].
@@ -281,7 +272,6 @@ impl SearchIndexReader {
         search_query_input: SearchQueryInput,
         need_scores: bool,
         mvcc_style: MvccSatisfies,
-        rel_oid: Option<pg_sys::Oid>,
     ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
@@ -318,14 +308,13 @@ impl SearchIndexReader {
                     &mut parser,
                     &searcher,
                     index_relation.oid(),
-                    rel_oid,
+                    index_relation.rel_oid(),
                 )
                 .expect("must be able to parse query")
         };
 
         Ok(Self {
-            index_oid: index_relation.oid(),
-            rel_oid,
+            index_rel: index_relation.clone(),
             searcher,
             schema,
             underlying_reader: reader,
@@ -386,8 +375,8 @@ impl SearchIndexReader {
                 &self.schema,
                 &mut parser,
                 &self.searcher,
-                self.index_oid,
-                self.rel_oid,
+                self.index_rel.oid(),
+                self.index_rel.rel_oid(),
             )
             .expect("must be able to parse query")
     }

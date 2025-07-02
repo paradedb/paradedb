@@ -98,11 +98,8 @@ impl PdbScan {
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
 
-        let search_reader = SearchIndexReader::open(
-            indexrel,
-            search_query_input.clone(),
-            need_scores,
-            unsafe {
+        let search_reader =
+            SearchIndexReader::open(indexrel, search_query_input.clone(), need_scores, unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // the leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
@@ -117,10 +114,8 @@ impl PdbScan {
                         ),
                     ))
                 }
-            },
-            Some(state.custom_state().heaprelid),
-        )
-        .expect("should be able to open the search index reader");
+            })
+            .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);

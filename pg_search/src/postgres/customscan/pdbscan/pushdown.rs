@@ -159,9 +159,9 @@ pub unsafe fn try_pushdown(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
-            let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);
             // the `opexpr` is one we can pushdown
             if (*var).varno as pg_sys::Index == rti {
+                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);
                 // and it's in this RTI, so we can use it directly
                 Some(pushed_down_qual)
             } else {

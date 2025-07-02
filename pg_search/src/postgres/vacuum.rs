@@ -18,12 +18,14 @@
 use pgrx::*;
 
 use crate::postgres::merge::try_launch_background_merger;
+use crate::postgres::rel::PgSearchRelation;
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
-    try_launch_background_merger((*(*info).index).rd_id);
+    let index = PgSearchRelation::open((*(*info).index).rd_id);
+    try_launch_background_merger(&index);
     stats
 }

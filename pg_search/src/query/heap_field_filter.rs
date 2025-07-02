@@ -155,8 +155,6 @@ impl HeapFieldFilter {
     // The new expression-based approach handles evaluation directly
 }
 
-// Field name resolution is no longer needed with the expression-based approach
-
 /// Tantivy query that combines indexed search with heap field filtering
 #[derive(Debug)]
 pub struct HeapFilterQuery {

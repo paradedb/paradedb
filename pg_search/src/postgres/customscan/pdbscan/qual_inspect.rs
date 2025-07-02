@@ -1315,9 +1315,8 @@ pub unsafe fn optimize_quals_with_heap_expr(qual: &mut Qual) {
             optimize_quals_with_heap_expr(qual);
         }
         Qual::ExternalVar | Qual::ExternalExpr => {
-            // Try to convert to HeapExpr
-            // For now, we'll keep the original behavior and handle this in a future iteration
-            // The actual conversion would require access to the original OpExpr
+            // For ExternalVar and ExternalExpr, we cannot apply any optimization, as we don't know
+            // what the underlying predicate is.
         }
         _ => {
             // Other qual types don't need optimization

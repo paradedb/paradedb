@@ -60,8 +60,7 @@ impl From<&PgSearchRelation> for LayerSizes {
         // to prevent two layers from being too close together, ensure that the second highest layer
         // is less than 1/3 the size of the highest layer
         //
-        //
-        // for instance, assume:
+        // for instance, imagine:
         // - layer sizes: [1mb, 10mb, 100mb]
         // - index size: 200mb
         // - target segment count: 10
@@ -69,12 +68,12 @@ impl From<&PgSearchRelation> for LayerSizes {
         // then our recomputed layer sizes would be:
         // - [1mb, 20mb]
         //
-        // the 100mb layer gets excluded because the target segment size is 20mb
+        // why? the 100mb layer gets excluded because the target segment size is 20mb
         // and the 10mb layer gets excluded because it's less than 1/3 the size of the 20mb layer
         layer_sizes.retain(|&layer_size| layer_size < target_byte_size / 3);
         layer_sizes.push(target_byte_size);
 
-        pgrx::debug1!("retained layer_sizes: {layer_sizes:?}");
+        pgrx::debug1!("dynamic layer_sizes: {layer_sizes:?}");
 
         Self {
             layer_sizes,

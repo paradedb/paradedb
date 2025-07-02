@@ -503,11 +503,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         std::mem::drop(original_header_lock);
 
         // And then collect our old contents, which are no longer reachable.
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = original.bman_mut().get_buffer_mut(blockno);
+        let recyclable_block = std::iter::from_fn(move || {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+            let recyclable_blockno = blockno;
+            let buffer = original.bman.get_buffer(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(&mut original.bman);
-        }
+            Some(recyclable_blockno)
+        });
+        self.bman.fsm().extend(&mut self.bman, recyclable_block);
     }
 }
 
@@ -527,18 +532,27 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
 
         // The guard was dropped without a call to commit: return its pages.
         let header_blockno = self.cloned.header_blockno;
-        let bman = self.cloned.bman_mut();
-        let header_buffer = bman.get_buffer_mut(header_blockno);
+        let bman = self.cloned.bman().clone();
+        let header_buffer = bman.get_buffer(header_blockno);
         let mut blockno = header_buffer
             .page()
             .contents::<LinkedListData>()
             .start_blockno;
-        header_buffer.return_to_fsm(bman);
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = bman.get_buffer_mut(blockno);
-            blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(bman);
-        }
+        drop(header_buffer);
+
+        let recyclable_blocks =
+            std::iter::once(header_blockno).chain(std::iter::from_fn(move || {
+                if blockno == pg_sys::InvalidBlockNumber {
+                    return None;
+                }
+
+                let recyable_blockno = blockno;
+                let buffer = bman.get_buffer(blockno);
+                blockno = buffer.page().next_blockno();
+                Some(recyable_blockno)
+            }));
+        let fsm = self.bman.fsm();
+        fsm.extend(&mut self.bman, recyclable_blocks);
     }
 }
 

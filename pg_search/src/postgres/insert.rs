@@ -431,16 +431,13 @@ pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
 
 pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
     let mut bman = BufferManager::new(indexrel);
-    let bman2 = bman.clone();
     bman.fsm().extend(
         &mut bman,
         freeable_entries
             .iter()
             .flat_map(move |entry| {
-                let bman = bman2.clone();
                 entry.file_entries().map(move |(file_entry, _)| {
-                    LinkedBytesList::open(bman.bm25cache().rel(), file_entry.starting_block)
-                        .used_blocks()
+                    LinkedBytesList::open(indexrel, file_entry.starting_block).used_blocks()
                 })
             })
             .flatten(),

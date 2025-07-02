@@ -291,12 +291,11 @@ impl MergeList {
     pub unsafe fn garbage_collect(&mut self) {
         let recycled_entries = self.entries.garbage_collect();
 
-        let bman = self.bman.clone();
+        let indexrel = self.bman.bm25cache().rel().clone();
         self.bman.fsm().extend(
             &mut self.bman,
             recycled_entries.into_iter().flat_map(move |entry| {
-                LinkedBytesList::open(bman.bm25cache().rel(), entry.segment_ids_start_blockno)
-                    .used_blocks()
+                LinkedBytesList::open(&indexrel, entry.segment_ids_start_blockno).used_blocks()
             }),
         );
     }

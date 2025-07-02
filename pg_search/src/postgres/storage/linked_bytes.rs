@@ -317,6 +317,9 @@ impl LinkedBytesList {
 
     /// Returns a lazily-evaluated iterator of all the [`pg_sys::BlockNumber`]s used by this [`LinkedBytesList`].
     pub fn used_blocks(mut self) -> impl Iterator<Item = BlockNumber> {
+        // in addition to the list itself, we also have a secondary list of linked blocks (which
+        // contain the blocknumbers of this list) that needs to be marked deleted too
+
         let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
         // iterate the BlockList contents -- this is every block used by this LinkedBytesList
         self.blocklist_reader
@@ -332,21 +335,17 @@ impl LinkedBytesList {
                 }
                 let blockno = blocklist_blockno;
                 let buffer = self.bman.get_buffer(blockno);
-                let page = buffer.page();
-                let special = page.special::<BM25PageSpecialData>();
-                blocklist_blockno = special.next_blockno;
+                blocklist_blockno = buffer.page().next_blockno();
                 Some(blockno)
             }))
     }
 
     /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
     /// Free Space Map behind this index.
-    pub unsafe fn return_to_fsm(mut self) {
-        // in addition to the list itself, we also have a secondary list of linked blocks (which
-        // contain the blocknumbers of this list) that needs to be marked deleted too
-
-        let mut bman = self.bman.clone();
-        self.bman.fsm().extend(&mut bman, self.used_blocks());
+    pub unsafe fn return_to_fsm(self) {
+        let mut bman = self.bman().clone();
+        let fsm = bman.fsm();
+        fsm.extend(&mut bman, self.used_blocks());
     }
 
     pub fn is_empty(&self) -> bool {

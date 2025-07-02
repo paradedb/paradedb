@@ -503,12 +503,11 @@ impl BufferManager {
         let needed = npages - fsm_blocknos.len();
         let new_buffers = unsafe { self.bcache.new_buffers(needed) };
 
-        let rel = self.bcache.rel().as_ptr();
+        let bcache = self.bcache.clone();
         fsm_blocknos
             .into_iter()
             .map(move |blockno| unsafe {
-                let pg_buffer = pg_sys::ReadBuffer(rel, blockno);
-                pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+                let pg_buffer = bcache.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 BufferMut {
                     dirty: false,
                     inner: Buffer { pg_buffer },

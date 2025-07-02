@@ -17,10 +17,11 @@
 
 use crate::api::FieldName;
 use crate::gucs;
-use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexWriterConfig, Mergeable, SerialIndexWriter};
 use crate::postgres::merge::do_merge;
+use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
@@ -30,6 +31,7 @@ use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
+use tantivy::index::Index;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 pub struct InsertState {
@@ -219,9 +221,17 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
 pub unsafe fn merge_index_with_policy(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
-    verbose: bool,
     gc_after_merge: bool,
-) -> (NumCandidates, NumMerged) {
+) {
+    // keep track of how many segments we had before we started merging
+    let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
+        .expect("should be able to open index")
+        .searchable_segment_ids()
+        .expect("should be able to get searchable segment ids")
+        .len() as i32;
+    let index_options = SearchIndexOptions::from_relation(indexrel);
+    let target_segment_count = index_options.target_segment_count() as i32;
+
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
@@ -236,7 +246,7 @@ pub unsafe fn merge_index_with_policy(
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    let (merge_candidates, nmerged) = merge_policy.simulate(&metadata, &merge_lock, &merger);
+    let merge_candidates = merge_policy.simulate(&metadata, &merge_lock, &merger);
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
@@ -260,61 +270,22 @@ pub unsafe fn merge_index_with_policy(
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
-        if !verbose {
-            // happy path
-            for candidate in merge_candidates {
-                merge_result = merger.merge_segments(&candidate.0);
-                if merge_result.is_err() {
-                    break;
-                }
-                if gc_after_merge {
-                    garbage_collect_index(indexrel);
-                    need_gc = false;
-                }
+        for candidate in merge_candidates {
+            segment_count -= candidate.0.len() as i32 - 1;
+            if segment_count < target_segment_count {
+                pgrx::debug1!("ending merge early: segment count {segment_count} would be less than target segment count {target_segment_count}");
+                break;
             }
-        } else {
-            // verbose path
-            pgrx::warning!(
-                "merging {} candidates, totalling {} segments",
-                ncandidates,
-                nmerged
-            );
 
-            for (i, candidate) in merge_candidates.into_iter().enumerate() {
-                pgrx::warning!(
-                    "merging candidate #{}:  {} segments",
-                    i + 1,
-                    candidate.0.len()
-                );
+            pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-                let start = std::time::Instant::now();
-                merge_result = match merger.merge_segments(&candidate.0) {
-                    Ok(Some(segment_meta)) => {
-                        pgrx::warning!(
-                            "   finished merge in {:?}.  final num_docs={}",
-                            start.elapsed(),
-                            segment_meta.num_docs()
-                        );
-                        Ok(Some(segment_meta))
-                    }
-                    Ok(None) => {
-                        pgrx::warning!(
-                            "   finished merge in {:?}.  merged to nothing",
-                            start.elapsed()
-                        );
-                        Ok(None)
-                    }
-                    Err(e) => Err(e),
-                };
-
-                if merge_result.is_err() {
-                    break;
-                }
-
-                if gc_after_merge {
-                    garbage_collect_index(indexrel);
-                    need_gc = false;
-                }
+            merge_result = merger.merge_segments(&candidate.0);
+            if merge_result.is_err() {
+                break;
+            }
+            if gc_after_merge {
+                garbage_collect_index(indexrel);
+                need_gc = false;
             }
         }
 
@@ -341,7 +312,6 @@ pub unsafe fn merge_index_with_policy(
         drop(merge_lock);
     }
     drop(cleanup_lock);
-    (ncandidates, nmerged)
 }
 
 ///

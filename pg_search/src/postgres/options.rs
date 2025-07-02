@@ -185,15 +185,21 @@ fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
 }
 
 fn get_background_layer_size_threshold(s: &str) -> u64 {
-    unsafe {
+    let threshold = unsafe {
         u64::try_from(
             direct_function_call::<i64>(pg_sys::pg_size_bytes, &[s.into_datum()])
                 .expect("`pg_size_bytes()` should not return NULL"),
         )
         .ok()
-        .filter(|b| b > &0)
-        .expect("`background_layer_size_threshold` must be greater than zero")
+        .filter(|b| b >= &0)
+        .expect("`background_layer_size_threshold` must be greater than or equal to zero")
+    };
+
+    if threshold == 0 {
+        return u64::MAX;
     }
+
+    threshold
 }
 
 #[inline]

@@ -1940,6 +1940,12 @@ enum QueryError {
 #[derive(Debug, Clone, PartialEq)]
 struct PostgresPointer(*mut std::os::raw::c_void);
 
+// SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
+// during query execution. The PostgresPointer serialization/deserialization handles
+// the cross-thread boundary properly via nodeToString/stringToNode.
+unsafe impl Send for PostgresPointer {}
+unsafe impl Sync for PostgresPointer {}
+
 impl Default for PostgresPointer {
     fn default() -> Self {
         PostgresPointer(std::ptr::null_mut())

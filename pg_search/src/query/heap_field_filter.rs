@@ -11,29 +11,13 @@ use tantivy::{
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
 /// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeapFieldFilter {
     /// PostgreSQL expression node that can be serialized and reconstructed
     expr_node: PostgresPointer,
     /// Human-readable description of the expression
     pub description: String,
 }
-
-// SAFETY: HeapFieldFilter is only used within PostgreSQL's single-threaded context
-// during query execution. The PostgresPointer serialization/deserialization handles
-// the cross-thread boundary properly via nodeToString/stringToNode.
-unsafe impl Send for HeapFieldFilter {}
-unsafe impl Sync for HeapFieldFilter {}
-
-impl PartialEq for HeapFieldFilter {
-    fn eq(&self, other: &Self) -> bool {
-        // Compare by the serialized expression node
-        self.expr_node == other.expr_node
-    }
-}
-
-// The operand-based enums have been removed in favor of the expression-based approach
-// All filtering is now handled through PostgreSQL expression evaluation
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node

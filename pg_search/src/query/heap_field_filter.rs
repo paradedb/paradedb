@@ -272,28 +272,29 @@ impl HeapFilterScorer {
 
     fn passes_heap_filters(&self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
-        if let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) {
-            // Convert u64 ctid back to ItemPointer
-            let mut item_pointer = pg_sys::ItemPointerData::default();
-            crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
+        let ctid_value = self.ctid_ff.as_u64(doc_id);
+        if ctid_value.is_none() {
+            panic!("Could not get ctid for doc_id: {doc_id}");
+        }
+        let ctid_value = ctid_value.unwrap();
+        // Convert u64 ctid back to ItemPointer
+        let mut item_pointer = pg_sys::ItemPointerData::default();
+        crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
 
-            // Evaluate all heap filters
-            for filter in self.field_filters.iter() {
-                unsafe {
-                    let filter_result = filter.evaluate(
-                        &mut item_pointer as *mut pg_sys::ItemPointerData,
-                        self.rel_oid,
-                    );
-                    if !filter_result {
-                        return false;
-                    }
+        // Evaluate all heap filters
+        for filter in self.field_filters.iter() {
+            unsafe {
+                let filter_result = filter.evaluate(
+                    &mut item_pointer as *mut pg_sys::ItemPointerData,
+                    self.rel_oid,
+                );
+                if !filter_result {
+                    return false;
                 }
             }
-
-            true
-        } else {
-            false
         }
+
+        true
     }
 }
 

@@ -7,25 +7,24 @@ sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
 DROP TABLE IF EXISTS test CASCADE;
 CREATE EXTENSION pg_search;
+
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
-    message TEXT
+    message TEXT,
+    severity INTEGER
 );
-INSERT INTO test (message) VALUES ('beer wine cheese a');
-INSERT INTO test (message) VALUES ('beer wine a');
-INSERT INTO test (message) VALUES ('beer cheese a');
-INSERT INTO test (message) VALUES ('beer a');
-INSERT INTO test (message) VALUES ('wine cheese a');
-INSERT INTO test (message) VALUES ('wine a');
-INSERT INTO test (message) VALUES ('cheese a');
-INSERT INTO test (message) VALUES ('beer wine cheese a');
-INSERT INTO test (message) VALUES ('beer wine a');
-INSERT INTO test (message) VALUES ('beer cheese a');
-INSERT INTO test (message) VALUES ('beer a');
-INSERT INTO test (message) VALUES ('wine cheese a');
-INSERT INTO test (message) VALUES ('wine a');
-INSERT INTO test (message) VALUES ('cheese a');
-CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id', layer_sizes = '5kb, 100kb, 1mb, 100mb', background_layer_size_threshold = '100kb');
+
+INSERT INTO test (message, severity)
+SELECT
+    CASE id % 3
+    WHEN 0 THEN 'drink some beer'
+    WHEN 1 THEN 'sip some wine'
+    WHEN 2 THEN 'eat some cheese'
+    END,
+    (random() * 4 + 1)::int
+FROM generate_series(1, 9000000) as id;
+
+CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', target_segment_count = 16, layer_sizes = '1kb, 10kb, 100kb, 1mb, 10mb, 100mb, 1gb', background_layer_size_threshold = '100kb');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
@@ -59,17 +58,6 @@ SELECT COUNT(*) as num_segments FROM paradedb.index_info('idxtest');
 """
 
 [[jobs]]
-refresh_ms = 100
-title = "Index Scan"
-log_tps = true
-on_connect = """
-SET enable_indexonlyscan to OFF;
-"""
-sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:cheese';
-"""
-
-[[jobs]]
 refresh_ms = 5
 title = "Custom Scan"
 log_tps = true
@@ -78,15 +66,7 @@ SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
 """
 sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:beer';
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Index Only Scan"
-log_tps = true
-sql = """
-SELECT assert(count(*)::bigint, 8::bigint), count(*) FROM test where id @@@ 'message:wine';
+SELECT assert(count(*)::bigint, 3000000::bigint), count(*) FROM test where id @@@ 'message:drink';
 """
 
 [[jobs]]
@@ -108,7 +88,7 @@ sql = """
 UPDATE test
 SET message = substring(message FROM 1 FOR length(message)-1)
               || chr((trunc(random() * 26) + 65)::int)
-WHERE id > 10 AND id < 20;
+WHERE id > 10 AND id < 1000;
 """
 
 [[jobs]]
@@ -119,7 +99,7 @@ sql = """
 UPDATE test
 SET message = substring(message FROM 1 FOR length(message)-1)
               || chr((trunc(random() * 26) + 65)::int)
-WHERE id > 20 and id < 30;
+WHERE id > 1000 and id < 3000000;
 """
 
 [[jobs]]
@@ -132,30 +112,14 @@ INSERT INTO test (message) VALUES ('lore ispum dolor');
 
 [[jobs]]
 refresh_ms = 5
-title = "Insert value"
-log_tps = true
-sql = """
-INSERT INTO test (message) VALUES ('the cat in the hat');
-"""
-
-[[jobs]]
-refresh_ms = 5
-title = "Insert value"
-log_tps = true
-sql = """
-INSERT INTO test (message) VALUES ('test text');
-"""
-
-[[jobs]]
-refresh_ms = 5
 title = "Delete value"
 log_tps = true
 sql = """
-DELETE FROM test WHERE id > 100;
+DELETE FROM test WHERE id > 9000001;
 """
 
 [[jobs]]
-refresh_ms = 10000
+refresh_ms = 30000
 title = "Vacuum"
 log_tps = true
 sql = """

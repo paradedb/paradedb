@@ -49,17 +49,16 @@ impl From<&PgSearchRelation> for LayerSizes {
             .map(|entry| entry.byte_size())
             .sum::<u64>();
         let mut layer_sizes = index_options.layer_sizes();
+        pgrx::debug1!("original layer_sizes: {layer_sizes:?}");
+
         let target_segment_count = index_options.target_segment_count();
         let target_byte_size = index_byte_size / target_segment_count as u64;
 
-        // set the highest layer size to the following:
+        // clamp the highest layer size to be less than the following:
         //
         // `index_byte_size` / `target_segment_count`
         //
         // i.e. how big should each segment be if we want to have exactly `target_segment_count` segments?
-        //
-        // to prevent two layers from being too close together, ensure that the second highest layer
-        // is less than 1/3 the size of the highest layer
         //
         // for instance, imagine:
         // - layer sizes: [1mb, 10mb, 100mb]
@@ -67,18 +66,18 @@ impl From<&PgSearchRelation> for LayerSizes {
         // - target segment count: 10
         //
         // then our recomputed layer sizes would be:
-        // - [1mb, 20mb]
+        // - [1mb, 10mb]
         //
         // why? the 100mb layer gets excluded because the target segment size is 20mb
-        // and the 10mb layer gets excluded because it's less than 1/3 the size of the 20mb layer
-        layer_sizes.retain(|&layer_size| layer_size < target_byte_size / 3);
-        layer_sizes.push(target_byte_size);
-
-        pgrx::debug1!("dynamic layer_sizes: {layer_sizes:?}");
+        let background_layer_size_threshold = index_options.background_layer_size_threshold();
+        layer_sizes.retain(|&layer_size| {
+            layer_size < target_byte_size || layer_size < background_layer_size_threshold
+        });
+        pgrx::debug1!("adjusted layer_sizes {layer_sizes:?} because of threshold {background_layer_size_threshold}");
 
         Self {
             layer_sizes,
-            background_layer_size_threshold: index_options.background_layer_size_threshold(),
+            background_layer_size_threshold,
         }
     }
 }
@@ -86,10 +85,7 @@ impl LayerSizes {
     fn foreground(&self) -> Vec<u64> {
         self.layer_sizes
             .iter()
-            .filter(|&&size| {
-                size < self.background_layer_size_threshold
-                    || self.background_layer_size_threshold == 0
-            })
+            .filter(|&&size| size < self.background_layer_size_threshold)
             .cloned()
             .collect::<Vec<u64>>()
     }
@@ -97,10 +93,7 @@ impl LayerSizes {
     fn background(&self) -> Vec<u64> {
         self.layer_sizes
             .iter()
-            .filter(|&&size| {
-                size >= self.background_layer_size_threshold
-                    && self.background_layer_size_threshold > 0
-            })
+            .filter(|&&size| size >= self.background_layer_size_threshold)
             .cloned()
             .collect::<Vec<u64>>()
     }
@@ -137,13 +130,15 @@ pub unsafe fn do_merge(
     if do_foreground_merge {
         let foreground_layers = layer_sizes.foreground();
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-        unsafe { merge_index_with_policy(&index, foreground_merge_policy, false, false) };
+        unsafe { merge_index_with_policy(&index, foreground_merge_policy, false) };
     }
+
+    pgrx::debug1!("foreground merge complete, now evaluating background merge");
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
     if do_background_merge {
-        let (merge_candidates, _) = {
+        let merge_candidates = {
             let metadata = MetaPage::open(&index);
             let merge_lock = metadata.acquire_merge_lock();
             let background_layers = layer_sizes.background();
@@ -211,7 +206,7 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);
-        unsafe { merge_index_with_policy(&index, merge_policy, false, true) };
+        unsafe { merge_index_with_policy(&index, merge_policy, true) };
     });
 }
 

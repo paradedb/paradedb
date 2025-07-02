@@ -34,7 +34,7 @@ rule of thumb, merging larger layers is expensive and should happen in the backg
 to reduces the overhead of creating many background processes.
 
 `background_layer_size_threshold` controls which layers should be merged in the foreground as part of the `INSERT`/`UPDATE` statement
-versus asychronously in the background. The default is `10MB`, which means layers of size `10MB` and greater are merged in the background.
+versus asynchronously in the background. The default is `10MB`, which means layers of size `10MB` and greater are merged in the background.
 
 ```sql
 CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', background_layer_size_threshold = '100MB');

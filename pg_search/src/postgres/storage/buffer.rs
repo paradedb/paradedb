@@ -3,7 +3,6 @@ use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
-use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
 use pgrx::pg_sys;
 
 #[derive(Debug)]
@@ -113,53 +112,6 @@ impl BufferMut {
     pub fn return_to_fsm(self, bman: &mut BufferManager) {
         let blockno = self.number();
         bman.fsm().extend(bman, std::iter::once(blockno));
-    }
-}
-
-/// Holds an array of block numbers -- used for bulk allocating new buffers.
-pub struct BufferMutVec {
-    inner: [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY],
-    cursor: usize,
-}
-
-impl BufferMutVec {
-    pub fn new(buffers: [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY]) -> Self {
-        Self {
-            inner: buffers,
-            cursor: 0,
-        }
-    }
-
-    pub fn empty() -> Self {
-        Self {
-            inner: [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY],
-            cursor: MAX_BUFFERS_TO_EXTEND_BY + 1, // positioned after the end
-        }
-    }
-}
-
-impl Iterator for BufferMutVec {
-    type Item = BufferMut;
-
-    /// Claim a buffer from the start, which ensures that the buffers are in the same order as they were created.
-    /// Typically this means in order of increasing block number.
-    fn next(&mut self) -> Option<BufferMut> {
-        if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
-            return None;
-        }
-
-        let pg_buffer = self.inner[self.cursor];
-        self.cursor += 1;
-
-        if pg_buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
-            return None;
-        }
-
-        unsafe { pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _) };
-        Some(BufferMut {
-            dirty: false,
-            inner: Buffer { pg_buffer },
-        })
     }
 }
 
@@ -513,7 +465,10 @@ impl BufferManager {
                     inner: Buffer { pg_buffer },
                 }
             })
-            .chain(new_buffers)
+            .chain(new_buffers.take(needed).map(|pg_buffer| BufferMut {
+                dirty: false,
+                inner: Buffer { pg_buffer },
+            }))
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {

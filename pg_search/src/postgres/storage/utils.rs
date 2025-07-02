@@ -17,9 +17,8 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::PgItem;
-use crate::postgres::storage::buffer::BufferMutVec;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
+use pgrx::{pg_sys, PgMemoryContexts};
 use std::fmt::Debug;
 use std::sync::LazyLock;
 
@@ -90,75 +89,34 @@ impl BM25BufferCache {
         &self.rel
     }
 
-    unsafe fn bulk_extend_relation(
-        &self,
-        npages: usize,
-    ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
-        let mut buffers = [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
-
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
-        {
-            // `ExtendBufferedRelBy` is only allowed from certain backends
-            let can_use_extend_buffered_rel_by = npages > 1
-                && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
-                    || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
-
-            if can_use_extend_buffered_rel_by {
-                let mut filled = 0;
-                let mut extended_by = 0;
-                loop {
-                    check_for_interrupts!();
-                    let bmr = pg_sys::BufferManagerRelation {
-                        rel: self.rel.as_ptr(),
-                        ..Default::default()
-                    };
-                    pg_sys::ExtendBufferedRelBy(
-                        bmr,
-                        pg_sys::ForkNumber::MAIN_FORKNUM,
-                        BAS_BULKWRITE.0,
-                        0,
-                        (npages - filled) as _,
-                        buffers.as_mut_ptr().add(filled),
-                        &mut extended_by,
-                    );
-                    filled += extended_by as usize;
-                    extended_by = 0;
-                    if filled == npages {
-                        break;
-                    }
-                }
-
-                return buffers;
-            }
-        }
-
-        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
-        for buffer in buffers.iter_mut().take(npages) {
-            *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
-        }
-        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
-        buffers
-    }
-
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
-        let buffer = self.bulk_extend_relation(1)[0];
-        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
+        let buffer = self.get_buffer(
+            pg_sys::InvalidBlockNumber,
+            Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+        );
+        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
         buffer
     }
 
-    pub unsafe fn new_buffers(&self, npages: usize) -> BufferMutVec {
-        if npages == 0 {
-            return BufferMutVec::empty();
-        }
+    pub unsafe fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> {
+        let rel = self.rel.as_ptr();
+        (0..npages)
+            .step_by(MAX_BUFFERS_TO_EXTEND_BY)
+            .flat_map(move |i| {
+                let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
+                let mut buffers =
+                    [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
+                pgrx::info!("extending by {many} blocks, i={i}, npages={npages}");
 
-        let mut buffers = [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
-        // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked
-        let extended_buffers = self.bulk_extend_relation(npages);
-        for (i, buffer) in extended_buffers.iter().take(npages).enumerate() {
-            buffers[i] = *buffer;
-        }
-
-        BufferMutVec::new(buffers)
+                // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked
+                bulk_extend_relation(rel, many, &mut buffers);
+                buffers
+            })
+            .inspect(move |&pg_buffer| {
+                // so we need to lock them here
+                pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+            })
     }
 
     pub unsafe fn get_buffer(
@@ -188,4 +146,64 @@ impl BM25BufferCache {
         }
         buffer
     }
+}
+
+unsafe fn bulk_extend_relation(
+    rel: pg_sys::Relation,
+    npages: usize,
+    buffers: &mut [pg_sys::Buffer],
+) {
+    assert!(
+        npages <= buffers.len(),
+        "requested too many pages for relation extension: npages={npages}, buffers.len={}",
+        buffers.len()
+    );
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    {
+        // `ExtendBufferedRelBy` is only allowed from certain backends
+        let can_use_extend_buffered_rel_by = npages > 1
+            && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
+                || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
+
+        if can_use_extend_buffered_rel_by {
+            let mut filled = 0;
+            let mut extended_by = 0;
+            loop {
+                let bmr = pg_sys::BufferManagerRelation {
+                    rel,
+                    ..Default::default()
+                };
+                pg_sys::ExtendBufferedRelBy(
+                    bmr,
+                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    BAS_BULKWRITE.0,
+                    0,
+                    (npages - filled) as _,
+                    buffers[filled..].as_mut_ptr(),
+                    &mut extended_by,
+                );
+                filled += extended_by as usize;
+                extended_by = 0;
+                if filled == npages {
+                    break;
+                }
+            }
+
+            return;
+        }
+    }
+
+    pg_sys::LockRelationForExtension(rel, pg_sys::AccessExclusiveLock as i32);
+    for slot in buffers.iter_mut().take(npages) {
+        let pg_buffer = pg_sys::ReadBufferExtended(
+            rel,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            pg_sys::InvalidBlockNumber,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        );
+        debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        *slot = pg_buffer;
+    }
+    pg_sys::UnlockRelationForExtension(rel, pg_sys::AccessExclusiveLock as i32);
 }

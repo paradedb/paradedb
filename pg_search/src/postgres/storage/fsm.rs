@@ -19,7 +19,7 @@ use crate::postgres::storage::block::bm25_max_free_space;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager};
 use pgrx::pg_sys;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 struct FSMBlockInner {
     len: u16,
@@ -38,7 +38,7 @@ impl Default for FSMBlockInner {
 const FSM_BLOCK_SIZE: usize =
     (bm25_max_free_space() / size_of::<pg_sys::BlockNumber>()) - size_of::<FSMBlockInner>();
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct FSMBlock {
     meta: FSMBlockInner,
     blocks: [pg_sys::BlockNumber; FSM_BLOCK_SIZE],

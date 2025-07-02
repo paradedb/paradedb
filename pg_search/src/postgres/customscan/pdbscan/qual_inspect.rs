@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::opexpr::OpExpr;
-use crate::api::FieldName;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -24,7 +23,6 @@ use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
 use crate::postgres::customscan::pdbscan::pushdown::{
     is_complex, try_pushdown_inner, PushdownField,
 };
-use crate::postgres::rel::PgSearchRelation;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -586,35 +584,7 @@ pub unsafe fn extract_quals(
             // T_Var nodes represent boolean field references without explicit "= true" comparison
             // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
             // We need to handle both cases since they're semantically equivalent
-
-            // Check if root and parse are valid
-            if root.is_null() || (*root).parse.is_null() {
-                return None;
-            }
-
-            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-            if rte.is_null() {
-                return None;
-            }
-
-            let relation_oid = (*rte).relid;
-
-            // Get the field name
-            let attno = (*var_node).varattno;
-            if let Some(field_name) = get_field_name_from_attno(relation_oid, attno) {
-                // Create HeapExpr using the new expression-based approach
-                let heap_expr = Qual::HeapExpr {
-                    expr_node: node, // Use the original T_Var node
-                    expr_desc: format!("Boolean field {} = true", field_name.root()),
-                    search_query_input: Box::new(SearchQueryInput::All),
-                };
-
-                state.uses_tantivy_to_query = true;
-                return Some(heap_expr);
-            }
-
-            // If we can't handle this boolean field, return None
-            None
+            try_create_heap_expr_from_var(root, var_node, rti, &mut state.uses_tantivy_to_query)
         }
 
         pg_sys::NodeTag::T_NullTest => {
@@ -1413,6 +1383,50 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
     }
 }
 
+/// Create a HeapExpr for a non-indexed field expression
+/// This is a common pattern for expressions that reference fields in our relation
+/// but cannot be pushed down to the index
+unsafe fn create_heap_expr_for_field_ref(
+    expr_node: *mut pg_sys::Node,
+    var_node: *mut pg_sys::Var,
+    rti: pg_sys::Index,
+    expr_desc: String,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Qual> {
+    if (*var_node).varno as pg_sys::Index == rti {
+        *uses_tantivy_to_query = true;
+        Some(Qual::HeapExpr {
+            expr_node,
+            expr_desc,
+            search_query_input: Box::new(SearchQueryInput::All),
+        })
+    } else {
+        None
+    }
+}
+
+/// Try to create a HeapExpr from a Var node for non-indexed fields
+unsafe fn try_create_heap_expr_from_var(
+    root: *mut pg_sys::PlannerInfo,
+    var_node: *mut pg_sys::Var,
+    rti: pg_sys::Index,
+    uses_tantivy_to_query: &mut bool,
+) -> Option<Qual> {
+    // Check if root and parse are valid
+    if root.is_null() || (*root).parse.is_null() {
+        return None;
+    }
+
+    let attno = (*var_node).varattno;
+    create_heap_expr_for_field_ref(
+        var_node as *mut pg_sys::Node,
+        var_node,
+        rti,
+        format!("Boolean field_{attno} = true"),
+        uses_tantivy_to_query,
+    )
+}
+
 /// Try to create a HeapExpr from a NullTest for non-indexed fields
 unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
@@ -1422,52 +1436,23 @@ unsafe fn try_create_heap_expr_from_null_test(
     // Extract the field being tested
     let arg = (*nulltest).arg;
     if let Some(var) = nodecast!(Var, T_Var, arg) {
-        if (*var).varno as pg_sys::Index == rti {
-            // This is a field reference to our relation
-            let attno = (*var).varattno;
-
-            let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
-                "IS NULL"
-            } else {
-                "IS NOT NULL"
-            };
-
-            *uses_tantivy_to_query = true;
-
-            Some(Qual::HeapExpr {
-                expr_node: nulltest as *mut pg_sys::Node,
-                expr_desc: format!("NULL test: field_{attno} {test_type}"),
-                search_query_input: Box::new(SearchQueryInput::All),
-            })
+        let attno = (*var).varattno;
+        let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
+            "IS NULL"
         } else {
-            None
-        }
+            "IS NOT NULL"
+        };
+
+        create_heap_expr_for_field_ref(
+            nulltest as *mut pg_sys::Node,
+            var,
+            rti,
+            format!("NULL test: field_{attno} {test_type}"),
+            uses_tantivy_to_query,
+        )
     } else {
         None
     }
-}
-
-/// Get field name from attribute number
-unsafe fn get_field_name_from_attno(
-    relation_oid: pg_sys::Oid,
-    attno: pg_sys::AttrNumber,
-) -> Option<FieldName> {
-    let relation = PgSearchRelation::open(relation_oid);
-
-    let tuple_desc = relation.rd_att;
-    let natts = (*tuple_desc).natts;
-
-    if attno <= 0 || (attno as i32) > natts {
-        return None;
-    }
-
-    let attr_slice = (*tuple_desc).attrs.as_slice(natts as usize);
-    let form_attr = &attr_slice[(attno - 1) as usize];
-    let attr_name = std::ffi::CStr::from_ptr(form_attr.attname.data.as_ptr());
-
-    let field_name_str = attr_name.to_str().ok();
-
-    field_name_str.map(FieldName::from)
 }
 
 unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {

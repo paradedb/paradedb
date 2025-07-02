@@ -217,6 +217,16 @@ impl Qual {
             _ => {}
         }
     }
+
+    /// Check if a Qual contains any HeapExpr (non-indexed predicates)
+    pub fn contains_heap_expr(&self) -> bool {
+        match self {
+            Qual::HeapExpr { .. } => true,
+            Qual::Not(inner) => inner.contains_heap_expr(),
+            Qual::And(quals) | Qual::Or(quals) => quals.iter().any(|q| q.contains_heap_expr()),
+            _ => false,
+        }
+    }
 }
 
 impl From<&Qual> for SearchQueryInput {

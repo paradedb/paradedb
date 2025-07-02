@@ -1691,15 +1691,5 @@ unsafe fn is_query_compatible_with_partial_index(
     //
     // For now, we use a conservative approach to fix the immediate bug.
 
-    !contains_heap_expr(quals)
-}
-
-/// Check if a Qual contains any HeapExpr (non-indexed predicates)
-fn contains_heap_expr(qual: &Qual) -> bool {
-    match qual {
-        Qual::HeapExpr { .. } => true,
-        Qual::Not(inner) => contains_heap_expr(inner),
-        Qual::And(quals) | Qual::Or(quals) => quals.iter().any(contains_heap_expr),
-        _ => false,
-    }
+    !quals.contains_heap_expr()
 }

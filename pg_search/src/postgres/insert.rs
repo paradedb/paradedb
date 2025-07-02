@@ -193,8 +193,24 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup")
         {
+            /*
+             * Recompute VACUUM XID boundaries.
+             *
+             * We don't actually care about the oldest non-removable XID.  Computing
+             * the oldest such XID has a useful side-effect that we rely on: it
+             * forcibly updates the XID horizon state for this backend.  This step is
+             * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+             * that it is now safe to recycle newly deleted pages without this step.
+             */
             unsafe {
-                do_merge(indexrel.oid()).expect("should be able to merge");
+                let heaprel = indexrel
+                    .heap_relation()
+                    .expect("index should belong to a heap relation");
+                pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
+            }
+
+            unsafe {
+                do_merge(indexrel.oid(), true, true).expect("should be able to merge");
             }
         }
     }

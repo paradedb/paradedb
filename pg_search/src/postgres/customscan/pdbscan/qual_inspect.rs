@@ -21,7 +21,9 @@ use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::pushdown::{is_complex, try_pushdown, PushdownField};
+use crate::postgres::customscan::pdbscan::pushdown::{
+    is_complex, try_pushdown_inner, PushdownField,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::SearchQueryInput;
@@ -791,7 +793,7 @@ unsafe fn opexpr(
         _ => {
             // it doesn't use our operator.
             // we'll try to convert it into a pushdown
-            try_pushdown_and_handle_result(
+            try_pushdown(
                 root,
                 rti,
                 opexpr,
@@ -857,17 +859,14 @@ unsafe fn node_opexpr(
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
-                let result = try_pushdown(root, rti, opexpr, schema);
-                if result.is_none() {
-                    // Try to create a HeapExpr for non-indexed field comparisons
-                    if convert_external_to_special_qual {
-                        return Some(Qual::ExternalExpr);
-                    } else {
-                        return None;
-                    }
-                }
-                state.uses_tantivy_to_query = true;
-                return result;
+                return try_pushdown(
+                    root,
+                    rti,
+                    opexpr,
+                    schema,
+                    &mut state.uses_tantivy_to_query,
+                    convert_external_to_special_qual,
+                );
             }
         }
     }
@@ -897,7 +896,7 @@ unsafe fn node_opexpr(
     } else {
         // it doesn't use our operator.
         // we'll try to convert it into a pushdown
-        try_pushdown_and_handle_result(
+        try_pushdown(
             root,
             rti,
             opexpr,
@@ -908,7 +907,7 @@ unsafe fn node_opexpr(
     }
 }
 
-unsafe fn try_pushdown_and_handle_result(
+unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     opexpr: OpExpr,
@@ -926,7 +925,7 @@ unsafe fn try_pushdown_and_handle_result(
     };
 
     // we'll try to convert it into a pushdown
-    let pushdown_result = try_pushdown(root, rti, opexpr, schema);
+    let pushdown_result = try_pushdown_inner(root, rti, opexpr, schema);
     if pushdown_result.is_none() {
         // Check if this expression references our relation
         if contains_relation_reference(opexpr_node, rti) {

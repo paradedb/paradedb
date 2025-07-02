@@ -130,7 +130,7 @@ unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, 
 ///
 /// Returns `Some(Qual)` if we were able to convert it, `None` if not.
 #[rustfmt::skip]
-pub unsafe fn try_pushdown(
+pub unsafe fn try_pushdown_inner(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     opexpr: OpExpr,

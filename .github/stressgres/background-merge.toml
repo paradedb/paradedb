@@ -48,12 +48,12 @@ DROP EXTENSION pg_search CASCADE;
 """
 [server.monitor]
 refresh_ms = 10
-title = "Monitor Index Size"
-log_columns = ["segno", "byte_size"]
+title = "Monitor Segment Count"
+log_columns = ["num_segments"]
 
 # Combined query returning both columns
 sql = """
-SELECT segno, num_docs, pg_size_pretty(byte_size) as byte_size from paradedb.index_info('idxtest') ORDER BY num_docs DESC;
+SELECT COUNT(*) as num_segments FROM paradedb.index_info('idxtest');
 """
 
 [[jobs]]
@@ -142,4 +142,20 @@ title = "Insert value"
 log_tps = true
 sql = """
 INSERT INTO test (message) VALUES ('test text');
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Delete value"
+log_tps = true
+sql = """
+DELETE FROM test WHERE id > 100;
+"""
+
+[[jobs]]
+refresh_ms = 10000
+title = "Vacuum"
+log_tps = true
+sql = """
+VACUUM test;
 """

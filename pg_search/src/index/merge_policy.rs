@@ -23,9 +23,6 @@ pub struct LayeredMergePolicy {
     already_processed: AtomicBool,
 }
 
-pub type NumCandidates = usize;
-pub type NumMerged = usize;
-
 impl MergePolicy for LayeredMergePolicy {
     fn compute_merge_candidates(
         &self,
@@ -120,7 +117,7 @@ impl MergePolicy for LayeredMergePolicy {
             }
 
             if candidate_byte_size < extended_layer_size {
-                pgrx::debug1!("compute_merge_candidates: throwing away candidate because {} is less than required layer size {}", candidate_byte_size, extended_layer_size);
+                pgrx::debug1!("compute_merge_candidates: throwing away candidate because {} is less than required layer size {}", candidate_byte_size, layer_size);
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -213,7 +210,7 @@ impl LayeredMergePolicy {
         metadata: &MetaPage,
         merge_lock: &MergeLock,
         merger: &SearchIndexMerger,
-    ) -> (Vec<MergeCandidate>, NumMerged) {
+    ) -> Vec<MergeCandidate> {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -260,7 +257,6 @@ impl LayeredMergePolicy {
             .map(From::from)
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
-        let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
         let segment_ids = candidates
             .iter()
             .flat_map(|candidate| &candidate.0)
@@ -268,7 +264,7 @@ impl LayeredMergePolicy {
 
         self.retain(segment_ids);
 
-        (candidates, nmerged)
+        candidates
     }
 
     fn retain(&mut self, to_keep: HashSet<&SegmentId>) {

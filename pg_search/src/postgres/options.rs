@@ -51,6 +51,7 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
     100 * 1024,             // 100KB
     1 * 1024 * 1024,        // 1MB
+    10 * 1024 * 1024,       // 10MB
     100 * 1024 * 1024,      // 100MB
     1000 * 1024 * 1024,     // 1GB
     10000 * 1024 * 1024,    // 10GB
@@ -59,7 +60,7 @@ pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
     10000000 * 1024 * 1024, // 10TB
 ];
 
-const DEFAULT_BACKGROUND_LAYER_SIZE_THRESHOLD: u64 = 100 * 1024 * 1024; // 100MB
+const DEFAULT_BACKGROUND_LAYER_SIZE_THRESHOLD: u64 = 10 * 1024 * 1024; // 10MB
 
 #[pg_guard]
 extern "C-unwind" fn validate_text_fields(value: *const std::os::raw::c_char) {

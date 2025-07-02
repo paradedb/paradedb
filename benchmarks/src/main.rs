@@ -41,7 +41,7 @@ struct Args {
     runs: usize,
 
     /// Output format.
-    #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
+    #[arg(long, value_parser = ["md", "csv", "json"], default_value = "md")]
     output: String,
 
     #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
@@ -80,12 +80,111 @@ async fn main() {
         match args.output.as_str() {
             "md" => generate_markdown_output(&args),
             "csv" => generate_csv_output(&args),
-            _ => unreachable!("Clap ensures only md or csv are valid"),
+            "json" => generate_json_output(&args),
+            _ => unreachable!("Clap ensures only md, csv, or json are valid"),
         }
     } else {
         eprintln!("Invalid benchmark type");
         std::process::exit(1);
     }
+}
+
+struct IndexCreationResult {
+    duration_min_secs: f64,
+    index_name: String,
+    index_size: i64,
+    segment_count: i64,
+}
+
+struct QueryResult {
+    query_type: String,
+    query: String,
+    runtimes_secs: Vec<f64>,
+    num_results: usize,
+}
+
+#[derive(serde::Serialize)]
+struct JSONBenchmarkResult {
+    name: String,
+    unit: &'static str,
+    value: f64,
+    extra: String,
+}
+
+impl From<QueryResult> for JSONBenchmarkResult {
+    fn from(res: QueryResult) -> Self {
+        let avg = if res.runtimes_secs.is_empty() {
+            0.0
+        } else {
+            let sum: f64 = res.runtimes_secs.iter().sum();
+            sum / res.runtimes_secs.len() as f64
+        };
+
+        Self {
+            name: res.query_type,
+            unit: "avg secs",
+            value: avg,
+            extra: res.query,
+        }
+    }
+}
+
+fn process_index_creation(args: &Args) -> impl Iterator<Item = IndexCreationResult> + '_ {
+    let index_sql = format!("datasets/{}/create_index/{}.sql", args.dataset, args.r#type);
+    queries(Path::new(&index_sql))
+        .into_iter()
+        .map(|(_, statement)| {
+            println!("{statement}");
+
+            let duration_min_secs = execute_sql_with_timing(&args.url, &statement);
+            let index_name = extract_index_name(&statement).to_owned();
+            let index_size = get_index_size(&args.url, &index_name);
+            let segment_count = get_segment_count(&args.url, &index_name);
+
+            IndexCreationResult {
+                duration_min_secs,
+                index_name,
+                index_size,
+                segment_count,
+            }
+        })
+}
+
+fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
+    if args.vacuum {
+        execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
+    }
+
+    if args.prewarm {
+        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
+    }
+
+    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
+    std::fs::read_dir(queries_dir)
+        .expect("Failed to read queries directory")
+        .flat_map(|entry| {
+            let entry = entry.expect("Failed to read directory entry");
+            let path = entry.path();
+
+            if path.extension().and_then(|s| s.to_str()) != Some("sql") {
+                // Not a query file.
+                vec![]
+            } else {
+                queries(&path)
+            }
+        })
+        .map(|(query_type, query)| {
+            println!("Query Type: {query_type}\nQuery: {query}");
+            let (runtimes_secs, num_results) =
+                execute_query_multiple_times(&args.url, &query, args.runs);
+            println!("Results: {runtimes_secs:?} | Rows Returned: {num_results}\n");
+            QueryResult {
+                query_type,
+                query,
+                runtimes_secs,
+                num_results,
+            }
+        })
 }
 
 fn generate_markdown_output(args: &Args) {
@@ -96,7 +195,7 @@ fn generate_markdown_output(args: &Args) {
     write_test_info(&mut file, args);
     write_postgres_settings(&mut file, &args.url);
     if !args.existing {
-        process_index_creation(&mut file, &args.url, &args.dataset, &args.r#type);
+        process_index_creation_md(&mut file, args);
     }
     run_benchmarks_md(&mut file, args);
 }
@@ -105,9 +204,16 @@ fn generate_csv_output(args: &Args) {
     write_test_info_csv(args);
     write_postgres_settings_csv(&args.url, &args.r#type);
     if !args.existing {
-        process_index_creation_csv(&args.url, &args.dataset, &args.r#type);
+        process_index_creation_csv(args);
     }
     run_benchmarks_csv(args);
+}
+
+fn generate_json_output(args: &Args) {
+    if !args.existing {
+        process_index_creation_json(args);
+    }
+    run_benchmarks_json(args);
 }
 
 fn write_test_info_csv(args: &Args) {
@@ -159,8 +265,8 @@ fn write_postgres_settings_csv(url: &str, test_type: &str) {
     }
 }
 
-fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
-    let filename = format!("results_{test_type}_index_creation.csv");
+fn process_index_creation_csv(args: &Args) {
+    let filename = format!("results_{}_index_creation.csv", args.r#type);
     let mut file = File::create(&filename).expect("Failed to create index creation CSV");
 
     writeln!(
@@ -169,18 +275,16 @@ fn process_index_creation_csv(url: &str, dataset: &str, test_type: &str) {
     )
     .unwrap();
 
-    let index_sql = format!("datasets/{dataset}/create_index/{test_type}.sql");
-    for statement in queries(Path::new(&index_sql)) {
-        println!("{statement}");
-
-        let duration_min = execute_sql_with_timing(url, &statement);
-        let index_name = extract_index_name(&statement);
-        let index_size = get_index_size(url, index_name);
-        let segment_count = get_segment_count(url, index_name);
-
+    for result in process_index_creation(args) {
+        let IndexCreationResult {
+            duration_min_secs,
+            index_name,
+            index_size,
+            segment_count,
+        } = result;
         writeln!(
             file,
-            "{index_name},{duration_min:.2},{index_size},{segment_count}"
+            "{index_name},{duration_min_secs:.2},{index_size},{segment_count}"
         )
         .unwrap();
     }
@@ -198,42 +302,24 @@ fn run_benchmarks_csv(args: &Args) {
     header.push_str(",Rows Returned,Query");
     writeln!(file, "{header}").unwrap();
 
-    if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE;").expect("Failed to vacuum");
-    }
+    for result in run_benchmarks(args) {
+        let QueryResult {
+            query_type,
+            query,
+            runtimes_secs,
+            num_results,
+        } = result;
 
-    if args.prewarm {
-        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
-    }
-
-    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
-        let entry = entry.expect("Failed to read directory entry");
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) != Some("sql") {
-            continue;
+        let mut result_line = query_type;
+        for &runtime_secs in &runtimes_secs {
+            result_line.push_str(&format!(",{runtime_secs:.0}"));
         }
-
-        let query_type = path.file_stem().unwrap().to_string_lossy();
-        for query in queries(&path) {
-            println!("Query Type: {query_type}\nQuery: {query}");
-
-            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
-
-            let mut result_line = format!("{query_type}");
-            for &result in &results {
-                result_line.push_str(&format!(",{result:.0}"));
-            }
-            result_line.push_str(&format!(
-                ",{},\"{}\"",
-                num_results,
-                query.replace("\"", "\"\"")
-            ));
-            writeln!(file, "{result_line}").unwrap();
-
-            println!("Results: {results:?} | Rows Returned: {num_results}\n");
-        }
+        result_line.push_str(&format!(
+            ",{},\"{}\"",
+            num_results,
+            query.replace("\"", "\"\"")
+        ));
+        writeln!(file, "{result_line}").unwrap();
     }
 }
 
@@ -303,7 +389,7 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) {
     }
 }
 
-fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &str) {
+fn process_index_creation_md(file: &mut File, args: &Args) {
     writeln!(file, "\n## Index Creation Results").unwrap();
     writeln!(
         file,
@@ -316,18 +402,17 @@ fn process_index_creation(file: &mut File, url: &str, dataset: &str, r#type: &st
     )
     .unwrap();
 
-    let index_sql = format!("datasets/{dataset}/create_index/{type}.sql");
-    for statement in queries(Path::new(&index_sql)) {
-        println!("{statement}");
-
-        let duration_min = execute_sql_with_timing(url, &statement);
-        let index_name = extract_index_name(&statement);
-        let index_size = get_index_size(url, index_name);
-        let segment_count = get_segment_count(url, index_name);
+    for result in process_index_creation(args) {
+        let IndexCreationResult {
+            duration_min_secs,
+            index_name,
+            index_size,
+            segment_count,
+        } = result;
 
         writeln!(
             file,
-            "| {index_name} | {duration_min:.2} | {index_size} | {segment_count} |"
+            "| {index_name} | {duration_min_secs:.2} | {index_size} | {segment_count} |"
         )
         .unwrap();
     }
@@ -338,35 +423,15 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
 
     write_benchmark_table_header(file, args.runs);
 
-    if args.vacuum {
-        execute_psql_command(&args.url, "VACUUM ANALYZE benchmark_logs;")
-            .expect("Failed to vacuum");
-    }
-
-    if args.prewarm {
-        prewarm_indexes(&args.url, &args.dataset, &args.r#type);
-    }
-
-    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    for entry in std::fs::read_dir(queries_dir).expect("Failed to read queries directory") {
-        let entry = entry.expect("Failed to read directory entry");
-        let path = entry.path();
-
-        if path.extension().and_then(|s| s.to_str()) != Some("sql") {
-            continue;
-        }
-
-        let query_type = path.file_stem().unwrap().to_string_lossy();
-        for query in queries(&path) {
-            println!("Query Type: {query_type}\nQuery: {query}");
-
-            let (results, num_results) = execute_query_multiple_times(&args.url, &query, args.runs);
-
-            let md_query = query.replace("|", "\\|");
-            write_benchmark_results(file, &query_type, &results, num_results, &md_query);
-
-            println!("Results: {results:?} | Rows Returned: {num_results}\n");
-        }
+    for result in run_benchmarks(args) {
+        let QueryResult {
+            query_type,
+            query,
+            runtimes_secs,
+            num_results,
+        } = result;
+        let md_query = query.replace("|", "\\|");
+        write_benchmark_results_md(file, &query_type, &runtimes_secs, num_results, &md_query);
     }
 }
 
@@ -386,7 +451,7 @@ fn write_benchmark_table_header(file: &mut File, runs: usize) {
     writeln!(file, "{separator}").unwrap();
 }
 
-fn write_benchmark_results(
+fn write_benchmark_results_md(
     file: &mut File,
     query_type: &str,
     results: &[f64],
@@ -403,12 +468,29 @@ fn write_benchmark_results(
     writeln!(file, "{result_line}").unwrap();
 }
 
+fn process_index_creation_json(args: &Args) {
+    for _result in process_index_creation(args) {
+        // TODO: Record index creation results as JSON.
+    }
+}
+
+fn run_benchmarks_json(args: &Args) {
+    let mut file = File::create("results.json").expect("Failed to create output file");
+    let results = run_benchmarks(args)
+        .map(JSONBenchmarkResult::from)
+        .collect::<Vec<_>>();
+    let results_json = serde_json::to_string(&results).expect("Failed to serialize results");
+    file.write_all(results_json.as_bytes())
+        .expect("Failed to write results");
+}
+
 ///
-/// Return an iterator over the query strings contained in the given file path.
+/// Return a Vec of the query strings contained in the given file path.
 ///
 /// Strips comments and flattens each query onto a single line.
 ///
-fn queries(file: &Path) -> Vec<String> {
+fn queries(file: &Path) -> Vec<(String, String)> {
+    let query_type = file.file_stem().unwrap().to_string_lossy();
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
 
@@ -420,13 +502,16 @@ fn queries(file: &Path) -> Vec<String> {
                 .split("\n")
                 .map(|line| line.split("--").next().unwrap().trim())
                 .collect::<Vec<_>>()
-                .join(" ");
+                .join(" ")
+                .trim()
+                .to_owned();
             if query.is_empty() {
                 None
             } else {
                 Some(query)
             }
         })
+        .map(move |query| (query_type.clone().into_owned(), query))
         .collect()
 }
 

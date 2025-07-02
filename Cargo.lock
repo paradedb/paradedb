@@ -379,6 +379,7 @@ dependencies = [
  "anyhow",
  "clap",
  "pretty_assertions",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",

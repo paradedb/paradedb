@@ -112,6 +112,13 @@
                             ]
                           },
                           {
+                            "group": "Proximity Queries",
+                            "pages": [
+                              "documentation/advanced/proximity/proximity",
+                              "documentation/advanced/proximity/proximity_clause"
+                            ]
+                          },
+                          {
                             "group": "JSON Queries",
                             "pages": [
                               "documentation/advanced/json/overview",

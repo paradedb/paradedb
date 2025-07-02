@@ -358,6 +358,13 @@ impl SearchField {
             .is_str()
     }
 
+    pub fn is_tokenized(&self) -> bool {
+        // NB:  'uses_raw_tokenizer()' might not be enough to ensure the field is tokenized
+        self.is_text()
+            && !self.uses_raw_tokenizer()
+            && matches!(&self.field_config, SearchFieldConfig::Text { record, .. } if *record == IndexRecordOption::WithFreqsAndPositions)
+    }
+
     pub fn is_json(&self) -> bool {
         matches!(self.field_type, SearchFieldType::Json(_))
     }

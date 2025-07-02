@@ -724,12 +724,6 @@ unsafe fn opexpr(
     let mut lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
 
-    // Get the original expression node pointer before moving opexpr
-    let opexpr_node = match &opexpr {
-        OpExpr::Array(expr) => *expr as *mut pg_sys::Node,
-        OpExpr::Single(expr) => *expr as *mut pg_sys::Node,
-    };
-
     // relabel types are essentially a cast, but for types that are directly compatible without
     // the need for a cast function.  So if the lhs of the input node is a RelabelType, just
     // keep chasing its arg until we get a final node type

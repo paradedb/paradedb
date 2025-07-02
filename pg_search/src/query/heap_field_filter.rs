@@ -40,12 +40,7 @@ impl HeapFieldFilter {
         // Open the relation using PgSearchRelation
         let relation = PgSearchRelation::open(rel_oid);
 
-        // Use a more careful approach to avoid crashes
-        let result = std::panic::catch_unwind(|| {
-            self.evaluate_expression_inner(ctid, &relation, expr_node, rel_oid)
-        });
-
-        result.unwrap_or(false)
+        self.evaluate_expression_inner(ctid, &relation, expr_node, rel_oid)
     }
 
     /// Inner expression evaluation method that can be wrapped in panic handling

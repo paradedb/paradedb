@@ -17,7 +17,6 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
-use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
@@ -357,20 +356,20 @@ fn version_info() -> TableIterator<
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_pretty_bytes(
-    index: PgRelation,
-    oversized_layer_size_pretty: String,
+    _index: PgRelation,
+    _oversized_layer_size_pretty: String,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    anyhow::bail!("force_merge_pretty_bytes is deprecated");
+    anyhow::bail!("force_merge_pretty_bytes is deprecated, run `VACUUM` instead");
 }
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_raw_bytes(
-    index: PgRelation,
-    oversized_layer_size_bytes: i64,
+    _index: PgRelation,
+    _oversized_layer_size_bytes: i64,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    anyhow::bail!("force_merge_raw_bytes is deprecated");
+    anyhow::bail!("force_merge_raw_bytes is deprecated, run `VACUUM` instead");
 }
 
 #[pg_extern]

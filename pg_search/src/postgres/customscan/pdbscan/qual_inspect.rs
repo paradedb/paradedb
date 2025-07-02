@@ -218,6 +218,30 @@ impl Qual {
         }
     }
 
+    /// Check if a query can be satisfied by a partial index
+    ///
+    /// For a partial index with predicate like "WHERE category = 'Electronics'",
+    /// a query like "WHERE description = 'Product 3'" cannot be satisfied because
+    /// Product 3 might have category = 'Footwear' and thus wouldn't be in the index.
+    ///
+    /// This function implements a conservative approach: if the query contains any
+    /// non-indexed predicates that could filter out rows that match the partial index
+    /// predicate, we cannot use the partial index.
+    pub unsafe fn is_query_compatible_with_partial_index(&self) -> bool {
+        // For now, implement a simple heuristic:
+        // If the query contains HeapExpr (non-indexed predicates), and this is a partial index,
+        // we cannot guarantee the query can be satisfied by the partial index alone.
+        //
+        // TODO(@mdashti): A more sophisticated implementation would:
+        // 1. Parse the partial index predicate from bm25_index.rd_indpred
+        // 2. Check if the query predicates are compatible with the partial index predicate
+        // 3. Use PostgreSQL's constraint exclusion logic
+        //
+        // For now, we use a conservative approach to fix the immediate bug.
+
+        !self.contains_heap_expr()
+    }
+
     /// Check if a Qual contains any HeapExpr (non-indexed predicates)
     pub fn contains_heap_expr(&self) -> bool {
         match self {

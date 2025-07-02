@@ -89,6 +89,8 @@ impl BM25BufferCache {
         &self.rel
     }
 
+    /// Return one [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`].  This buffer
+    /// is guaranteed to be "new" in that it was created by extending the relation
     pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
         pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
         let buffer = self.get_buffer(
@@ -99,6 +101,8 @@ impl BM25BufferCache {
         buffer
     }
 
+    /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`]s.  These
+    /// buffers are guaranteed to be "new" in that they were created by extending the relation
     pub unsafe fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> {
         let rel = self.rel.as_ptr();
         (0..npages)

@@ -91,6 +91,45 @@ WITH (key_field='id')
 WHERE category = 'Electronics' AND rating > 2;
 ```
 
+## Indexes on Expressions
+
+Postgres supports creating [indexes on expressions](https://www.postgresql.org/docs/current/indexes-expressional.html),
+which can be useful for optimizing queries that involve computed values.
+A BM25 index can also be created over an expression, as shown below:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+-- index a single field converting a text field to lowercase
+USING bm25 (id, description, lower(description))
+WITH (key_field='id');
+```
+
+In order to modify how the BM25 engine will index the expression, you can specify
+the newly computed field as `_pg_search_{i}` where `{i}` is the 0-based ordinal position
+of the expression in the index definition. In the example above, the lowercase version
+of the `description` field will be referred to as `_pg_search_2`.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, lower(description))
+WITH (
+  key_field='id',
+  text_fields='{
+    "_pg_search_2": {
+      "fast":true,
+      "tokenizer": {"type": "keyword"},
+      "record": "basic"
+    }
+  }'
+);
+```
+
+This rule holds for querying the field as well:
+```sql
+SELECT * FROM mock_items
+WHERE mock_items @@@ paradedb.term('_pg_search_2', 'television');
+```
+
 ## Concurrent Indexing
 
 To create a new index without blocking writes to your table, use the `CONCURRENTLY` keyword:

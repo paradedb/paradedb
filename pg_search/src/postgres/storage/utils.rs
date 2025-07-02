@@ -107,7 +107,6 @@ impl BM25BufferCache {
                 let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
                 let mut buffers =
                     [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
-                pgrx::info!("extending by {many} blocks, i={i}, npages={npages}");
 
                 // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked
                 bulk_extend_relation(rel, many, &mut buffers);

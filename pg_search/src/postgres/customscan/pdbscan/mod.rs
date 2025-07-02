@@ -29,6 +29,7 @@ mod solve_expr;
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
+use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -56,7 +57,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, Qual,
+    extract_join_predicates, extract_quals, Qual, QualExtractState,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
@@ -217,7 +218,7 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
-        let mut uses_tantivy_to_query = false;
+        let mut state = QualExtractState::default();
         let mut quals = extract_quals(
             root,
             rti,
@@ -226,16 +227,15 @@ impl PdbScan {
             ri_type,
             schema,
             false, // Base relation quals should not convert external to all
-            &mut uses_tantivy_to_query,
+            &mut state,
         );
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        if quals.is_none() {
+        let (quals, ri_type, restrict_info) = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut join_uses_tantivy_to_query = false;
-            quals = extract_quals(
+            let mut quals = extract_quals(
                 root,
                 rti,
                 joinri.as_ptr().cast(),
@@ -243,7 +243,7 @@ impl PdbScan {
                 RestrictInfoType::Join,
                 schema,
                 true, // Join quals should convert external to all
-                &mut join_uses_tantivy_to_query,
+                &mut state,
             );
 
             // Apply HeapExpr optimization to the extracted quals
@@ -253,9 +253,9 @@ impl PdbScan {
                 qual_inspect::optimize_quals_with_heap_expr(q);
             }
 
-            // If we have used our operator in the join, or if we have used our operator in the
-            // base relation, then we can use the join quals
-            if uses_tantivy_to_query || join_uses_tantivy_to_query {
+            // If we have found something to push down in the join, or if we have found something to
+            // push down in the base relation, then we can use the join quals
+            if state.uses_tantivy_to_query {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
                 (None, ri_type, restrict_info)
@@ -269,6 +269,13 @@ impl PdbScan {
             }
 
             (quals, ri_type, restrict_info)
+        };
+
+        // Finally, decide whether we can actually use the extracted quals.
+        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() {
+            (quals, ri_type, restrict_info)
+        } else {
+            (None, ri_type, restrict_info)
         }
     }
 }

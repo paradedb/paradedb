@@ -424,6 +424,12 @@ impl From<&Qual> for SearchQueryInput {
     }
 }
 
+#[derive(Default)]
+pub struct QualExtractState {
+    pub uses_tantivy_to_query: bool,
+    pub uses_our_operator: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn extract_quals(
     root: *mut pg_sys::PlannerInfo,
@@ -433,7 +439,7 @@ pub unsafe fn extract_quals(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
 ) -> Option<Qual> {
     if node.is_null() {
         return None;
@@ -449,7 +455,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_special_qual,
-                uses_tantivy_to_query,
+                state,
             )?;
             if quals.len() == 1 {
                 quals.pop()
@@ -473,7 +479,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_special_qual,
-                uses_tantivy_to_query,
+                state,
             )
         }
 
@@ -485,7 +491,7 @@ pub unsafe fn extract_quals(
             ri_type,
             schema,
             convert_external_to_special_qual,
-            uses_tantivy_to_query,
+            state,
         ),
 
         pg_sys::NodeTag::T_ScalarArrayOpExpr => opexpr(
@@ -496,7 +502,7 @@ pub unsafe fn extract_quals(
             ri_type,
             schema,
             convert_external_to_special_qual,
-            uses_tantivy_to_query,
+            state,
         ),
 
         pg_sys::NodeTag::T_BoolExpr => {
@@ -510,7 +516,7 @@ pub unsafe fn extract_quals(
                 ri_type,
                 schema,
                 convert_external_to_special_qual,
-                uses_tantivy_to_query,
+                state,
             )?;
 
             match (*boolexpr).boolop {
@@ -532,7 +538,7 @@ pub unsafe fn extract_quals(
                         if search_field.is_fast() {
                             // This is an indexed boolean field, create proper pushdown qual
                             // T_Var alone represents "field = true"
-                            *uses_tantivy_to_query = true;
+                            state.uses_tantivy_to_query = true;
                             return Some(Qual::PushdownVarEqTrue { field });
                         }
                     }
@@ -565,7 +571,7 @@ pub unsafe fn extract_quals(
                         search_query_input: Box::new(SearchQueryInput::All),
                     };
 
-                    *uses_tantivy_to_query = true;
+                    state.uses_tantivy_to_query = true;
                     return Some(heap_expr);
                 }
 
@@ -595,18 +601,17 @@ pub unsafe fn extract_quals(
             } else {
                 // Try to create a HeapExpr for non-indexed field NULL tests
             }
-            try_create_heap_expr_from_null_test(nulltest, rti, uses_tantivy_to_query)
+            try_create_heap_expr_from_null_test(nulltest, rti, &mut state.uses_tantivy_to_query)
         }
 
         pg_sys::NodeTag::T_BooleanTest => booltest(
             root,
             rti,
             node,
-            pdbopoid,
             ri_type,
             schema,
             convert_external_to_special_qual,
-            uses_tantivy_to_query,
+            state,
         ),
 
         pg_sys::NodeTag::T_Const => {
@@ -628,7 +633,7 @@ pub unsafe fn extract_quals(
                     search_query_input: Box::new(SearchQueryInput::All),
                 };
 
-                *uses_tantivy_to_query = true;
+                state.uses_tantivy_to_query = true;
                 return Some(heap_expr);
             }
 
@@ -649,7 +654,7 @@ unsafe fn list(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
 ) -> Option<Vec<Qual>> {
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
@@ -662,7 +667,7 @@ unsafe fn list(
             ri_type,
             schema,
             convert_external_to_special_qual,
-            uses_tantivy_to_query,
+            state,
         ) {
             quals.push(qual);
         } else {
@@ -688,7 +693,7 @@ unsafe fn opexpr(
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
 ) -> Option<Qual> {
     let args = opexpr.args();
     let mut lhs = args.get_ptr(0)?;
@@ -715,7 +720,7 @@ unsafe fn opexpr(
             pdbopoid,
             ri_type,
             schema,
-            uses_tantivy_to_query,
+            state,
             opexpr,
             lhs,
             rhs,
@@ -732,13 +737,15 @@ unsafe fn opexpr(
                     pdbopoid,
                     ri_type,
                     schema,
-                    uses_tantivy_to_query,
+                    state,
                     opexpr,
                     lhs,
                     rhs,
                     convert_external_to_special_qual,
                 );
             }
+
+            state.uses_our_operator = true;
 
             if is_complex(rhs) {
                 return None;
@@ -755,7 +762,7 @@ unsafe fn opexpr(
             pdbopoid,
             ri_type,
             schema,
-            uses_tantivy_to_query,
+            state,
             opexpr,
             lhs,
             rhs,
@@ -770,7 +777,7 @@ unsafe fn opexpr(
                 rti,
                 opexpr,
                 schema,
-                uses_tantivy_to_query,
+                &mut state.uses_tantivy_to_query,
                 convert_external_to_special_qual,
             )
         }
@@ -784,7 +791,7 @@ unsafe fn node_opexpr(
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
     opexpr: OpExpr,
     lhs: *mut pg_sys::Node,
     mut rhs: *mut pg_sys::Node,
@@ -797,6 +804,7 @@ unsafe fn node_opexpr(
     let rhs_as_const = nodecast!(Const, T_Const, rhs);
 
     let is_our_operator = opexpr.opno() == pdbopoid;
+    state.uses_our_operator = state.uses_our_operator || is_our_operator;
 
     if rhs_as_const.is_none() {
         // the rhs expression is not a Const, so it's some kind of expression
@@ -811,7 +819,7 @@ unsafe fn node_opexpr(
                 // it uses our operator, so we directly know how to handle it
                 // this is the case of:  field @@@ paradedb.xxx(EXPR) where EXPR likely includes something
                 // that's parameterized
-                *uses_tantivy_to_query = true;
+                state.uses_tantivy_to_query = true;
                 return Some(Qual::Expr {
                     node: rhs,
                     expr_state: std::ptr::null_mut(),
@@ -820,9 +828,13 @@ unsafe fn node_opexpr(
         } else {
             // it doesn't use our operator
             if contains_var(rhs) {
-                // the rhs is (or contains) a Var, which likely means its part of a join condition
-                // we choose to just select everything in this situation
-                return Some(Qual::ExternalVar);
+                // the rhs is (or contains) a Var. If it's part of a join condition,
+                // select everything in this situation
+                if convert_external_to_special_qual {
+                    return Some(Qual::ExternalVar);
+                } else {
+                    return None;
+                }
             } else {
                 // it doesn't use our operator.
                 // we'll try to convert it into a pushdown
@@ -835,7 +847,7 @@ unsafe fn node_opexpr(
                         return None;
                     }
                 }
-                *uses_tantivy_to_query = true;
+                state.uses_tantivy_to_query = true;
                 return result;
             }
         }
@@ -846,7 +858,7 @@ unsafe fn node_opexpr(
         // the rhs expression is a Const, so we can use it directly
         if is_node_range_table_entry(lhs, rti) {
             // the node comes from this range table entry, so we can use the full expression directly
-            *uses_tantivy_to_query = true;
+            state.uses_tantivy_to_query = true;
             Some(Qual::OpExpr {
                 lhs,
                 opno: opexpr.opno(),
@@ -871,7 +883,7 @@ unsafe fn node_opexpr(
             rti,
             opexpr,
             schema,
-            uses_tantivy_to_query,
+            &mut state.uses_tantivy_to_query,
             convert_external_to_special_qual,
         )
     }
@@ -987,38 +999,37 @@ unsafe fn booltest(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
-    pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
     schema: &SearchIndexSchema,
     convert_external_to_special_qual: bool,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
 ) -> Option<Qual> {
     let booltest = nodecast!(BooleanTest, T_BooleanTest, node)?;
     let arg = (*booltest).arg;
 
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
-    if let Some(arg_var) = nodecast!(Var, T_Var, arg) {
-        if let Some(field) = PushdownField::try_new(root, arg_var, schema) {
-            // It's a simple field reference, handle as specific cases
-            match (*booltest).booltesttype {
-                pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
-                pg_sys::BoolTestType::IS_NOT_FALSE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
-                }
-                pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
-                pg_sys::BoolTestType::IS_NOT_TRUE => {
-                    Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
-                }
-                _ => None,
-            }
-        } else {
-            None
+    let arg_var = nodecast!(Var, T_Var, arg)?;
+    let field = PushdownField::try_new(root, arg_var, schema)?;
+
+    // It's a simple field reference, handle as specific cases
+    let qual = match (*booltest).booltesttype {
+        pg_sys::BoolTestType::IS_TRUE => Some(Qual::PushdownVarIsTrue { field }),
+        pg_sys::BoolTestType::IS_NOT_FALSE => {
+            Some(Qual::Not(Box::new(Qual::PushdownVarIsFalse { field })))
         }
-    } else {
-        // Not a simple field reference - let the PostgreSQL executor handle it
-        None
+        pg_sys::BoolTestType::IS_FALSE => Some(Qual::PushdownVarIsFalse { field }),
+        pg_sys::BoolTestType::IS_NOT_TRUE => {
+            Some(Qual::Not(Box::new(Qual::PushdownVarIsTrue { field })))
+        }
+        _ => None,
+    };
+
+    if qual.is_some() {
+        state.uses_tantivy_to_query = true;
     }
+
+    qual
 }
 
 /// Extract join-level search predicates that are relevant for snippet generation
@@ -1058,7 +1069,7 @@ pub unsafe fn extract_join_predicates(
         if let Some(simplified_node) =
             simplify_join_clause_for_relation((*ri).clause.cast(), current_rti)
         {
-            let mut uses_tantivy_to_query = false;
+            let mut qual_extract_state = QualExtractState::default();
             // Extract search predicates from the simplified expression
             if let Some(qual) = extract_quals(
                 root,
@@ -1068,9 +1079,9 @@ pub unsafe fn extract_join_predicates(
                 RestrictInfoType::BaseRelation,
                 schema,
                 true,
-                &mut uses_tantivy_to_query,
+                &mut qual_extract_state,
             ) {
-                if uses_tantivy_to_query {
+                if qual_extract_state.uses_tantivy_to_query {
                     // Convert qual to SearchQueryInput and return the entire expression
                     let search_input = SearchQueryInput::from(&qual);
                     // Return the entire simplified expression for scoring

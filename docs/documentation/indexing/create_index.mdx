@@ -38,7 +38,7 @@ WITH (key_field='<key_field>');
   The name of the table being indexed.
 </ParamField>
 <ParamField body="columns_or_expressions" required>
-  A comma-separated list of columns or [expressions](https://www.postgresql.org/docs/current/indexes-expressional.html) to index, starting with the `key_field`. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
+  A comma-separated list of columns or [expressions](#indexes-on-expressions) to index, starting with the `key_field`. Text, numeric, datetime, boolean, range, enum, and JSON types can be indexed.
 </ParamField>
 <ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each

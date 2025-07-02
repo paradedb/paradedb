@@ -635,16 +635,16 @@ pub unsafe fn extract_quals(
                 let bool_value = if !(*const_node).constisnull {
                     bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                 } else {
+                    // Convert NULL to false
                     false
-                };
-                let heap_expr = Qual::HeapExpr {
-                    expr_node: node, // Use the original T_Const node
-                    expr_desc: format!("Boolean constant = {bool_value}"),
-                    search_query_input: Box::new(SearchQueryInput::All),
                 };
 
                 state.uses_tantivy_to_query = true;
-                return Some(heap_expr);
+                if bool_value {
+                    return Some(Qual::All);
+                } else {
+                    return Some(Qual::Not(Box::new(Qual::All)));
+                }
             }
 
             None

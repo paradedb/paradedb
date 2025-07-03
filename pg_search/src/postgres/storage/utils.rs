@@ -207,14 +207,14 @@ unsafe fn bulk_extend_relation(
         "requested too many pages for relation extension: npages={npages}, buffers.len={}",
         buffers.len()
     );
+    let is_backend_bulk_compatible = npages > 1
+        && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
+            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
+
     #[cfg(any(feature = "pg16", feature = "pg17"))]
     {
         // `ExtendBufferedRelBy` is only allowed from certain backends
-        let can_use_extend_buffered_rel_by = npages > 1
-            && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
-                || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
-
-        if can_use_extend_buffered_rel_by {
+        if is_backend_bulk_compatible {
             let mut filled = 0;
             let mut extended_by = 0;
             loop {
@@ -249,7 +249,13 @@ unsafe fn bulk_extend_relation(
             pg_sys::ForkNumber::MAIN_FORKNUM,
             pg_sys::InvalidBlockNumber,
             pg_sys::ReadBufferMode::RBM_NORMAL,
-            BAS_BULKWRITE.0,
+            if is_backend_bulk_compatible {
+                // only bgworker and backends can use the BULKWRITE BufferAccessStrategy
+                // specifically, using this in an autovacuum worker can trip an internal postgres assert
+                BAS_BULKWRITE.0
+            } else {
+                std::ptr::null_mut()
+            },
         );
         debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         *slot = pg_buffer;

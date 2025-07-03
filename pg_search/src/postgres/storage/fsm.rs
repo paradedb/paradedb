@@ -18,7 +18,9 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::bm25_max_free_space;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager};
-use pgrx::pg_sys;
+use crate::postgres::storage::metadata::MetaPage;
+use pgrx::iter::TableIterator;
+use pgrx::{name, pg_extern, pg_sys, AnyNumeric, PgRelation};
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
@@ -172,4 +174,39 @@ impl FreeSpaceManager {
             }
         }
     }
+}
+
+#[pg_extern]
+unsafe fn fsm_info(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(fsm_blockno, AnyNumeric),
+        name!(free_blockno, AnyNumeric),
+    ),
+> {
+    let index = PgSearchRelation::from_pg(index.as_ptr());
+
+    let meta = MetaPage::open(&index);
+    let fsm_start = meta.fsm();
+    let bman = BufferManager::new(&index);
+    let mut mapping = Vec::<(pg_sys::BlockNumber, Vec<pg_sys::BlockNumber>)>::default();
+
+    let mut blockno = fsm_start;
+
+    while blockno != pg_sys::InvalidBlockNumber {
+        let buffer = bman.get_buffer(blockno);
+        let page = buffer.page();
+        let block = page.contents::<FSMBlock>();
+        let free_blocks = block.blocks[..block.meta.len as usize].to_vec();
+        mapping.push((blockno, free_blocks));
+        blockno = block.meta.prev_block;
+    }
+
+    TableIterator::new(mapping.into_iter().flat_map(|(fsm_blockno, blocks)| {
+        blocks
+            .into_iter()
+            .map(move |blockno| (fsm_blockno.into(), blockno.into()))
+    }))
 }

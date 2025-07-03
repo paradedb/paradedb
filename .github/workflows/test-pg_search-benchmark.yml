@@ -11,6 +11,7 @@ on:
     branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
       - main
       - staging
+      - phil/fix-deprecated-slack-api # TODO: Remove this once the PR is tested.
   push:
     branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
       - dev
@@ -135,7 +136,6 @@ jobs:
           name: benchmark-csv
           path: benchmarks/
 
-      #
       - name: Upload ${{ matrix.csv_suffix }} to Slack
         uses: slackapi/slack-github-action@v2
         with:

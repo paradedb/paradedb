@@ -74,7 +74,7 @@ impl Default for FSMBlock {
 
 #[derive(Debug)]
 pub struct FreeSpaceManager {
-    start_block: pg_sys::BlockNumber,
+    start_blockno: pg_sys::BlockNumber,
 }
 
 impl FreeSpaceManager {
@@ -85,14 +85,12 @@ impl FreeSpaceManager {
         new_buffer.number()
     }
 
-    pub fn open(last_block: pg_sys::BlockNumber) -> Self {
-        Self {
-            start_block: last_block,
-        }
+    pub fn open(start_blockno: pg_sys::BlockNumber) -> Self {
+        Self { start_blockno }
     }
 
     pub fn pop(&self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-        let mut blockno = self.start_block;
+        let mut blockno = self.start_blockno;
 
         loop {
             if blockno == pg_sys::InvalidBlockNumber {
@@ -120,7 +118,7 @@ impl FreeSpaceManager {
         }
         let mut result = Vec::with_capacity(npages);
         let mut remaining = npages;
-        let mut blockno = self.start_block;
+        let mut blockno = self.start_blockno;
 
         while remaining > 0 && blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = bman.get_buffer_mut(blockno);
@@ -153,7 +151,7 @@ impl FreeSpaceManager {
         blocks: impl Iterator<Item = pg_sys::BlockNumber>,
     ) {
         let mut blocks = blocks.peekable();
-        let mut blockno = self.start_block;
+        let mut blockno = self.start_blockno;
         loop {
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();

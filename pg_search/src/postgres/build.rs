@@ -35,12 +35,12 @@ pub extern "C-unwind" fn ambuild(
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
+    let heap_relation = unsafe { PgSearchRelation::from_pg(heaprel) };
+    let index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
+
     unsafe {
         ambuildempty(indexrel);
     }
-
-    let heap_relation = unsafe { PgSearchRelation::from_pg(heaprel) };
-    let index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -84,12 +84,12 @@ pub extern "C-unwind" fn ambuild(
 }
 
 #[pg_guard]
-pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    unsafe {
-        MetaPage::init(index_relation);
-    }
+pub unsafe extern "C-unwind" fn ambuildempty(indexrel: pg_sys::Relation) {
+    let index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
 
-    let index_relation = PgSearchRelation::from_pg(index_relation);
+    unsafe {
+        MetaPage::init(&index_relation);
+    }
 
     create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
 

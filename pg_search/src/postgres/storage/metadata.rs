@@ -73,7 +73,7 @@ pub struct MetaPage {
 const METAPAGE: pg_sys::BlockNumber = 0;
 
 impl MetaPage {
-    pub unsafe fn init(indexrel: pg_sys::Relation) {
+    pub unsafe fn init(indexrel: &PgSearchRelation) {
         let mut buffer = init_new_buffer(indexrel);
         assert_eq!(
             buffer.number(),
@@ -130,7 +130,6 @@ impl MetaPage {
             let mut buffer = bman.get_buffer_mut(METAPAGE);
             let mut page = buffer.page_mut();
             let metadata = page.contents_mut::<MetaPageData>();
-            let indexrel = indexrel.as_ptr();
 
             unsafe {
                 if !block_number_is_valid(metadata.active_vacuum_list) {

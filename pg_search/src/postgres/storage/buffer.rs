@@ -575,17 +575,17 @@ impl BufferManager {
     }
 }
 
-pub unsafe fn init_new_buffer(rel: pg_sys::Relation) -> BufferMut {
+pub unsafe fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     unsafe {
-        pg_sys::LockRelationForExtension(rel, pg_sys::AccessExclusiveLock as _);
+        pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
         let pg_buffer = pg_sys::ReadBufferExtended(
-            rel,
+            rel.as_ptr(),
             pg_sys::ForkNumber::MAIN_FORKNUM,
             pg_sys::InvalidBlockNumber,
             pg_sys::ReadBufferMode::RBM_NORMAL,
             std::ptr::null_mut(),
         );
-        pg_sys::UnlockRelationForExtension(rel, pg_sys::AccessExclusiveLock as _);
+        pg_sys::UnlockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
         pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
 
         let mut buffer = BufferMut {

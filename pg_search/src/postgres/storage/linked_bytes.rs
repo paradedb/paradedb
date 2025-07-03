@@ -250,7 +250,7 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create_direct(rel: pg_sys::Relation) -> pg_sys::BlockNumber {
+    pub unsafe fn create_direct(rel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let (mut header_buffer, start_buffer) = (init_new_buffer(rel), init_new_buffer(rel));
         let header_blockno = header_buffer.number();
         let start_blockno = start_buffer.number();

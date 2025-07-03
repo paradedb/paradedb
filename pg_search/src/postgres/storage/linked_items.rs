@@ -92,7 +92,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub unsafe fn create_direct(indexrel: pg_sys::Relation) -> pg_sys::BlockNumber {
+    pub unsafe fn create_direct(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let mut header_buffer = init_new_buffer(indexrel);
         let start_buffer = init_new_buffer(indexrel);
 

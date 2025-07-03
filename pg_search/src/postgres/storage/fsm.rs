@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::bm25_max_free_space;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager};
 use pgrx::pg_sys;
@@ -59,7 +60,7 @@ pub struct FreeSpaceManager {
 }
 
 impl FreeSpaceManager {
-    pub unsafe fn init(indexrel: pg_sys::Relation) -> pg_sys::BlockNumber {
+    pub unsafe fn init(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let mut new_buffer = init_new_buffer(indexrel);
         let mut page = new_buffer.page_mut();
         *page.contents_mut::<FSMBlock>() = FSMBlock::default();
@@ -163,7 +164,7 @@ impl FreeSpaceManager {
 
             // however, if there is no previous block we need to make one and link it in
             if blockno == pg_sys::InvalidBlockNumber {
-                let mut new_buffer = unsafe { init_new_buffer(bman.bm25cache().rel().as_ptr()) };
+                let mut new_buffer = unsafe { init_new_buffer(bman.bm25cache().rel()) };
                 let mut page = new_buffer.page_mut();
                 *page.contents_mut::<FSMBlock>() = FSMBlock::default();
                 block.meta.prev_block = new_buffer.number();

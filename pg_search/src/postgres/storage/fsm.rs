@@ -16,42 +16,58 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::bm25_max_free_space;
+use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::iter::TableIterator;
 use pgrx::{name, pg_extern, pg_sys, AnyNumeric, PgRelation};
 
+// NB:  As of the initial implementation, we only have "Uncompressed" but I (@eeeebbbbrrrr) could
+//      imagine bit-packed blocks, variable-width blocks, etc
+/// Denotes what the data on an FSM block looks like
+#[derive(Debug, Copy, Clone)]
+#[repr(u32)]
+enum FSMBlockKind {
+    Uncompressed = 0,
+}
+
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 struct FSMBlockInner {
-    len: u16,
-    prev_block: pg_sys::BlockNumber,
+    /// What type of block is this?
+    kind: FSMBlockKind,
+
+    /// How many physical blocks does it contain?
+    len: u32,
 }
 
 impl Default for FSMBlockInner {
     fn default() -> Self {
         Self {
+            kind: FSMBlockKind::Uncompressed,
             len: 0,
-            prev_block: pg_sys::InvalidBlockNumber,
         }
     }
 }
 
-const FSM_BLOCK_SIZE: usize =
+const UNCOMPRESSED_MAX_BLOCKS_PER_PAGE: usize =
     (bm25_max_free_space() / size_of::<pg_sys::BlockNumber>()) - size_of::<FSMBlockInner>();
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct FSMBlock {
     meta: FSMBlockInner,
-    blocks: [pg_sys::BlockNumber; FSM_BLOCK_SIZE],
+
+    // with different [`FSMBlockKind`]s this might need to become a `[u8; bm25_max_free_space() - size_of::<FSMBlockInner>()]`
+    // and treated differently by each kind
+    blocks: [pg_sys::BlockNumber; UNCOMPRESSED_MAX_BLOCKS_PER_PAGE],
 }
 
 impl Default for FSMBlock {
     fn default() -> Self {
         Self {
             meta: Default::default(),
-            blocks: [pg_sys::InvalidBlockNumber; FSM_BLOCK_SIZE],
+            blocks: [pg_sys::InvalidBlockNumber; UNCOMPRESSED_MAX_BLOCKS_PER_PAGE],
         }
     }
 }
@@ -85,8 +101,8 @@ impl FreeSpaceManager {
             let mut page = buffer.page_mut();
             let block = page.contents_mut::<FSMBlock>();
             if block.meta.len == 0 {
-                // back up to previous block and start over
-                blockno = block.meta.prev_block;
+                // go to the next block
+                blockno = page.special::<BM25PageSpecialData>().next_blockno;
                 continue;
             }
 
@@ -111,7 +127,7 @@ impl FreeSpaceManager {
 
             if block.meta.len > 0 {
                 let chunk_size = remaining.min(block.meta.len as usize);
-                let new_len = block.meta.len - chunk_size as u16;
+                let new_len = block.meta.len - chunk_size as u32;
 
                 result.extend_from_slice(&block.blocks[new_len as usize..block.meta.len as usize]);
                 block.meta.len = new_len;
@@ -119,8 +135,8 @@ impl FreeSpaceManager {
             }
 
             // this block is now empty
-            // back up to the previous page
-            blockno = block.meta.prev_block;
+            // go to the next page
+            blockno = page.special::<BM25PageSpecialData>().next_blockno
         }
 
         // TODO:  it might make sense to sort this
@@ -141,7 +157,7 @@ impl FreeSpaceManager {
             let mut page = buffer.page_mut();
             let block = page.contents_mut::<FSMBlock>();
 
-            while (block.meta.len as usize) < FSM_BLOCK_SIZE {
+            while (block.meta.len as usize) < UNCOMPRESSED_MAX_BLOCKS_PER_PAGE {
                 match blocks.peek() {
                     // we've added every block from the iterator
                     None => {
@@ -161,16 +177,19 @@ impl FreeSpaceManager {
             //        so that when blocks are popped off they're returned smallest-to-largest
 
             // we still have blocks to apply
-            // back up to the previous block and apply them there
-            blockno = block.meta.prev_block;
+            // move to the next block and apply them there
+            blockno = page.special::<BM25PageSpecialData>().next_blockno;
 
-            // however, if there is no previous block we need to make one and link it in
+            // however, if there is no next block we need to make one and link it in
             if blockno == pg_sys::InvalidBlockNumber {
                 let mut new_buffer = init_new_buffer(bman.bm25cache().rel());
-                let mut page = new_buffer.page_mut();
-                *page.contents_mut::<FSMBlock>() = FSMBlock::default();
-                block.meta.prev_block = new_buffer.number();
-                blockno = block.meta.prev_block;
+                let mut new_page = new_buffer.page_mut();
+                *new_page.contents_mut::<FSMBlock>() = FSMBlock::default();
+
+                // move to this new block
+                let new_blockno = new_buffer.number();
+                page.special_mut::<BM25PageSpecialData>().next_blockno = new_blockno;
+                blockno = new_blockno;
             }
         }
     }
@@ -201,7 +220,7 @@ unsafe fn fsm_info(
         let block = page.contents::<FSMBlock>();
         let free_blocks = block.blocks[..block.meta.len as usize].to_vec();
         mapping.push((blockno, free_blocks));
-        blockno = block.meta.prev_block;
+        blockno = page.special::<BM25PageSpecialData>().next_blockno;
     }
 
     TableIterator::new(mapping.into_iter().flat_map(|(fsm_blockno, blocks)| {

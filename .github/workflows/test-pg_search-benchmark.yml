@@ -101,17 +101,12 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      - name: Upload Benchmark Results to Slack
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
-        working-directory: benchmarks/
-        run: |
-          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-            curl -F "file=@$file" \
-              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
-              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
-              https://slack.com/api/files.upload
-          done
+      # This is necessary to make the CSV files available to the Slack upload job.
+      - name: Upload CSV Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-csv
+          path: benchmarks/results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv
 
       - name: Notify Slack on Failure
         if: failure()
@@ -123,3 +118,37 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}
+
+  upload-benchmark-results:
+    name: Upload Benchmark Results to Slack
+    needs: benchmark-pg_search
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        csv_suffix:
+          [test_info, index_creation, benchmark_results, postgres_settings]
+
+    steps:
+      - name: Download CSV Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-csv
+          path: benchmarks/
+
+      #
+      - name: Upload ${{ matrix.csv_suffix }} to Slack
+        uses: slackapi/slack-github-action@v2
+        with:
+          method: files.uploadV2
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          payload: |
+            channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+            initial_comment: |
+              *Community Benchmark Results (results_pg_search_${{ matrix.csv_suffix }}.csv)*
+              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+            file: "benchmarks/results_pg_search_${{ matrix.csv_suffix }}.csv"
+            filename: "results_pg_search_${{ matrix.csv_suffix }}.csv"
+            request_file_info: true
+          errors: true
+          payload-templated: false
+          retries: 5

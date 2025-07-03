@@ -164,7 +164,7 @@ impl FreeSpaceManager {
 
             // however, if there is no previous block we need to make one and link it in
             if blockno == pg_sys::InvalidBlockNumber {
-                let mut new_buffer = unsafe { init_new_buffer(bman.bm25cache().rel()) };
+                let mut new_buffer = init_new_buffer(bman.bm25cache().rel());
                 let mut page = new_buffer.page_mut();
                 *page.contents_mut::<FSMBlock>() = FSMBlock::default();
                 block.meta.prev_block = new_buffer.number();

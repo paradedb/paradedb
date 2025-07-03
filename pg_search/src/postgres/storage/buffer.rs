@@ -575,7 +575,9 @@ impl BufferManager {
     }
 }
 
-pub unsafe fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
+/// Directly create a new buffer in the specified relation via extension, bypassing the Free Space Map,
+/// and initialize it as a new page.
+pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     unsafe {
         pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
         let pg_buffer = pg_sys::ReadBufferExtended(

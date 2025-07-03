@@ -67,8 +67,11 @@ impl MergeLock {
 
     pub fn merge_list(&self) -> MergeList {
         MergeList::open(
-            LinkedItemList::<MergeEntry>::open(self.bman.bm25cache().rel(), self.data.merge_list),
-            self.bman.bm25cache().rel(),
+            LinkedItemList::<MergeEntry>::open(
+                self.bman.buffer_access().rel(),
+                self.data.merge_list,
+            ),
+            self.bman.buffer_access().rel(),
         )
     }
 }
@@ -291,7 +294,7 @@ impl MergeList {
     pub unsafe fn garbage_collect(&mut self) {
         let recycled_entries = self.entries.garbage_collect();
 
-        let indexrel = self.bman.bm25cache().rel().clone();
+        let indexrel = self.bman.buffer_access().rel().clone();
         self.bman.fsm().extend(
             &mut self.bman,
             recycled_entries.into_iter().flat_map(move |entry| {
@@ -311,7 +314,7 @@ impl MergeList {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
+        let segment_ids_list = LinkedBytesList::create(self.bman.buffer_access().rel());
         let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
         segment_ids_list.writer().write(&segment_id_bytes)?;
 
@@ -335,7 +338,7 @@ impl MergeList {
                 .into_iter()
                 .flat_map(move |merge_entry| {
                     merge_entry
-                        .segment_ids(self.bman.bm25cache().rel())
+                        .segment_ids(self.bman.buffer_access().rel())
                         .into_iter()
                 }),
         )
@@ -345,7 +348,7 @@ impl MergeList {
         let removed_entry = self.entries.remove_item(|entry| entry == &merge_entry)?;
 
         LinkedBytesList::open(
-            self.bman.bm25cache().rel(),
+            self.bman.buffer_access().rel(),
             removed_entry.segment_ids_start_blockno,
         )
         .return_to_fsm();

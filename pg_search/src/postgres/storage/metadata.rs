@@ -169,7 +169,7 @@ impl MetaPage {
     /// Acquires the merge lock.
     pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
         assert!(block_number_is_valid(self.data.merge_lock));
-        MergeLock::acquire(self.bman.bm25cache().rel(), self.data.merge_lock)
+        MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
     }
 
     ///
@@ -187,7 +187,7 @@ impl MetaPage {
         }
 
         Some(LinkedItemList::<SegmentMetaEntry>::open(
-            self.bman.bm25cache().rel(),
+            self.bman.buffer_access().rel(),
             self.data.segment_meta_garbage,
         ))
     }
@@ -195,7 +195,7 @@ impl MetaPage {
     pub fn vacuum_list(&self) -> VacuumList {
         assert!(block_number_is_valid(self.data.active_vacuum_list));
         VacuumList::open(
-            self.bman.bm25cache().rel(),
+            self.bman.buffer_access().rel(),
             self.data.active_vacuum_list,
             self.data.ambulkdelete_sentinel,
         )
@@ -213,7 +213,7 @@ impl MetaPage {
         }
 
         let entries =
-            LinkedBytesList::open(self.bman.bm25cache().rel(), self.data.create_index_list);
+            LinkedBytesList::open(self.bman.buffer_access().rel(), self.data.create_index_list);
         let bytes = entries.read_all();
         bytes
             .chunks(size_of::<SegmentIdBytes>())
@@ -278,7 +278,7 @@ impl MetaPage {
         } else {
             self.data.schema_start
         };
-        LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
+        LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
     }
 
     pub fn settings_bytes(&self) -> LinkedBytesList {
@@ -287,7 +287,7 @@ impl MetaPage {
         } else {
             self.data.settings_start
         };
-        LinkedBytesList::open(self.bman.bm25cache().rel(), blockno)
+        LinkedBytesList::open(self.bman.buffer_access().rel(), blockno)
     }
 
     pub fn segment_metas(&self) -> LinkedItemList<SegmentMetaEntry> {
@@ -296,7 +296,7 @@ impl MetaPage {
         } else {
             self.data.segment_metas_start
         };
-        LinkedItemList::<SegmentMetaEntry>::open(self.bman.bm25cache().rel(), blockno)
+        LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
     }
 }
 
@@ -310,7 +310,7 @@ impl MetaPage {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
+        let segment_ids_list = LinkedBytesList::create(self.bman.buffer_access().rel());
         let mut writer = segment_ids_list.writer();
         unsafe {
             writer.write(&segment_id_bytes)?;

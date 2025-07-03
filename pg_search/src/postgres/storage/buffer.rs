@@ -430,7 +430,7 @@ impl BufferManager {
         FreeSpaceManager::open(fsm_blockno)
     }
 
-    pub fn bm25cache(&self) -> &RelationBufferAccess {
+    pub fn buffer_access(&self) -> &RelationBufferAccess {
         &self.rbufacc
     }
 

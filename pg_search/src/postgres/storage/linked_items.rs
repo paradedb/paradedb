@@ -386,7 +386,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
         let (mut cloned, mut previous_buffer) =
-            LinkedItemList::create_without_start_page(self.bman.bm25cache().rel());
+            LinkedItemList::create_without_start_page(self.bman.buffer_access().rel());
 
         // TODO: This code could either:
         // * switch to compacting pages as it goes.

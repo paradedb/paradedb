@@ -391,7 +391,7 @@ mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::BM25PageSpecialData;
-    use crate::postgres::storage::utils::BM25BufferCache;
+    use crate::postgres::storage::utils::RelationBufferAccess;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -462,7 +462,7 @@ mod tests {
         linked_list.return_to_fsm();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = BM25BufferCache::open(&indexrel)
+            let buffer = RelationBufferAccess::open(&indexrel)
                 .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;

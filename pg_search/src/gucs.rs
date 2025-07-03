@@ -30,6 +30,11 @@ static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// default is `true`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
+/// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
+/// The default is `true`.
+static ENABLE_CUSTOM_SCAN_FOR_NON_INDEXED_FIELDS: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -85,6 +90,15 @@ pub fn init() {
     );
 
     GucRegistry::define_bool_guc(
+        c"paradedb.enable_custom_scan_for_non_indexed_fields",
+        c"Enable ParadeDB's custom scan for queries with non-indexed fields",
+        c"Enable ParadeDB's custom scan to handle queries that include non-indexed field predicates using HeapExpr for heap filtering. When disabled, such queries will fall back to standard PostgreSQL execution",
+        &ENABLE_CUSTOM_SCAN_FOR_NON_INDEXED_FIELDS,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
         c"paradedb.enable_fast_field_exec",
         c"Enable StringFastFieldsExecState and NumericFastFieldsExecState executor",
         c"Enable the StringFastFieldsExecState and NumericFastFieldsExecState executors for handling one string fast field or multiple numeric fast fields",
@@ -133,6 +147,10 @@ pub fn enable_custom_scan() -> bool {
 
 pub fn enable_custom_scan_without_operator() -> bool {
     ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR.get()
+}
+
+pub fn enable_custom_scan_for_non_indexed_fields() -> bool {
+    ENABLE_CUSTOM_SCAN_FOR_NON_INDEXED_FIELDS.get()
 }
 
 pub fn is_fast_field_exec_enabled() -> bool {

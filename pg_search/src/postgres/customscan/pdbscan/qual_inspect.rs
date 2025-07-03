@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::opexpr::OpExpr;
+use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -910,17 +911,22 @@ unsafe fn try_pushdown(
         // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
         if contains_relation_reference(opexpr_node, rti) {
-            // Create HeapExpr: predicate will be evaluated via heap access
-            // This is slower but necessary for non-indexed fields
-            let heap_expr = Qual::HeapExpr {
-                expr_node: opexpr_node,
-                expr_desc: format!("OpExpr with operator OID {opno}"),
-                search_query_input: Box::new(SearchQueryInput::All),
-            };
+            // Check if custom scan for non-indexed fields is enabled
+            if !gucs::enable_custom_scan_for_non_indexed_fields() {
+                return None;
+            }
+
             // We do use search (with heap filtering)
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;
-            Some(heap_expr)
+
+            // Create HeapExpr: predicate will be evaluated via heap access
+            // This is slower but necessary for non-indexed fields
+            Some(Qual::HeapExpr {
+                expr_node: opexpr_node,
+                expr_desc: format!("OpExpr with operator OID {opno}"),
+                search_query_input: Box::new(SearchQueryInput::All),
+            })
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
         } else {
@@ -1394,6 +1400,10 @@ unsafe fn create_heap_expr_for_field_ref(
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
+        // Check if custom scan for non-indexed fields is enabled
+        if !gucs::enable_custom_scan_for_non_indexed_fields() {
+            return None;
+        }
         *uses_tantivy_to_query = true;
         Some(Qual::HeapExpr {
             expr_node,

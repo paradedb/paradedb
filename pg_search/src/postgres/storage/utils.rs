@@ -203,7 +203,7 @@ unsafe fn bulk_extend_relation(
             pg_sys::ForkNumber::MAIN_FORKNUM,
             pg_sys::InvalidBlockNumber,
             pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
+            BAS_BULKWRITE.0,
         );
         debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         *slot = pg_buffer;

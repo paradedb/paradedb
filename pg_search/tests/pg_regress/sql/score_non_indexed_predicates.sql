@@ -635,14 +635,14 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
   )
 ORDER BY score DESC; 
 
--- Test Case 19: Test the new GUC paradedb.enable_custom_scan_for_non_indexed_fields
+-- Test Case 19: Test the new GUC paradedb.enable_filter_pushdown
 -- This test verifies that the GUC properly controls whether custom scan is used for non-indexed fields
 
 -- First, save the current setting
-SHOW paradedb.enable_custom_scan_for_non_indexed_fields;
+SHOW paradedb.enable_filter_pushdown;
 
 -- Test with GUC enabled (default behavior)
-SET paradedb.enable_custom_scan_for_non_indexed_fields = true;
+SET paradedb.enable_filter_pushdown = true;
 
 -- This should use custom scan with HeapExpr for non-indexed predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -667,7 +667,7 @@ WHERE description @@@ 'Apple'
 ORDER BY score DESC;
 
 -- Now test with GUC disabled
-SET paradedb.enable_custom_scan_for_non_indexed_fields = false;
+SET paradedb.enable_filter_pushdown = false;
 
 -- This should fall back to standard PostgreSQL execution (no custom scan)
 -- Disabled for now, as the output has a changing OID
@@ -729,4 +729,4 @@ WHERE category_name = 'Electronics'
 ORDER BY id;
 
 -- Restore the GUC to its default value
-SET paradedb.enable_custom_scan_for_non_indexed_fields = true;
+SET paradedb.enable_filter_pushdown = true;

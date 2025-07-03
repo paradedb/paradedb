@@ -912,7 +912,7 @@ unsafe fn try_pushdown(
         // Check if this expression references our relation
         if contains_relation_reference(opexpr_node, rti) {
             // Check if custom scan for non-indexed fields is enabled
-            if !gucs::enable_custom_scan_for_non_indexed_fields() {
+            if !gucs::enable_filter_pushdown() {
                 return None;
             }
 
@@ -1401,7 +1401,7 @@ unsafe fn create_heap_expr_for_field_ref(
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
         // Check if custom scan for non-indexed fields is enabled
-        if !gucs::enable_custom_scan_for_non_indexed_fields() {
+        if !gucs::enable_filter_pushdown() {
             return None;
         }
         *uses_tantivy_to_query = true;

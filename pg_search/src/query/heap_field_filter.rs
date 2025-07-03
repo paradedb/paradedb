@@ -1,7 +1,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
-use pgrx::pg_sys;
 use pgrx::FromDatum;
+use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
@@ -17,7 +17,14 @@ pub struct HeapFieldFilter {
     expr_node: PostgresPointer,
     /// Human-readable description of the expression
     pub description: String,
+
+    #[serde(skip)]
+    initialized_expression: Option<*mut pg_sys::ExprState>,
 }
+
+// SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
+unsafe impl Send for HeapFieldFilter {}
+unsafe impl Sync for HeapFieldFilter {}
 
 impl HeapFieldFilter {
     /// Create a new HeapFieldFilter from a PostgreSQL expression node
@@ -25,37 +32,38 @@ impl HeapFieldFilter {
         Self {
             expr_node: PostgresPointer(expr_node.cast()),
             description: expr_desc,
+            initialized_expression: None,
         }
     }
 
     /// Evaluate this filter against a heap tuple identified by ctid
     /// Uses PostgreSQL's expression evaluation system
-    pub unsafe fn evaluate(&self, ctid: pg_sys::ItemPointer, rel_oid: pg_sys::Oid) -> bool {
+    pub unsafe fn evaluate(
+        &mut self,
+        ctid: pg_sys::ItemPointer,
+        heaprel: &PgSearchRelation,
+    ) -> bool {
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
         if expr_node.is_null() {
             return true;
         }
 
-        // Open the relation using PgSearchRelation
-        let relation = PgSearchRelation::open(rel_oid);
-
-        self.evaluate_expression_inner(ctid, &relation, expr_node, rel_oid)
+        self.evaluate_expression_inner(ctid, heaprel, expr_node)
     }
 
     /// Inner expression evaluation method that can be wrapped in panic handling
     unsafe fn evaluate_expression_inner(
-        &self,
+        &mut self,
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
-        rel_oid: pg_sys::Oid,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
             t_len: 0,
             t_self: *ctid, // Set the ctid we want to fetch
-            t_tableOid: rel_oid,
+            t_tableOid: relation.oid(),
             t_data: std::ptr::null_mut(),
         };
         let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
@@ -120,8 +128,12 @@ impl HeapFieldFilter {
         (*econtext).ecxt_scantuple = slot;
 
         // Initialize the expression for execution
-        let expr_state = pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut());
+        let expr_state = *self.initialized_expression.get_or_insert_with(|| {
+            PgMemoryContexts::TopTransactionContext
+                .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut()))
+        });
         if expr_state.is_null() {
+            self.initialized_expression = None;
             pg_sys::FreeExprContext(econtext, false);
             pg_sys::ExecDropSingleTupleTableSlot(slot);
             if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
@@ -232,9 +244,13 @@ struct HeapFilterScorer {
     indexed_scorer: Box<dyn Scorer>,
     field_filters: Vec<HeapFieldFilter>,
     ctid_ff: crate::index::fast_fields_helper::FFType,
-    rel_oid: pg_sys::Oid,
+    heaprel: PgSearchRelation,
     current_doc: DocId,
 }
+
+// SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
+unsafe impl Send for HeapFilterScorer {}
+unsafe impl Sync for HeapFilterScorer {}
 
 impl HeapFilterScorer {
     fn new(
@@ -247,7 +263,7 @@ impl HeapFilterScorer {
             indexed_scorer,
             field_filters,
             ctid_ff,
-            rel_oid,
+            heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
         };
 
@@ -270,7 +286,7 @@ impl HeapFilterScorer {
         self.advance();
     }
 
-    fn passes_heap_filters(&self, doc_id: DocId) -> bool {
+    fn passes_heap_filters(&mut self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
         let ctid_value = self.ctid_ff.as_u64(doc_id);
         if ctid_value.is_none() {
@@ -282,11 +298,11 @@ impl HeapFilterScorer {
         crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
 
         // Evaluate all heap filters
-        for filter in self.field_filters.iter() {
+        for filter in self.field_filters.iter_mut() {
             unsafe {
                 let filter_result = filter.evaluate(
                     &mut item_pointer as *mut pg_sys::ItemPointerData,
-                    self.rel_oid,
+                    &self.heaprel,
                 );
                 if !filter_result {
                     return false;

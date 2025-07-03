@@ -15,10 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
 mod range;
 mod score;
+
+use heap_field_filter::HeapFieldFilter;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
@@ -271,6 +274,11 @@ pub enum SearchQueryInput {
     PostgresExpression {
         expr: PostgresExpression,
     },
+    /// Mixed query with indexed search and heap field filters
+    HeapFilter {
+        indexed_query: Box<SearchQueryInput>,
+        field_filters: Vec<HeapFieldFilter>,
+    },
 }
 
 impl SearchQueryInput {
@@ -300,6 +308,7 @@ impl SearchQueryInput {
                 disjuncts.iter().any(Self::need_scores)
             }
             SearchQueryInput::WithIndex { query, .. } => Self::need_scores(query),
+            SearchQueryInput::HeapFilter { indexed_query, .. } => Self::need_scores(indexed_query),
             SearchQueryInput::MoreLikeThis { .. } => true,
             SearchQueryInput::ScoreFilter { .. } => true,
             _ => false,
@@ -445,6 +454,16 @@ impl AsHumanReadable for SearchQueryInput {
                 }
             }
             SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
+            SearchQueryInput::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => {
+                s.push_str(&format!(
+                    "{}+HEAP_FILTERS[{}]",
+                    indexed_query.as_human_readable(),
+                    field_filters.len()
+                ));
+            }
 
             other => s.push_str(&format!("{other:?}")),
         }
@@ -605,6 +624,7 @@ impl SearchQueryInput {
         parser: &mut QueryParser,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
+        relation_oid: Option<pg_sys::Oid>,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
@@ -618,36 +638,54 @@ impl SearchQueryInput {
                 for input in must {
                     subqueries.push((
                         Occur::Must,
-                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(
+                            schema,
+                            parser,
+                            searcher,
+                            index_oid,
+                            relation_oid,
+                        )?,
                     ));
                 }
                 for input in should {
                     subqueries.push((
                         Occur::Should,
-                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(
+                            schema,
+                            parser,
+                            searcher,
+                            index_oid,
+                            relation_oid,
+                        )?,
                     ));
                 }
                 for input in must_not {
                     subqueries.push((
                         Occur::MustNot,
-                        input.into_tantivy_query(schema, parser, searcher, index_oid)?,
+                        input.into_tantivy_query(
+                            schema,
+                            parser,
+                            searcher,
+                            index_oid,
+                            relation_oid,
+                        )?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(schema, parser, searcher, index_oid)?,
+                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
                 factor,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(schema, parser, searcher, index_oid)?,
+                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
                 score,
             ))),
             Self::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
                 bounds,
                 query
                     .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(schema, parser, searcher, index_oid)?,
+                    .into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
             ))),
             Self::DisjunctionMax {
                 disjuncts,
@@ -655,7 +693,9 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(schema, parser, searcher, index_oid))
+                    .map(|query| {
+                        query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
+                    })
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -927,7 +967,13 @@ impl SearchQueryInput {
                     lenient,
                     conjunction_mode,
                 }
-                .into_tantivy_query(schema, parser, searcher, index_oid)
+                .into_tantivy_query(
+                    schema,
+                    parser,
+                    searcher,
+                    index_oid,
+                    relation_oid,
+                )
             }
             Self::Phrase {
                 field,
@@ -1717,7 +1763,27 @@ impl SearchQueryInput {
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
             Self::WithIndex { query, .. } => {
-                query.into_tantivy_query(schema, parser, searcher, index_oid)
+                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
+            }
+            Self::HeapFilter {
+                indexed_query,
+                field_filters,
+            } => {
+                // Convert indexed query first
+                let indexed_tantivy_query = indexed_query.into_tantivy_query(
+                    schema,
+                    parser,
+                    searcher,
+                    index_oid,
+                    relation_oid,
+                )?;
+
+                // Create combined query with heap field filters
+                Ok(Box::new(heap_field_filter::HeapFilterQuery::new(
+                    indexed_tantivy_query,
+                    field_filters,
+                    relation_oid.expect("relation_oid is required for HeapFilter queries"),
+                )))
             }
             Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
         }
@@ -1873,6 +1939,12 @@ enum QueryError {
 
 #[derive(Debug, Clone, PartialEq)]
 struct PostgresPointer(*mut std::os::raw::c_void);
+
+// SAFETY: PostgresPointer is only used within PostgreSQL's single-threaded context
+// during query execution. The PostgresPointer serialization/deserialization handles
+// the cross-thread boundary properly via nodeToString/stringToNode.
+unsafe impl Send for PostgresPointer {}
+unsafe impl Sync for PostgresPointer {}
 
 impl Default for PostgresPointer {
     fn default() -> Self {

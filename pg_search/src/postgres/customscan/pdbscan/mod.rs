@@ -219,7 +219,7 @@ impl PdbScan {
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
-        let quals = extract_quals(
+        let mut quals = extract_quals(
             root,
             rti,
             restrict_info.as_ptr().cast(),
@@ -235,7 +235,7 @@ impl PdbScan {
         let (quals, ri_type, restrict_info) = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let quals = extract_quals(
+            let mut quals = extract_quals(
                 root,
                 rti,
                 joinri.as_ptr().cast(),
@@ -245,6 +245,14 @@ impl PdbScan {
                 true, // Join quals should convert external to all
                 &mut state,
             );
+
+            // Apply HeapExpr optimization to the extracted quals
+            if let Some(ref mut q) = quals {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                let relation_oid = (*rte).relid;
+                qual_inspect::optimize_quals_with_heap_expr(q);
+            }
+
             // If we have found something to push down in the join, or if we have found something to
             // push down in the base relation, then we can use the join quals
             if state.uses_tantivy_to_query {
@@ -253,6 +261,13 @@ impl PdbScan {
                 (None, ri_type, restrict_info)
             }
         } else {
+            // Apply HeapExpr optimization to the base relation quals
+            if let Some(ref mut q) = quals {
+                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+                let relation_oid = (*rte).relid;
+                qual_inspect::optimize_quals_with_heap_expr(q);
+            }
+
             (quals, ri_type, restrict_info)
         };
 
@@ -394,6 +409,16 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
+
+            // Check if this is a partial index and if the query is compatible with it
+            if !bm25_index.rd_indpred.is_null() {
+                // This is a partial index - we need to check if the query can be satisfied by it
+                if !quals.is_query_compatible_with_partial_index() {
+                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                    return None;
+                }
+            }
+
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
@@ -1621,6 +1646,11 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // HeapFilter contains search predicates
+        SearchQueryInput::HeapFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 

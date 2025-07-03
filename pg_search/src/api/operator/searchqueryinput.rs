@@ -180,7 +180,12 @@ pub fn search_with_query_input(
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        let search_reader = SearchIndexReader::open(&index_relation, search_query_input, false, MvccSatisfies::Snapshot)
+        let search_reader = SearchIndexReader::open(
+            &index_relation,
+            search_query_input,
+            false,
+            MvccSatisfies::Snapshot,
+        )
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
         let key_field = search_reader.key_field();

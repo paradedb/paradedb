@@ -28,7 +28,6 @@ use crate::query::SearchQueryInput;
 use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
-use pgrx::pg_sys;
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
@@ -229,7 +228,7 @@ impl Iterator for SearchResults {
 }
 
 pub struct SearchIndexReader {
-    index_oid: pg_sys::Oid,
+    index_rel: PgSearchRelation,
     searcher: Searcher,
     schema: SearchIndexSchema,
     underlying_reader: IndexReader,
@@ -247,7 +246,7 @@ pub struct SearchIndexReader {
 impl Clone for SearchIndexReader {
     fn clone(&self) -> Self {
         Self {
-            index_oid: self.index_oid,
+            index_rel: self.index_rel.clone(),
             searcher: self.searcher.clone(),
             schema: self.schema.clone(),
             underlying_reader: self.underlying_reader.clone(),
@@ -303,12 +302,18 @@ impl SearchIndexReader {
                 schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
             );
             search_query_input
-                .into_tantivy_query(&schema, &mut parser, &searcher, index_relation.oid())
+                .into_tantivy_query(
+                    &schema,
+                    &mut parser,
+                    &searcher,
+                    index_relation.oid(),
+                    index_relation.rel_oid(),
+                )
                 .expect("must be able to parse query")
         };
 
         Ok(Self {
-            index_oid: index_relation.oid(),
+            index_rel: index_relation.clone(),
             searcher,
             schema,
             underlying_reader: reader,
@@ -364,7 +369,14 @@ impl SearchIndexReader {
                 .collect::<Vec<_>>(),
         );
         search_query_input
-            .into_tantivy_query(&self.schema, &mut parser, &self.searcher, self.index_oid)
+            .clone()
+            .into_tantivy_query(
+                &self.schema,
+                &mut parser,
+                &self.searcher,
+                self.index_rel.oid(),
+                self.index_rel.rel_oid(),
+            )
             .expect("must be able to parse query")
     }
 

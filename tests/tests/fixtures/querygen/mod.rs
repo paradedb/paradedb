@@ -98,7 +98,11 @@ where
 
     // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
     // always ensuring that paradedb's custom scan is turned on
-    "SET paradedb.enable_custom_scan TO ON;".execute(conn);
+    r#"
+        SET paradedb.enable_custom_scan TO ON;
+        SET paradedb.enable_custom_scan_without_operator TO ON;
+    "#
+    .execute(conn);
     for scan_type in [
         "SET enable_seqscan TO OFF",
         "SET enable_indexscan TO OFF",

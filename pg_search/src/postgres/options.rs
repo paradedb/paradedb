@@ -23,7 +23,6 @@ use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use std::cell::{Ref, RefCell};
 
-use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
@@ -436,9 +435,7 @@ impl BM25IndexOptions {
             // it's one we add directly, so we need to account for it here
             return Some(SearchFieldType::U64(pg_sys::TIDOID));
         }
-        self.attributes()
-            .get(field_name)
-            .map(|(_, typ)| typ.clone())
+        self.attributes().get(field_name).map(|(_, typ)| *typ)
     }
 
     pub fn attributes(&self) -> Ref<HashMap<FieldName, (usize, SearchFieldType)>> {

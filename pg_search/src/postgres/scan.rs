@@ -18,7 +18,6 @@
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{parallel, ScanStrategy};

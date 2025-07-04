@@ -18,7 +18,6 @@
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -27,7 +26,7 @@ use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use crate::postgres::utils::extract_field_attributes;
-use crate::schema::{SearchFieldType, SearchIndexSchema};
+use crate::schema::SearchFieldType;
 use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;

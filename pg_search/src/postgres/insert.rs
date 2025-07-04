@@ -22,7 +22,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
-use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;

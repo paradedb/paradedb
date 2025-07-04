@@ -19,7 +19,7 @@ use crate::postgres::build::is_bm25_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;

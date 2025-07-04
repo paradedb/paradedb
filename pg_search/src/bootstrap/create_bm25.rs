@@ -22,7 +22,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
-use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -31,7 +30,6 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;

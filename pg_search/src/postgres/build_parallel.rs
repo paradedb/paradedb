@@ -614,7 +614,7 @@ pub(super) fn build_index(
 
 mod plan {
     use super::*;
-    use crate::postgres::options::BM25IndexOptions;
+
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers

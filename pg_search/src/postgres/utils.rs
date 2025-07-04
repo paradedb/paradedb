@@ -21,7 +21,7 @@ use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType, SearchIndexSchema};
+use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};

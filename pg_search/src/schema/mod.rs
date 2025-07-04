@@ -36,7 +36,6 @@ use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
-use tantivy::index::Index;
 use tantivy::schema::{Field, FieldEntry, FieldType, OwnedValue, Schema};
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
@@ -244,7 +243,7 @@ impl SearchIndexSchema {
                 let mut search_fields = alias_lookup.remove(attname.as_ref()).unwrap_or_default();
 
                 // If there's an indexed field with the same name as a this column, add it to the list.
-                if let Some(index_field) = self.search_field(&attname) {
+                if let Some(index_field) = self.search_field(attname) {
                     search_fields.push(index_field)
                 };
 

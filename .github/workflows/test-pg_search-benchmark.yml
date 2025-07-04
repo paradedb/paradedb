@@ -11,7 +11,7 @@ on:
     branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
       - main
       - staging
-      - dev # TODO: Remove this once the PR is tested.
+      - dev # TODO: Remove this once the PR is tested. Trigger test.
   push:
     branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
       - dev

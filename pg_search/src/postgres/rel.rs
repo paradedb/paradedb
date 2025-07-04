@@ -15,13 +15,36 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use crate::postgres::build::is_bm25_index;
+use crate::postgres::options::BM25IndexOptions;
+use crate::schema::SearchIndexSchema;
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
-use std::fmt::{Debug, Formatter};
+use std::cell::{Ref, RefCell};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
+use tantivy::TantivyError;
 
 type NeedClose = bool;
+
+#[derive(Debug, Clone)]
+pub enum SchemaError {
+    RelationNotBM25Index,
+    Other(TantivyError),
+}
+
+impl Display for SchemaError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RelationNotBM25Index => write!(f, "relation is not a BM25 index"),
+            Self::Other(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl Error for SchemaError {}
 
 /// Represents an opened Postgres relation to be used by pg_search.
 ///
@@ -39,6 +62,8 @@ pub struct PgSearchRelation(
             NonNull<pg_sys::RelationData>,
             NeedClose,
             Option<pg_sys::LOCKMODE>,
+            RefCell<Option<Result<SearchIndexSchema, SchemaError>>>,
+            BM25IndexOptions,
         )>,
     >,
 );
@@ -57,7 +82,7 @@ impl Drop for PgSearchRelation {
         let Some(rc) = self.0.take() else {
             return;
         };
-        let Some((relation, need_close, lockmode)) = Rc::into_inner(rc) else {
+        let Some((relation, need_close, lockmode, ..)) = Rc::into_inner(rc) else {
             return;
         };
         unsafe {
@@ -91,6 +116,8 @@ impl PgSearchRelation {
                 .expect("PgSearchRelation::from_pg: provided relation cannot be NULL"),
             false,
             None,
+            Default::default(),
+            BM25IndexOptions::from_relation(relation),
         ))))
     }
 
@@ -100,10 +127,13 @@ impl PgSearchRelation {
     pub fn open(oid: pg_sys::Oid) -> Self {
         unsafe {
             // SAFETY: RelationIdGetRelation() always returns a valid RelationData pointer
+            let relation = pg_sys::RelationIdGetRelation(oid);
             Self(Some(Rc::new((
-                NonNull::new_unchecked(pg_sys::RelationIdGetRelation(oid)),
+                NonNull::new_unchecked(relation),
                 true,
                 None,
+                Default::default(),
+                BM25IndexOptions::from_relation(relation),
             ))))
         }
     }
@@ -114,10 +144,13 @@ impl PgSearchRelation {
     pub fn with_lock(oid: pg_sys::Oid, lockmode: pg_sys::LOCKMODE) -> Self {
         unsafe {
             // SAFETY: relation_open() always returns a valid RelationData pointer
+            let relation = pg_sys::relation_open(oid, lockmode);
             Self(Some(Rc::new((
-                NonNull::new_unchecked(pg_sys::relation_open(oid, lockmode)),
+                NonNull::new_unchecked(relation),
                 true,
                 Some(lockmode),
+                Default::default(),
+                BM25IndexOptions::from_relation(relation),
             ))))
         }
     }
@@ -189,5 +222,29 @@ impl PgSearchRelation {
             .map(|oid| PgSearchRelation::with_lock(oid, lockmode))
             .collect::<Vec<_>>()
             .into_iter()
+    }
+
+    pub fn options(&self) -> &BM25IndexOptions {
+        unsafe {
+            // SAFETY: self.0 is always Some
+            &self.0.as_ref().unwrap_unchecked().4
+        }
+    }
+
+    pub fn schema(&self) -> Result<SearchIndexSchema, SchemaError> {
+        let rc = self.0.as_ref().unwrap();
+        let mut borrow = rc.3.borrow_mut();
+        let schema = borrow.get_or_insert_with(|| {
+            if !is_bm25_index(self) {
+                return Err(SchemaError::RelationNotBM25Index);
+            }
+
+            SearchIndexSchema::open(self).map_err(SchemaError::Other)
+        });
+
+        match schema {
+            Ok(schema) => Ok(schema.clone()),
+            Err(e) => Err(e.clone()),
+        }
     }
 }

@@ -1,7 +1,5 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::categorize_fields;
-use crate::schema::SearchIndexSchema;
 use tantivy::query::{
     BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
 };
@@ -120,10 +118,11 @@ impl MoreLikeThisQueryBuilder {
         let heap_relation = index_relation
             .heap_relation()
             .expect("more_like_this: index should have a heap relation");
-        let schema = SearchIndexSchema::open(&index_relation)
+        let schema = index_relation
+            .schema()
             .expect("more_like_this: should be able to open schema");
         let (key_field_name, key_field_type) = (schema.key_field_name(), schema.key_field_type());
-        let categorized_fields = categorize_fields(&index_relation, &schema);
+        let categorized_fields = schema.categorized_fields();
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
             let mut doc_fields = Vec::new();
@@ -145,7 +144,7 @@ impl MoreLikeThisQueryBuilder {
                 )?
                 .first();
 
-            for (search_field, categorized) in categorized_fields {
+            for (search_field, categorized) in categorized_fields.iter() {
                 if search_field.is_ctid() {
                     continue;
                 }

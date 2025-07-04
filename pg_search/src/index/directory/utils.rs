@@ -323,6 +323,7 @@ pub unsafe fn load_metas(
     indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
+    tantivy_schema: &Schema,
 ) -> tantivy::Result<LoadedMetas> {
     let mut total_segments = 0;
     let mut alive_segments = vec![];
@@ -440,16 +441,14 @@ pub unsafe fn load_metas(
         }
     }
 
-    let schema = LinkedBytesList::open(indexrel, SCHEMA_START);
     let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
-    let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
     Ok(LoadedMetas {
         entries: alive_entries,
         meta: IndexMeta {
             segments: alive_segments,
-            schema: deserialized_schema,
+            schema: tantivy_schema.clone(),
             index_settings: deserialized_settings,
             opstamp: opstamp.unwrap_or(0),
             payload: None,

@@ -97,7 +97,7 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
     create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
 
     // warn that the `raw` tokenizer is deprecated
-    let schema = SearchIndexSchema::open(&index_relation).unwrap_or_else(|e| panic!("{e}"));
+    let schema = index_relation.schema().unwrap_or_else(|e| panic!("{e}"));
     let key_field = schema
         .search_field(schema.key_field_name())
         .expect("index should have a `WITH (key_field='...')` option");
@@ -163,18 +163,15 @@ unsafe fn init_fixed_buffers(index_relation: &PgSearchRelation) {
 }
 
 fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
-    let options = BM25IndexOptions::from_relation(index_relation);
+    let options = index_relation.options();
     let mut builder = Schema::builder();
 
-    for (name, type_oid) in extract_field_attributes(index_relation) {
-        let type_oid: PgOid = type_oid.into();
-        let name = FieldName::from(name);
-        let field_type: SearchFieldType = type_oid
-            .try_into()
-            .unwrap_or_else(|_| panic!("failed to convert attribute {name} to search field type"));
+    for (name, (_, search_field_type)) in
+        unsafe { extract_field_attributes(index_relation.as_ptr()) }
+    {
         let config = options.field_config_or_default(&name);
 
-        match field_type {
+        match search_field_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Inet(_) => builder.add_ip_addr_field(name.as_ref(), config.clone()),

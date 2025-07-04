@@ -82,12 +82,13 @@ SELECT count(*) FROM test where id @@@ 'message:cheese';
 assert = "3000000"
 
 [[jobs]]
+window_height = 25
 refresh_ms = 25
 title = "Bulk Update"
 log_tps = true
 log_count = true
 sql = """
-UPDATE test
+EXPLAIN UPDATE test
 SET severity = (severity + 1) % 5
 WHERE id < 10000;
 """

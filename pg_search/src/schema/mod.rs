@@ -26,6 +26,9 @@ use crate::postgres::utils::resolve_base_type;
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
+use std::cell::{Ref, RefCell};
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
@@ -139,39 +142,35 @@ impl TryFrom<PgOid> for SearchFieldType {
     }
 }
 
-#[derive(Debug, Clone, Into)]
+#[derive(Debug, Clone)]
+pub struct CategorizedFieldData {
+    pub attno: usize,
+    pub base_oid: PgOid,
+    pub is_array: bool,
+    pub is_json: bool,
+}
+
+#[derive(Clone, Into)]
 pub struct SearchIndexSchema {
-    indexrel: PgSearchRelation,
-    bm25: BM25IndexOptions,
     #[into]
     schema: Schema,
+    bm25_options: BM25IndexOptions,
+    categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
 }
 
 impl SearchIndexSchema {
     pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
         Ok(load_index_schema(indexrel)?
             .map(|schema| Self {
-                indexrel: indexrel.clone(),
-                bm25: BM25IndexOptions::from_relation(indexrel),
                 schema,
+                bm25_options: indexrel.options().clone(),
+                categorized: Default::default(),
             })
             .expect("index should have a schema"))
     }
 
-    pub fn from_index(indexrel: &PgSearchRelation, index: &Index) -> Self {
-        Self {
-            schema: index.schema(),
-            indexrel: indexrel.clone(),
-            bm25: BM25IndexOptions::from_relation(indexrel),
-        }
-    }
-
     pub fn tantivy_schema(&self) -> &Schema {
         &self.schema
-    }
-
-    pub fn bm25_options(&self) -> &BM25IndexOptions {
-        &self.bm25
     }
 
     pub fn ctid_field(&self) -> Field {
@@ -181,16 +180,16 @@ impl SearchIndexSchema {
     }
 
     pub fn key_field_name(&self) -> FieldName {
-        self.bm25.key_field_name()
+        self.bm25_options.key_field_name()
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {
-        self.bm25.key_field_type()
+        self.bm25_options.key_field_type()
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         match self.schema.get_field(name.as_ref()) {
-            Ok(field) => Some(SearchField::new(field, self.bm25_options(), &self.schema)),
+            Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
             Err(_) => None,
         }
     }
@@ -203,9 +202,8 @@ impl SearchIndexSchema {
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<SearchField>> {
         let mut lookup = HashMap::default();
-        let options = BM25IndexOptions::from_relation(&self.indexrel);
-        let aliased_text_configs = options.aliased_text_configs();
-        let aliased_json_configs = options.aliased_json_configs();
+        let aliased_text_configs = self.bm25_options.aliased_text_configs();
+        let aliased_json_configs = self.bm25_options.aliased_json_configs();
 
         for (alias_name, config) in aliased_text_configs {
             let alias = config
@@ -235,6 +233,49 @@ impl SearchIndexSchema {
 
         lookup
     }
+
+    pub fn categorized_fields(&self) -> Ref<Vec<(SearchField, CategorizedFieldData)>> {
+        let is_empty = self.categorized.borrow().is_empty();
+        if is_empty {
+            let mut categorized = self.categorized.borrow_mut();
+            let mut alias_lookup = self.alias_lookup();
+            for (attname, (attno, search_field_type)) in self.bm25_options.attributes().iter() {
+                // List any indexed fields that use this column as source data.
+                let mut search_fields = alias_lookup.remove(attname.as_ref()).unwrap_or_default();
+
+                // If there's an indexed field with the same name as a this column, add it to the list.
+                if let Some(index_field) = self.search_field(&attname) {
+                    search_fields.push(index_field)
+                };
+
+                for search_field in search_fields {
+                    let (base_oid, is_array) = resolve_base_type(search_field_type.typeoid())
+                        .unwrap_or_else(|| {
+                            pgrx::error!(
+                                "Failed to resolve base type for column {} with type {:?}",
+                                attname,
+                                search_field_type.typeoid()
+                            )
+                        });
+                    let is_json = matches!(
+                        base_oid,
+                        PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
+                    );
+                    categorized.push((
+                        search_field,
+                        CategorizedFieldData {
+                            attno: *attno,
+                            base_oid,
+                            is_array,
+                            is_json,
+                        },
+                    ));
+                }
+            }
+        }
+
+        self.categorized.borrow()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +285,20 @@ pub struct SearchField {
     field_entry: FieldEntry,
     field_type: SearchFieldType,
     field_config: SearchFieldConfig,
+}
+
+impl Hash for SearchField {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.field.hash(state);
+    }
+}
+
+impl Eq for SearchField {}
+
+impl PartialEq for SearchField {
+    fn eq(&self, other: &Self) -> bool {
+        self.field == other.field
+    }
 }
 
 impl SearchField {
@@ -278,6 +333,10 @@ impl SearchField {
 
     pub fn field_type(&self) -> SearchFieldType {
         self.field_type
+    }
+
+    pub fn field_config(&self) -> &SearchFieldConfig {
+        &self.field_config
     }
 
     pub fn is_raw_sortable(&self) -> bool {

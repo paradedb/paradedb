@@ -85,6 +85,7 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
+#[derive(Debug)]
 pub struct CategorizedFieldData {
     pub attno: usize,
     pub base_oid: PgOid,
@@ -189,7 +190,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if isnull && *key_field_name == search_field.field_name() {
+        if isnull && key_field_name == search_field.field_name() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 

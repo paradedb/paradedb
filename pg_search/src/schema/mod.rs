@@ -21,15 +21,14 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::index::mvcc::MvccSatisfies;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::utils::resolve_base_type;
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
 
+use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::extract_field_attributes;
 use anyhow::Result;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
@@ -43,7 +42,7 @@ use tokenizers::{SearchNormalizer, SearchTokenizer};
 /// The type of the search field.
 /// Like Tantivy's [`FieldType`](https://docs.rs/tantivy/latest/tantivy/schema/enum.FieldType.html),
 /// but with the Postgres Oid of the column that the field is based on.
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFieldType {
     Text(pg_sys::Oid),
     Uuid(pg_sys::Oid),
@@ -73,7 +72,7 @@ impl SearchFieldType {
         }
     }
 
-    pub fn typeoid(&self) -> pg_sys::Oid {
+    pub fn typeoid(&self) -> PgOid {
         match self {
             SearchFieldType::Text(oid) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
@@ -86,13 +85,14 @@ impl SearchFieldType {
             SearchFieldType::Date(oid) => *oid,
             SearchFieldType::Range(oid) => *oid,
         }
+        .into()
     }
 }
 
-impl TryFrom<&PgOid> for SearchFieldType {
+impl TryFrom<PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
-    fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
-        let (base_oid, _) = resolve_base_type(*pg_oid)
+    fn try_from(pg_oid: PgOid) -> Result<Self, Self::Error> {
+        let (base_oid, _) = resolve_base_type(pg_oid)
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
@@ -125,43 +125,53 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | PgBuiltInOids::TIMEOID
                 | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date((*builtin).into())),
-                _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
+                _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
             },
             PgOid::Custom(custom) => {
                 if unsafe { pgrx::pg_sys::type_is_enum(*custom) } {
                     Ok(SearchFieldType::F64(*custom))
                 } else {
-                    Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid))
+                    Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
                 }
             }
-            _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
+            _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Into)]
+#[derive(Debug, Clone, Into)]
 pub struct SearchIndexSchema {
+    indexrel: PgSearchRelation,
+    bm25: BM25IndexOptions,
     #[into]
     schema: Schema,
-    relation_oid: pg_sys::Oid,
 }
 
 impl SearchIndexSchema {
+    pub fn open(indexrel: &PgSearchRelation) -> tantivy::Result<Self> {
+        Ok(load_index_schema(indexrel)?
+            .map(|schema| Self {
+                indexrel: indexrel.clone(),
+                bm25: BM25IndexOptions::from_relation(indexrel),
+                schema,
+            })
+            .expect("index should have a schema"))
+    }
+
     pub fn from_index(indexrel: &PgSearchRelation, index: &Index) -> Self {
         Self {
             schema: index.schema(),
-            relation_oid: indexrel.oid(),
+            indexrel: indexrel.clone(),
+            bm25: BM25IndexOptions::from_relation(indexrel),
         }
-    }
-
-    pub fn open(indexrel: &PgSearchRelation) -> Result<Self> {
-        let directory = MvccSatisfies::Snapshot.directory(indexrel);
-        let index = Index::open(directory)?;
-        Ok(Self::from_index(indexrel, &index))
     }
 
     pub fn tantivy_schema(&self) -> &Schema {
         &self.schema
+    }
+
+    pub fn bm25_options(&self) -> &BM25IndexOptions {
+        &self.bm25
     }
 
     pub fn ctid_field(&self) -> Field {
@@ -170,21 +180,17 @@ impl SearchIndexSchema {
             .expect("ctid field should be present in the index")
     }
 
-    pub fn key_field(&self) -> SearchField {
-        let index_relation = PgSearchRelation::open(self.relation_oid);
-        let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
-        let key_field_name = options.key_field_name();
-        let field = self.schema.get_field(&key_field_name.root()).unwrap();
-        SearchField::new(field, self.relation_oid, self.schema.clone())
+    pub fn key_field_name(&self) -> FieldName {
+        self.bm25.key_field_name()
+    }
+
+    pub fn key_field_type(&self) -> SearchFieldType {
+        self.bm25.key_field_type()
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
         match self.schema.get_field(name.as_ref()) {
-            Ok(field) => Some(SearchField::new(
-                field,
-                self.relation_oid,
-                self.schema.clone(),
-            )),
+            Ok(field) => Some(SearchField::new(field, self.bm25_options(), &self.schema)),
             Err(_) => None,
         }
     }
@@ -193,20 +199,11 @@ impl SearchIndexSchema {
         self.schema.fields()
     }
 
-    pub fn search_fields(&self) -> impl Iterator<Item = SearchField> + use<'_> {
-        self.schema
-            .fields()
-            .filter(|(_, entry)| !FieldName::from(entry.name()).is_ctid())
-            .map(|(field, _)| SearchField::new(field, self.relation_oid, self.schema.clone()))
-    }
-
     /// A lookup from a Postgres column name to search fields that have
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<SearchField>> {
         let mut lookup = HashMap::default();
-        let index_relation = PgSearchRelation::open(self.relation_oid);
-
-        let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
+        let options = BM25IndexOptions::from_relation(&self.indexrel);
         let aliased_text_configs = options.aliased_text_configs();
         let aliased_json_configs = options.aliased_json_configs();
 
@@ -240,46 +237,29 @@ impl SearchIndexSchema {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SearchField {
     field: Field,
+    field_name: FieldName,
+    field_entry: FieldEntry,
     field_type: SearchFieldType,
     field_config: SearchFieldConfig,
-    schema: Schema,
 }
 
 impl SearchField {
-    pub fn new(field: Field, relation_oid: pg_sys::Oid, schema: Schema) -> Self {
-        let index_relation = PgSearchRelation::open(relation_oid);
-        let options = unsafe { SearchIndexOptions::from_relation(&index_relation) };
-
-        let field_name: FieldName = schema.get_field_name(field).into();
+    pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
+        let field_entry = schema.get_field_entry(field).clone();
+        let field_name: FieldName = field_entry.name().into();
         let field_config = options.field_config_or_default(&field_name);
-        let attribute_name = field_config.alias().unwrap_or(field_name.as_ref());
-
-        let field_type: SearchFieldType = if field_name.is_ctid() {
-            // the "ctid" field isn't an attribute, per se, in the index itself
-            // it's one we add directly, so we need to account for it here
-            SearchFieldType::U64(pg_sys::TIDOID)
-        } else {
-            let attribute_type_oid: PgOid = extract_field_attributes(&index_relation)
-                .into_iter()
-                .find(|(name, _)| **name == *attribute_name)
-                .map(|(_, type_oid)| type_oid.into())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "the column {field_name} referenced by the field configuration for {attribute_name} should exist"
-                    )
-                });
-            (&attribute_type_oid).try_into().unwrap_or_else(|_| {
-                panic!("failed to convert attribute {attribute_name} to search field type")
-            })
-        };
+        let field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
+            panic!("`{field_name}`'s configuration not found in index WITH options")
+        });
 
         Self {
             field,
+            field_name,
+            field_entry,
             field_type,
-            schema,
             field_config,
         }
     }
@@ -288,16 +268,16 @@ impl SearchField {
         self.field
     }
 
-    pub fn field_name(&self) -> FieldName {
-        self.schema.get_field_name(self.field).into()
+    pub fn field_name(&self) -> &FieldName {
+        &self.field_name
     }
 
     pub fn field_entry(&self) -> &FieldEntry {
-        self.schema.get_field_entry(self.field)
+        &self.field_entry
     }
 
     pub fn field_type(&self) -> SearchFieldType {
-        self.field_type.clone()
+        self.field_type
     }
 
     pub fn is_raw_sortable(&self) -> bool {
@@ -309,11 +289,11 @@ impl SearchField {
     }
 
     pub fn is_fast(&self) -> bool {
-        self.schema.get_field_entry(self.field).is_fast()
+        self.field_entry.is_fast()
     }
 
     pub fn is_numeric_fast(&self) -> bool {
-        match self.schema.get_field_entry(self.field).field_type() {
+        match self.field_entry.field_type() {
             FieldType::I64(options) => options.is_fast(),
             FieldType::U64(options) => options.is_fast(),
             FieldType::F64(options) => options.is_fast(),
@@ -324,7 +304,7 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
-        match self.schema.get_field_entry(self.field).field_type() {
+        match self.field_entry.field_type() {
             FieldType::Str(options) => {
                 options.is_fast()
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
@@ -345,17 +325,11 @@ impl SearchField {
     }
 
     pub fn is_datetime(&self) -> bool {
-        self.schema
-            .get_field_entry(self.field)
-            .field_type()
-            .is_date()
+        self.field_entry.field_type().is_date()
     }
 
     pub fn is_text(&self) -> bool {
-        self.schema
-            .get_field_entry(self.field)
-            .field_type()
-            .is_str()
+        self.field_entry.field_type().is_str()
     }
 
     pub fn is_json(&self) -> bool {

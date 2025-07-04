@@ -18,7 +18,7 @@
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{parallel, ScanStrategy};
@@ -124,9 +124,9 @@ pub extern "C-unwind" fn amrescan(
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader);
 
-        let options = SearchIndexOptions::from_relation(&indexrel);
+        let options = BM25IndexOptions::from_relation(&indexrel);
         let key_field = options.key_field_name();
-        let key_field_type = search_reader.key_field().field_type().into();
+        let key_field_type = options.key_field_type().into();
 
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan

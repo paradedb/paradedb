@@ -25,7 +25,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use std::cmp::Ordering;
@@ -330,10 +329,6 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
-    }
-
-    pub fn key_field(&self) -> SearchField {
-        self.schema.key_field()
     }
 
     pub fn need_scores(&self) -> bool {

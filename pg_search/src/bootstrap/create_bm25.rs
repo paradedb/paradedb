@@ -22,7 +22,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
@@ -41,7 +41,7 @@ use serde_json::Value;
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let options = SearchIndexOptions::from_relation(&index);
+    let options = BM25IndexOptions::from_relation(&index);
     let schema = SearchIndexSchema::open(&index)?;
 
     let mut name_and_config = HashMap::default();
@@ -57,7 +57,7 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 #[pg_extern]
 pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let options = SearchIndexOptions::from_relation(&index);
+    let options = BM25IndexOptions::from_relation(&index);
     options
         .layer_sizes()
         .into_iter()

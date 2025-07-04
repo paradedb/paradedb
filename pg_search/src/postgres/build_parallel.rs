@@ -325,7 +325,7 @@ impl WorkerBuildState {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = categorize_fields(indexrel, schema);
-        let key_field_name = schema.key_field().field_name();
+        let key_field_name = schema.key_field_name();
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -614,7 +614,7 @@ pub(super) fn build_index(
 
 mod plan {
     use super::*;
-    use crate::postgres::options::SearchIndexOptions;
+    use crate::postgres::options::BM25IndexOptions;
     /// Determine the number of workers to use for a given CREATE INDEX/REINDEX statement.
     ///
     /// The number of workers is determined by max_parallel_maintenance_workers. However, if max_parallel_maintenance_workers
@@ -695,7 +695,7 @@ mod plan {
         indexrel: &PgSearchRelation,
     ) -> usize {
         // If there are fewer rows than number of CPUs, use 1 worker
-        let options = unsafe { SearchIndexOptions::from_relation(indexrel) };
+        let options = BM25IndexOptions::from_relation(indexrel);
         let reltuples = plan::estimate_heap_reltuples(heaprel);
         let target_segment_count = options.target_segment_count();
         if reltuples <= target_segment_count as f64 {

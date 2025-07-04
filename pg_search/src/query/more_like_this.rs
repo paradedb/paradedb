@@ -122,8 +122,7 @@ impl MoreLikeThisQueryBuilder {
             .expect("more_like_this: index should have a heap relation");
         let schema = SearchIndexSchema::open(&index_relation)
             .expect("more_like_this: should be able to open schema");
-        let key_field = schema.key_field();
-        let (key_field_name, key_oid) = (key_field.field_name(), key_field.field_type().typeoid());
+        let (key_field_name, key_field_type) = (schema.key_field_name(), schema.key_field_type());
         let categorized_fields = categorize_fields(&index_relation, &schema);
 
         let doc_fields: Vec<(Field, Vec<OwnedValue>)> = pgrx::Spi::connect(|client| {
@@ -139,7 +138,7 @@ impl MoreLikeThisQueryBuilder {
                     None,
                     unsafe {
                         &[TantivyValue(key_value)
-                            .try_into_datum(key_oid.into())
+                            .try_into_datum(key_field_type.typeoid())
                             .expect("more_like_this: should be able to convert key value to datum")
                             .into()]
                     },

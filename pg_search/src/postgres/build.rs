@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -98,17 +98,19 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
 
     // warn that the `raw` tokenizer is deprecated
     let schema = SearchIndexSchema::open(&index_relation).unwrap_or_else(|e| panic!("{e}"));
-    for search_field in schema.search_fields() {
-        #[allow(deprecated)]
-        if search_field.uses_raw_tokenizer() {
-            ErrorReport::new(
+    let key_field = schema
+        .search_field(schema.key_field_name())
+        .expect("index should have a `WITH (key_field='...')` option");
+
+    #[allow(deprecated)]
+    if key_field.uses_raw_tokenizer() {
+        ErrorReport::new(
                     PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
                     "the `raw` tokenizer is deprecated",
                     function_name!(),
                 )
-                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want")
+                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want for you key_field")
                     .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
-        }
     }
 }
 
@@ -161,13 +163,13 @@ unsafe fn init_fixed_buffers(index_relation: &PgSearchRelation) {
 }
 
 fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
-    let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
+    let options = BM25IndexOptions::from_relation(index_relation);
     let mut builder = Schema::builder();
 
     for (name, type_oid) in extract_field_attributes(index_relation) {
         let type_oid: PgOid = type_oid.into();
         let name = FieldName::from(name);
-        let field_type: SearchFieldType = (&type_oid)
+        let field_type: SearchFieldType = type_oid
             .try_into()
             .unwrap_or_else(|_| panic!("failed to convert attribute {name} to search field type"));
         let config = options.field_config_or_default(&name);

@@ -22,7 +22,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
 use crate::postgres::storage::buffer::BufferManager;
@@ -59,7 +59,7 @@ impl InsertState {
         )?;
         let schema = writer.schema();
         let categorized_fields = categorize_fields(indexrel, schema);
-        let key_field_name = schema.key_field().field_name();
+        let key_field_name = schema.key_field_name();
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -230,7 +230,7 @@ unsafe fn do_merge(indexrel: PgSearchRelation) -> (NumCandidates, NumMerged) {
         indexrel
     };
 
-    let index_options = SearchIndexOptions::from_relation(&indexrel);
+    let index_options = BM25IndexOptions::from_relation(&indexrel);
     let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
 
     merge_index_with_policy(&indexrel, merge_policy, false, false, false)

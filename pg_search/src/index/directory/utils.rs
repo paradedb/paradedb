@@ -458,3 +458,11 @@ pub unsafe fn load_metas(
         total_segments,
     })
 }
+
+pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<Schema>> {
+    let schema_bytes = unsafe { LinkedBytesList::open(indexrel, SCHEMA_START).read_all() };
+    if schema_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&schema_bytes)?)
+}

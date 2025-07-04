@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::options::SearchIndexOptions;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::utils::categorize_fields;
 use crate::schema::SearchIndexSchema;
 
@@ -29,7 +29,7 @@ pub fn setup_tokenizers(
     index: &mut Index,
     schema: &SearchIndexSchema,
 ) -> Result<()> {
-    let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
+    let options = BM25IndexOptions::from_relation(index_relation);
     let categorized_fields = categorize_fields(index_relation, schema);
 
     let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
@@ -38,7 +38,7 @@ pub fn setup_tokenizers(
             continue;
         }
 
-        let config = options.field_config_or_default(&search_field.field_name());
+        let config = options.field_config_or_default(search_field.field_name());
         if let Some(tokenizer) = config.tokenizer().cloned() {
             tokenizers.push(tokenizer);
         }

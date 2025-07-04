@@ -39,15 +39,7 @@ struct PendingSegment {
 }
 
 impl PendingSegment {
-    fn new(
-        indexrel: &PgSearchRelation,
-        directory: MVCCDirectory,
-        schema: &SearchIndexSchema,
-        memory_budget: NonZeroUsize,
-    ) -> Result<Self> {
-        let mut index = Index::open(directory)?;
-        setup_tokenizers(indexrel, &mut index, schema)?;
-
+    fn new(index: &Index, memory_budget: NonZeroUsize) -> Result<Self> {
         let segment = index.new_segment();
         let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
         Ok(Self {
@@ -113,7 +105,6 @@ pub struct SerialIndexWriter {
     ctid_field: Field,
     config: IndexWriterConfig,
     index: Index,
-    directory: MVCCDirectory,
     pending_segment: Option<PendingSegment>,
     new_metas: Vec<SegmentMeta>,
     schema: SearchIndexSchema,
@@ -147,8 +138,8 @@ impl SerialIndexWriter {
         );
 
         let directory = mvcc_satisfies.directory(index_relation);
-        let mut index = Index::open(directory.clone())?;
-        let schema = SearchIndexSchema::open(index_relation)?;
+        let mut index = Index::open(directory)?;
+        let schema = SearchIndexSchema::from_index(index_relation, &index);
         setup_tokenizers(index_relation, &mut index, &schema)?;
         let ctid_field = schema.ctid_field();
 
@@ -158,7 +149,6 @@ impl SerialIndexWriter {
             ctid_field,
             config,
             index,
-            directory,
             pending_segment: Default::default(),
             new_metas: Default::default(),
             schema,
@@ -230,12 +220,7 @@ impl SerialIndexWriter {
     ///
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
-        PendingSegment::new(
-            &self.indexrel,
-            self.directory.clone(),
-            &self.schema,
-            self.config.memory_budget,
-        )
+        PendingSegment::new(&self.index, self.config.memory_budget)
     }
 
     /// Once the memory budget is reached, we "finalize" the segment:

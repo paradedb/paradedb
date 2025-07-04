@@ -1,5 +1,9 @@
 \i common/common_setup.sql
 
+-- This flag is set to off by default, so we need to enable it to
+-- test the pushdown of scalar array expressions.
+SET paradedb.enable_custom_scan_without_operator = on;
+
 CREATE TABLE scalar_array_pushdown(
     id SERIAL PRIMARY KEY,
     uuid_col UUID,
@@ -87,6 +91,8 @@ OR text_col @@@ 'Alice'
 AND int_col > 2
 ORDER BY id
 LIMIT 10;
+
+RESET paradedb.enable_custom_scan_without_operator;
 
 DROP INDEX scalar_array_pushdown_idx;
 DROP TABLE scalar_array_pushdown;

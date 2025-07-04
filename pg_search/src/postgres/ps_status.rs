@@ -3,7 +3,8 @@ use std::ffi::CStr;
 use std::os::raw::c_char;
 
 pub const INDEXING: &CStr = c"indexing";
-pub const MERGING: &CStr = c"merging";
+pub const MERGING_DURING_INDEXING: &CStr = c"merging during indexing";
+pub const MERGING_IN_BACKGROUND: &CStr = c"merging in background";
 
 pub unsafe fn set_ps_display_suffix(suffix: *const c_char) {
     #[cfg(any(feature = "pg14", feature = "pg15"))]

@@ -1,5 +1,8 @@
 use crate::api::{HashMap, HashSet};
+use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys;
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,9 +22,6 @@ pub struct LayeredMergePolicy {
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
 }
-
-pub type NumCandidates = usize;
-pub type NumMerged = usize;
 
 impl MergePolicy for LayeredMergePolicy {
     fn compute_merge_candidates(
@@ -72,6 +72,7 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
+            pgrx::debug1!("compute_merge_candidates: evaluating layer_size={layer_size}");
             // individual segments that total a certain byte amount typically merge together into
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
@@ -96,11 +97,19 @@ impl MergePolicy for LayeredMergePolicy {
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size +=
+                let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+                candidate_byte_size += segment_byte_size;
+
+                pgrx::debug1!(
+                    "compute_merge_candidates: adding segment={} with byte_size={} to candidate",
+                    segment.id(),
+                    segment_byte_size
+                );
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
+                    pgrx::debug1!("compute_merge_candidates: candidate exceeds layer_size={}, candidate_byte_size={}", layer_size, candidate_byte_size);
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
@@ -108,6 +117,7 @@ impl MergePolicy for LayeredMergePolicy {
             }
 
             if candidate_byte_size < extended_layer_size {
+                pgrx::debug1!("compute_merge_candidates: throwing away candidate because {} is less than required layer size {}", candidate_byte_size, layer_size);
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -195,7 +205,12 @@ impl LayeredMergePolicy {
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
-    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, NumMerged) {
+    pub fn simulate(
+        &mut self,
+        metadata: &MetaPage,
+        merge_lock: &MergeLock,
+        merger: &SearchIndexMerger,
+    ) -> Vec<MergeCandidate> {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -214,6 +229,27 @@ impl LayeredMergePolicy {
             }
         }
 
+        let merger_segment_ids = merger
+            .searchable_segment_ids()
+            .expect("SearchIndexMerger should have segment ids");
+
+        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+        let mut non_mergeable_segments = metadata.vacuum_list().read_list();
+        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
+
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+            pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
+        }
+
+        // tell the MergePolicy which segments it's initially allowed to consider for merging
+        self.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
+            |(segment_id, _)| {
+                // skip segments that are already being vacuumed or merged
+                !non_mergeable_segments.contains(segment_id)
+            },
+        ));
+
         let segment_metas = self
             .mergeable_segments
             .values()
@@ -221,7 +257,6 @@ impl LayeredMergePolicy {
             .map(From::from)
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
-        let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
         let segment_ids = candidates
             .iter()
             .flat_map(|candidate| &candidate.0)
@@ -229,7 +264,7 @@ impl LayeredMergePolicy {
 
         self.retain(segment_ids);
 
-        (candidates, nmerged)
+        candidates
     }
 
     fn retain(&mut self, to_keep: HashSet<&SegmentId>) {

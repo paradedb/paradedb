@@ -30,6 +30,7 @@ mod cost;
 mod delete;
 pub mod expression;
 pub mod insert;
+mod merge;
 pub mod options;
 mod ps_status;
 mod range;

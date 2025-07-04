@@ -17,11 +17,12 @@
 
 use crate::api::FieldName;
 use crate::gucs;
-use crate::index::merge_policy::{LayeredMergePolicy, NumCandidates, NumMerged};
+use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
+use crate::postgres::merge::do_merge;
 use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
@@ -34,6 +35,7 @@ use crate::postgres::utils::{
 use crate::schema::SearchField;
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
+use tantivy::index::Index;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 pub struct InsertState {
@@ -197,52 +199,44 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             .commit()
             .expect("must be able to commit inserts in paradedb_aminsertcleanup")
         {
+            /*
+             * Recompute VACUUM XID boundaries.
+             *
+             * We don't actually care about the oldest non-removable XID.  Computing
+             * the oldest such XID has a useful side-effect that we rely on: it
+             * forcibly updates the XID horizon state for this backend.  This step is
+             * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+             * that it is now safe to recycle newly deleted pages without this step.
+             */
             unsafe {
-                do_merge(indexrel);
+                let heaprel = indexrel
+                    .heap_relation()
+                    .expect("index should belong to a heap relation");
+                pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
+            }
+
+            unsafe {
+                do_merge(indexrel.oid(), true, true).expect("should be able to merge");
             }
         }
     }
 }
 
-#[allow(clippy::identity_op)]
-pub(crate) const DEFAULT_LAYER_SIZES: &[u64] = &[
-    100 * 1024,        // 100KB
-    1 * 1024 * 1024,   // 1MB
-    100 * 1024 * 1024, // 100MB
-];
-
-unsafe fn do_merge(indexrel: PgSearchRelation) -> (NumCandidates, NumMerged) {
-    let indexrel = {
-        let heaprel = indexrel
-            .heap_relation()
-            .expect("index should belong to a heap relation");
-
-        /*
-         * Recompute VACUUM XID boundaries.
-         *
-         * We don't actually care about the oldest non-removable XID.  Computing
-         * the oldest such XID has a useful side-effect that we rely on: it
-         * forcibly updates the XID horizon state for this backend.  This step is
-         * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-         * that it is now safe to recycle newly deleted pages without this step.
-         */
-        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-        indexrel
-    };
-
-    let index_options = SearchIndexOptions::from_relation(&indexrel);
-    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
-
-    merge_index_with_policy(&indexrel, merge_policy, false, false, false)
-}
-
 pub unsafe fn merge_index_with_policy(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
-    verbose: bool,
     gc_after_merge: bool,
-    consider_create_index_segments: bool,
-) -> (NumCandidates, NumMerged) {
+) {
+    // keep track of how many segments we had before we started merging
+    // used to terminate this merge early if we predict we'll end up below the target segment count
+    let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
+        .expect("should be able to open index")
+        .searchable_segment_ids()
+        .expect("should be able to get searchable segment ids")
+        .len() as i32;
+    let index_options = SearchIndexOptions::from_relation(indexrel);
+    let target_segment_count = index_options.target_segment_count() as i32;
+
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
@@ -250,51 +244,13 @@ pub unsafe fn merge_index_with_policy(
     let cleanup_lock = BufferManager::new(indexrel).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrel);
     let merge_lock = metadata.acquire_merge_lock();
-    let directory = MvccSatisfies::Mergeable.directory(indexrel);
-    let merger =
-        SearchIndexMerger::open(directory).expect("should be able to open a SearchIndexMerger");
-    let merger_segment_ids = merger
-        .searchable_segment_ids()
-        .expect("SearchIndexMerger should have segment ids");
-
-    // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
-    let mut non_mergeable_segments = metadata.vacuum_list().read_list();
-    non_mergeable_segments.extend(merge_lock.merge_list().list_segment_ids());
-    let create_index_segment_ids = metadata.create_index_segment_ids();
-
-    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
-        pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
-        pgrx::debug1!("do_merge: merger_segment_ids={merger_segment_ids:?}");
-        pgrx::debug1!("do_merge: create_index_segment_ids={create_index_segment_ids:?}");
-    }
-
-    // tell the MergePolicy which segments it's initially allowed to consider for merging
-    merge_policy.set_mergeable_segment_entries(merger.all_entries().into_iter().filter(
-        |(segment_id, entry)| {
-            // skip segments that are already being vacuumed or merged
-            if non_mergeable_segments.contains(segment_id) {
-                return false;
-            }
-
-            // skip segments that were created by CREATE INDEX and have no deletes
-            if !consider_create_index_segments
-                && create_index_segment_ids.contains(segment_id)
-                && entry
-                    .delete
-                    .is_none_or(|delete_entry| delete_entry.num_deleted_docs == 0)
-            {
-                return false;
-            }
-
-            true
-        },
-    ));
+    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
+        .expect("should be able to open merger");
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
     // the segments it decides can be merged into one or more candidates
-    let (merge_candidates, nmerged) = merge_policy.simulate();
-
+    let merge_candidates = merge_policy.simulate(&metadata, &merge_lock, &merger);
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
@@ -318,61 +274,22 @@ pub unsafe fn merge_index_with_policy(
 
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
-        if !verbose {
-            // happy path
-            for candidate in merge_candidates {
-                merge_result = merger.merge_segments(&candidate.0);
-                if merge_result.is_err() {
-                    break;
-                }
-                if gc_after_merge {
-                    garbage_collect_index(indexrel);
-                    need_gc = false;
-                }
+        for candidate in merge_candidates {
+            segment_count -= candidate.0.len() as i32 - 1;
+            if segment_count < target_segment_count {
+                pgrx::debug1!("ending merge early: segment count {segment_count} would be less than target segment count {target_segment_count}");
+                break;
             }
-        } else {
-            // verbose path
-            pgrx::warning!(
-                "merging {} candidates, totalling {} segments",
-                ncandidates,
-                nmerged
-            );
 
-            for (i, candidate) in merge_candidates.into_iter().enumerate() {
-                pgrx::warning!(
-                    "merging candidate #{}:  {} segments",
-                    i + 1,
-                    candidate.0.len()
-                );
+            pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
-                let start = std::time::Instant::now();
-                merge_result = match merger.merge_segments(&candidate.0) {
-                    Ok(Some(segment_meta)) => {
-                        pgrx::warning!(
-                            "   finished merge in {:?}.  final num_docs={}",
-                            start.elapsed(),
-                            segment_meta.num_docs()
-                        );
-                        Ok(Some(segment_meta))
-                    }
-                    Ok(None) => {
-                        pgrx::warning!(
-                            "   finished merge in {:?}.  merged to nothing",
-                            start.elapsed()
-                        );
-                        Ok(None)
-                    }
-                    Err(e) => Err(e),
-                };
-
-                if merge_result.is_err() {
-                    break;
-                }
-
-                if gc_after_merge {
-                    garbage_collect_index(indexrel);
-                    need_gc = false;
-                }
+            merge_result = merger.merge_segments(&candidate.0);
+            if merge_result.is_err() {
+                break;
+            }
+            if gc_after_merge {
+                garbage_collect_index(indexrel);
+                need_gc = false;
             }
         }
 
@@ -399,8 +316,6 @@ pub unsafe fn merge_index_with_policy(
         drop(merge_lock);
     }
     drop(cleanup_lock);
-
-    (ncandidates, nmerged)
 }
 
 ///

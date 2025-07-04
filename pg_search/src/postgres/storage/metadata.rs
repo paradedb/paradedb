@@ -19,11 +19,10 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     block_number_is_valid, BM25PageSpecialData, LinkedList, SegmentMetaEntry, METADATA,
 };
-use crate::postgres::storage::buffer::{BufferManager, BufferMut};
-use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
+use crate::postgres::storage::LinkedItemList;
 use pgrx::pg_sys;
-use tantivy::index::SegmentId;
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -145,57 +144,6 @@ impl MetaPage {
         assert!(block_number_is_valid(self.data.ambulkdelete_sentinel));
         let sentinel = self.bman.pinned_buffer(self.data.ambulkdelete_sentinel);
         VacuumSentinel(sentinel)
-    }
-
-    pub unsafe fn create_index_segment_ids(&self) -> Vec<SegmentId> {
-        if !block_number_is_valid(self.data.create_index_list) {
-            return Vec::new();
-        }
-
-        let entries =
-            LinkedBytesList::open(self.bman.bm25cache().rel(), self.data.create_index_list);
-        let bytes = entries.read_all();
-        bytes
-            .chunks(size_of::<SegmentIdBytes>())
-            .map(|entry| {
-                SegmentId::from_bytes(entry.try_into().expect("malformed SegmentId entry"))
-            })
-            .collect()
-    }
-}
-
-/// For actions that dirty the metadata page -- takes an exclusive lock on the metadata page
-/// and holds it until `MetaPageMut` is dropped.
-pub struct MetaPageMut {
-    buffer: BufferMut,
-    bman: BufferManager,
-}
-
-impl MetaPageMut {
-    pub fn new(indexrel: &PgSearchRelation) -> Self {
-        let mut bman = BufferManager::new(indexrel);
-        let buffer = bman.get_buffer_mut(METADATA);
-        Self { buffer, bman }
-    }
-
-    pub unsafe fn record_create_index_segment_ids(
-        mut self,
-        segment_ids: impl IntoIterator<Item = SegmentId>,
-    ) -> anyhow::Result<()> {
-        let segment_id_bytes = segment_ids
-            .into_iter()
-            .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
-            .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
-        let mut writer = segment_ids_list.writer();
-        writer.write(&segment_id_bytes)?;
-        let segment_ids_list = writer.into_inner()?;
-
-        let mut page = self.buffer.page_mut();
-        let metadata = page.contents_mut::<MetaPageData>();
-        metadata.create_index_list = segment_ids_list.get_header_blockno();
-
-        Ok(())
     }
 }
 

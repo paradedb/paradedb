@@ -8,11 +8,7 @@ name: Test pg_search Benchmark
 
 on:
   pull_request:
-    branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
-      - main
-      - staging
-  push:
-    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
+    branches: # On the default branch, we run benchmarks in PRs to test thoroughly
       - dev
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"
@@ -20,12 +16,8 @@ on:
       - "**/*.toml"
   workflow_dispatch:
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-benchmark-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

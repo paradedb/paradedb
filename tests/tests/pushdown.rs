@@ -144,7 +144,7 @@ fn pushdown(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
     "SET enable_bitmapscan TO off;".execute(&mut conn);
     "SET max_parallel_workers TO 0;".execute(&mut conn);
-    "SET enable_custom_scan_without_operator TO on;".execute(&mut conn);
+    "SET paradedb.enable_custom_scan_without_operator TO on;".execute(&mut conn);
 
     for operator in OPERATORS {
         for [sqltype, default] in TYPES {

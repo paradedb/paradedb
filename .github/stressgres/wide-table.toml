@@ -1,0 +1,198 @@
+[[server]]
+name = "Primary"
+[server.style.Automatic]
+
+[server.setup]
+sql = """
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET maintenance_work_mem = '8GB';
+
+CREATE OR REPLACE FUNCTION uuid_generate_v4()
+RETURNS uuid AS $$
+DECLARE
+    fixed_uuids uuid[] := ARRAY[
+        '123e4567-e89b-12d3-a456-426614174000'::uuid,
+        '987fcdeb-51a2-43e8-b567-890123456789'::uuid,
+        'a1b2c3d4-e5f6-47a8-89b0-123456789abc'::uuid,
+        'b2c3d4e5-f6a7-48b9-90c1-23456789abcd'::uuid,
+        'c3d4e5f6-a7b8-49c0-01d2-3456789abcde'::uuid
+    ];
+BEGIN
+    RETURN fixed_uuids[floor(random() * 5 + 1)]::uuid;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TABLE IF EXISTS wide_table CASCADE;
+CREATE TABLE wide_table (
+    id SERIAL PRIMARY KEY,
+    field_1 uuid NOT NULL,
+    field_2 uuid NOT NULL,
+    text_1 varchar NOT NULL,
+    number_1 bigint NOT NULL,
+    text_2 varchar NOT NULL,
+    text_3 text,
+    text_4 varchar NOT NULL,
+    timestamp_1 timestamp without time zone NOT NULL,
+    timestamp_2 timestamp without time zone NOT NULL,
+    text_5 varchar,
+    date_1 date NOT NULL,
+    time_1 time without time zone,
+    bool_1 boolean NOT NULL,
+    bool_2 boolean NOT NULL DEFAULT false,
+    timestamp_3 timestamp without time zone,
+    text_6 varchar,
+    bool_3 boolean NOT NULL DEFAULT false,
+    json_1 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    json_2 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    text_7 varchar,
+    json_3 jsonb,
+    text_8 varchar,
+    text_9 varchar,
+    text_10 varchar,
+    timestamp_4 timestamp(6) without time zone,
+    timestamp_5 timestamp(6) without time zone,
+    text_11 varchar,
+    text_12 varchar,
+    text_13 varchar,
+    timestamp_6 timestamp without time zone,
+    timestamp_7 timestamp without time zone,
+    number_2 bigint NOT NULL DEFAULT 0,
+    text_14 varchar,
+    text_15 varchar,
+    json_4 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    number_3 bigint NOT NULL,
+    field_3 uuid,
+    field_4 uuid,
+    text_16 varchar NOT NULL
+);
+INSERT INTO wide_table (
+    field_1,
+    field_2,
+    text_1,
+    number_1,
+    text_2,
+    text_3,
+    text_4,
+    timestamp_1,
+    timestamp_2,
+    text_5,
+    date_1,
+    time_1,
+    bool_1,
+    bool_2,
+    timestamp_3,
+    text_6,
+    bool_3,
+    json_1,
+    json_2,
+    text_7,
+    json_3,
+    text_8,
+    text_9,
+    text_10,
+    timestamp_4,
+    timestamp_5,
+    text_11,
+    text_12,
+    text_13,
+    timestamp_6,
+    timestamp_7,
+    number_2,
+    text_14,
+    text_15,
+    json_4,
+    number_3,
+    field_3,
+    field_4,
+    text_16
+)
+SELECT
+    uuid_generate_v4(),
+    uuid_generate_v4(),
+    (ARRAY['USD','EUR','GBP'])[(s % 3) + 1],
+    floor(random() * 10000)::bigint + 1,
+    (ARRAY['in','out'])[(s % 2) + 1],
+    (ARRAY[
+      'Acme Corp', 'Globex Corporation', 'Initech', 'Umbrella Corp', 'Stark Industries',
+      'Wayne Enterprises', 'Hooli', 'Wonka Industries', 'Soylent Corp', 'Tyrell Corp',
+      'Cyberdyne Systems', 'Massive Dynamic', 'Vandelay Industries', 'Gekko & Co', 'Babel Industries',
+      'Roxxon Energy', 'Gringotts', 'Pied Piper', 'Oscorp', 'Griffin, Inc.'
+    ])[(s % 20) + 1],
+    (ARRAY['VENDOR_CODE_001','VENDOR_CODE_002','VENDOR_CODE_003'])[(s % 3) + 1],
+    now(),
+    now(),
+    (ARRAY['VENDOR_001','VENDOR_002','VENDOR_003'])[(s % 3) + 1],
+    current_date,
+    current_time,
+    (ARRAY[true,false])[(s % 2) + 1],
+    (ARRAY[true,false])[(s % 2) + 1],
+    now(),
+    (ARRAY['CUSTOMER_001','CUSTOMER_002','CUSTOMER_003'])[(s % 3) + 1],
+    (ARRAY[true,false])[(s % 2) + 1],
+    (ARRAY['{"meta":"data1"}'::jsonb, '{"meta":"data2"}'::jsonb, '{"meta":"data3"}'::jsonb])[(s % 3) + 1],
+    (ARRAY['{"detail":"detail1"}'::jsonb, '{"detail":"detail2"}'::jsonb, '{"detail":"detail3"}'::jsonb])[(s % 3) + 1],
+    (ARRAY['CODE_TYPE_1','CODE_TYPE_2','CODE_TYPE_3'])[(s % 3) + 1],
+    (ARRAY['{"edi":"data1"}'::jsonb, '{"edi":"data2"}'::jsonb, '{"edi":"data3"}'::jsonb])[(s % 3) + 1],
+    (ARRAY['UNIQUE_VENDOR_001','UNIQUE_VENDOR_002','UNIQUE_VENDOR_003'])[(s % 3) + 1],
+    (ARRAY['strategy1','strategy2','strategy3'])[(s % 3) + 1],
+    (ARRAY['v1','v2','v3'])[(s % 3) + 1],
+    now(),
+    now(),
+    (ARRAY['transactable_type1','transactable_type2','transactable_type3'])[(s % 3) + 1],
+    (ARRAY['SCHEDULE_001','SCHEDULE_002','SCHEDULE_003'])[(s % 3) + 1],
+    (ARRAY['SOURCE_1','SOURCE_2','SOURCE_3'])[(s % 3) + 1],
+    now(),
+    now(),
+    0,
+    (ARRAY['UTC','EST','PST'])[(s % 3) + 1],
+    (ARRAY['PAYMENT_TYPE_1','PAYMENT_TYPE_2','PAYMENT_TYPE_3'])[(s % 3) + 1],
+    (ARRAY['{"id":"identifier1"}'::jsonb, '{"id":"identifier2"}'::jsonb, '{"id":"identifier3"}'::jsonb])[(s % 3) + 1],
+    floor(random() * 10000)::bigint + 1,
+    uuid_generate_v4(),
+    uuid_generate_v4(),
+    (ARRAY['CONNECTION_1','CONNECTION_2','CONNECTION_3'])[(s % 3) + 1]
+FROM generate_series(1, 100000) s;
+
+CREATE INDEX wide_table_idx ON wide_table USING bm25 (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)
+WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', datetime_fields='{"date_1":{}, "timestamp_3":{}}', layer_sizes='10kb, 1MB, 100MB');
+"""
+
+[server.teardown]
+sql = """
+DROP TABLE wide_table CASCADE;
+DROP EXTENSION pg_search CASCADE;
+"""
+
+[server.monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["block_count", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('wide_table_idx') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('wide_table_idx')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Single Update"
+sql = """
+UPDATE wide_table SET number_1 = number_1 + 1 WHERE id = 1;
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Bulk Update"
+sql = """
+UPDATE wide_table
+SET text_3 = CASE
+    WHEN random() < 0.5 THEN NULL
+    ELSE 'value_' || (floor(random() * 10 + 1))::text
+END
+WHERE id > 10 AND id < 1000;
+"""

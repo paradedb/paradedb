@@ -216,7 +216,7 @@ fn validate_field_config(
     let field_name = config.alias().unwrap_or(field_name);
     let field_type = options
         .get_field_type(&FieldName::from(field_name.to_string()))
-        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist"));
+        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the table"));
     if !matches(&field_type) {
         panic!("`{field_name}` was configured with the wrong type");
     }

@@ -27,8 +27,8 @@ use std::num::NonZeroUsize;
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
-/// default is `true`.
-static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// default is `false`.
+static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
 /// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.

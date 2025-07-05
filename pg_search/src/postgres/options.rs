@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::insert::DEFAULT_LAYER_SIZES;
-use crate::postgres::utils::extract_field_attributes;
+use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::IndexRecordOption;
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use std::cell::{Ref, RefCell};
@@ -259,7 +259,7 @@ struct LazyInfo {
     range: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
     inet: Rc<RefCell<Option<HashMap<FieldName, SearchFieldConfig>>>>,
 
-    attributes: Rc<RefCell<HashMap<FieldName, (usize, SearchFieldType)>>>,
+    attributes: Rc<RefCell<HashMap<FieldName, ExtractedFieldAttribute>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -269,6 +269,9 @@ pub struct BM25IndexOptions {
 }
 
 impl BM25IndexOptions {
+    pub const MISSING_KEY_FIELD_CONFIG: &'static str =
+        "index should have a `WITH (key_field='...')` option";
+
     pub unsafe fn from_relation(indexrel: pg_sys::Relation) -> Self {
         assert!(!indexrel.is_null());
         Self {
@@ -293,12 +296,14 @@ impl BM25IndexOptions {
     }
 
     pub fn key_field_name(&self) -> FieldName {
-        self.options_data().key_field_name()
+        self.options_data()
+            .key_field_name()
+            .expect(Self::MISSING_KEY_FIELD_CONFIG)
     }
 
     pub fn key_field_type(&self) -> SearchFieldType {
         self.get_field_type(&self.key_field_name())
-            .expect("key_field should be configured")
+            .expect(Self::MISSING_KEY_FIELD_CONFIG)
     }
 
     /// Returns either the config explicitly set in the CREATE INDEX WITH options,
@@ -317,6 +322,55 @@ impl BM25IndexOptions {
         }
     }
 
+    pub fn text_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.text.borrow().is_none() {
+            *self.lazy.text.borrow_mut() = Some(self.options_data().text_configs());
+        }
+        self.lazy.text.borrow()
+    }
+
+    pub fn numeric_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.numeric.borrow().is_none() {
+            *self.lazy.numeric.borrow_mut() = Some(self.options_data().numeric_configs());
+        }
+        self.lazy.numeric.borrow()
+    }
+
+    pub fn datetime_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.datetime.borrow().is_none() {
+            *self.lazy.datetime.borrow_mut() = Some(self.options_data().datetime_configs());
+        }
+        self.lazy.datetime.borrow()
+    }
+
+    pub fn boolean_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.boolean.borrow().is_none() {
+            *self.lazy.boolean.borrow_mut() = Some(self.options_data().boolean_configs());
+        }
+        self.lazy.boolean.borrow()
+    }
+
+    pub fn json_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.json.borrow().is_none() {
+            *self.lazy.json.borrow_mut() = Some(self.options_data().json_configs());
+        }
+        self.lazy.json.borrow()
+    }
+
+    pub fn range_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.range.borrow().is_none() {
+            *self.lazy.range.borrow_mut() = Some(self.options_data().range_configs());
+        }
+        self.lazy.range.borrow()
+    }
+
+    pub fn inet_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+        if self.lazy.inet.borrow().is_none() {
+            *self.lazy.inet.borrow_mut() = Some(self.options_data().inet_configs());
+        }
+        self.lazy.inet.borrow()
+    }
+
     /// Returns the config only if it is explicitly set in the CREATE INDEX WITH options
     fn field_config(&self, field_name: &FieldName) -> Option<SearchFieldConfig> {
         let data = self.options_data();
@@ -327,61 +381,54 @@ impl BM25IndexOptions {
             });
         }
 
-        if field_name.root() == data.key_field_name().root() {
+        if field_name.root() == data.key_field_name()?.root() {
             return self.get_field_type(field_name).map(key_field_config);
         }
 
-        self.lazy
-            .text
-            .borrow_mut()
-            .get_or_insert_with(|| data.text_configs())
+        self.text_config()
+            .as_ref()
+            .unwrap()
             .get(field_name)
             .cloned()
             .or_else(|| {
-                self.lazy
-                    .numeric
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.numeric_configs())
+                self.numeric_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
             .or_else(|| {
-                self.lazy
-                    .datetime
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.datetime_configs())
+                self.datetime_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
             .or_else(|| {
-                self.lazy
-                    .boolean
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.boolean_configs())
+                self.boolean_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
             .or_else(|| {
-                self.lazy
-                    .json
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.json_configs())
+                self.json_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
             .or_else(|| {
-                self.lazy
-                    .range
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.range_configs())
+                self.range_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
             .or_else(|| {
-                self.lazy
-                    .inet
-                    .borrow_mut()
-                    .get_or_insert_with(|| data.inet_configs())
+                self.inet_config()
+                    .as_ref()
+                    .unwrap()
                     .get(field_name)
                     .cloned()
             })
@@ -389,20 +436,28 @@ impl BM25IndexOptions {
 
     /// Returns a `Vec` of aliased text field names and their configs.
     pub fn aliased_text_configs(&self) -> Vec<(FieldName, SearchFieldConfig)> {
+        if self.lazy.text.borrow().is_none() {
+            *self.lazy.text.borrow_mut() = Some(self.options_data().text_configs());
+        }
+
         self.lazy
             .text
-            .borrow_mut()
-            .get_or_insert_with(|| self.options_data().text_configs())
+            .borrow()
             .iter()
+            .flatten()
             .filter_map(|(field_name, config)| {
-                if let Some(alias) = config.alias() {
-                    assert!(matches!(
-                        self.get_field_type(&FieldName::from(alias.to_string())),
-                        Some(SearchFieldType::Text(_))
-                    ));
-                    Some((field_name.clone(), config.clone()))
-                } else {
-                    None
+                let alias = config.alias()?;
+                match self
+                    .attributes()
+                    .get(&FieldName::from(alias.to_string())) {
+                    None => None,
+                    Some(ExtractedFieldAttribute { tantivy_type, ..}) => {
+                        assert!(
+                            matches!(tantivy_type, SearchFieldType::Text(_)),
+                            "unexpected type `{tantivy_type:?}` for `{field_name}` aliasing `{alias}`.  Expecting `SearchFieldType::Text`"
+                        );
+                        Some((field_name.clone(), config.clone()))
+                    }
                 }
             })
             .collect()
@@ -410,20 +465,27 @@ impl BM25IndexOptions {
 
     /// Returns a `Vec` of aliased JSON field names and their configs.
     pub fn aliased_json_configs(&self) -> Vec<(FieldName, SearchFieldConfig)> {
+        if self.lazy.json.borrow().is_none() {
+            *self.lazy.json.borrow_mut() = Some(self.options_data().json_configs());
+        }
         self.lazy
             .json
-            .borrow_mut()
-            .get_or_insert_with(|| self.options_data().json_configs())
+            .borrow()
             .iter()
+            .flatten()
             .filter_map(|(field_name, config)| {
-                if let Some(alias) = config.alias() {
-                    assert!(matches!(
-                        self.get_field_type(&FieldName::from(alias.to_string())),
-                        Some(SearchFieldType::Json(_))
-                    ));
-                    Some((field_name.clone(), config.clone()))
-                } else {
-                    None
+                let alias = config.alias()?;
+                match self
+                    .attributes()
+                    .get(&FieldName::from(alias.to_string())) {
+                    None => None,
+                    Some(ExtractedFieldAttribute { tantivy_type, ..}) => {
+                        assert!(
+                            matches!(tantivy_type, SearchFieldType::Json(_)),
+                            "unexpected type `{tantivy_type:?}` for `{field_name}` aliasing `{alias}`.  Expecting `SearchFieldType::Json`"
+                        );
+                        Some((field_name.clone(), config.clone()))
+                    }
                 }
             })
             .collect()
@@ -435,10 +497,31 @@ impl BM25IndexOptions {
             // it's one we add directly, so we need to account for it here
             return Some(SearchFieldType::U64(pg_sys::TIDOID));
         }
-        self.attributes().get(field_name).map(|(_, typ)| *typ)
+        self.attributes()
+            .get(field_name)
+            .map(|ExtractedFieldAttribute { tantivy_type, .. }| *tantivy_type)
+            // account for aliased fields
+            .or_else(|| self.get_aliased_field_type(field_name))
     }
 
-    pub fn attributes(&self) -> Ref<HashMap<FieldName, (usize, SearchFieldType)>> {
+    fn get_aliased_field_type(&self, field_name: &FieldName) -> Option<SearchFieldType> {
+        // this is an expensive thing to do
+        for (aliased_field_name, config) in self
+            .aliased_text_configs()
+            .into_iter()
+            .chain(self.aliased_json_configs().into_iter())
+        {
+            if &aliased_field_name == field_name {
+                if let Some(alias) = config.alias() {
+                    return self.get_field_type(&FieldName::from(alias.to_string()));
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn attributes(&self) -> Ref<HashMap<FieldName, ExtractedFieldAttribute>> {
         if self.lazy.attributes.borrow().is_empty() {
             *self.lazy.attributes.borrow_mut() = unsafe { extract_field_attributes(self.indexrel) };
         }
@@ -492,12 +575,12 @@ impl BM25IndexOptionsData {
         }
     }
 
-    pub fn key_field_name(&self) -> FieldName {
+    pub fn key_field_name(&self) -> Option<FieldName> {
         let key_field_name = self.get_str(self.key_field_offset, "".to_string());
         if key_field_name.is_empty() {
-            panic!("key_field WITH option should be configured");
+            return None;
         }
-        key_field_name.into()
+        Some(key_field_name.into())
     }
 
     pub fn text_configs(&self) -> HashMap<FieldName, SearchFieldConfig> {
@@ -728,37 +811,3 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
         },
     }
 }
-
-// fn validate_field_config(
-//     field_name: &FieldName,
-//     key_field_name: &FieldName,
-//     config: &SearchFieldConfig,
-//     indexrel: &PgSearchRelation,
-//     matches: fn(&SearchFieldType) -> bool,
-// ) {
-//     todo!("can we move this function into BM25IndexOptions")
-//     // if field_name.is_ctid() {
-//     //     panic!("the name `ctid` is reserved by pg_search");
-//     // }
-//     //
-//     // if field_name.root() == key_field_name.root() {
-//     //     panic!(
-//     //         "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
-//     //     );
-//     // }
-//     //
-//     // if let Some(alias) = config.alias() {
-//     //     if get_attribute_oid(alias, indexrel).is_none() {
-//     //         panic!(
-//     //             "the column `{alias}` referenced by the field configuration for '{field_name}' does not exist"
-//     //         );
-//     //     }
-//     // }
-//     //
-//     // let field_name = config.alias().unwrap_or(field_name);
-//     // let field_type = get_field_type(field_name, indexrel);
-//     // if matches(&field_type) {
-//     //     return;
-//     // }
-//     // panic!("`{field_name}` was configured with the wrong type");
-// }

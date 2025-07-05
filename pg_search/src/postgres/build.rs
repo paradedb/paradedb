@@ -18,6 +18,7 @@
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
+use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
@@ -25,13 +26,14 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPageMut;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use crate::postgres::utils::extract_field_attributes;
-use crate::schema::SearchFieldType;
+use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
+use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use tantivy::schema::Schema;
 use tantivy::{Index, IndexSettings};
+use tokenizers::SearchTokenizer;
 
 #[pg_guard]
 pub extern "C-unwind" fn ambuild(
@@ -93,23 +95,130 @@ pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
         init_fixed_buffers(&index_relation);
     }
 
+    validate_index_config(&index_relation);
+
     create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
+}
 
-    // warn that the `raw` tokenizer is deprecated
-    let schema = index_relation.schema().unwrap_or_else(|e| panic!("{e}"));
-    let key_field = schema
-        .search_field(schema.key_field_name())
-        .expect("index should have a `WITH (key_field='...')` option");
+unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
+    // quick check to make sure we have "WITH" options
+    if index_relation.rd_options.is_null() {
+        panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
+    }
 
+    let options = index_relation.options();
+    let key_field_name = options.key_field_name();
+    let key_field_config = options.field_config_or_default(&key_field_name);
+
+    // warn when the `raw` tokenizer is used for the key_field
     #[allow(deprecated)]
-    if key_field.uses_raw_tokenizer() {
+    if key_field_config
+        .tokenizer()
+        .map(|tokenizer| matches!(tokenizer, SearchTokenizer::Raw(_)))
+        .unwrap_or(false)
+    {
         ErrorReport::new(
-                    PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
-                    "the `raw` tokenizer is deprecated",
-                    function_name!(),
-                )
-                    .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want for you key_field")
-                    .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+            PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+            "the `raw` tokenizer is deprecated",
+            function_name!(),
+        )
+            .set_detail("the `raw` tokenizer is deprecated as it also lowercases and truncates the input and this is probably not what you want for you key_field")
+            .set_hint("use `keyword` instead").report(PgLogLevel::WARNING);
+    }
+
+    let options = index_relation.options();
+    let text_configs = options.text_config();
+    for (field_name, config) in text_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Text(_) | SearchFieldType::Uuid(_))
+        });
+    }
+
+    let inet_configs = options.inet_config();
+    for (field_name, config) in inet_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Inet(_))
+        });
+    }
+
+    let numeric_configs = options.numeric_config();
+    for (field_name, config) in numeric_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(
+                t,
+                SearchFieldType::I64(_) | SearchFieldType::U64(_) | SearchFieldType::F64(_)
+            )
+        });
+    }
+
+    let boolean_configs = options.boolean_config();
+    for (field_name, config) in boolean_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Bool(_))
+        });
+    }
+
+    let json_configs = options.json_config();
+    for (field_name, config) in json_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Json(_))
+        });
+    }
+
+    let range_configs = options.range_config();
+    for (field_name, config) in range_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Range(_))
+        });
+    }
+
+    let datetime_configs = options.datetime_config();
+    for (field_name, config) in datetime_configs.iter().flatten() {
+        validate_field_config(field_name, &key_field_name, config, options, |t| {
+            matches!(t, SearchFieldType::Date(_))
+        });
+    }
+}
+
+fn validate_field_config(
+    field_name: &FieldName,
+    key_field_name: &FieldName,
+    config: &SearchFieldConfig,
+    options: &BM25IndexOptions,
+    matches: fn(&SearchFieldType) -> bool,
+) {
+    if field_name.is_ctid() {
+        panic!("the name `ctid` is reserved by pg_search");
+    }
+
+    if field_name.root() == key_field_name.root() {
+        panic!(
+            "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
+        );
+    }
+
+    if let Some(alias) = config.alias() {
+        if options
+            .get_field_type(&FieldName::from(alias.to_string()))
+            .is_none()
+        {
+            panic!(
+                "the column `{alias}` referenced by the field configuration for '{field_name}' does not exist"
+            );
+        }
+
+        let config = options.field_config_or_default(&FieldName::from(alias.to_string()));
+        if config.alias().is_some() {
+            panic!("the column `{alias}` cannot alias an already aliased column");
+        }
+    }
+
+    let field_name = config.alias().unwrap_or(field_name);
+    let field_type = options
+        .get_field_type(&FieldName::from(field_name.to_string()))
+        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist"));
+    if !matches(&field_type) {
+        panic!("`{field_name}` was configured with the wrong type");
     }
 }
 
@@ -165,12 +274,12 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let options = index_relation.options();
     let mut builder = Schema::builder();
 
-    for (name, (_, search_field_type)) in
+    for (name, ExtractedFieldAttribute { tantivy_type, .. }) in
         unsafe { extract_field_attributes(index_relation.as_ptr()) }
     {
         let config = options.field_config_or_default(&name);
 
-        match search_field_type {
+        match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Inet(_) => builder.add_ip_addr_field(name.as_ref(), config.clone()),

@@ -85,17 +85,30 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
+/// Represents the metadata extracted from an index attribute
+#[derive(Debug)]
+pub struct ExtractedFieldAttribute {
+    /// its ordinal position in the index attribute list
+    pub attno: usize,
+
+    /// its original Postgres type OID
+    pub pg_type: PgOid,
+
+    /// the type we'll use for indexing in tantivy
+    pub tantivy_type: SearchFieldType,
+}
+
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
-) -> HashMap<FieldName, (usize, SearchFieldType)> {
+) -> HashMap<FieldName, ExtractedFieldAttribute> {
     let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
     let index_info = pg_sys::BuildIndexInfo(indexrel);
     let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
     let mut expressions_iter = expressions.iter_ptr();
 
-    let mut field_attributes: FxHashMap<FieldName, (usize, SearchFieldType)> = Default::default();
+    let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
         let (attname, attribute_type_oid) = if heap_attno == 0 {
@@ -113,14 +126,16 @@ pub unsafe fn extract_field_attributes(
             let att = tupdesc.get(attno as usize).expect("attribute should exist");
             (att.name().to_owned().into(), att.type_oid().value())
         };
+
+        let pg_type = PgOid::from_untagged(attribute_type_oid);
+        let tantivy_type = SearchFieldType::try_from(pg_type).unwrap_or_else(|e| panic!("{e}"));
         field_attributes.insert(
             attname,
-            (
-                attno as usize,
-                PgOid::from_untagged(attribute_type_oid)
-                    .try_into()
-                    .expect("attribute type should be valid"),
-            ),
+            ExtractedFieldAttribute {
+                attno: attno as usize,
+                pg_type,
+                tantivy_type,
+            },
         );
     }
     field_attributes

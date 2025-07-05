@@ -22,7 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::options::BM25IndexOptions;
-use crate::postgres::utils::resolve_base_type;
+use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
@@ -94,13 +94,20 @@ impl SearchFieldType {
 impl TryFrom<PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(pg_oid: PgOid) -> Result<Self, Self::Error> {
+        if matches!(
+            pg_oid,
+            PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBARRAYOID | pg_sys::BuiltinOid::JSONARRAYOID)
+        ) {
+            return Err(SearchIndexSchemaError::JsonArraysNotYetSupported);
+        }
+
         let (base_oid, _) = resolve_base_type(pg_oid)
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    Ok(SearchFieldType::Text((*builtin).into()))
-                }
+                PgBuiltInOids::TEXTOID
+                | PgBuiltInOids::VARCHAROID
+                | PgBuiltInOids::TEXTARRAYOID => Ok(SearchFieldType::Text((*builtin).into())),
                 PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid((*builtin).into())),
                 PgBuiltInOids::INETOID => Ok(SearchFieldType::Inet((*builtin).into())),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
@@ -165,7 +172,11 @@ impl SearchIndexSchema {
                 bm25_options: indexrel.options().clone(),
                 categorized: Default::default(),
             })
-            .expect("index should have a schema"))
+            .unwrap_or_else(|| Self {
+                schema: Schema::builder().build(),
+                bm25_options: indexrel.options().clone(),
+                categorized: Default::default(),
+            }))
     }
 
     pub fn tantivy_schema(&self) -> &Schema {
@@ -184,6 +195,11 @@ impl SearchIndexSchema {
 
     pub fn key_field_type(&self) -> SearchFieldType {
         self.bm25_options.key_field_type()
+    }
+
+    pub fn get_field_type(&self, name: impl AsRef<str>) -> Option<SearchFieldType> {
+        self.bm25_options
+            .get_field_type(&FieldName::from(name.as_ref()))
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
@@ -238,7 +254,15 @@ impl SearchIndexSchema {
         if is_empty {
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
-            for (attname, (attno, search_field_type)) in self.bm25_options.attributes().iter() {
+            for (
+                attname,
+                ExtractedFieldAttribute {
+                    attno,
+                    pg_type,
+                    tantivy_type,
+                },
+            ) in self.bm25_options.attributes().iter()
+            {
                 // List any indexed fields that use this column as source data.
                 let mut search_fields = alias_lookup.remove(attname.as_ref()).unwrap_or_default();
 
@@ -248,14 +272,13 @@ impl SearchIndexSchema {
                 };
 
                 for search_field in search_fields {
-                    let (base_oid, is_array) = resolve_base_type(search_field_type.typeoid())
-                        .unwrap_or_else(|| {
-                            pgrx::error!(
-                                "Failed to resolve base type for column {} with type {:?}",
-                                attname,
-                                search_field_type.typeoid()
-                            )
-                        });
+                    let (base_oid, is_array) = resolve_base_type(*pg_type).unwrap_or_else(|| {
+                        pgrx::error!(
+                            "Failed to resolve base type for column {} with type {:?}",
+                            attname,
+                            tantivy_type.typeoid()
+                        )
+                    });
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
@@ -444,6 +467,9 @@ impl SearchField {
 pub enum SearchIndexSchemaError {
     #[error("invalid postgres oid passed to search index schema: {0:?}")]
     InvalidPgOid(PgOid),
+
+    #[error("json(b) arrays are not yet supported")]
+    JsonArraysNotYetSupported,
 }
 
 #[cfg(test)]

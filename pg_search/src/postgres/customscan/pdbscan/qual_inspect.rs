@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::opexpr::OpExpr;
+use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::operator_oid;
@@ -462,6 +463,7 @@ impl From<&Qual> for SearchQueryInput {
 pub struct QualExtractState {
     pub uses_tantivy_to_query: bool,
     pub uses_our_operator: bool,
+    pub uses_heap_expr: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -625,9 +627,6 @@ pub unsafe fn extract_quals(
 
             // Check if this is a boolean constant
             if (*const_node).consttype == pg_sys::BOOLOID {
-                // Convert boolean constant to HeapExpr using the expression-based approach
-
-                // Create HeapExpr using the new expression-based approach
                 let bool_value = if !(*const_node).constisnull {
                     bool::from_datum((*const_node).constvalue, false).unwrap_or(false)
                 } else {
@@ -767,7 +766,7 @@ unsafe fn opexpr(
                 rti,
                 opexpr,
                 schema,
-                &mut state.uses_tantivy_to_query,
+                state,
                 convert_external_to_special_qual,
             )
         }
@@ -833,7 +832,7 @@ unsafe fn node_opexpr(
                     rti,
                     opexpr,
                     schema,
-                    &mut state.uses_tantivy_to_query,
+                    state,
                     convert_external_to_special_qual,
                 );
             }
@@ -870,7 +869,7 @@ unsafe fn node_opexpr(
             rti,
             opexpr,
             schema,
-            &mut state.uses_tantivy_to_query,
+            state,
             convert_external_to_special_qual,
         )
     }
@@ -893,7 +892,7 @@ unsafe fn try_pushdown(
     rti: pg_sys::Index,
     opexpr: OpExpr,
     schema: &SearchIndexSchema,
-    uses_tantivy_to_query: &mut bool,
+    state: &mut QualExtractState,
     convert_external_to_special_qual: bool,
 ) -> Option<Qual> {
     // Save the operator OID and node pointer before the move
@@ -912,15 +911,22 @@ unsafe fn try_pushdown(
         // DECISION POINT: Predicate cannot be pushed down to index
         // Check if this expression references our relation
         if contains_relation_reference(opexpr_node, rti) {
+            // Check if custom scan for non-indexed fields is enabled
+            if !gucs::enable_filter_pushdown() {
+                return None;
+            }
+
+            // We do use search (with heap filtering)
+            state.uses_heap_expr = true;
+            state.uses_tantivy_to_query = true;
+
             // Create HeapExpr: predicate will be evaluated via heap access
             // This is slower but necessary for non-indexed fields
-            let heap_expr = Qual::HeapExpr {
+            Some(Qual::HeapExpr {
                 expr_node: opexpr_node,
                 expr_desc: format!("OpExpr with operator OID {opno}"),
                 search_query_input: Box::new(SearchQueryInput::All),
-            };
-            *uses_tantivy_to_query = true; // We do use search (with heap filtering)
-            Some(heap_expr)
+            })
         } else if convert_external_to_special_qual {
             Some(Qual::ExternalExpr)
         } else {
@@ -928,7 +934,7 @@ unsafe fn try_pushdown(
         }
     } else {
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
-        *uses_tantivy_to_query = true;
+        state.uses_tantivy_to_query = true;
         pushdown_result
     }
 }
@@ -1394,6 +1400,10 @@ unsafe fn create_heap_expr_for_field_ref(
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     if (*var_node).varno as pg_sys::Index == rti {
+        // Check if custom scan for non-indexed fields is enabled
+        if !gucs::enable_filter_pushdown() {
+            return None;
+        }
         *uses_tantivy_to_query = true;
         Some(Qual::HeapExpr {
             expr_node,

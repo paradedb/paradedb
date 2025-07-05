@@ -90,11 +90,11 @@ WHERE category_name = 'Electronics'
 ORDER BY id;
  id |      name       | category_name | score 
 ----+-----------------+---------------+-------
-  2 | MacBook Pro     | Electronics   |     0
-  4 | Samsung Galaxy  | Electronics   |     0
-  7 | Apple Watch     | Electronics   |     0
-  8 | Sony Headphones | Electronics   |     0
- 10 | Budget Phone    | Electronics   |     0
+  2 | MacBook Pro     | Electronics   |      
+  4 | Samsung Galaxy  | Electronics   |      
+  7 | Apple Watch     | Electronics   |      
+  8 | Sony Headphones | Electronics   |      
+ 10 | Budget Phone    | Electronics   |      
 (5 rows)
 
 -- Test Case 1.6: Simple test with just non-indexed predicate to isolate the issue
@@ -777,17 +777,13 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                               QUERY PLAN                               
+------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
-   ->  Custom Scan (ParadeDB Scan) on products
-         Table: products
-         Index: products_bm25_idx
-         Exec Method: NormalScanExecState
-         Scores: true
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1757"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 44 1 ]}) :location -1}","description":"OpExpr with operator OID 1755"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}}
-(8 rows)
+   ->  Seq Scan on products
+         Filter: (in_stock AND (price >= 100.00) AND (price <= 300.00))
+(4 rows)
 
 SELECT 
     id,
@@ -801,9 +797,9 @@ WHERE price BETWEEN 100.00 AND 300.00
 ORDER BY score DESC;
  id |       name        | price  | in_stock | score 
 ----+-------------------+--------+----------+-------
-  3 | Nike Air Max      | 149.99 | t        |     0
-  5 | Adidas Ultraboost | 179.99 | t        |     0
-  8 | Sony Headphones   | 299.99 | t        |     0
+  3 | Nike Air Max      | 149.99 | t        |      
+  5 | Adidas Ultraboost | 179.99 | t        |      
+  8 | Sony Headphones   | 299.99 | t        |      
 (3 rows)
 
 -- Test Case 14: Array operations (if supported)
@@ -1018,3 +1014,148 @@ ORDER BY score DESC;
   1 | Apple iPhone 14 | 999.99 | t        |    4.5 | 2.5521502
 (1 row)
 
+-- Test Case 19: Test the new GUC paradedb.enable_filter_pushdown
+-- This test verifies that the GUC properly controls whether custom scan is used for non-indexed fields
+-- First, save the current setting
+SHOW paradedb.enable_filter_pushdown;
+ paradedb.enable_filter_pushdown 
+---------------------------------
+ on
+(1 row)
+
+-- Test with GUC enabled (default behavior)
+SET paradedb.enable_filter_pushdown = true;
+-- This should use custom scan with HeapExpr for non-indexed predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
+(8 rows)
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+ id |    name     | category_name |   score   
+----+-------------+---------------+-----------
+  2 | MacBook Pro | Electronics   | 1.6343809
+(1 row)
+
+-- Now test with GUC disabled
+SET paradedb.enable_filter_pushdown = false;
+-- This should fall back to standard PostgreSQL execution (no custom scan)
+-- Disabled for now, as the output has a changing OID
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT 
+--     id,
+--     name,
+--     category_name,
+--     paradedb.score(id) as score
+-- FROM products 
+-- WHERE description @@@ 'Apple'
+--   AND category_name = 'Electronics'
+-- ORDER BY score DESC;
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+ id |    name     | category_name | score 
+----+-------------+---------------+-------
+  2 | MacBook Pro | Electronics   |      
+(1 row)
+
+-- Test edge case: Query with only indexed predicates should still work when GUC is disabled
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+ORDER BY score DESC;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on products
+         Table: products
+         Index: products_bm25_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
+
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+ORDER BY score DESC;
+ id |      name       |   score   
+----+-----------------+-----------
+  2 | MacBook Pro     | 1.6343809
+  1 | Apple iPhone 14 | 1.5177236
+(2 rows)
+
+-- Test edge case: Query with only non-indexed predicates when GUC is disabled
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+                      QUERY PLAN                       
+-------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Seq Scan on products
+         Filter: (category_name = 'Electronics'::text)
+(4 rows)
+
+SELECT 
+    id,
+    name,
+    category_name
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+ id |      name       | category_name 
+----+-----------------+---------------
+  2 | MacBook Pro     | Electronics
+  4 | Samsung Galaxy  | Electronics
+  7 | Apple Watch     | Electronics
+  8 | Sony Headphones | Electronics
+ 10 | Budget Phone    | Electronics
+(5 rows)
+
+-- Restore the GUC to its default value
+SET paradedb.enable_filter_pushdown = true;

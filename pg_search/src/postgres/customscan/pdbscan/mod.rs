@@ -246,12 +246,7 @@ impl PdbScan {
                 &mut state,
             );
 
-            // Apply HeapExpr optimization to the extracted quals
-            if let Some(ref mut q) = quals {
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                let relation_oid = (*rte).relid;
-                qual_inspect::optimize_quals_with_heap_expr(q);
-            }
+            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
 
             // If we have found something to push down in the join, or if we have found something to
             // push down in the base relation, then we can use the join quals
@@ -261,13 +256,7 @@ impl PdbScan {
                 (None, ri_type, restrict_info)
             }
         } else {
-            // Apply HeapExpr optimization to the base relation quals
-            if let Some(ref mut q) = quals {
-                let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-                let relation_oid = (*rte).relid;
-                qual_inspect::optimize_quals_with_heap_expr(q);
-            }
-
+            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
             (quals, ri_type, restrict_info)
         };
 
@@ -277,6 +266,26 @@ impl PdbScan {
         } else {
             (None, ri_type, restrict_info)
         }
+    }
+
+    unsafe fn handle_heap_expr_optimization(
+        state: &QualExtractState,
+        quals: &mut Option<Qual>,
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+    ) -> Option<Qual> {
+        if state.uses_heap_expr && !state.uses_our_operator {
+            return None;
+        }
+
+        // Apply HeapExpr optimization to the base relation quals
+        if let Some(ref mut q) = quals {
+            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+            let relation_oid = (*rte).relid;
+            qual_inspect::optimize_quals_with_heap_expr(q);
+        }
+
+        quals.clone()
     }
 }
 

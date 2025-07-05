@@ -634,3 +634,99 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC; 
+
+-- Test Case 19: Test the new GUC paradedb.enable_filter_pushdown
+-- This test verifies that the GUC properly controls whether custom scan is used for non-indexed fields
+
+-- First, save the current setting
+SHOW paradedb.enable_filter_pushdown;
+
+-- Test with GUC enabled (default behavior)
+SET paradedb.enable_filter_pushdown = true;
+
+-- This should use custom scan with HeapExpr for non-indexed predicates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+-- Now test with GUC disabled
+SET paradedb.enable_filter_pushdown = false;
+
+-- This should fall back to standard PostgreSQL execution (no custom scan)
+-- Disabled for now, as the output has a changing OID
+-- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+-- SELECT 
+--     id,
+--     name,
+--     category_name,
+--     paradedb.score(id) as score
+-- FROM products 
+-- WHERE description @@@ 'Apple'
+--   AND category_name = 'Electronics'
+-- ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    category_name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
+
+-- Test edge case: Query with only indexed predicates should still work when GUC is disabled
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+ORDER BY score DESC;
+
+SELECT 
+    id,
+    name,
+    paradedb.score(id) as score
+FROM products 
+WHERE description @@@ 'Apple'
+ORDER BY score DESC;
+
+-- Test edge case: Query with only non-indexed predicates when GUC is disabled
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT 
+    id,
+    name,
+    category_name
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+
+SELECT 
+    id,
+    name,
+    category_name
+FROM products 
+WHERE category_name = 'Electronics'
+ORDER BY id;
+
+-- Restore the GUC to its default value
+SET paradedb.enable_filter_pushdown = true;

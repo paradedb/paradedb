@@ -1,0 +1,19 @@
+---
+title: 0.16.3
+---
+
+## Performance Improvements 🚀
+
+- Single-row write throughput is now doubled compared to `0.15.26`, due to a combination of
+  performance optimizations and fixing a regression introduced in `0.16.0`
+
+## Stability Improvements 💪
+
+- Unconditional query pushdown, introduced in `0.16.0`, has been disabled by default due to a number
+  of corner cases uncovered after its release. To re-enable it (not recommended):
+
+```sql
+SET paradedb.enable_custom_scan_without_operator = on;
+```
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.16.3).

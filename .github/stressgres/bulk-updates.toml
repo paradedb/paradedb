@@ -88,7 +88,7 @@ title = "Bulk Update"
 log_tps = true
 log_count = true
 sql = """
-EXPLAIN UPDATE test
+UPDATE test
 SET severity = (severity + 1) % 5
 WHERE id < 10000;
 """

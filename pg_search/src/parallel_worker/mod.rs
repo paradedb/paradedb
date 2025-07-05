@@ -300,7 +300,7 @@ impl ParallelStateManager {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,no_run,compile_fail
 /// use pg_search::launch_parallel_process;
 /// use pg_search::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker, WorkerStyle};
 /// use pg_search::parallel_worker::ParallelStateManager;

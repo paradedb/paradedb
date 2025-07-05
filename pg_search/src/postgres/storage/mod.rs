@@ -93,6 +93,7 @@
 pub mod block;
 mod blocklist;
 pub mod buffer;
+mod fsm;
 pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;

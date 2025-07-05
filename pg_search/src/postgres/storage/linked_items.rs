@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{BufferManager, BufferMut};
+use super::buffer::{init_new_buffer, BufferManager, BufferMut};
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use pgrx::pg_sys;
@@ -90,6 +90,22 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             bman: BufferManager::new(indexrel),
             _marker: std::marker::PhantomData,
         }
+    }
+
+    pub unsafe fn create_direct(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
+        let mut header_buffer = init_new_buffer(indexrel);
+        let start_buffer = init_new_buffer(indexrel);
+
+        let header_blockno = header_buffer.number();
+        let start_blockno = start_buffer.number();
+
+        let mut header_page = header_buffer.page_mut();
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.start_blockno = start_blockno;
+        metadata.last_blockno = start_blockno;
+        metadata.npages = 0;
+
+        header_blockno
     }
 
     pub fn create(indexrel: &PgSearchRelation) -> Self {
@@ -370,7 +386,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         // We create the duplicate without a start page: it will be filled in in the first
         // iteration of the loop below.
         let (mut cloned, mut previous_buffer) =
-            LinkedItemList::create_without_start_page(self.bman.bm25cache().rel());
+            LinkedItemList::create_without_start_page(self.bman.buffer_access().rel());
 
         // TODO: This code could either:
         // * switch to compacting pages as it goes.
@@ -487,11 +503,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
         std::mem::drop(original_header_lock);
 
         // And then collect our old contents, which are no longer reachable.
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = original.bman_mut().get_buffer_mut(blockno);
+        let recyclable_block = std::iter::from_fn(move || {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+            let recyclable_blockno = blockno;
+            let buffer = original.bman.get_buffer(blockno);
             blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(&mut original.bman);
-        }
+            Some(recyclable_blockno)
+        });
+        self.bman.fsm().extend(&mut self.bman, recyclable_block);
     }
 }
 
@@ -511,18 +532,27 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
 
         // The guard was dropped without a call to commit: return its pages.
         let header_blockno = self.cloned.header_blockno;
-        let bman = self.cloned.bman_mut();
-        let header_buffer = bman.get_buffer_mut(header_blockno);
+        let bman = self.cloned.bman().clone();
+        let header_buffer = bman.get_buffer(header_blockno);
         let mut blockno = header_buffer
             .page()
             .contents::<LinkedListData>()
             .start_blockno;
-        header_buffer.return_to_fsm(bman);
-        while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = bman.get_buffer_mut(blockno);
-            blockno = buffer.page().next_blockno();
-            buffer.return_to_fsm(bman);
-        }
+        drop(header_buffer);
+
+        let recyclable_blocks =
+            std::iter::once(header_blockno).chain(std::iter::from_fn(move || {
+                if blockno == pg_sys::InvalidBlockNumber {
+                    return None;
+                }
+
+                let recyable_blockno = blockno;
+                let buffer = bman.get_buffer(blockno);
+                blockno = buffer.page().next_blockno();
+                Some(recyable_blockno)
+            }));
+        let fsm = self.bman.fsm();
+        fsm.extend(&mut self.bman, recyclable_blocks);
     }
 }
 

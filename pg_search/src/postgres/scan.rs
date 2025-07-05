@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{parallel, ScanStrategy};
@@ -124,10 +123,6 @@ pub extern "C-unwind" fn amrescan(
     unsafe {
         parallel::maybe_init_parallel_scan(scan, &search_reader);
 
-        let options = SearchIndexOptions::from_relation(&indexrel);
-        let key_field = options.key_field_name();
-        let key_field_type = search_reader.key_field().field_type().into();
-
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
             search_reader.search(None)
@@ -141,10 +136,15 @@ pub extern "C-unwind" fn amrescan(
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
         let scan_state = if (*scan).xs_want_itup {
+            let schema = indexrel.schema().expect("indexrel should have a schema");
             Bm25ScanState {
                 fast_fields: FFHelper::with_fields(
                     &search_reader,
-                    &[(key_field, key_field_type).into()],
+                    &[(
+                        schema.key_field_name(),
+                        FastFieldType::from(schema.key_field_type()),
+                    )
+                        .into()],
                 ),
                 reader: search_reader,
                 results,

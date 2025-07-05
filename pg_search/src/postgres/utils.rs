@@ -16,17 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::expression::PG_SEARCH_PREFIX;
-use crate::api::FieldName;
+use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
-use pgrx::pg_sys::Oid;
 use pgrx::*;
+use rustc_hash::FxHashMap;
 use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 
@@ -85,86 +85,58 @@ pub fn u64_to_item_pointer(value: u64, tid: &mut pg_sys::ItemPointerData) {
     item_pointer_set_all(tid, blockno, offno);
 }
 
-pub struct CategorizedFieldData {
+/// Represents the metadata extracted from an index attribute
+#[derive(Debug)]
+pub struct ExtractedFieldAttribute {
+    /// its ordinal position in the index attribute list
     pub attno: usize,
-    pub base_oid: PgOid,
-    pub is_array: bool,
-    pub is_json: bool,
-}
 
-pub fn categorize_fields(
-    indexrel: &PgSearchRelation,
-    schema: &SearchIndexSchema,
-) -> Vec<(SearchField, CategorizedFieldData)> {
-    let mut alias_lookup = schema.alias_lookup();
-    extract_field_attributes(indexrel)
-        .into_iter()
-        .enumerate()
-        .flat_map(|(attno, (attname, attribute_type_oid))| {
-            // List any indexed fields that use this column as source data.
-            let mut search_fields = alias_lookup.remove(&attname).unwrap_or_default();
+    /// its original Postgres type OID
+    pub pg_type: PgOid,
 
-            // If there's an indexed field with the same name as a this column, add it to the list.
-            if let Some(index_field) = schema.search_field(&attname) {
-                search_fields.push(index_field)
-            };
-
-            search_fields
-                .into_iter()
-                .map(|search_field| {
-                    let (base_oid, is_array) = resolve_base_type(PgOid::from(attribute_type_oid))
-                        .unwrap_or_else(|| {
-                            pgrx::error!(
-                                "Failed to resolve base type for column {} with type {:?}",
-                                attname,
-                                attribute_type_oid
-                            )
-                        });
-                    let is_json = matches!(
-                        base_oid,
-                        PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
-                    );
-                    (
-                        search_field.clone(),
-                        CategorizedFieldData {
-                            attno,
-                            base_oid,
-                            is_array,
-                            is_json,
-                        },
-                    )
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    /// the type we'll use for indexing in tantivy
+    pub tantivy_type: SearchFieldType,
 }
 
 /// Extracts the field attributes from the index relation.
 /// It returns a vector of tuples containing the field name and its type OID.
-pub fn extract_field_attributes(indexrel: &PgSearchRelation) -> Vec<(String, Oid)> {
-    let tupdesc = unsafe { PgTupleDesc::from_pg_unchecked(indexrel.rd_att) };
-    let index_info = unsafe { pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
-    let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions) };
+pub unsafe fn extract_field_attributes(
+    indexrel: pg_sys::Relation,
+) -> HashMap<FieldName, ExtractedFieldAttribute> {
+    let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
+    let index_info = pg_sys::BuildIndexInfo(indexrel);
+    let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
     let mut expressions_iter = expressions.iter_ptr();
 
-    let mut field_attributes = Vec::new();
-    for i in 0..(unsafe { *index_info }).ii_NumIndexAttrs {
-        let heap_attno = (unsafe { *index_info }).ii_IndexAttrNumbers[i as usize];
+    let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
+    for attno in 0..(*index_info).ii_NumIndexAttrs {
+        let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
         let (attname, attribute_type_oid) = if heap_attno == 0 {
             // Is an expression.
             let Some(expression) = expressions_iter.next() else {
-                panic!("Expected expression for index attribute {i}.");
+                panic!("Expected expression for index attribute {attno}.");
             };
             let node = expression.cast();
-            (format!("{PG_SEARCH_PREFIX}{i}"), unsafe {
-                pg_sys::exprType(node)
-            })
+            (
+                format!("{PG_SEARCH_PREFIX}{attno}").into(),
+                pg_sys::exprType(node),
+            )
         } else {
             // Is a field.
-            let att = tupdesc.get(i as usize).expect("attribute should exist");
-            (att.name().to_owned(), att.type_oid().value())
+            let att = tupdesc.get(attno as usize).expect("attribute should exist");
+            (att.name().to_owned().into(), att.type_oid().value())
         };
-        field_attributes.push((attname, attribute_type_oid));
+
+        let pg_type = PgOid::from_untagged(attribute_type_oid);
+        let tantivy_type = SearchFieldType::try_from(pg_type).unwrap_or_else(|e| panic!("{e}"));
+        field_attributes.insert(
+            attname,
+            ExtractedFieldAttribute {
+                attno: attno as usize,
+                pg_type,
+                tantivy_type,
+            },
+        );
     }
     field_attributes
 }
@@ -189,7 +161,7 @@ pub unsafe fn row_to_search_document(
         let datum = *values.add(*attno);
         let isnull = *isnull.add(*attno);
 
-        if isnull && *key_field_name == search_field.field_name() {
+        if isnull && key_field_name == search_field.field_name() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }
 

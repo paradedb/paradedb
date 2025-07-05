@@ -25,7 +25,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::CLEANUP_LOCK;
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::query::SearchQueryInput;
-use crate::schema::SearchField;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use std::cmp::Ordering;
@@ -286,8 +285,8 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = SearchIndexSchema::from_index(index_relation, &index);
-        setup_tokenizers(index_relation, &mut index, &schema)?;
+        let schema = index_relation.schema()?;
+        setup_tokenizers(index_relation, &mut index)?;
 
         let reader = index
             .reader_builder()
@@ -330,10 +329,6 @@ impl SearchIndexReader {
             .iter()
             .map(|r| r.segment_id())
             .collect()
-    }
-
-    pub fn key_field(&self) -> SearchField {
-        self.schema.key_field()
     }
 
     pub fn need_scores(&self) -> bool {

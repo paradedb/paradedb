@@ -18,9 +18,8 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys, PgMemoryContexts};
+use pgrx::{check_for_interrupts, pg_sys};
 use std::fmt::Debug;
-use std::sync::LazyLock;
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
@@ -80,18 +79,24 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
-struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
-unsafe impl Send for BufferAccessStrategyHolder {}
-unsafe impl Sync for BufferAccessStrategyHolder {}
+#[cfg(any(feature = "pg16", feature = "pg17"))]
+mod bas_bulkwrite {
+    use pgrx::{pg_sys, PgMemoryContexts};
+    use std::sync::LazyLock;
 
-static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
-    BufferAccessStrategyHolder(unsafe {
-        // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
-        PgMemoryContexts::TopMemoryContext.switch_to(|_| {
-            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
+    pub(super) struct BufferAccessStrategyHolder(pub(super) pg_sys::BufferAccessStrategy);
+    unsafe impl Send for BufferAccessStrategyHolder {}
+    unsafe impl Sync for BufferAccessStrategyHolder {}
+
+    pub(super) static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
+        BufferAccessStrategyHolder(unsafe {
+            // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
+            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
+            })
         })
-    })
-});
+    });
+}
 
 #[derive(Debug)]
 pub struct BM25BufferCache {
@@ -137,7 +142,7 @@ impl BM25BufferCache {
                     pg_sys::ExtendBufferedRelBy(
                         bmr,
                         pg_sys::ForkNumber::MAIN_FORKNUM,
-                        BAS_BULKWRITE.0,
+                        bas_bulkwrite::BAS_BULKWRITE.0,
                         0,
                         (npages - filled) as _,
                         buffers.as_mut_ptr().add(filled),

@@ -105,9 +105,9 @@ impl TryFrom<PgOid> for SearchFieldType {
             .unwrap_or_else(|| pgrx::error!("Failed to resolve base type for type {:?}", pg_oid));
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID
-                | PgBuiltInOids::VARCHAROID
-                | PgBuiltInOids::TEXTARRAYOID => Ok(SearchFieldType::Text((*builtin).into())),
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                    Ok(SearchFieldType::Text((*builtin).into()))
+                }
                 PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Uuid((*builtin).into())),
                 PgBuiltInOids::INETOID => Ok(SearchFieldType::Inet((*builtin).into())),
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {

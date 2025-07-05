@@ -1,6 +1,29 @@
 \set rows :rows
 \echo 'Generating' :rows 'rows in a facts table, and' :rows '/ 8 rows in two dimension tables.'
 
+-- Begin transaction to ensure atomic execution
+BEGIN;
+
+-- Check for existing data and warn user
+DO $$
+DECLARE
+    doc_count integer;
+    file_count integer;
+    page_count integer;
+BEGIN
+    -- Check if tables exist and have data
+    SELECT count(*) INTO doc_count FROM information_schema.tables WHERE table_name = 'documents';
+    IF doc_count > 0 THEN
+        SELECT count(*) INTO doc_count FROM documents;
+        SELECT count(*) INTO file_count FROM files;
+        SELECT count(*) INTO page_count FROM pages;
+        
+        IF doc_count > 0 OR file_count > 0 OR page_count > 0 THEN
+            RAISE NOTICE 'WARNING: Found existing data - documents: %, files: %, pages: %', doc_count, file_count, page_count;
+            RAISE NOTICE 'This will be replaced with new data...';
+        END IF;
+    END IF;
+END $$;
 
 -- Create tables
 
@@ -404,3 +427,33 @@ SELECT
     md5(random()::text) "fill28"
 FROM page_generation_series pgs
 JOIN file_id_list fil ON pgs.random_file_rn = fil.rn;
+
+-- Verify the correct amount of data was inserted
+DO $$
+DECLARE
+    expected_docs integer := ceil(:rows / 8.0);
+    expected_files integer := ceil(:rows / 8.0);
+    expected_pages integer := :rows;
+    actual_docs integer;
+    actual_files integer;
+    actual_pages integer;
+BEGIN
+    SELECT count(*) INTO actual_docs FROM documents;
+    SELECT count(*) INTO actual_files FROM files;
+    SELECT count(*) INTO actual_pages FROM pages;
+    
+    RAISE NOTICE 'Data generation verification:';
+    RAISE NOTICE '  Documents: % (expected: %)', actual_docs, expected_docs;
+    RAISE NOTICE '  Files: % (expected: %)', actual_files, expected_files;
+    RAISE NOTICE '  Pages: % (expected: %)', actual_pages, expected_pages;
+    
+    IF actual_docs != expected_docs OR actual_files != expected_files OR actual_pages != expected_pages THEN
+        RAISE EXCEPTION 'Data generation failed - incorrect row counts. Expected docs: %, files: %, pages: %. Got docs: %, files: %, pages: %', 
+            expected_docs, expected_files, expected_pages, actual_docs, actual_files, actual_pages;
+    END IF;
+    
+    RAISE NOTICE 'Data generation completed successfully!';
+END $$;
+
+-- Commit the transaction to ensure all changes are applied atomically
+COMMIT;

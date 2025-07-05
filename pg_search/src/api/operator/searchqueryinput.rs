@@ -183,9 +183,8 @@ pub fn search_with_query_input(
         let search_reader = SearchIndexReader::open(&index_relation, search_query_input, false, MvccSatisfies::Snapshot)
             .expect("search_with_query_input: should be able to open a SearchIndexReader");
         let schema = search_reader.schema();
-        let key_field = search_reader.key_field();
-        let key_field_name = key_field.field_name().root();
-        let key_field_type = schema.search_field(&key_field_name).unwrap().field_type().into();
+        let key_field_name = schema.key_field_name();
+        let key_field_type = schema.key_field_type().into();
         let ff_helper =
             FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 

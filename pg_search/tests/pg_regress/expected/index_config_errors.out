@@ -15,7 +15,7 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
         "some_wrong_key": {"tokenizer": {"type": "default"}}
     }'
     );
-ERROR:  field type should have been set for `some_wrong_key`
+ERROR:  the column `some_wrong_key` does not exist in the table
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     USING bm25 (id, name)
     WITH (
@@ -25,4 +25,17 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     }'
     );
 ERROR:  field config should be valid for SearchFieldConfig::name: unknown tokenizer type: some_wrong_type
+CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
+    USING bm25 (id, name)
+    WITH (
+    key_field = 'id',
+    text_fields ='{
+        "id": {"tokenizer": {"type": "default"}}
+    }'
+    );
+ERROR:  cannot override BM25 configuration for key_field 'id', you must use an aliased field name and 'column' configuration key
+CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING bm25 (id, name);
+ERROR:  index should have a `WITH (key_field='...')` option
+CREATE INDEX idx_chunks_bm25 ON test_index_config_errors USING bm25 (id, name) WITH (text_fields ='{"id": {"tokenizer": {"type": "default"}}}');
+ERROR:  index should have a `WITH (key_field='...')` option
 DROP TABLE test_index_config_errors CASCADE;

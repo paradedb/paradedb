@@ -95,7 +95,6 @@ USING bm25 (
         "metadata_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "metadata" } 
     }'
 );
-WARNING:  the `raw` tokenizer is deprecated
 \echo '======== EXECUTION METHOD TESTS ========'
 ======== EXECUTION METHOD TESTS ========
 \echo 'Tests to identify when TopNScanExecState vs NormalScanExecState is used'

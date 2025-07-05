@@ -995,7 +995,7 @@ impl SearchQueryInput {
                 let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
                 let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let lower_bound = match lower_bound {
                     Bound::Included(value) => Bound::Included(value_to_term(
@@ -1047,7 +1047,7 @@ impl SearchQueryInput {
                 let typeoid = search_field.field_type().typeoid();
                 let is_datetime = search_field.is_datetime() || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
                 let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -1202,7 +1202,7 @@ impl SearchQueryInput {
                 let is_datetime = search_field.is_datetime() || is_datetime;
 
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
                 let range_field = RangeField::new(search_field.field(), is_datetime);
 
                 let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -1472,7 +1472,7 @@ impl SearchQueryInput {
                 let typeoid = search_field.field_type().typeoid();
                 let is_datetime = search_field.is_datetime() || is_datetime;
                 let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid.into(), lower_bound, upper_bound)?;
+                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
                 let range_field = RangeField::new(search_field.field(), is_datetime);
 

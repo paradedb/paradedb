@@ -318,7 +318,9 @@ impl CustomScan for PdbScan {
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
             let segment_count = segment_count.load(Ordering::Relaxed);
-            let schema = SearchIndexSchema::from_index(&bm25_index, &index);
+            let schema = bm25_index
+                .schema()
+                .expect("custom_scan: should have a schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -630,7 +632,7 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = SearchIndexSchema::from_index(&indexrel, &index);
+            let schema = indexrel.schema().expect("should have a schema");
 
             let base_query = builder
                 .custom_private()
@@ -1238,10 +1240,9 @@ fn compute_exec_which_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = builder.custom_state().indexrel();
-        let directory = MvccSatisfies::Snapshot.directory(indexrel);
-        let index =
-            Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::from_index(indexrel, &index);
+        let schema = indexrel
+            .schema()
+            .expect("create_custom_scan_state: should have a schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
         // the target list.

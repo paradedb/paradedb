@@ -151,8 +151,10 @@ jobs:
           fail-threshold: "110%" # Tolerate up to 10% regression
           fail-on-alert: true
 
+      # TODO: Only push on dev once done testings
       - name: Publish and check performance regression on dev
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+        if: ${{ github.event_name == 'push' }}
+        # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat/continuous-benchmarks' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search performance"
@@ -168,17 +170,16 @@ jobs:
 
       ### Continuous Benchmarking - End
 
-      # TODO: Uncomment once testing done
-      # - name: Notify Slack on Failure
-      #   if: failure()
-      #   env:
-      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-      #   run: |
-      #     GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      #     MESSAGE="<!here> \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-      #     curl -X POST -H 'Content-type: application/json' \
-      #     --data "{\"text\": \"${MESSAGE}\"}" \
-      #     ${SLACK_WEBHOOK_URL}
+      - name: Notify Slack on Failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\": \"${MESSAGE}\"}" \
+          ${SLACK_WEBHOOK_URL}
 
   upload-benchmark-results:
     name: Upload Benchmark Results to Slack

@@ -99,22 +99,8 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      ### Continuous Benchmarking - Start
-
-      - name: Download Previous Benchmark Data
-        uses: actions/cache@v4
-        with:
-          path: benchmarks/cache
-          key: benchmark-pg_search-${{ matrix.pg_version }}-rows-${{ matrix.num_rows }}
-
-      # Create an empty JSON file if it doesn't exist (e.g. first run)
-      - name: Init Benchmark History
-        run: |
-          mkdir -p benchmarks/cache
-          if [ ! -f benchmarks/cache/data.json ]; then
-            echo "[]" > benchmarks/cache/data.json
-          fi
-
+      # This is where we can configure how the different runs are aggregated
+      # into a single JSON file for plotting in our continuous benchmarks.
       - name: Generate pg_search JSON Metrics from CSV
         shell: python {0}
         run: |
@@ -168,7 +154,12 @@ jobs:
           fail-threshold: "110%"
           fail-on-alert: true
 
-      ### Continuous Benchmarking - End
+      # This is necessary to make the CSV files available to the Slack upload job.
+      - name: Upload CSV Artifacts to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmarks/results_pg_search_*.csv
 
       - name: Notify Slack on Failure
         if: failure()

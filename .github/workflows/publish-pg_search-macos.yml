@@ -2,7 +2,7 @@
 #
 # Publish pg_search (macOS)
 # Build and publish the pg_search extension for macOS as .pkg to GitHub Releases. This
-# workflow is gets triggered on creation of a GitHub Tag, but beta releases get filtered
+# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
 # out by the `if` condition of the job.
 
 name: Publish pg_search (macOS)

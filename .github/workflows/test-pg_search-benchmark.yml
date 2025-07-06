@@ -119,17 +119,23 @@ jobs:
         shell: python {0}
         run: |
           import csv, json
+
           metrics = []
           with open('benchmarks/results_pg_search_benchmark_results.csv', 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
-              metrics.append({
-                "name": row["metric"],
-                "unit": row["unit"],
-                "value": float(row["value"])
-              })
+              q = row['Query Type']
+              # for each of the three runs, emit a separate metric
+              for i in [1, 2, 3]:
+                val = float(row[f'Run {i} (ms)'])
+                metrics.append({
+                  "name": f"{q} (run {i})",
+                  "unit": "ms",
+                  "value": val
+                  })
+
           with open('benchmarks/pg_search_data.json', 'w') as out:
-            json.dump(metrics, out)
+              json.dump(metrics, out)
 
       - name: Check Performance Regressions on PRs
         if: ${{ github.event_name == 'pull_request' }}

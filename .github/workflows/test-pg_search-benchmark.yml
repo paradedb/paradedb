@@ -10,11 +10,16 @@ on:
   push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
+      - feat/continuous-benchmarks # TODO: Remove this once testing is complete
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
 
 concurrency:
   group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
@@ -94,12 +99,68 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
 
-      # This is necessary to make the CSV files available to the Slack upload job.
-      - name: Upload CSV Artifacts to GitHub
-        uses: actions/upload-artifact@v4
+      ### Continuous Benchmarking - Start
+
+      - name: Download Previous Benchmark Data
+        uses: actions/cache@v4
         with:
-          name: benchmark-results
-          path: benchmarks/results_pg_search_*.csv
+          path: benchmarks/cache
+          key: benchmark-pg_search-${{ matrix.pg_version }}-rows-${{ matrix.num_rows }}
+
+      # Create an empty JSON file if it doesn't exist (e.g. first run)
+      - name: Init Benchmark History
+        run: |
+          mkdir -p benchmarks/cache
+          if [ ! -f benchmarks/cache/data.json ]; then
+            echo "[]" > benchmarks/cache/data.json
+          fi
+
+      - name: Generate pg_search JSON Metrics from CSV
+        shell: python3
+        run: |
+          import csv, json
+          metrics = []
+          with open('benchmarks/results_pg_search_benchmark_results.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+              metrics.append({
+                "name": row["metric"],
+                "unit": row["unit"],
+                "value": float(row["value"])
+              })
+          with open('benchmarks/pg_search_data.json', 'w') as out:
+            json.dump(metrics, out)
+
+      - name: Check Performance Regressions on PRs
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search Benchmarks"
+          tool: "customSmallerIsBetter"
+          output-file-path: "benchmarks/pg_search_data.json"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: benchmarks
+          alert-threshold: "110%"
+          fail-threshold: "110%" # Tolerate up to 10% regression
+          fail-on-alert: true
+
+      - name: Publish and check performance regression on dev
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search performance"
+          tool: "customSmallerIsBetter"
+          output-file-path: "benchmarks/pg_search_data.json"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: benchmarks
+          alert-threshold: "110%"
+          fail-threshold: "110%"
+          fail-on-alert: true
+
+      ### Continuous Benchmarking - End
 
       - name: Notify Slack on Failure
         if: failure()

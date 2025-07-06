@@ -32,7 +32,7 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-        num_rows: [100000000]
+        num_rows: [10000] # TODO: Reset the row count once the testing is complete.
 
     steps:
       - name: Checkout Git Repository

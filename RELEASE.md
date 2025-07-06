@@ -67,7 +67,7 @@ See [example prep PR](https://github.com/paradedb/paradedb/pull/2720).
 1. **Verify** the GitHub Release and tag.
 2. **Open a post-release PR** against `dev` to bump `Cargo.toml` to the next development version (e.g. `1.2.0-rc.1`).
 3. **Merge** that PR so `dev` reflects ongoing work.
-   4 **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
+4. **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
 
 ---
 

@@ -136,6 +136,8 @@ jobs:
           alert-threshold: "110%"
           fail-threshold: "110%" # Tolerate up to 10% regression
           fail-on-alert: true
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.event.pull_request.user.login }}"
 
       # TODO: Only push on dev once done testings
       - name: Publish and check performance regression on dev
@@ -153,6 +155,8 @@ jobs:
           alert-threshold: "110%"
           fail-threshold: "110%"
           fail-on-alert: true
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
 
       # This is necessary to make the CSV files available to the Slack upload job.
       - name: Upload CSV Artifacts to GitHub

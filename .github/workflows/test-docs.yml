@@ -38,7 +38,7 @@ jobs:
         working-directory: docs/
         run: |
           output=$(mintlify broken-links)
-          if [[ "$output" == *"success no broken links found."* ]]; then
+          if [[ "$output" == *"success no broken links found"* ]]; then
             echo "No broken links found."
           else
             echo "$output"

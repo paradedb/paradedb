@@ -1,4 +1,5 @@
 use clap::Parser;
+use paradedb::join_perf::benchmark_join_perf;
 use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
@@ -44,7 +45,7 @@ struct Args {
     #[arg(long, value_parser = ["md", "csv"], default_value = "md")]
     output: String,
 
-    #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
+    #[arg(long, value_parser = ["fastfields", "sql", "join-perf"], default_value = "sql")]
     benchmark: String,
 
     #[arg(long, default_value = "2")]
@@ -72,6 +73,44 @@ async fn main() {
         )
         .await;
         println!("Mixed Fast Fields Benchmark Completed: {res:?}");
+    } else if args.benchmark == "join-perf" {
+        let mut conn = PgConnection::connect(&args.url).await.unwrap();
+
+        // Create pg_search extension first
+        println!("Creating pg_search extension...");
+        sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_search;")
+            .execute(&mut conn)
+            .await
+            .expect("Failed to create pg_search extension");
+
+        // Ensure we have the join dataset
+        if !args.existing {
+            generate_test_data(&args.url, "join", args.rows);
+
+            // Create indexes automatically for join-perf benchmark
+            let index_sql = "datasets/join/create_index/pg_search.sql";
+            let status = Command::new("psql")
+                .arg(&args.url)
+                .arg("-f")
+                .arg(index_sql)
+                .status()
+                .expect("Failed to create indexes");
+
+            if !status.success() {
+                eprintln!("Failed to create indexes");
+                std::process::exit(1);
+            }
+            println!("Indexes created successfully for join performance benchmark");
+        }
+
+        let res = benchmark_join_perf(&mut conn).await;
+        match res {
+            Ok(()) => println!("Join Performance Benchmark Completed Successfully"),
+            Err(e) => {
+                eprintln!("Join Performance Benchmark Failed: {e}");
+                std::process::exit(1);
+            }
+        }
     } else if args.benchmark == "sql" {
         if !args.existing {
             generate_test_data(&args.url, &args.dataset, args.rows);

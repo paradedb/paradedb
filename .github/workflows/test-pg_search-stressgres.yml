@@ -126,7 +126,7 @@ jobs:
 
       - name: Generate Stressgres Continuous Benchmarking Metrics
         working-directory: stressgres/
-        run: cargo run graph headless-mode-generated-data.log output.csv
+        run: cargo run graph stressgres-${{ matrix.test_file }}.log output.csv
 
       - name: Create Stressgres Graph
         working-directory: stressgres/

@@ -56,7 +56,7 @@ See [example prep PR](https://github.com/paradedb/paradedb/pull/2720).
 
 ## Triggering a Release
 
-1. Go to **Actions → Publish GitHub Release**.
+1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
 2. Click **Run workflow** and set your inputs.
 3. Click **Run workflow** to start the job.
 

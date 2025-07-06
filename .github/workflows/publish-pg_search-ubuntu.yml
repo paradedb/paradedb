@@ -2,7 +2,7 @@
 #
 # Publish pg_search (Ubuntu)
 # Build and publish the pg_search extension as .deb to GitHub Releases. This workflow is
-# gets triggered on creation of a GitHub Tag, but beta releases get filtered out by the
+# triggered on creation of a GitHub Tag, but beta releases get filtered out by the
 # `if` condition of the job.
 
 name: Publish pg_search (Ubuntu)

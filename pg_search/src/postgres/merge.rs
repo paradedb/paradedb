@@ -27,7 +27,8 @@ use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys;
-use pgrx::{pg_guard, FromDatum, IntoDatum};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{function_name, pg_guard, FromDatum, IntoDatum, PgLogLevel, PgSqlErrorCode};
 use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
@@ -155,7 +156,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         index.namespace(),
         index.name()
     );
-    let _ = BackgroundWorkerBuilder::new(&worker_name)
+    if BackgroundWorkerBuilder::new(&worker_name)
         .enable_spi_access()
         .enable_shmem_access(None)
         .set_library("pg_search")
@@ -163,7 +164,17 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         .set_argument(index.oid().into_datum())
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
-        .load_dynamic();
+        .load_dynamic()
+        .is_err()
+    {
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
+            "not enough available `max_worker_processes` to launch a background merger",
+            function_name!(),
+        )
+        .set_hint("`SET max_worker_processes = <number>`")
+        .report(PgLogLevel::WARNING);
+    }
 }
 
 /// Actually do the merge

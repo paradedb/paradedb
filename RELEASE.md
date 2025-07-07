@@ -1,6 +1,6 @@
 # ParadeDB Release Process
 
-We use a single branch, `dev`, for our development. All feature work happens on feature branches and is merged into `dev` via pull requests. Every release is triggered manually via the [**Publish GitHub Release**](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) workflow in the GitHub Actions UI.
+We use a single branch, `main`, for our development. All feature work happens on feature branches and is merged into `main` via pull requests. Every release is triggered manually via the [**Publish GitHub Release**](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) workflow in the GitHub Actions UI.
 
 ---
 
@@ -9,7 +9,7 @@ We use a single branch, `dev`, for our development. All feature work happens on 
 When doing a release, it should **always** be done via the workflow from the branch which is being released. This can be selected in the GitHub Actions UI.
 
 - **Minor Release**:
-  All releases from our `dev` branch are minor releases.
+  All releases from our `main` branch are minor releases.
 - **Patch Release**:
   Creates a patch bump off of an existing tag (e.g. `v1.4.0 → v1.4.1`).
 - **Beta (RC) Release** (`beta: true`):
@@ -35,7 +35,7 @@ When doing a release, it should **always** be done via the workflow from the bra
 
 Before running the workflow:
 
-1. **Create a prep PR** against `dev` that:
+1. **Create a prep PR** against `main` that:
    - Updates `Cargo.toml` to the target semver:
      - `a.b.c-rc.d` for **beta**.
      - `a.b.c` for **stable** (minor/patch/hotfix).
@@ -58,8 +58,8 @@ See [example prep PR](https://github.com/paradedb/paradedb/pull/2720).
 ## Post-Release Steps
 
 1. **Verify** the GitHub Release and tag.
-2. **Open a post-release PR** against `dev` to bump `Cargo.toml` to the next development version (e.g. `1.2.0-rc.1`).
-3. **Merge** that PR so `dev` reflects ongoing work.
+2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `1.2.0-rc.1`).
+3. **Merge** that PR so `main` reflects ongoing work.
 4. **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
 
 ---

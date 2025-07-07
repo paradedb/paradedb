@@ -9,7 +9,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
+      - main
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
@@ -47,7 +47,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # save the cache on the `main` branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -119,17 +119,17 @@ jobs:
         working-directory: pg_search/
         run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
 
-      - name: Install cargo-pgrx for ParadeDB `dev`
+      - name: Install cargo-pgrx for ParadeDB `main`
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB `dev`
+      - name: Initialize cargo-pgrx environment for ParadeDB `main`
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # This is the current version which we want to test upgrading to
-      - name: Checkout ParadeDB `dev`
+      - name: Checkout ParadeDB `main`
         run: git checkout ${{ github.head_ref }}
 
-      - name: Compile & install pg_search `dev`
+      - name: Compile & install pg_search `main`
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

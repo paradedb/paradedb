@@ -91,6 +91,6 @@ jobs:
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
           prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
           generate_release_notes: true
-          make_latest: ${{ github.ref_name == 'dev' }} # Only mark this as “latest” when running on the `dev` branch (beta and patch releases should not be marked as latest)
+          make_latest: ${{ github.ref_name == 'main' }} # Only mark this as “latest” when running on the `main` branch (beta and patch releases should not be marked as latest)
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

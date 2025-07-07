@@ -9,15 +9,15 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
+      - main
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches: # Also run on `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - dev
+    branches: # Also run on `main` to fill the GitHub Actions Rust cache in a way that PRs can see it
+      - main
     paths:
       - "**/*.rs"
       - "**/*.toml"
@@ -73,7 +73,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # save the cache on the `main` branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -175,7 +175,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # save the cache on the `main` branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:

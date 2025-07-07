@@ -7,8 +7,8 @@ name: Test pg_search Stressgres
 
 on:
   push:
-    branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
-      - dev
+    branches: # On the `main` branch, we run Stressgres post pushes to speed up CI
+      - main
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
@@ -59,7 +59,7 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # save the cache on the `main` branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:

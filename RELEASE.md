@@ -41,7 +41,7 @@ Before running the workflow:
    - Updates `Cargo.toml` to the target semver:
      - `a.b.c-rc.d` for **beta**.
      - `a.b.c` for **stable** (minor/patch/hotfix).
-   - Runs `cargo build` to refresh `Cargo.lock`.
+   - Runs `cargo check` to refresh `Cargo.lock`.
    - (Stable only) Updates version references in docs, adds a changelog entry, and updates `docs/docs.json`.
    - Adds `pg_search--<old-version>--<new-version>.sql` upgrade script.
 

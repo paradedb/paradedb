@@ -107,7 +107,8 @@ impl FreeSpaceManager {
             }
 
             // found a block to return
-            page.contents_mut::<FSMBlock>().meta.len -= 1;
+            let block = page.contents_mut::<FSMBlock>();
+            block.meta.len -= 1;
             return Some(block.blocks[block.meta.len as usize]);
         }
     }
@@ -150,7 +151,7 @@ impl FreeSpaceManager {
         bman: &mut BufferManager,
         extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
     ) {
-        let mut blocks = extend_with.peekable();
+        let mut extend_with = extend_with.peekable();
         let mut blockno = self.start_blockno;
         loop {
             let mut buffer = bman.get_buffer_mut(blockno);
@@ -158,7 +159,7 @@ impl FreeSpaceManager {
 
             let mut len = page.contents::<FSMBlock>().meta.len as usize;
             while len < UNCOMPRESSED_MAX_BLOCKS_PER_PAGE {
-                match blocks.peek() {
+                match extend_with.peek() {
                     // we've added every block from the iterator
                     None => {
                         return;
@@ -170,7 +171,7 @@ impl FreeSpaceManager {
                         block.blocks[block.meta.len as usize] = *blockno;
                         block.meta.len += 1;
                         len = block.meta.len as usize;
-                        blocks.next(); // burn it
+                        extend_with.next(); // burn it
                     }
                 }
             }

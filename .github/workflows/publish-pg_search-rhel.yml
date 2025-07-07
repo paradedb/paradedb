@@ -14,8 +14,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/icu # TODO: Remove once test done
   workflow_dispatch:
     inputs:
       version:

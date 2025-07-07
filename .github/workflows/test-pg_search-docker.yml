@@ -108,7 +108,7 @@ jobs:
             exit 1
           fi
 
-      # On PRs to `main` we compare the Docker image built from the PR to the last official
+      # On PRs to `dev` we compare the Docker image built from the PR to the last official
       # ParadeDB Docker image in Docker Hub to check for security regressions.
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
         if: steps.org-check.outputs.is_member == 'true'

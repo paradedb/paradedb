@@ -39,6 +39,6 @@ ALTER INDEX search_idx SET (background_layer_size_threshold = '100MB');
 ```
 
 As a general rule of thumb, merging larger layers is expensive and should happen in the background, whereas merging smaller layers is cheap and should happen in the foregorund
-to reduces the overhead of creating many background processes.
+to reduce the overhead of creating many background processes.
 
 Setting `background_layer_size_threshold` to `0` disables background merging and forces all merging to happen in the foreground.

@@ -35,30 +35,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Confirmation
+      - name: Confirm the Pre-Release Checklist Was Completed
         run: |
           echo "Confirmation: ${{ github.event.inputs.confirmation }}"
           if [[ "${{ github.event.inputs.confirmation }}" == "true" ]]; then
-            echo "Confirmation passed!"
+            echo "Thank you for confirming that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
           else
-            echo "Confirmation failed!"
+            echo "Confirmation failed! Please confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated."
             exit 1
           fi
 
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`. If the
-      # user forgot to increment the version, they will need to do it in a PR, which will trigger the workflow
-      # test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
-      # TODO: How to ensure that the next specified versioni is correct? Do I need to check for existing override to old ones?
+      # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`, and that the
+      # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
+      # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
       - name: Validate Cargo.toml Version Matches Release Type
         run: |
-          # If the release type is beta, the version in Cargo.toml must contain `-rc.X`
+          echo "Checking for existing release..."
+          if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
+            echo "Release v${{ github.event.inputs.version }} already exists. All releases must be unique."
+            exit 1
+          fi
+          echo "Release check passed!"
+
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
             echo "Validating that the version in Cargo.toml contains `-rc.X`..."
             if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
               echo "Version (${{ github.event.inputs.version }}) does not contain `-rc.X` but is marked as a beta release."
+              exit 1
+            fi
+          else
+            echo "Validating that the version in Cargo.toml does not contain `-rc.X`..."
+            if [[ "${{ github.event.inputs.version }}" == *"-rc."* ]]; then
+              echo "Version (${{ github.event.inputs.version }}) contains `-rc.X` but is not marked as a beta release."
               exit 1
             fi
           fi

@@ -7,8 +7,8 @@
 name: Test pg_search Benchmark
 
 on:
-  pull_request:
-    branches: # On the default branch, we run benchmarks in PRs to test thoroughly
+  push:
+    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
       - dev
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"
@@ -24,7 +24,6 @@ jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
     runs-on: ubicloud-standard-8
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         pg_version: [17]

@@ -6,8 +6,8 @@
 name: Test pg_search Stressgres
 
 on:
-  pull_request:
-    branches: # On the default branch, we run Stressgres in PRs to test thoroughly
+  push:
+    branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
       - dev
     paths:
       - ".github/stressgres/**"
@@ -24,7 +24,6 @@ jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         include:

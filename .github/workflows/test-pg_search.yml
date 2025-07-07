@@ -15,6 +15,13 @@ on:
       - "pg_search/**"
       - "tests/**"
       - "tokenizers/**"
+  push:
+    branches: # Also run on `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
+      - dev
+    paths:
+      - "**/*.rs"
+      - "**/*.toml"
+
   workflow_dispatch:
 
 concurrency:

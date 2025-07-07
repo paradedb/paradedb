@@ -19,7 +19,6 @@ use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
 use crate::postgres::insert::merge_index_with_policy;
-use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING_IN_BACKGROUND};
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::metadata::MetaPage;
@@ -39,7 +38,7 @@ struct LayerSizes {
 
 impl From<&PgSearchRelation> for LayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
-        let index_options = unsafe { SearchIndexOptions::from_relation(index) };
+        let index_options = index.options();
         let segment_components =
             LinkedItemList::<SegmentMetaEntry>::open(index, SEGMENT_METAS_START);
         let all_entries = unsafe { segment_components.list() };

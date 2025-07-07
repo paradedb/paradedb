@@ -23,7 +23,6 @@ use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::postgres::merge::do_merge;
-use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
@@ -232,7 +231,7 @@ pub unsafe fn merge_index_with_policy(
         .searchable_segment_ids()
         .expect("should be able to get searchable segment ids")
         .len() as i32;
-    let index_options = SearchIndexOptions::from_relation(indexrel);
+    let index_options = indexrel.options();
     let target_segment_count = index_options.target_segment_count() as i32;
 
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it

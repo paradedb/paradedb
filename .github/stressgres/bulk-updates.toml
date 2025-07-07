@@ -93,13 +93,3 @@ UPDATE test
 SET severity = (severity + 1) % 5
 WHERE id < 10000;
 """
-
-[[jobs]]
-log_columns = ["wal_records", "wal_bytes:MB"]
-refresh_ms = 25
-title = "WAL Traffic"
-log_tps = false
-log_count = false
-sql = """
-SELECT wal_records, wal_bytes FROM pg_stat_wal
-"""

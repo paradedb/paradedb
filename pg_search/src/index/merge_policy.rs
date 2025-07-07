@@ -233,7 +233,7 @@ impl LayeredMergePolicy {
             .searchable_segment_ids()
             .expect("SearchIndexMerger should have segment ids");
 
-        // the non_mergeable_segments are those that are concurrently being vacuumed *and* merged
+        // the non_mergeable_segments are those that are concurrently being vacuumed *or* merged
         let mut non_mergeable_segments = metadata.vacuum_list().read_list();
         non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
 

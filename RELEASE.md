@@ -1,6 +1,6 @@
 # ParadeDB Release Process
 
-We use a single `dev` branch for our development. All feature work happens on feature branches and is merged into `dev` via pull requests. Every release—minor, patch, beta (release candidate), or hotfix—is triggered manually via the **Publish GitHub Release** workflow in the GitHub Actions UI.
+We use a single `dev` branch for our development. All feature work happens on feature branches and is merged into `dev` via pull requests. Every release is triggered manually via the [**Publish GitHub Release**](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) workflow in the GitHub Actions UI.
 
 ---
 
@@ -23,18 +23,13 @@ We use a single `dev` branch for our development. All feature work happens on fe
 
 ## Workflow Inputs
 
-| Input           | Type    | Default | Description                                                                                             |
-| --------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| `minor`         | boolean | `false` | Bump minor version (`X.Y → X.(Y+1).0`).                                                                 |
-| `patch`         | boolean | `false` | Bump patch version (`X.Y.Z → X.Y.(Z+1)`).                                                               |
-| `beta`          | boolean | `false` | Create an RC prerelease of the current version (`vX.Y.Z-rc.N`).                                         |
-| `hotfix`        | boolean | `false` | Publish a hotfix. Requires `hotfix_tag` and `hotfix_branch`.                                            |
-| `hotfix_tag`    | string  | `""`    | Base tag for hotfix (e.g. `v1.4.0`).                                                                    |
-| `hotfix_branch` | string  | `""`    | Branch to release for the hotfix (branched off `hotfix_tag`).                                           |
-| `confirmation`  | boolean | `false` | **Required**—confirm you’ve bumped `Cargo.toml`, written the SQL upgrade, and updated docs & changelog. |
-| `dry_run`       | boolean | `false` | _Testing only_—prefixes tag with `dryrun-`, skips variable updates.                                     |
+| Input          | Type    | Default | Description                                                                                             |
+| -------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------- |
+| `version`      | string  | `""`    | The desired version of the release in semVer format (e.g. `a.b.c` or `a.b.c-rc.d` for beta releases)    |
+| `beta`         | boolean | `false` | Creates a RC pre-release of the provided version (`vX.Y.Z-rc.N`).                                       |
+| `confirmation` | boolean | `false` | **Required**—confirm you’ve bumped `Cargo.toml`, written the SQL upgrade, and updated docs & changelog. |
 
-> **Note:** Only one of `minor`, `patch`, or `hotfix` may be `true`. A beta release requires no bump flags. The workflow will not run unless `confirmation: true`.
+> **Note:** The `version` provided _must_ match that of the `Cargo.toml` file and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
 
 ---
 
@@ -86,8 +81,6 @@ To publish a patch for an older release:
 
 3. Bump `Cargo.toml` to the new patch version in that branch and refresh the `Cargo.lock`.
 
-4. Run the Publish GitHub Release workflow with:
+4. Run the Publish GitHub Release workflow with `version: <your-new-patch-version>` and `beta: true`.
 
-- hotfix: `true`
-- hotfix_tag: `<the-tag-from-which-you-branched>`
-- hotfix_branch: `<the-name-of-your-hotfix-branch>`
+5. Go for a walk, you deserve it.

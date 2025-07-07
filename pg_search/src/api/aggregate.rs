@@ -141,18 +141,22 @@ impl<'a> ParallelAggregationWorker<'a> {
     }
 
     fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
-        let worker_number = worker_number
-            + if unsafe { pg_sys::parallel_leader_participation } {
-                1
-            } else {
+        let worker_number =
+            // if max_parallel_workers = 0 and parallel_leader_participation = off,
+            // the leader will be -1 and we need to set it to 0 to work with `chunk_range`
+            if worker_number < 0 && !unsafe { pg_sys::parallel_leader_participation } {
                 0
+            } else if unsafe { pg_sys::parallel_leader_participation } {
+                worker_number + 1
+            } else {
+                worker_number
             };
 
         let nworkers = self.state.launched_workers();
         let nsegments = self.config.total_segments;
 
         let mut segment_ids = FxHashSet::default();
-        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number.max(0) as usize);
+        let (_, many_segments) = chunk_range(nsegments, nworkers, worker_number as usize);
         while let Some(segment_id) = self.checkout_segment() {
             segment_ids.insert(segment_id);
 

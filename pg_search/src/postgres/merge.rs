@@ -135,11 +135,9 @@ pub unsafe fn do_merge(
 
         pgrx::debug1!("background merge_candidates: {merge_candidates:?}");
 
-        if merge_candidates.is_empty() {
-            return Ok(());
+        if !merge_candidates.is_empty() {
+            try_launch_background_merger(&index);
         }
-
-        try_launch_background_merger(&index);
     }
 
     Ok(())

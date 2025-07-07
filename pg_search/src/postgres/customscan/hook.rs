@@ -18,7 +18,7 @@
 use crate::api::HashMap;
 use crate::gucs;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
-use crate::postgres::customscan::{CustomScan, RelPathlistHookArgs};
+use crate::postgres::customscan::{CreateUpperPathsHookArgs, CustomScan, RelPathlistHookArgs};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use std::collections::hash_map::Entry;
@@ -131,5 +131,83 @@ pub extern "C-unwind" fn paradedb_rel_pathlist_callback<CS>(
         };
 
         add_path(rel, path)
+    }
+}
+
+pub fn register_upper_path<CS>(_: CS)
+where
+    CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
+{
+    unsafe {
+        static mut PREV_HOOKS: Lazy<
+            HashMap<std::any::TypeId, pg_sys::create_upper_paths_hook_type>,
+        > = Lazy::new(Default::default);
+
+        #[pg_guard]
+        extern "C-unwind" fn __priv_callback<CS>(
+            root: *mut pg_sys::PlannerInfo,
+            stage: pg_sys::UpperRelationKind::Type,
+            input_rel: *mut pg_sys::RelOptInfo,
+            output_rel: *mut pg_sys::RelOptInfo,
+            extra: *mut ::std::os::raw::c_void,
+        ) where
+            CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
+        {
+            unsafe {
+                #[allow(static_mut_refs)]
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                    (*prev_hook)(root, stage, input_rel, output_rel, extra);
+                }
+
+                paradedb_upper_paths_callback::<CS>(root, stage, input_rel, output_rel, extra);
+            }
+        }
+
+        #[allow(static_mut_refs)]
+        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+            Entry::Vacant(entry) => entry.insert(pg_sys::create_upper_paths_hook),
+        };
+
+        pg_sys::create_upper_paths_hook = Some(__priv_callback::<CS>);
+
+        pg_sys::RegisterCustomScanMethods(CS::custom_scan_methods())
+    }
+}
+
+#[pg_guard]
+pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
+    root: *mut pg_sys::PlannerInfo,
+    stage: pg_sys::UpperRelationKind::Type,
+    input_rel: *mut pg_sys::RelOptInfo,
+    output_rel: *mut pg_sys::RelOptInfo,
+    extra: *mut ::std::os::raw::c_void,
+) where
+    CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
+{
+    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+        return;
+    }
+
+    if !gucs::enable_aggregate_custom_scan() {
+        return;
+    }
+
+    unsafe {
+        let Some(path) = CS::create_custom_path(CustomPathBuilder::new(
+            root,
+            output_rel,
+            CreateUpperPathsHookArgs {
+                root,
+                stage,
+                input_rel,
+                output_rel,
+                extra,
+            },
+        )) else {
+            return;
+        };
+
+        add_path(output_rel, path)
     }
 }

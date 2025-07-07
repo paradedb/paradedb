@@ -27,7 +27,7 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
-use pgrx::{check_for_interrupts, pg_sys, Json, JsonB, PgRelation};
+use pgrx::{check_for_interrupts, pg_sys, PgRelation};
 use rustc_hash::FxHashSet;
 use std::error::Error;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -289,16 +289,18 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 pub fn execute_aggregate(
     index: PgRelation,
     query: SearchQueryInput,
-    agg: Json,
+    agg: serde_json::Value,
     solve_mvcc: bool,
     memory_limit: i64,
     bucket_limit: i64,
-) -> Result<JsonB, Box<dyn Error>> {
+) -> Result<serde_json::Value, Box<dyn Error>> {
     unsafe {
         let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
         let reader =
             SearchIndexReader::open(&index, query.clone(), false, MvccSatisfies::Snapshot)?;
-        let agg_req = serde_json::from_value(agg.0)?;
+        // TODO: Could potentially directly use the `serde` definitions of the aggregates: e.g.
+        // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
+        let agg_req = serde_json::from_value(agg)?;
         let process = ParallelAggregation::new(
             index.oid(),
             &query,
@@ -381,7 +383,7 @@ pub fn execute_aggregate(
                 )?
             };
 
-            Ok(JsonB(serde_json::to_value(merged)?))
+            Ok(serde_json::to_value(merged)?)
         } else {
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
             let segment_ids = reader.segment_ids();
@@ -408,9 +410,9 @@ pub fn execute_aggregate(
                         Some(bucket_limit.try_into()?),
                     ),
                 )?;
-                Ok(JsonB(serde_json::to_value(result)?))
+                Ok(serde_json::to_value(result)?)
             } else {
-                Ok(JsonB(serde_json::Value::Null))
+                Ok(serde_json::Value::Null)
             }
         }
     }

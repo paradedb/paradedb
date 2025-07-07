@@ -26,6 +26,7 @@ use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
 use std::ffi::{CStr, CString};
 use std::ptr::NonNull;
 
+pub mod aggregatescan;
 mod builders;
 mod dsm;
 mod exec;
@@ -36,6 +37,7 @@ mod path;
 pub mod pdbscan;
 mod pushdown;
 mod qual_inspect;
+mod range_table;
 mod scan;
 
 use crate::api::HashMap;
@@ -52,8 +54,10 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::register_rel_pathlist;
+pub use hook::{register_rel_pathlist, register_upper_path};
 
+// TODO: This trait should be expanded to include a `reset` method, which would become the
+// default/only implementation of `rescan_custom_scan`.
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
 }
@@ -246,6 +250,39 @@ impl RelPathlistHookArgs {
 
     pub fn rte(&self) -> &pg_sys::RangeTblEntry {
         unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
+    }
+}
+
+#[derive(Debug)]
+pub struct CreateUpperPathsHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    #[allow(dead_code)]
+    pub stage: pg_sys::UpperRelationKind::Type,
+    pub input_rel: *mut pg_sys::RelOptInfo,
+    pub output_rel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub extra: *mut ::std::os::raw::c_void,
+}
+
+impl CreateUpperPathsHookArgs {
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn input_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.input_rel
+                .as_ref()
+                .expect("Args::input_rel should not be null")
+        }
+    }
+
+    pub fn output_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.output_rel
+                .as_ref()
+                .expect("Args::output_rel should not be null")
+        }
     }
 }
 

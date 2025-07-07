@@ -29,10 +29,7 @@ SELECT paradedb.layer_sizes('search_idx');
 
 ## Background Merge Threshold
 
-Merging can either happen in the foreground, as part of the `INSERT`/`UPDATE`/`COPY` statement, or asynchronously in the background. As a general
-rule of thumb, merging larger layers is expensive and should happen in the background, whereas merging smaller layers is cheap and should happen in the foregorund
-to reduces the overhead of creating many background processes.
-
+Merging can either happen in the foreground, as part of the `INSERT`/`UPDATE`/`COPY` statement, or asynchronously in the background.
 `background_layer_size_threshold` controls which layers should be merged in the foreground as part of the `INSERT`/`UPDATE` statement
 versus asynchronously in the background. The default is `10MB`, which means layers of size `10MB` and greater are merged in the background.
 
@@ -40,5 +37,8 @@ versus asynchronously in the background. The default is `10MB`, which means laye
 CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', background_layer_size_threshold = '100MB');
 ALTER INDEX search_idx SET (background_layer_size_threshold = '100MB');
 ```
+
+As a general rule of thumb, merging larger layers is expensive and should happen in the background, whereas merging smaller layers is cheap and should happen in the foregorund
+to reduces the overhead of creating many background processes.
 
 Setting `background_layer_size_threshold` to `0` disables background merging and forces all merging to happen in the foreground.

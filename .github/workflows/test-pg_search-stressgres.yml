@@ -10,6 +10,7 @@ on:
     branches: # On the `staging` and `main` branches, we run Stressgres in PRs to test thoroughly
       - main
       - staging
+      - dev # TODO: Remove once done testing
   push:
     branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
       - dev
@@ -122,6 +123,10 @@ jobs:
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
           --runtime 600000
+
+      - name: Generate Stressgres Continuous Benchmarking Metrics
+        working-directory: stressgres/
+        run: cargo run --release -- csv stressgres-${{ matrix.test_file }}.log output.csv
 
       - name: Create Stressgres Graph
         working-directory: stressgres/

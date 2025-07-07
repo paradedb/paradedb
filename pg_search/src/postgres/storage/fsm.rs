@@ -99,7 +99,7 @@ impl FreeSpaceManager {
             }
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
-            let block = page.contents_mut::<FSMBlock>();
+            let block = page.contents::<FSMBlock>();
             if block.meta.len == 0 {
                 // go to the next block
                 blockno = page.special::<BM25PageSpecialData>().next_blockno;
@@ -107,7 +107,7 @@ impl FreeSpaceManager {
             }
 
             // found a block to return
-            block.meta.len -= 1;
+            page.contents_mut::<FSMBlock>().meta.len -= 1;
             return Some(block.blocks[block.meta.len as usize]);
         }
     }
@@ -123,14 +123,14 @@ impl FreeSpaceManager {
         while remaining > 0 && blockno != pg_sys::InvalidBlockNumber {
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
-            let block = page.contents_mut::<FSMBlock>();
+            let block = page.contents::<FSMBlock>();
 
             if block.meta.len > 0 {
                 let chunk_size = remaining.min(block.meta.len as usize);
                 let new_len = block.meta.len - chunk_size as u32;
 
                 result.extend_from_slice(&block.blocks[new_len as usize..block.meta.len as usize]);
-                block.meta.len = new_len;
+                page.contents_mut::<FSMBlock>().meta.len = new_len;
                 remaining -= chunk_size;
             }
 
@@ -148,16 +148,16 @@ impl FreeSpaceManager {
     pub fn extend(
         &self,
         bman: &mut BufferManager,
-        blocks: impl Iterator<Item = pg_sys::BlockNumber>,
+        extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
     ) {
-        let mut blocks = blocks.peekable();
+        let mut blocks = extend_with.peekable();
         let mut blockno = self.start_blockno;
         loop {
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
-            let block = page.contents_mut::<FSMBlock>();
 
-            while (block.meta.len as usize) < UNCOMPRESSED_MAX_BLOCKS_PER_PAGE {
+            let mut len = page.contents::<FSMBlock>().meta.len as usize;
+            while len < UNCOMPRESSED_MAX_BLOCKS_PER_PAGE {
                 match blocks.peek() {
                     // we've added every block from the iterator
                     None => {
@@ -166,8 +166,10 @@ impl FreeSpaceManager {
 
                     // add the next block
                     Some(blockno) => {
+                        let block = page.contents_mut::<FSMBlock>();
                         block.blocks[block.meta.len as usize] = *blockno;
                         block.meta.len += 1;
+                        len = block.meta.len as usize;
                         blocks.next(); // burn it
                     }
                 }
@@ -184,6 +186,8 @@ impl FreeSpaceManager {
             if blockno == pg_sys::InvalidBlockNumber {
                 let mut new_buffer = init_new_buffer(bman.buffer_access().rel());
                 let mut new_page = new_buffer.page_mut();
+
+                // initialize the new page with a default FSMBlock
                 *new_page.contents_mut::<FSMBlock>() = FSMBlock::default();
 
                 // move to this new block

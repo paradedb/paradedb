@@ -375,6 +375,10 @@ impl PageMut<'_> {
         true
     }
 
+    pub fn contents<T: Copy>(&self) -> T {
+        unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
+    }
+
     pub fn contents_mut<T>(&mut self) -> &mut T {
         let contents = unsafe {
             let contents = pg_sys::PageGetContents(self.pg_page) as *mut T;

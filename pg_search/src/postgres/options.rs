@@ -274,10 +274,7 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "background_layer_size_threshold".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(
-                SearchIndexOptionsData,
-                background_layer_size_threshold_offset
-            ) as i32,
+            offset: offset_of!(BM25IndexOptionsData, background_layer_size_threshold_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)

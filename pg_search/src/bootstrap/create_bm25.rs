@@ -360,7 +360,7 @@ fn force_merge_pretty_bytes(
     _oversized_layer_size_pretty: String,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    anyhow::bail!("force_merge_pretty_bytes is deprecated, run `VACUUM` instead");
+    anyhow::bail!("force_merge is deprecated, run `VACUUM` instead");
 }
 
 #[pg_extern(name = "force_merge")]

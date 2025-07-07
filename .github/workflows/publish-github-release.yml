@@ -2,52 +2,27 @@
 #
 # Publish GitHub Release
 # Publish a ParadeDB GitHub Release, which triggers the entire release process. This workflow
-# is always triggered manually via the GitHub Actions UI.
+# is always triggered manually via the GitHub Actions UI and deploys the branch that it is being run from.
 
 name: Publish GitHub Release
 
 on:
   workflow_dispatch:
     inputs:
-      minor:
-        description: "Whether this release is a minor version release. Defaults to false."
-        type: boolean
-        required: false
-        default: false
-      patch:
-        description: "Whether this release is a patch version release. Defaults to false."
-        type: boolean
-        required: false
-        default: false
+      version:
+        description: "The version to release, in semver format. This must match the version in Cargo.toml."
+        type: string
+        required: true
+        default: ""
       beta:
-        description: "Whether this release is a beta prerelease. Defaults to false."
+        description: "Whether this release is a beta release. Defaults to false."
         type: boolean
         required: false
         default: false
-      hotfix:
-        description: "Whether this release is a hotfix release to a specific tag. Defaults to false."
-        type: boolean
-        required: false
-        default: false
-      hotfix_tag:
-        description: "Tag to base hotfix on, e.g. v0.16.0. Required if hotfix is true. Defaults to empty."
-        type: string
-        required: false
-        default: ""
-      hotfix_branch:
-        description: "The branch, branched off of hotfix_tag, to deploy as the hotfix release to hotfix_tag. Required if hotfix is true. Defaults to empty."
-        type: string
-        required: false
-        default: ""
       confirmation:
         description: "I confirm that the version was incremented, the SQL upgrade script was written, and the docs and changelog were updated. Defaults to false."
         type: boolean
         required: true
-        default: false
-      dry_run:
-        description: "Dry-run mode: prefix tag with `dryrun-` and skip variable updates. Defaults to false."
-        type: boolean
-        required: false
         default: false
 
 concurrency:
@@ -57,165 +32,53 @@ concurrency:
 jobs:
   publish-github-release:
     name: Publish ParadeDB GitHub Release
-    if: ${{ github.event.inputs.confirmation == true }}
     runs-on: ubuntu-latest
 
     steps:
+      - name: Confirmation
+        run: |
+          echo "Confirmation: ${{ github.event.inputs.confirmation }}"
+          if [[ "${{ github.event.inputs.confirmation }}" == "true" ]]; then
+            echo "Confirmation passed!"
+          else
+            echo "Confirmation failed!"
+            exit 1
+          fi
+
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
       # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`. If the
       # user forgot to increment the version, they will need to do it in a PR, which will trigger the workflow
       # test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
+      # TODO: How to ensure that the next specified versioni is correct? Do I need to check for existing override to old ones?
       - name: Validate Cargo.toml Version Matches Release Type
         run: |
-          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          # If the release type is beta, the version in Cargo.toml must contain `-rc.X`
           if [[ "${{ github.event.inputs.beta }}" == "true" ]]; then
-            BETA_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-rc.${{ vars.VERSION_RC }}"
-            if [ "$CARGO_VERSION" != "$BETA_VERSION" ]; then
-              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming beta version ($BETA_VERSION). Did you forget to increment it?"
+            echo "Validating that the version in Cargo.toml contains `-rc.X`..."
+            if [[ "${{ github.event.inputs.version }}" != *"-rc."* ]]; then
+              echo "Version (${{ github.event.inputs.version }}) does not contain `-rc.X` but is marked as a beta release."
               exit 1
             fi
-          elif [[ "${{ github.event.inputs.patch }}" == "true" ]]; then
-            PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-            if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
-              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming patch version ($PROD_VERSION). Did you forget to increment it?"
-              exit 1
-            fi
-          elif [[ "${{ github.event.inputs.minor }}" == "true" ]]; then
-            PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-            if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
-              echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming minor version ($PROD_VERSION). Did you forget to increment it?"
-              exit 1
-            fi
-          elif [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
-            HOTFIX_TAG="${{ github.event.inputs.hotfix_tag }}"
-            if ! gh release view "$HOTFIX_TAG" > /dev/null 2>&1; then
-              echo "❌ specified hotfix tag '$HOTFIX_TAG' does not exist. Please provide a valid hotfix tag." >&2
-              exit 1
-            fi
-          else
-            echo "❌ must specify one of: beta, minor, patch, or hotfix" >&2
+          fi
+
+          echo "Validating that the version in Cargo.toml matches the upcoming version..."
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          if [[ "${{ github.event.inputs.version }}" != "$CARGO_VERSION" ]]; then
+            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming version (${{ github.event.inputs.version }})."
             exit 1
           fi
           echo "Version check passed!"
-
-      # We store the GitHub Release version number in GitHub Actions Variables. Since it's
-      # not possible for a GHA variable to be negative, we store the version of the next
-      # release, to allow 0-indexing. This is why we immediately release the version stored,
-      # and increment it after the GitHub release is created.
-      - name: Retrieve Release Version Variables
-        run: |
-          echo "MAJOR=${{ vars.VERSION_MAJOR }}" >> $GITHUB_ENV
-          echo "MINOR=${{ vars.VERSION_MINOR }}" >> $GITHUB_ENV
-          echo "PATCH=${{ vars.VERSION_PATCH }}" >> $GITHUB_ENV
-          echo "RC=${{ vars.VERSION_RC }}"       >> $GITHUB_ENV
-
-      - name: Determine Upcoming Release Version
-        id: determine-release-version
-        run: |
-          PREFIX=""
-          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
-            PREFIX="dryrun-"
-          fi
-
-          # 1) Beta prerelease (only when no bump flags)
-          if [[ "${{ github.event.inputs.beta }}" == "true" && "${{ github.event.inputs.minor }}" == "false" && "${{ github.event.inputs.patch }}" == "false" && "${{ github.event.inputs.hotfix }}" == "false" ]]; then
-            echo "Creating a beta `-rc.X` release of the current version"
-            VERSION="${MAJOR}.${MINOR}.${PATCH}-rc.${RC}"
-            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
-            echo "gha_var_name=VERSION_RC"               >> $GITHUB_OUTPUT
-            echo "gha_var_value=$((RC+1))"               >> $GITHUB_OUTPUT
-            echo "is_prerelease=true"                    >> $GITHUB_OUTPUT
-
-          # 2) Patch bump
-          elif [[ "${{ github.event.inputs.patch }}" == "true" ]]; then
-            echo "Creating an official release of the next patch version"
-            NEXT_PATCH=$((PATCH+1))
-            VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
-            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
-            echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
-            echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
-            echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
-
-          # 3) Minor bump
-          elif [[ "${{ github.event.inputs.minor }}" == "true" ]]; then
-            echo "Creating an official release of the next minor version"
-            NEXT_MINOR=$((MINOR+1))
-            VERSION="${MAJOR}.${NEXT_MINOR}.0"
-            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
-            echo "gha_var_name=VERSION_MINOR"            >> $GITHUB_OUTPUT
-            echo "gha_var_value=$NEXT_MINOR"             >> $GITHUB_OUTPUT
-            echo "reset_patch=true"                      >> $GITHUB_OUTPUT
-            echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
-
-          # 4) Hotfix
-          elif [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
-            echo "Creating a hotfix release from the specified hotfix tag"
-            HOTFIX_TAG="${{ github.event.inputs.hotfix_tag }}"
-            TAG_VER="${HOTFIX_TAG#v}"
-            IFS='.' read HT_MAJOR HT_MINOR HT_PATCH <<< "$TAG_VER"
-            NEXT_PATCH=$((HT_PATCH+1))
-            VERSION="${HT_MAJOR}.${HT_MINOR}.${NEXT_PATCH}"
-            echo "version=${PREFIX}v$VERSION"             >> $GITHUB_OUTPUT
-            echo "gha_var_name=VERSION_PATCH"            >> $GITHUB_OUTPUT
-            echo "gha_var_value=$NEXT_PATCH"             >> $GITHUB_OUTPUT
-            echo "is_prerelease=false"                   >> $GITHUB_OUTPUT
-          else
-            echo "❌ must specify one of: beta (no bumps), minor, patch, or hotfix" >&2
-            exit 1
-          fi
-
-          # Specify the target commit to deploy. For normal releases deploying the state of `dev`,
-          # which are minor, patch, or beta releases, we deploy `dev`. For hotfix releases, we deploy
-          # the provided hotfix_branch.
-          if [[ "${{ github.event.inputs.hotfix }}" == "true" ]]; then
-            echo "commitish=${{ github.event.inputs.hotfix_branch }}" >> $GITHUB_OUTPUT
-          else
-            echo "commitish=dev" >> $GITHUB_OUTPUT
-          fi
 
       # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.determine-release-version.outputs.version }}
-          target_commitish: ${{ steps.determine-release-version.outputs.commitish }}
+          tag_name: v${{ github.event.inputs.version }}
+          target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
+          prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
           generate_release_notes: true
-          prerelease: ${{ steps.determine-release-version.outputs.is_prerelease }}
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-
-      - name: Update GitHub Actions Variables Post-Release
-        if: ${{ github.event.inputs.dry_run == false }}
-        env:
-          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-        run: |
-          # Update the version of the variable which changed after the release
-          gh api --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/paradedb/paradedb/actions/variables/${{ steps.determine-release-version.outputs.gha_var_name }} \
-            -f name='${{ steps.determine-release-version.outputs.gha_var_name }}' \
-            -f value='${{ steps.determine-release-version.outputs.gha_var_value }}'
-
-          # Reset patch version to 0 on minor release
-          if [[ "${{ steps.determine-release-version.outputs.reset_patch }}" == "true" ]]; then
-            gh api --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/paradedb/paradedb/actions/variables/VERSION_PATCH \
-              -f name='VERSION_PATCH' \
-              -f value='0'
-          fi
-
-          # Reset RC on any full (non-beta) release (e.g. minor or patch)
-          if [[ "${{ steps.determine-release-version.outputs.is_prerelease }}" == "false" ]]; then
-            gh api --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/paradedb/paradedb/actions/variables/VERSION_RC \
-              -f name='VERSION_RC' \
-              -f value='1'
-          fi

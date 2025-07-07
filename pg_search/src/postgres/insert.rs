@@ -22,16 +22,13 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
-use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::LinkedBytesList;
-use crate::postgres::utils::{
-    categorize_fields, item_pointer_to_u64, row_to_search_document, CategorizedFieldData,
-};
-use crate::schema::SearchField;
+use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
+use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
 use tantivy::{SegmentMeta, TantivyDocument};
@@ -58,8 +55,8 @@ impl InsertState {
             Default::default(),
         )?;
         let schema = writer.schema();
-        let categorized_fields = categorize_fields(indexrel, schema);
-        let key_field_name = schema.key_field().field_name();
+        let categorized_fields = schema.categorized_fields().clone();
+        let key_field_name = schema.key_field_name();
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -230,8 +227,8 @@ unsafe fn do_merge(indexrel: PgSearchRelation) -> (NumCandidates, NumMerged) {
         indexrel
     };
 
-    let index_options = SearchIndexOptions::from_relation(&indexrel);
-    let merge_policy = LayeredMergePolicy::new(index_options.layer_sizes());
+    let layer_sizes = indexrel.options().layer_sizes();
+    let merge_policy = LayeredMergePolicy::new(layer_sizes);
 
     merge_index_with_policy(&indexrel, merge_policy, false, false, false)
 }

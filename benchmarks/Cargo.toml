@@ -17,6 +17,7 @@ sqlx = { version = "0.8.6", features = [
 ] }
 pretty_assertions = "1.4.1"
 tokio = { version = "1.45", features = ["full"] }
+serde = "1.0.219"
 
 [lib]
 name = "paradedb"

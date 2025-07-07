@@ -354,7 +354,15 @@ impl Directory for MVCCDirectory {
 
     fn load_metas(&self, inventory: &SegmentMetaInventory) -> tantivy::Result<IndexMeta> {
         let loaded_metas = self.loaded_metas.get_or_init(|| unsafe {
-            match load_metas(&self.indexrel, inventory, &self.mvcc_style) {
+            match load_metas(
+                &self.indexrel,
+                inventory,
+                &self.mvcc_style,
+                self.indexrel
+                    .schema()
+                    .unwrap_or_else(|e| panic!("{e}"))
+                    .tantivy_schema(),
+            ) {
                 Err(e) => Arc::new(Err(e)),
                 Ok(loaded) => {
                     *self.all_entries.lock() = loaded

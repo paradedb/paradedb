@@ -22,13 +22,11 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
-use crate::postgres::options::SearchIndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -38,13 +36,14 @@ use serde_json::Value;
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let options = SearchIndexOptions::from_relation(&index);
-    let schema = SearchIndexSchema::open(&index)?;
+    let schema = index.schema()?;
 
     let mut name_and_config = HashMap::default();
     for (_, field_entry) in schema.fields() {
         let field_name = field_entry.name();
-        let field_config = options.field_config_or_default(&FieldName::from(field_name));
+        let field_config = index
+            .options()
+            .field_config_or_default(&FieldName::from(field_name));
         name_and_config.insert(field_name, field_config);
     }
 
@@ -54,8 +53,8 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 #[pg_extern]
 pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let options = SearchIndexOptions::from_relation(&index);
-    options
+    index
+        .options()
         .layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())

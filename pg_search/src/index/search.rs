@@ -15,32 +15,24 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::options::SearchIndexOptions;
-use crate::postgres::utils::categorize_fields;
-use crate::schema::SearchIndexSchema;
-
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
 use tantivy::Index;
 use tokenizers::{create_normalizer_manager, create_tokenizer_manager, SearchTokenizer};
 
-pub fn setup_tokenizers(
-    index_relation: &PgSearchRelation,
-    index: &mut Index,
-    schema: &SearchIndexSchema,
-) -> Result<()> {
-    let options = unsafe { SearchIndexOptions::from_relation(index_relation) };
-    let categorized_fields = categorize_fields(index_relation, schema);
+pub fn setup_tokenizers(index_relation: &PgSearchRelation, index: &mut Index) -> Result<()> {
+    let schema = index_relation.schema()?;
+    let categorized_fields = schema.categorized_fields();
 
     let mut tokenizers: Vec<SearchTokenizer> = Vec::new();
-    for (search_field, _) in categorized_fields {
+    for (search_field, _) in categorized_fields.iter() {
         if search_field.is_ctid() {
             continue;
         }
 
-        let config = options.field_config_or_default(&search_field.field_name());
-        if let Some(tokenizer) = config.tokenizer().cloned() {
-            tokenizers.push(tokenizer);
+        let config = search_field.field_config();
+        if let Some(tokenizer) = config.tokenizer() {
+            tokenizers.push(tokenizer.clone());
         }
     }
 

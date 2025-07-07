@@ -320,6 +320,7 @@ pub unsafe fn load_metas(
     indexrel: &PgSearchRelation,
     inventory: &SegmentMetaInventory,
     solve_mvcc: &MvccSatisfies,
+    tantivy_schema: &Schema,
 ) -> tantivy::Result<LoadedMetas> {
     let mut total_segments = 0;
     let mut alive_segments = vec![];
@@ -438,16 +439,14 @@ pub unsafe fn load_metas(
         }
     }
 
-    let schema = metapage.schema_bytes();
     let settings = metapage.settings_bytes();
-    let deserialized_schema = serde_json::from_slice(&schema.read_all())?;
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
     Ok(LoadedMetas {
         entries: alive_entries,
         meta: IndexMeta {
             segments: alive_segments,
-            schema: deserialized_schema,
+            schema: tantivy_schema.clone(),
             index_settings: deserialized_settings,
             opstamp: opstamp.unwrap_or(0),
             payload: None,
@@ -455,4 +454,13 @@ pub unsafe fn load_metas(
         pin_cushion,
         total_segments,
     })
+}
+
+pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<Schema>> {
+    let metapage = MetaPage::open(indexrel);
+    let schema_bytes = unsafe { metapage.schema_bytes().read_all() };
+    if schema_bytes.is_empty() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_slice(&schema_bytes)?)
 }

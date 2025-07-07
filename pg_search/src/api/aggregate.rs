@@ -5,7 +5,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
-use crate::parallel_worker::{chunk_range, WorkerStyle};
+use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
@@ -141,13 +141,6 @@ impl<'a> ParallelAggregationWorker<'a> {
     }
 
     fn checkout_segments(&mut self, worker_number: i32) -> FxHashSet<SegmentId> {
-        let worker_number = worker_number
-            + if unsafe { pg_sys::parallel_leader_participation } {
-                1
-            } else {
-                0
-            };
-
         let nworkers = self.state.launched_workers();
         let nsegments = self.config.total_segments;
 
@@ -175,9 +168,9 @@ impl<'a> ParallelAggregationWorker<'a> {
 
     fn execute_aggregate(
         &mut self,
-        worker_number: i32,
+        worker_style: QueryWorkerStyle,
     ) -> anyhow::Result<Option<IntermediateAggregationResults>> {
-        let segment_ids = self.checkout_segments(worker_number);
+        let segment_ids = self.checkout_segments(worker_style.worker_number());
         if segment_ids.is_empty() {
             return Ok(None);
         }
@@ -265,7 +258,9 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             std::thread::yield_now();
         }
 
-        if let Some(intermediate_results) = self.execute_aggregate(worker_number)? {
+        if let Some(intermediate_results) =
+            self.execute_aggregate(QueryWorkerStyle::ParallelWorker(worker_number))?
+        {
             let bytes = postcard::to_allocvec(&intermediate_results)?;
             Ok(mq_sender.send(bytes)?)
         } else {
@@ -339,7 +334,7 @@ pub fn aggregate(
             if pg_sys::parallel_leader_participation {
                 let mut worker =
                     ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
-                if let Some(result) = worker.execute_aggregate(-1)? {
+                if let Some(result) = worker.execute_aggregate(QueryWorkerStyle::ParallelLeader)? {
                     agg_results.push(Ok(result));
                 }
             }
@@ -389,7 +384,7 @@ pub fn aggregate(
                 bucket_limit as _,
                 &mut state,
             );
-            if let Some(agg_results) = worker.execute_aggregate(-1)? {
+            if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
                 let result = agg_results.into_final_result(
                     agg_req,
                     AggregationLimitsGuard::new(

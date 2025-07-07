@@ -159,8 +159,9 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
+    // Locate all query paths, and sort them for stability in the output.
     let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    std::fs::read_dir(queries_dir)
+    let mut query_paths = std::fs::read_dir(queries_dir)
         .expect("Failed to read queries directory")
         .flat_map(|entry| {
             let entry = entry.expect("Failed to read directory entry");
@@ -168,11 +169,18 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                vec![]
+                None
             } else {
-                queries(&path)
+                Some(path.to_owned())
             }
         })
+        .collect::<Vec<_>>();
+    query_paths.sort_unstable();
+
+    // Load queries from each query path.
+    query_paths
+        .into_iter()
+        .flat_map(|query_path| queries(&query_path))
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
             let (runtimes_secs, num_results) =
@@ -489,13 +497,15 @@ fn run_benchmarks_json(args: &Args) {
 ///
 /// Strips comments and flattens each query onto a single line.
 ///
+/// Will _not_ split on semicolons, which allows for applying GUCs to queries.
+///
 fn queries(file: &Path) -> Vec<(String, String)> {
     let query_type = file.file_stem().unwrap().to_string_lossy();
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
 
     content
-        .split(";\n")
+        .split("\n")
         .filter_map(|query| {
             let query = query
                 .trim()

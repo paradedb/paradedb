@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::CustomScan;
-use pgrx::{node_to_string, pg_sys, PgList};
 use std::fmt::{Debug, Formatter};
+
+use crate::node_to_string;
+use crate::postgres::customscan::CustomScan;
+use pgrx::{pg_sys, PgList};
 
 pub struct Args {
     pub root: *mut pg_sys::PlannerInfo,
@@ -112,6 +114,10 @@ impl<CS: CustomScan> CustomScanBuilder<CS> {
 
     pub fn custom_private_mut(&mut self) -> &mut CS::PrivateData {
         &mut self.custom_private
+    }
+
+    pub fn set_target_list(&mut self, tlist: PgList<pg_sys::TargetEntry>) {
+        self.custom_scan_node.scan.plan.targetlist = tlist.into_pg();
     }
 
     pub fn build(self) -> pg_sys::CustomScan {

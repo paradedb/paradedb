@@ -184,6 +184,24 @@ pub enum RestrictInfoType {
     None,
 }
 
+pub fn restrict_info(rel: &pg_sys::RelOptInfo) -> (PgList<pg_sys::RestrictInfo>, RestrictInfoType) {
+    unsafe {
+        let baseri = PgList::from_pg(rel.baserestrictinfo);
+        let joinri = PgList::from_pg(rel.joininfo);
+
+        if baseri.is_empty() && joinri.is_empty() {
+            // both lists are empty, so return an empty list
+            (PgList::new(), RestrictInfoType::None)
+        } else if !baseri.is_empty() {
+            // the baserestrictinfo has entries, so we prefer that first
+            (baseri, RestrictInfoType::BaseRelation)
+        } else {
+            // only the joininfo has entries, so that's what we'll use
+            (joinri, RestrictInfoType::Join)
+        }
+    }
+}
+
 impl<CS: CustomScan> CustomPathBuilder<CS> {
     pub fn new(
         root: *mut pg_sys::PlannerInfo,

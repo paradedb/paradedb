@@ -80,6 +80,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
 }
 
 #[pg_extern]

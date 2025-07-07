@@ -97,7 +97,7 @@ impl LayerSizes {
     }
 }
 
-/// Kick of a merge of the index, if needed.
+/// Kick off a merge of the index, if needed.
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.

@@ -7,7 +7,7 @@ name: Test pg_search Stressgres
 
 on:
   push:
-    branches: # On the default branch, we run Stressgres post pushes to speed up CI
+    branches: # We run Stressgres post pushes to speed up CI. Results are posted to Slack.
       - main
     paths:
       - ".github/stressgres/**"

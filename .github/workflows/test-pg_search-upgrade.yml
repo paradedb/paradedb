@@ -46,8 +46,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the `main` branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -55,7 +55,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
@@ -119,17 +119,17 @@ jobs:
         working-directory: pg_search/
         run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
 
-      - name: Install cargo-pgrx for ParadeDB `main`
+      - name: Install the cargo-pgrx version for ParadeDB
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB `main`
+      - name: Initialize cargo-pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # This is the current version which we want to test upgrading to
-      - name: Checkout ParadeDB `main`
+      # This is the current version which we want to test upgrading to, e.g. the PR's branch
+      - name: Checkout ParadeDB
         run: git checkout ${{ github.head_ref }}
 
-      - name: Compile & install pg_search `main`
+      - name: Compile & install pg_search
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

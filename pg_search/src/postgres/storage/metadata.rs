@@ -84,19 +84,18 @@ impl MetaPage {
         let metadata = page.contents_mut::<MetaPageData>();
 
         unsafe {
-            // NB:  don't initialize `create_index_list`
             metadata.active_vacuum_list = init_new_buffer(indexrel).number();
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
             metadata.segment_meta_garbage =
-                LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
             metadata.merge_lock = init_new_buffer(indexrel).number();
-            metadata.fsm = FreeSpaceManager::init(indexrel);
+            metadata.fsm = FreeSpaceManager::create(indexrel);
 
             metadata.cleanup_lock = init_new_buffer(indexrel).number();
-            metadata.schema_start = LinkedBytesList::create_direct(indexrel);
-            metadata.settings_start = LinkedBytesList::create_direct(indexrel);
+            metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
+            metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
-                LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
         }
     }
 
@@ -142,7 +141,7 @@ impl MetaPage {
 
                 if !block_number_is_valid(metadata.segment_meta_garbage) {
                     metadata.segment_meta_garbage =
-                        LinkedItemList::<SegmentMetaEntry>::create_direct(indexrel);
+                        LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
                 if !block_number_is_valid(metadata.merge_lock) {
@@ -150,7 +149,7 @@ impl MetaPage {
                 }
 
                 if !block_number_is_valid(metadata.fsm) {
-                    metadata.fsm = FreeSpaceManager::init(indexrel);
+                    metadata.fsm = FreeSpaceManager::create(indexrel);
                 }
             }
 
@@ -310,7 +309,7 @@ impl MetaPage {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().to_vec())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.buffer_access().rel());
+        let segment_ids_list = LinkedBytesList::create_with_fsm(self.bman.buffer_access().rel());
         let mut writer = segment_ids_list.writer();
         unsafe {
             writer.write(&segment_id_bytes)?;

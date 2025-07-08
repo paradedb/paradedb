@@ -32,16 +32,16 @@ enum FSMBlockKind {
 }
 
 #[derive(Debug, Copy, Clone)]
-#[repr(C, packed)]
-struct FSMBlockInner {
-    /// What type of block is this?
+#[repr(C)]
+struct FSMBlockHeader {
+    /// Denotes how the block data is stored on this page
     kind: FSMBlockKind,
 
-    /// How many physical blocks does it contain?
+    /// Specifies the number of *free* blocks managed by this page
     len: u32,
 }
 
-impl Default for FSMBlockInner {
+impl Default for FSMBlockHeader {
     fn default() -> Self {
         Self {
             kind: FSMBlockKind::Uncompressed,
@@ -51,12 +51,12 @@ impl Default for FSMBlockInner {
 }
 
 const UNCOMPRESSED_MAX_BLOCKS_PER_PAGE: usize =
-    (bm25_max_free_space() / size_of::<pg_sys::BlockNumber>()) - size_of::<FSMBlockInner>();
+    (bm25_max_free_space() / size_of::<pg_sys::BlockNumber>()) - size_of::<FSMBlockHeader>();
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct FSMBlock {
-    meta: FSMBlockInner,
+    header: FSMBlockHeader,
 
     // with different [`FSMBlockKind`]s this might need to become a `[u8; bm25_max_free_space() - size_of::<FSMBlockInner>()]`
     // and treated differently by each kind
@@ -66,29 +66,61 @@ struct FSMBlock {
 impl Default for FSMBlock {
     fn default() -> Self {
         Self {
-            meta: Default::default(),
+            header: Default::default(),
             blocks: [pg_sys::InvalidBlockNumber; UNCOMPRESSED_MAX_BLOCKS_PER_PAGE],
         }
     }
 }
 
+/// The [`FreeSpaceManager`] our version of Postgres' "free space map".  We need to track free space
+/// as whole blocks and we'd prefer to not have to mark pages we return to a FSM as deleted.  Our
+/// own implementation allows us to do that.
+///
+/// The design of this structure is simply a linked list of blocks where each block, a [`FSMBlock`],
+/// is (currently) a fixed-sized array of [`pg_sys::BlockNumber`]s.  Each block contains a small
+/// [`FSMBlockHeader`] that stores the list of free blocks it contains along with bookkeeping data
+/// and a [`FSMBlockKind`] flag indicating how the blocks are stored on that page.
+///
+/// Outside of per-page exclusive locking when mutating a page, no special locking requirements exist
+/// to manage concurrency.  The intent is that the [`FreeSpaceManager`]'s linked block list can grow
+/// unbounded, with the hope that it actually won't grow to be very large in practice.
+///
+/// Any other kind of structure will likely need a more sophisticated approach to concurrency control.
+///
+/// The user-facing API is meant to _kinda_ mimic a `Vec` in that the [`FreeSpaceManager`] can be
+/// popped and extended.  From where in the FSM popped blocks come, or where in the FSM new blocks
+/// are added, is an implementation detail.
 #[derive(Debug)]
 pub struct FreeSpaceManager {
     start_blockno: pg_sys::BlockNumber,
 }
 
 impl FreeSpaceManager {
-    pub unsafe fn init(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
+    /// Create a new [`FreeSpaceManager`] in the block storage of the specified `indexrel`.
+    pub unsafe fn create(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let mut new_buffer = init_new_buffer(indexrel);
         let mut page = new_buffer.page_mut();
         *page.contents_mut::<FSMBlock>() = FSMBlock::default();
         new_buffer.number()
     }
 
+    /// Open an existing [`FreeSpaceManager`] which is rooted at the specified starting block number.
     pub fn open(start_blockno: pg_sys::BlockNumber) -> Self {
         Self { start_blockno }
     }
 
+    /// Retrieve a single free [`pg_sys::BlockNumber`], which can be acquired and re-initialized.
+    ///
+    /// If no free blocks are available, this returns `None`.
+    ///
+    /// Upon return, the block is removed from the [`FreeSpaceManager`]'s control.  It is the caller's
+    /// responsibility to ensure the block is soon properly used or else it will be lost forever as
+    /// dead space in the underlying relation.
+    ///
+    /// # Implementation Note
+    ///
+    /// The FSM is traversed from head to tail.  The requested block is "popped" from the first page
+    /// that has a free block.  This is done by decrementing its header `len` property by one.
     pub fn pop(&self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
         let mut blockno = self.start_blockno;
 
@@ -100,7 +132,7 @@ impl FreeSpaceManager {
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
             let block = page.contents::<FSMBlock>();
-            if block.meta.len == 0 {
+            if block.header.len == 0 {
                 // go to the next block
                 blockno = page.special::<BM25PageSpecialData>().next_blockno;
                 continue;
@@ -108,11 +140,21 @@ impl FreeSpaceManager {
 
             // found a block to return
             let block = page.contents_mut::<FSMBlock>();
-            block.meta.len -= 1;
-            return Some(block.blocks[block.meta.len as usize]);
+            block.header.len -= 1;
+            return Some(block.blocks[block.header.len as usize]);
         }
     }
 
+    /// The returned Vec will contain as many free blocks as possible, up to `npages`.
+    ///
+    /// Upon return, these blocks are now removed from the [`FreeSpaceManager`]'s control.  If the caller
+    /// loses these blocks then they're lost forever as dead space in the underlying relation.
+    ///
+    /// # Implementation Note
+    ///
+    /// The FSM is traversed from head to tail.  During traversal, if the current page has at least
+    /// `npages` free blocks, they're consumed (and queued for return) by decrementing the page's
+    /// `len` property by the number of blocks consumed from that page.
     pub fn pop_many(&self, bman: &mut BufferManager, npages: usize) -> Vec<pg_sys::BlockNumber> {
         if npages == 0 {
             return Vec::new();
@@ -126,12 +168,13 @@ impl FreeSpaceManager {
             let mut page = buffer.page_mut();
             let block = page.contents::<FSMBlock>();
 
-            if block.meta.len > 0 {
-                let chunk_size = remaining.min(block.meta.len as usize);
-                let new_len = block.meta.len - chunk_size as u32;
+            if block.header.len > 0 {
+                let chunk_size = remaining.min(block.header.len as usize);
+                let new_len = block.header.len - chunk_size as u32;
 
-                result.extend_from_slice(&block.blocks[new_len as usize..block.meta.len as usize]);
-                page.contents_mut::<FSMBlock>().meta.len = new_len;
+                result
+                    .extend_from_slice(&block.blocks[new_len as usize..block.header.len as usize]);
+                page.contents_mut::<FSMBlock>().header.len = new_len;
                 remaining -= chunk_size;
             }
 
@@ -146,6 +189,13 @@ impl FreeSpaceManager {
         result
     }
 
+    /// Add the specified `extend_with` iterator of [`pg_sys::BlockNumber`]s to this [`FreeSpaceManager`].
+    ///
+    /// # Implementation Note
+    ///
+    /// The FSM is traversed head to tail and empty space on each page is filled with the results
+    /// of the provided `extend_with` iterator.  If the whole FSM is full then a new block is allocated
+    /// and linked to the end as the new tail.
     pub fn extend(
         &self,
         bman: &mut BufferManager,
@@ -157,7 +207,7 @@ impl FreeSpaceManager {
             let mut buffer = bman.get_buffer_mut(blockno);
             let mut page = buffer.page_mut();
 
-            let mut len = page.contents::<FSMBlock>().meta.len as usize;
+            let mut len = page.contents::<FSMBlock>().header.len as usize;
             while len < UNCOMPRESSED_MAX_BLOCKS_PER_PAGE {
                 match extend_with.peek() {
                     // we've added every block from the iterator
@@ -168,9 +218,9 @@ impl FreeSpaceManager {
                     // add the next block
                     Some(blockno) => {
                         let block = page.contents_mut::<FSMBlock>();
-                        block.blocks[block.meta.len as usize] = *blockno;
-                        block.meta.len += 1;
-                        len = block.meta.len as usize;
+                        block.blocks[block.header.len as usize] = *blockno;
+                        block.header.len += 1;
+                        len = block.header.len as usize;
                         extend_with.next(); // burn it
                     }
                 }
@@ -223,7 +273,7 @@ unsafe fn fsm_info(
         let buffer = bman.get_buffer(blockno);
         let page = buffer.page();
         let block = page.contents::<FSMBlock>();
-        let free_blocks = block.blocks[..block.meta.len as usize].to_vec();
+        let free_blocks = block.blocks[..block.header.len as usize].to_vec();
         mapping.push((blockno, free_blocks));
         blockno = page.special::<BM25PageSpecialData>().next_blockno;
     }

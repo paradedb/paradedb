@@ -230,6 +230,9 @@ impl SerialIndexWriter {
     /// 2. Merge the segment with the previous segment if we're using a RAMDirectory
     /// 3. Save the new meta entry
     /// 4. Return any free space to the FSM
+    ///
+    /// The `on_finalize` closure is called immediately before segment finalization (commit), and
+    /// then, only if a segment was created.
     fn finalize_segment<OnFinalize: FnOnce()>(
         &mut self,
         on_finalize: OnFinalize,

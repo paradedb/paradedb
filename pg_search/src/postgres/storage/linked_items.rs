@@ -92,7 +92,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         }
     }
 
-    pub unsafe fn create_direct(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
+    /// Create a new [`LinkedItemList`] in the specified `indexrel`'s block storage.  This method
+    /// creates the necessary initial block structure without trying to use recycled pages from
+    /// the [`FreeSpaceManager`].
+    ///
+    /// This is required if this object is created during `CREATE INDEX`/`REINDEX` as part of the
+    /// initial index structure and the FSM hasn't been initialized yet.
+    pub unsafe fn create_without_fsm(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let mut header_buffer = init_new_buffer(indexrel);
         let start_buffer = init_new_buffer(indexrel);
 
@@ -108,7 +114,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         header_blockno
     }
 
-    pub fn create(indexrel: &PgSearchRelation) -> Self {
+    /// Create a new [`LinkedItemList`] in the specified `indexrel`'s block storage.  This method
+    /// will attempt to create the initial block structure using recycled blocks from the [`FreeSpaceManager`].
+    pub fn create_with_fsm(indexrel: &PgSearchRelation) -> Self {
         let (mut _self, mut header_buffer) = Self::create_without_start_page(indexrel);
 
         let mut start_buffer = _self.bman.new_buffer();
@@ -594,7 +602,7 @@ mod tests {
         let indexrel = PgSearchRelation::open(relation_oid);
         let delete_xid = pg_sys::FrozenTransactionId;
 
-        let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
         let entries_to_delete = vec![SegmentMetaEntry {
             segment_id: random_segment_id(),
             xmax: delete_xid,
@@ -630,7 +638,7 @@ mod tests {
 
         // Add 2000 entries, delete every 10th entry
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries = (1..2000)
                 .map(|i| SegmentMetaEntry {
                     segment_id: random_segment_id(),
@@ -657,7 +665,7 @@ mod tests {
         }
         // First n pages are full, next m pages need to be compacted, next n are full
         {
-            let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
+            let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries_1 = (1..500)
                 .map(|_| SegmentMetaEntry {
                     segment_id: random_segment_id(),
@@ -714,7 +722,7 @@ mod tests {
         let indexrel = PgSearchRelation::open(relation_oid);
 
         // Add 2000 entries.
-        let mut list = LinkedItemList::<SegmentMetaEntry>::create(&indexrel);
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
         let entries = (1..2000)
             .map(|_| SegmentMetaEntry {
                 segment_id: random_segment_id(),

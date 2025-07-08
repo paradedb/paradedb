@@ -107,7 +107,7 @@ impl BufferMut {
         self.inner.page_size()
     }
 
-    /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
+    /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
     pub fn return_to_fsm(self, bman: &mut BufferManager) {
         let blockno = self.number();

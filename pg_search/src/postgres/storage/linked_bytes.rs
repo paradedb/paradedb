@@ -250,7 +250,13 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create_direct(rel: &PgSearchRelation) -> pg_sys::BlockNumber {
+    /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
+    /// creates the necessary initial block structure without trying to use recycled pages from
+    /// the [`FreeSpaceManager`].
+    ///
+    /// This is required if this object is created during `CREATE INDEX`/`REINDEX` as part of the
+    /// initial index structure and the FSM hasn't been initialized yet.
+    pub unsafe fn create_without_fsm(rel: &PgSearchRelation) -> pg_sys::BlockNumber {
         let (mut header_buffer, start_buffer) = (init_new_buffer(rel), init_new_buffer(rel));
         let header_blockno = header_buffer.number();
         let start_blockno = start_buffer.number();
@@ -264,7 +270,10 @@ impl LinkedBytesList {
 
         header_blockno
     }
-    pub fn create(rel: &PgSearchRelation) -> Self {
+
+    /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
+    /// will attempt to create the initial block structure using recycled blocks from the [`FreeSpaceManager`].
+    pub fn create_with_fsm(rel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
@@ -407,7 +416,7 @@ mod tests {
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
-            let linked_list = LinkedBytesList::create(&indexrel);
+            let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
             let mut writer = linked_list.writer();
             writer.write(&bytes).unwrap();
             let linked_list = writer.into_inner().unwrap();
@@ -433,7 +442,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(&indexrel);
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
         assert!(linked_list.is_empty());
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
@@ -453,7 +462,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(&indexrel);
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();

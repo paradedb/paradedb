@@ -55,7 +55,7 @@ impl MergeLock {
 
         if !block_number_is_valid(metadata.merge_list) {
             metadata.merge_list =
-                LinkedItemList::<MergeEntry>::create(indexrel).get_header_blockno();
+                LinkedItemList::<MergeEntry>::create_with_fsm(indexrel).get_header_blockno();
         }
 
         MergeLock {
@@ -314,7 +314,7 @@ impl MergeList {
             .into_iter()
             .flat_map(|segment_id| segment_id.uuid_bytes().iter().copied())
             .collect::<Vec<_>>();
-        let segment_ids_list = LinkedBytesList::create(self.bman.buffer_access().rel());
+        let segment_ids_list = LinkedBytesList::create_with_fsm(self.bman.buffer_access().rel());
         let segment_ids_start_blockno = segment_ids_list.get_header_blockno();
         segment_ids_list.writer().write(&segment_id_bytes)?;
 

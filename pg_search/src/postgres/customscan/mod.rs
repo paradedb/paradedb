@@ -20,19 +20,27 @@
 #![allow(unused_variables)]
 #![allow(clippy::tabs_in_doc_comments)]
 
+use parking_lot::Mutex;
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgMemoryContexts};
-use std::ffi::{CStr, CString};
 
+use std::ffi::{CStr, CString};
+use std::ptr::NonNull;
+
+pub mod aggregatescan;
 mod builders;
 mod dsm;
 mod exec;
+mod explainer;
 mod hook;
+mod opexpr;
 mod path;
+pub mod pdbscan;
+mod pushdown;
+mod qual_inspect;
+mod range_table;
 mod scan;
 
-mod explainer;
-pub mod pdbscan;
-
+use crate::api::HashMap;
 use crate::postgres::customscan::exec::{
     begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan,
     mark_pos_custom_scan, rescan_custom_scan, restr_pos_custom_scan, shutdown_custom_scan,
@@ -46,66 +54,82 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::path::{plan_custom_path, reparameterize_custom_path_by_child};
 use crate::postgres::customscan::scan::create_custom_scan_state;
-pub use hook::register_rel_pathlist;
-use std::ptr::NonNull;
+pub use hook::{register_rel_pathlist, register_upper_path};
 
+// TODO: This trait should be expanded to include a `reset` method, which would become the
+// default/only implementation of `rescan_custom_scan`.
 pub trait CustomScanState: Default {
     fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState);
 }
 
-pub trait CustomScan: ExecMethod + Default + Sized {
-    const NAME: &'static CStr;
-    type State: CustomScanState;
-    type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List> + Default;
+struct CustomPathMethodsWrapper(*const pg_sys::CustomPathMethods);
 
-    //
-    // SAFETY:  We need to allocate the struct to define the functions once, however
+unsafe impl Send for CustomPathMethodsWrapper {}
+unsafe impl Sync for CustomPathMethodsWrapper {}
+
+struct CustomScanMethodsWrapper(*const pg_sys::CustomScanMethods);
+
+unsafe impl Send for CustomScanMethodsWrapper {}
+unsafe impl Sync for CustomScanMethodsWrapper {}
+
+lazy_static::lazy_static! {
+    // We need to allocate the structs to define functions once, however
     // all the methods are generic over this trait ([`CustomScan]).  Because Rust
     // monomorphizes these functions, they're actually at different addresses per CustomScan
-    // impl.  As such, we allocate them once, in Postgres "TopMemoryContext", which is **never**
-    // freed.  This ensures we don't waste any more memory than we need and more importantly,
+    // impl. As such, we allocate them once, in Postgres "TopMemoryContext", which is **never**
+    // freed. This ensures we don't waste any more memory than we need and more importantly,
     // ensures the returned pointer holding the function pointers lives for the life of the
     // process, which Postgres requires of these.
-    //
+    static ref PATH_METHODS: Mutex<HashMap<&'static CStr, CustomPathMethodsWrapper>> = Mutex::default();
+    static ref SCAN_METHODS: Mutex<HashMap<&'static CStr, CustomScanMethodsWrapper>> = Mutex::default();
+}
+
+pub trait CustomScan: ExecMethod + Default + Sized {
+    const NAME: &'static CStr;
+    type Args;
+    type State: CustomScanState;
+    type PrivateData: From<*mut pg_sys::List> + Into<*mut pg_sys::List>;
 
     fn custom_path_methods() -> *const pg_sys::CustomPathMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomPathMethods = std::ptr::null_mut();
-
-            if METHODS.is_null() {
-                METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                    pg_sys::CustomPathMethods {
-                        CustomName: Self::NAME.as_ptr(),
-                        PlanCustomPath: Some(plan_custom_path::<Self>),
-                        ReparameterizeCustomPathByChild: Some(
-                            reparameterize_custom_path_by_child::<Self>,
-                        ),
-                    },
-                );
-            }
-            METHODS
-        }
+        PATH_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomPathMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                        pg_sys::CustomPathMethods {
+                            CustomName: Self::NAME.as_ptr(),
+                            PlanCustomPath: Some(plan_custom_path::<Self>),
+                            ReparameterizeCustomPathByChild: Some(
+                                reparameterize_custom_path_by_child::<Self>,
+                            ),
+                        },
+                    ),
+                )
+            })
+            .0
     }
 
     fn custom_scan_methods() -> *const pg_sys::CustomScanMethods {
-        unsafe {
-            static mut METHODS: *mut pg_sys::CustomScanMethods = std::ptr::null_mut();
-
-            METHODS = PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
-                pg_sys::CustomScanMethods {
-                    CustomName: Self::NAME.as_ptr(),
-                    CreateCustomScanState: Some(create_custom_scan_state::<Self>),
-                },
-            );
-            METHODS
-        }
+        SCAN_METHODS
+            .lock()
+            .entry(Self::NAME)
+            .or_insert_with(|| {
+                CustomScanMethodsWrapper(
+                    PgMemoryContexts::TopMemoryContext.leak_and_drop_on_delete(
+                        pg_sys::CustomScanMethods {
+                            CustomName: Self::NAME.as_ptr(),
+                            CreateCustomScanState: Some(create_custom_scan_state::<Self>),
+                        },
+                    ),
+                )
+            })
+            .0
     }
 
-    fn rel_pathlist_callback(
-        builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath>;
+    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath>;
 
-    fn plan_custom_path(builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan;
+    fn plan_custom_path(builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan;
 
     fn create_custom_scan_state(
         builder: CustomScanStateBuilder<Self, Self::PrivateData>,
@@ -206,6 +230,62 @@ where
     fn restr_pos_custom_scan(state: &mut CustomScanStateWrapper<Self>);
 }
 
+#[derive(Debug)]
+pub struct RelPathlistHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    pub rel: *mut pg_sys::RelOptInfo,
+    pub rti: pg_sys::Index,
+    pub rte: *mut pg_sys::RangeTblEntry,
+}
+
+impl RelPathlistHookArgs {
+    #[allow(dead_code)]
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe { self.rel.as_ref().expect("Args::rel should not be null") }
+    }
+
+    pub fn rte(&self) -> &pg_sys::RangeTblEntry {
+        unsafe { self.rte.as_ref().expect("Args::rte should not be null") }
+    }
+}
+
+#[derive(Debug)]
+pub struct CreateUpperPathsHookArgs {
+    pub root: *mut pg_sys::PlannerInfo,
+    #[allow(dead_code)]
+    pub stage: pg_sys::UpperRelationKind::Type,
+    pub input_rel: *mut pg_sys::RelOptInfo,
+    pub output_rel: *mut pg_sys::RelOptInfo,
+    #[allow(dead_code)]
+    pub extra: *mut ::std::os::raw::c_void,
+}
+
+impl CreateUpperPathsHookArgs {
+    pub fn root(&self) -> &pg_sys::PlannerInfo {
+        unsafe { self.root.as_ref().expect("Args::root should not be null") }
+    }
+
+    pub fn input_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.input_rel
+                .as_ref()
+                .expect("Args::input_rel should not be null")
+        }
+    }
+
+    pub fn output_rel(&self) -> &pg_sys::RelOptInfo {
+        unsafe {
+            self.output_rel
+                .as_ref()
+                .expect("Args::output_rel should not be null")
+        }
+    }
+}
+
 /// Helper function for wrapping a raw [`pg_sys::CustomScanState`] pointer with something more
 /// usable by implementers
 fn wrap_custom_scan_state<CS: CustomScan>(
@@ -221,4 +301,14 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
         &[CString::new(signature).into_datum()],
     )
     .expect("should be able to lookup operator signature")
+}
+
+pub fn score_funcoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            &[c"paradedb.score(anyelement)".into_datum()],
+        )
+        .expect("the `paradedb.score(anyelement)` function should exist")
+    }
 }

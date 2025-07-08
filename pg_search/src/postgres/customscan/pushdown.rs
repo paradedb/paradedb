@@ -15,12 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::opexpr::OpExpr;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::postgres::customscan::opexpr::OpExpr;
+use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::var::{fieldname_from_var, find_var_relation};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};

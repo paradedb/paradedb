@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+mod aggregate;
 mod api;
 mod bootstrap;
 mod index;
@@ -79,6 +80,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
 }
 
 #[pg_extern]

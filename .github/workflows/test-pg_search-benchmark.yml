@@ -99,16 +99,12 @@ jobs:
         working-directory: benchmarks/
         run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output json
 
-      - name: Generate pg_search Continuous Benchmarking Metrics
-        run: |
-          cp benchmarks/results.json benchmarks/pg_search_data.json
-
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search Query Performance"
           tool: "customSmallerIsBetter"
-          output-file-path: "benchmarks/pg_search_data.json"
+          output-file-path: "benchmarks/results.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
           gh-pages-branch: gh-pages

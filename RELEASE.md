@@ -1,19 +1,20 @@
 # ParadeDB Release Process
 
-We use a single branch, `main`, for our development. All feature work happens on feature branches and is merged into `main` via pull requests. Every release is triggered manually via the [**Publish GitHub Release**](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) workflow in the GitHub Actions UI.
+We use a single branch, `main`, for our development. Features are built on separate branches and merged into `main` via pull requests.
+
+All releases are **manually triggered** using the [**Publish GitHub Release** workflow](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml) in the GitHub Actions UI.
 
 ---
 
 ## Release Types
 
-When doing a release, it should **always** be done via the workflow from the branch which is being released. This can be selected in the GitHub Actions UI.
+Releases must always be triggered **from the branch being released** (e.g., `main` for a minor or beta release, or a hotfix branch for patches).
 
-- **Minor Release**:
-  All releases from our `main` branch are minor releases.
-- **Patch Release**:
-  Creates a patch bump off of an existing tag (e.g. `v1.4.0 → v1.4.1`).
-- **Beta (RC) Release** (`beta: true`):
-  Creates a prerelease tag (`vX.Y.Z-rc.N`), requires the `Cargo.toml` version to contain `-rc`.
+| Type          | Description                                                                                             |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| **Minor**     | Triggered from the `dev` branch.                                                                        |
+| **Patch**     | A patch bump off an existing tag (e.g., `v1.4.0 → v1.4.1`).                                             |
+| **Beta (RC)** | Marked with `beta: true`. Produces a prerelease tag like `vX.Y.Z-rc.N`. Requires `-rc` in `Cargo.toml`. |
 
 > **Note:** The Minor and Patch releases publish Docker images for all supported PostgreSQL major versions and prebuilt extension binaries for all supported platforms. The Beta release only publishes a Docker image for the default PostgreSQL major version and does not release prebuilt extension binaries.
 
@@ -21,64 +22,62 @@ When doing a release, it should **always** be done via the workflow from the bra
 
 ## Workflow Inputs
 
-| Input          | Type    | Default | Description                                                                                             |
-| -------------- | ------- | ------- | ------------------------------------------------------------------------------------------------------- |
-| `version`      | string  | `""`    | The desired version of the release in semVer format (e.g. `a.b.c` or `a.b.c-rc.d` for beta releases)    |
-| `beta`         | boolean | `false` | Creates a RC pre-release of the provided version (`vX.Y.Z-rc.N`).                                       |
-| `confirmation` | boolean | `false` | **Required**—confirm you’ve bumped `Cargo.toml`, written the SQL upgrade, and updated docs & changelog. |
+| Input          | Type    | Default | Description                                                                                    |
+| -------------- | ------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `version`      | string  | `""`    | Target release version in semver format (e.g., `1.2.3` or `1.2.3-rc.1` for beta releases).     |
+| `beta`         | boolean | `false` | If `true`, creates a beta release (`vX.Y.Z-rc.N`) and marks it as a pre-release in GitHub.     |
+| `confirmation` | boolean | `false` | **Required** Confirms that version bump, SQL upgrade script, docs, and changelog are complete. |
 
-> **Note:** The `version` provided _must_ match that of the `Cargo.toml` file and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
+> **Note:** The `version` provided _must_ match that of the `Cargo.toml` of the branch being released file and contain `-rc.X` in the case of a beta release. The workflow will not run unless `confirmation: true`.
 
 ---
 
 ## Release Preparation
 
-Before running the workflow:
+Before triggering the workflow, create a **Release Prepation PR** against `main`:
 
-1. **Create a prep PR** against `main` that:
-   - Updates `Cargo.toml` to the target semver:
-     - `a.b.c-rc.d` for **beta**.
-     - `a.b.c` for **stable** (minor/patch/hotfix).
-   - Runs `cargo check` to refresh `Cargo.lock`.
-   - (Stable only) Updates version references in docs, adds a changelog entry, and updates `docs/docs.json`.
-   - Adds `pg_search--<old-version>--<new-version>.sql` upgrade script.
+- Update the `Cargo.toml` version:
+  - `a.b.c-rc.d` for **beta** releases
+  - `a.b.0` for **minor** releases
+- Run `cargo check` to refresh the `Cargo.lock` file with the new version
+- Add a `pg_search--<previous-version>--<upcoming-version> upgrade script
+- (Minor only) Update the version references in the upgrade docs and in `docs/docs.json`
+- (Minor and patch only) Write a changelog entry and add it to `docs/docs.json`
 
-See [example prep PR](https://github.com/paradedb/paradedb/pull/2720).
+Here is an [example release preparation PR](https://github.com/paradedb/paradedb/pull/2770) for your reference.
 
 ---
 
 ## Triggering a Release
 
-1. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml).
-2. Click **Run workflow** and set your inputs.
-3. Click **Run workflow** to start the job.
+### Minor & Beta
+
+To publish a minor or beta release for the current ongoing latest `main`:
+
+1. Create and merge the Release Preparation PR
+2. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
+3. Click **Run workflow**, select `main` as the release branch, and set your inputs
+4. Click **Run workflow** to start the job, and monitor the progress of the various jobs under the [GitHub Actions UI](https://github.com/paradedb/paradedb/actions)
+
+### Patch
+
+To publish a patch for an older release:
+
+1. **Branch off** the target tag (e.g. `git checkout -b patch/<version>.x <release-tag>`)
+2. Cherry-pick the fixes you need into your patch branch
+3. Complete the Release Preparation PR work in your patch branch
+4. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
+5. Click **Run workflow**, select your patch branch as the release branch, and set your inputs
 
 ---
 
 ## Post-Release Steps
 
-1. **Verify** the GitHub Release and tag.
-2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `1.2.0-rc.1`).
+1. **Verify** that the GitHub Release and GitHub Tag properly created and that all jobs completed.
+2. **Open a post-release PR** against `main` to bump `Cargo.toml` to the next development version (e.g. `0.20.0` or `0.20.0-rc.1`).
 3. **Merge** that PR so `main` reflects ongoing work.
 4. **Release** `paradedb/paradedb-enterprise`, `paradedb/charts` and `paradedb/terraform-paradedb-byoc`. More context to come here as we automate more of the release flow.
 
 ---
 
-## Hotfix Releases
-
-To publish a patch for an older release:
-
-1. **Branch off** the target tag:
-
-```bash
-  git checkout -b hotfix/<version>.x <release-tag>
-  # e.g. git checkout -b hotfix/0.15.15 v0.15.15
-```
-
-2. Cherry-pick the fixes you need into your hotfix branch.
-
-3. Bump `Cargo.toml` to the new patch version in that branch and refresh the `Cargo.lock`.
-
-4. Run the Publish GitHub Release workflow with `version: <your-new-patch-version>`.
-
-5. Go for a walk, you deserve it.
+That's it! Go for a walk, you deserve it.

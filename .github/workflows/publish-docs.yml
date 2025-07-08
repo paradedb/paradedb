@@ -25,10 +25,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Mintlify CLI
-        run: npm install -g mint
+      # - name: Install Mintlify CLI
+      #   run: npm install -g mint
 
-      - name: Publish Docs
-        run: mint deploy --path docs/
-        env:
-          MINTLIFY_API_KEY: ${{ secrets.MINTLIFY_API_KEY }}
+      # - name: Publish Docs
+      #   run: mint deploy --path docs/
+      #   env:
+      #     MINTLIFY_API_KEY: ${{ secrets.MINTLIFY_API_KEY }}

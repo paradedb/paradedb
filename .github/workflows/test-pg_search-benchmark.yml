@@ -123,26 +123,7 @@ jobs:
           with open('benchmarks/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
 
-      - name: Check Performance Regressions on PRs
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: "pg_search Benchmarks"
-          tool: "customSmallerIsBetter"
-          output-file-path: "benchmarks/pg_search_data.json"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: benchmarks
-          alert-threshold: "110%"
-          fail-threshold: "110%" # Tolerate up to 10% regression
-          fail-on-alert: true
-          comment-on-alert: true
-          alert-comment-cc-users: "@${{ github.event.pull_request.user.login }}"
-
-      # TODO: Only push on dev once done testings
       - name: Publish and check performance regression on dev
-        if: ${{ github.event_name == 'push' }}
-        # if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat/continuous-benchmarks' }}
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search performance"

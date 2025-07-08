@@ -151,7 +151,7 @@ jobs:
         with:
           name: "pg_search Stressgres Performance"
           tool: "customSmallerIsBetter"
-          output-file-path: "benchmarks/pg_search_data.json"
+          output-file-path: "stressgres/pg_search_data.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
           gh-pages-branch: gh-pages

@@ -201,10 +201,11 @@ async fn generated_single_relation(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         gucs in any::<PgGucs>(),
+        target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
         compare(
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
             gucs,
             &mut pool.pull(),
             |query, conn| {

@@ -16,7 +16,7 @@ on:
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches: # Also run on default to fill the GitHub Actions Rust cache in a way that PRs can see it
+    branches: # Also run on the default branch to fill the GitHub Actions Rust cache in a way that PRs can see it
       - main
     paths:
       - "**/*.rs"

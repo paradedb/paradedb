@@ -125,9 +125,10 @@ jobs:
       - name: Initialize cargo-pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # This is the current version which we want to test upgrading to, e.g. the PR's branch
-      - name: Checkout ParadeDB
-        run: git checkout ${{ github.head_ref }}
+      - name: Fetch and Checkout PR Head
+        run: |
+          git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head:${{ github.event.pull_request.head.ref }}
+          git checkout ${{ github.event.pull_request.head.ref }}
 
       - name: Compile & install pg_search
         working-directory: pg_search/

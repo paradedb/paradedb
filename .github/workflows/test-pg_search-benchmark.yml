@@ -7,8 +7,8 @@
 name: Test pg_search Benchmark
 
 on:
-  push:
-    branches: # We run Stressgres post pushes to speed up CI. Results are posted to Slack.
+  push: # We run benchmarks post pushes to speed up CI. Results are posted to Slack.
+    branches:
       - main
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"
@@ -128,6 +128,12 @@ jobs:
           name: benchmark-results
           path: benchmarks/
 
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
       - name: Upload ${{ matrix.csv_suffix }} to Slack
         uses: slackapi/slack-github-action@v2
         with:
@@ -137,7 +143,7 @@ jobs:
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
               *Community Benchmark Results (results_pg_search_${{ matrix.csv_suffix }}.csv)*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>
             file: "benchmarks/results_pg_search_${{ matrix.csv_suffix }}.csv"
             filename: "results_pg_search_${{ matrix.csv_suffix }}.csv"
             request_file_info: true

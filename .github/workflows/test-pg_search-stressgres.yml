@@ -6,8 +6,8 @@
 name: Test pg_search Stressgres
 
 on:
-  push:
-    branches: # We run Stressgres post pushes to speed up CI. Results are posted to Slack.
+  push: # We run Stressgres post pushes to speed up CI. Results are posted to Slack.
+    branches:
       - main
     paths:
       - ".github/stressgres/**"

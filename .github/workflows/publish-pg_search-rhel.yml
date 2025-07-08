@@ -1,8 +1,8 @@
 # workflows/publish-pg_search-rhel.yml
 #
 # Publish pg_search (Red Hat)
-# Build and publish the pg_search extension as .rpm to GitHub Releases. This workflow is
-# gets triggered for both pushes to `main` and `staging`, but beta releases get filtered
+# Build and publish the pg_search extension as .rpm to GitHub Releases. This
+# workflow is triggered on creation of a GitHub Tag, but beta releases get filtered
 # out by the `if` condition of the job.
 #
 # Note: Prebuilt binaries for RHEL do not support the ICU tokenizer due to the lack of the

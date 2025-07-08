@@ -6,13 +6,9 @@
 name: Test pg_search Stressgres
 
 on:
-  pull_request:
-    branches: # On the `staging` and `main` branches, we run Stressgres in PRs to test thoroughly
+  push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
+    branches:
       - main
-      - staging
-  push:
-    branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
-      - dev
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
@@ -20,19 +16,14 @@ on:
       - "**/*.toml"
   workflow_dispatch:
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-stressgres-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  group: test-pg_search-stressgres-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         include:
@@ -67,8 +58,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -76,7 +67,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof

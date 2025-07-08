@@ -1,6 +1,6 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_search.svg" alt="pg_search"></a>
-<br>
+  <img src="../docs/logo/pg_search.svg" alt="pg_search"></img>
+<br></br>
 </h1>
 
 [![Test pg_search](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)

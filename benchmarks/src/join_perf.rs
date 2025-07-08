@@ -17,7 +17,7 @@
 
 use anyhow::Result;
 use serde_json::Value;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 use std::time::Instant;
 
 /// JOIN Performance Benchmark Results
@@ -38,11 +38,14 @@ pub async fn run_with_explain_analyze(
     query: &str,
     query_name: &str,
 ) -> Result<JoinPerfResult> {
-    // Run with EXPLAIN ANALYZE
+    // Run with EXPLAIN ANALYZE (JSON format for parsing)
     let explain_query = format!("EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) {query}");
     let start = Instant::now();
     let (plan,): (Value,) = sqlx::query_as(&explain_query).fetch_one(&mut *conn).await?;
     let explain_analyze_time_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    // Also run EXPLAIN ANALYZE in text format for display
+    print_query_plan(conn, query, query_name).await?;
 
     // Extract execution time from plan
     let plan_execution_time = extract_execution_time(&plan);
@@ -71,6 +74,27 @@ pub async fn run_with_explain_analyze(
         exec_method,
         row_count,
     })
+}
+
+/// Print the query plan in readable text format
+pub async fn print_query_plan(
+    conn: &mut PgConnection,
+    query: &str,
+    query_name: &str,
+) -> Result<()> {
+    println!("\n📋 Query Plan for: {query_name}");
+    println!("{}", "=".repeat(80));
+
+    let explain_query = format!("EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT TEXT) {query}");
+    let rows = sqlx::query(&explain_query).fetch_all(&mut *conn).await?;
+
+    for row in rows {
+        let plan_line: String = row.get(0);
+        println!("{plan_line}");
+    }
+
+    println!("{}", "=".repeat(80));
+    Ok(())
 }
 
 /// Extract execution time from EXPLAIN ANALYZE JSON output

@@ -28,10 +28,10 @@ jobs:
       - name: Install Mintlify CLI
         run: npm install -g mint
 
-      - name: Publish Docs to Mintlify
-        working-directory: docs/
-        run: |
-          curl -X POST \
-            https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
-            -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
-            -H "Content-Type: application/json"
+      # - name: Publish Docs to Mintlify
+      #   working-directory: docs/
+      #   run: |
+      #     curl -X POST \
+      #       https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
+      #       -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
+      #       -H "Content-Type: application/json"

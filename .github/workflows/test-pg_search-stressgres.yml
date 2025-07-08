@@ -187,7 +187,7 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres `${{ matrix.test_file }}` Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
               <https://paradedb.github.io/paradedb/stressgres/>
             file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"

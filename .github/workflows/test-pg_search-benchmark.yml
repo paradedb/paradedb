@@ -32,7 +32,7 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-        num_rows: [100000000]
+        dataset: ["single", "join"]
 
     steps:
       - name: Checkout Git Repository
@@ -97,12 +97,21 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output json
+        run: |
+          if [ "${{ matrix.dataset }}" = "single" ]; then
+            NUM_ROWS=100000000
+          elif [ "${{ matrix.dataset }}" = "join" ]; then
+            NUM_ROWS=25000000
+          else
+            echo "Unknown dataset!"
+            exit 1
+          fi
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --output json
 
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "pg_search Query Performance"
+          name: "pg_search '${{ matrix.dataset }}' Query Performance"
           tool: "customSmallerIsBetter"
           output-file-path: "benchmarks/results.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -140,7 +149,7 @@ jobs:
           payload: |
             channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             text: |
-              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Benchmark Results available:
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community "${{ matrix.dataset}}" Query Results available:
               <https://paradedb.github.io/paradedb/benchmarks/>
           errors: true
           retries: 5

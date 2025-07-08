@@ -14,13 +14,13 @@ WITH (
             "tokenizer": {"type": "keyword"}, "fast": true
         },
         "content": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "title": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "parents": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         }
     }'
 );
@@ -41,13 +41,13 @@ WITH (
             "tokenizer": {"type": "keyword"}, "fast": true
         },
         "content": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "title": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "parents": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         }
     }'
 );
@@ -63,13 +63,13 @@ WITH (
     key_field = 'id',
     text_fields = '{
         "content": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "title": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         },
         "parents": {
-            "tokenizer": {"type": "icu"}, "fast": true
+            "tokenizer": {"type": "default"}, "fast": true
         }
     }'
 );

@@ -131,23 +131,21 @@ impl From<QueryResult> for JSONBenchmarkResult {
 
 fn process_index_creation(args: &Args) -> impl Iterator<Item = IndexCreationResult> + '_ {
     let index_sql = format!("datasets/{}/create_index/{}.sql", args.dataset, args.r#type);
-    queries(Path::new(&index_sql))
-        .into_iter()
-        .map(|(_, statement)| {
-            println!("{statement}");
+    queries(Path::new(&index_sql)).into_iter().map(|statement| {
+        println!("{statement}");
 
-            let duration_min_secs = execute_sql_with_timing(&args.url, &statement);
-            let index_name = extract_index_name(&statement).to_owned();
-            let index_size = get_index_size(&args.url, &index_name);
-            let segment_count = get_segment_count(&args.url, &index_name);
+        let duration_min_secs = execute_sql_with_timing(&args.url, &statement);
+        let index_name = extract_index_name(&statement).to_owned();
+        let index_size = get_index_size(&args.url, &index_name);
+        let segment_count = get_segment_count(&args.url, &index_name);
 
-            IndexCreationResult {
-                duration_min_secs,
-                index_name,
-                index_size,
-                segment_count,
-            }
-        })
+        IndexCreationResult {
+            duration_min_secs,
+            index_name,
+            index_size,
+            segment_count,
+        }
+    })
 }
 
 fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
@@ -168,10 +166,25 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                vec![]
-            } else {
-                queries(&path)
+                return vec![];
             }
+
+            let queries = queries(&path);
+            let query_type = path.file_stem().unwrap().to_string_lossy();
+            queries
+                .into_iter()
+                .enumerate()
+                .map(|(idx, query)| {
+                    // We treat the first query in the file as the canonical way to write the query: we
+                    // suffix the rest as alternatives.
+                    let query_type = if idx == 0 {
+                        query_type.clone().into_owned()
+                    } else {
+                        format!("{query_type} - alternative {idx}")
+                    };
+                    (query_type, query)
+                })
+                .collect()
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
@@ -489,8 +502,7 @@ fn run_benchmarks_json(args: &Args) {
 ///
 /// Strips comments and flattens each query onto a single line.
 ///
-fn queries(file: &Path) -> Vec<(String, String)> {
-    let query_type = file.file_stem().unwrap().to_string_lossy();
+fn queries(file: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
 
@@ -511,7 +523,6 @@ fn queries(file: &Path) -> Vec<(String, String)> {
                 Some(query)
             }
         })
-        .map(move |query| (query_type.clone().into_owned(), query))
         .collect()
 }
 

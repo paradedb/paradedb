@@ -9,7 +9,6 @@ on:
   push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
-      - feat/continuous-benchmarks # TODO: Remove this once testing is complete
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
@@ -110,14 +109,14 @@ jobs:
         working-directory: paradedb/pg_search/
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
 
-      - name: Run Stressgres Test Suite for 10 minutes
+      - name: Run Stressgres Test Suite
         working-directory: stressgres/
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
           cargo run --release -- headless \
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
-          --runtime 60 # TODO: Reset the runtime once testing is complete
+          --runtime 600000
 
       - name: Generate Stressgres Continuous Benchmarking Metrics
         working-directory: stressgres/
@@ -134,14 +133,13 @@ jobs:
             reader = csv.DictReader(f)
             for row in reader:
               metrics.append({
-                "job_title":     row["job_title"],
-                "server_name":   row["server_name"],
-                "metric_name":   row["metric_name"],
-                "min":           float(row["min"]),
-                "avg":           float(row["avg"]),
-                "max":           float(row["max"]),
-                "count":         int(row["count"])
+                "name":     f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
+                "unit":     f"avg {row['metric_name']}",
+                "value":    float(row['avg']),
+                "extra":    f"max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
               })
+
+          metrics.sort(key=lambda metric: metric['name'])
 
           with open('stressgres/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
@@ -149,7 +147,7 @@ jobs:
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "pg_search Stressgres Performance"
+          name: "pg_search ${{ matrix.test_file }} Performance"
           tool: "customSmallerIsBetter"
           output-file-path: "stressgres/pg_search_data.json"
           github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
@@ -158,8 +156,8 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: stressgres
           alert-threshold: "110%"
-          fail-threshold: "110%"
-          fail-on-alert: true
+          # NB: We comment and alert rather than failing, as we have both Github and Slack messages
+          # to notify us.
           comment-on-alert: true
           alert-comment-cc-users: "@${{ github.actor }}"
 
@@ -189,8 +187,8 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *Community Stressgres Results (${{ matrix.test_file }})*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres `${{ matrix.test_file }}` Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
+              <https://paradedb.github.io/paradedb/stressgres/>
             file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             request_file_info: true
@@ -205,15 +203,14 @@ jobs:
             cat $f
           done
 
-      # TODO: Uncomment once done testing
-      # - name: Notify Slack on Failure
-      #   if: failure()
-      #   env:
-      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-      #   run: |
-      #     GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      #     ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-      #     MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
-      #     curl -X POST -H 'Content-type: application/json' \
-      #     --data "{\"text\": \"${MESSAGE}\"}" \
-      #     ${SLACK_WEBHOOK_URL}
+      - name: Notify Slack on Failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
+          MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{\"text\": \"${MESSAGE}\"}" \
+          ${SLACK_WEBHOOK_URL}

@@ -101,11 +101,10 @@ jobs:
 
       # This is where we can configure how the different runs are aggregated
       # into a single JSON file for plotting in our continuous benchmarks.
-      - name: Generate pg_search JSON Metrics from CSV
+      - name: Generate pg_search Continuous Benchmarking Metrics
         shell: python {0}
         run: |
           import csv, json
-
           metrics = []
           with open('benchmarks/results_pg_search_benchmark_results.csv', 'r') as f:
             reader = csv.DictReader(f)
@@ -123,10 +122,10 @@ jobs:
           with open('benchmarks/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
 
-      - name: Publish and check performance regression on dev
+      - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: "pg_search performance"
+          name: "pg_search Benchmarks Performance"
           tool: "customSmallerIsBetter"
           output-file-path: "benchmarks/pg_search_data.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}

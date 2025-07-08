@@ -9,12 +9,17 @@ on:
   push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
+      - feat/continuous-benchmarks # TODO: Remove this once testing is complete
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
 
 concurrency:
   group: test-pg_search-stressgres-${{ github.head_ref || github.ref }}
@@ -112,11 +117,50 @@ jobs:
           cargo run --release -- headless \
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
-          --runtime 600000
+          --runtime 60 # TODO: Reset the runtime once testing is complete
 
       - name: Generate Stressgres Continuous Benchmarking Metrics
         working-directory: stressgres/
         run: cargo run --release -- csv stressgres-${{ matrix.test_file }}.log output.csv
+
+      # This is where we can configure how the different runs are aggregated
+      # into a single JSON file for plotting in our continuous benchmarks.
+      - name: Generate pg_search Continuous Benchmarking Metrics
+        shell: python {0}
+        run: |
+          import csv, json
+          metrics = []
+          with open('stressgres/output.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+              metrics.append({
+                "job_title":     row["job_title"],
+                "server_name":   row["server_name"],
+                "metric_name":   row["metric_name"],
+                "min":           float(row["min"]),
+                "avg":           float(row["avg"]),
+                "max":           float(row["max"]),
+                "count":         int(row["count"])
+              })
+
+          with open('stressgres/pg_search_data.json', 'w') as out:
+              json.dump(metrics, out)
+
+      - name: Check and Publish Continuous Benchmarking Metrics
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search Stressgres Performance"
+          tool: "customSmallerIsBetter"
+          output-file-path: "benchmarks/pg_search_data.json"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: stressgres
+          alert-threshold: "110%"
+          fail-threshold: "110%"
+          fail-on-alert: true
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
 
       - name: Create Stressgres Graph
         working-directory: stressgres/

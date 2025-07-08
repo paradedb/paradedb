@@ -34,7 +34,7 @@ Before triggering the workflow, create a **Release Prepation PR** against `main`
   - `a.b.c-rc.d` for **beta** releases
   - `a.b.0` for **minor** releases
 - Run `cargo check` to refresh the `Cargo.lock` file with the new version
-- Add a `pg_search--<previous-version>--<upcoming-version> upgrade script
+- Add a `pg_search--<previous-version>--<upcoming-version>` upgrade script
 - (Minor only) Update the version references in the upgrade docs and in `docs/docs.json`
 - (Minor and patch only) Write a changelog entry and add it to `docs/docs.json`
 

@@ -6,7 +6,7 @@
 name: Test pg_search Stressgres
 
 on:
-  push: # We run Stressgres post pushes to speed up CI. Results are posted to Slack.
+  push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
     paths:

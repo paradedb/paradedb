@@ -25,26 +25,20 @@ use sqlx::PgConnection;
 fn merges_to_1_100k_segment(mut conn: PgConnection) {
     r#"
         CREATE TABLE layer_sizes (id bigint);
-        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '100kb, 1mb, 100mb', background_layer_size_threshold = '0', target_segment_count = 8);
+        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, 10kb, 100kb, 1mb',target_segment_count = 8);
     "#
     .execute_result(&mut conn).expect("creating table/index should not fail");
 
-    // one might think 100 individual inserts of 1022 bytes each would get us right at 100k of
-    // segment data, and while it does, LayeredMergePolicy has a fudge factor of 33% built in
-    // so we actually need more to get to the point of actually merging
-    for _ in 0..172 {
-        // creates a segment of 1022 bytes
+    for _ in 0..9 {
         "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     }
 
-    // assert we actually have 172 segments and that a merge didn't happen yet
+    // assert that a merge hasn't happened yet
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(nsegments, 172);
+    assert_eq!(nsegments, 9);
 
-    // creates another segment of 1022 bytes, and will cause a merge based on our default layer sizes
-    // leaving behind 1 segment.  that's a merge of all the segments we created above plus the segment
-    // created by this INSERT
+    // creates another segment which will cause a merge
     "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
@@ -58,12 +52,12 @@ fn merge_with_no_positions(mut conn: PgConnection) {
             id serial8,
             message text
         );
-        CREATE INDEX idxtest ON test USING bm25 (id, message) WITH (key_field = 'id', target_segment_count = 8);
+        CREATE INDEX idxtest ON test USING bm25 (id, message) WITH (key_field = 'id', target_segment_count = 8, foreground_layer_sizes = '10kb, 100kb, 1mb');
     "#
     .execute(&mut conn);
 
-    // this will merge on the 25th insert
-    for _ in 0..24 {
+    // this will merge on the 9th insert insert
+    for _ in 0..8 {
         "insert into test (message) select null from generate_series(1, 1000);".execute(&mut conn);
     }
 

@@ -146,17 +146,14 @@ jobs:
           with open('stressgres/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
 
-      # Checkout again at the root to get .git there, for the continuous benchmarking action
-      - name: Checkout Main Repo at Root
-        uses: actions/checkout@v4
-
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search Stressgres Performance"
           tool: "customSmallerIsBetter"
           output-file-path: "stressgres/pg_search_data.json"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          gh-repository: "github.com/paradedb/paradedb"
           auto-push: true
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: stressgres

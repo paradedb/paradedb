@@ -298,7 +298,7 @@ impl MergeList {
         self.bman.fsm().extend(
             &mut self.bman,
             recycled_entries.into_iter().flat_map(move |entry| {
-                LinkedBytesList::open(&indexrel, entry.segment_ids_start_blockno).used_blocks()
+                LinkedBytesList::open(&indexrel, entry.segment_ids_start_blockno).freeable_blocks()
             }),
         );
     }

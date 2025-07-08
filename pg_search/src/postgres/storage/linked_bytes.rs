@@ -325,7 +325,23 @@ impl LinkedBytesList {
     }
 
     /// Returns a lazily-evaluated iterator of all the [`pg_sys::BlockNumber`]s used by this [`LinkedBytesList`].
-    pub fn used_blocks(mut self) -> impl Iterator<Item = BlockNumber> {
+    ///
+    /// There's no locking per-se that happens while the returned Iterator emits block numbers.  It's
+    /// possible the place where block numbers are found happen to themselves live on a block and in
+    /// reading that block it will be locked with a share lock, but none of this provides any sort of
+    /// consistency guarantees around this [`LinkedBytesList`]'s physical representation in the face
+    /// of concurrency.
+    ///
+    /// [`LinkedBytesList`]s are immutable, up until the point where they're being reclaimed
+    /// as free space and added to the [`FreeSpaceManager`].
+    ///
+    /// Which is the only time this function should be called.  That is, when it's otherwise known that
+    /// no other concurrent Postgres backend would have open any block that will be returned from
+    /// this function.
+    ///
+    /// We take care of this, elsewhere, through our constructs like the [`PinCushion`], the [`MergeLock`],
+    /// and atomically managing the segment entries list through an atomic copy-on-write approach.
+    pub fn freeable_blocks(mut self) -> impl Iterator<Item = BlockNumber> {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
 
@@ -354,7 +370,7 @@ impl LinkedBytesList {
     pub unsafe fn return_to_fsm(self) {
         let mut bman = self.bman().clone();
         let fsm = bman.fsm();
-        fsm.extend(&mut bman, self.used_blocks());
+        fsm.extend(&mut bman, self.freeable_blocks());
     }
 
     pub fn is_empty(&self) -> bool {

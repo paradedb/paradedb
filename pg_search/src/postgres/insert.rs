@@ -434,7 +434,7 @@ pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMe
             .iter()
             .flat_map(move |entry| {
                 entry.file_entries().map(move |(file_entry, _)| {
-                    LinkedBytesList::open(indexrel, file_entry.starting_block).used_blocks()
+                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
                 })
             })
             .flatten(),

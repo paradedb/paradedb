@@ -7,32 +7,23 @@
 name: Test pg_search Benchmark
 
 on:
-  pull_request:
-    branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
+  push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
+    branches:
       - main
-      - staging
-  push:
-    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
-      - dev
     paths:
       - ".github/workflows/test-pg_search-benchmark.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-benchmark-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
     runs-on: ubicloud-standard-8
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         pg_version: [17]
@@ -59,6 +50,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -66,7 +59,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install pgrx & pg_search
         working-directory: pg_search/

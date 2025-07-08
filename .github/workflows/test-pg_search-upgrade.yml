@@ -1,8 +1,7 @@
 # workflows/test-pg_search-upgrade.yml
 #
 # Test pg_search Upgrade
-# Test that the pg_search extension can upgrade via ALTER EXTENSION. This test is only run on
-# promotion PRs to `main` and `staging`.
+# Test that the pg_search extension can upgrade via ALTER EXTENSION.
 
 name: Test pg_search Upgrade
 
@@ -47,22 +46,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # This checks that the version in the top-level Cargo.toml is incremented to that of the upcoming release. For both
-      # PRs to `main` and `staging`, we check that the version in the top-level Cargo.toml is incremented to that of the
-      # upcoming production release (e.g. without `-rc.X`), so that we can publish the release from `staging` to `main`
-      # without needing any further changes.
-      - name: Check Version Upgrade in Cargo.toml
-        run: |
-          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          PROD_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-          if [ "$CARGO_VERSION" != "$PROD_VERSION" ]; then
-            echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($PROD_VERSION). Did you forget to increment it?"
-            exit 1
-          fi
-          echo "Version check passed!"
-
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -70,7 +55,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
@@ -134,17 +119,17 @@ jobs:
         working-directory: pg_search/
         run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ matrix.pg_version }}
 
-      - name: Install cargo-pgrx for ParadeDB `dev`
+      - name: Install the cargo-pgrx version for ParadeDB
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB `dev`
+      - name: Initialize cargo-pgrx environment for ParadeDB
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # This is the current version which we want to test upgrading to
-      - name: Checkout ParadeDB `dev`
+      # This is the current version which we want to test upgrading to, e.g. the PR's branch
+      - name: Checkout ParadeDB
         run: git checkout ${{ github.head_ref }}
 
-      - name: Compile & install pg_search `dev`
+      - name: Compile & install pg_search
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

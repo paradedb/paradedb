@@ -18,7 +18,6 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
-use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING_IN_BACKGROUND};
 use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
 use crate::postgres::storage::metadata::MetaPage;
@@ -110,35 +109,33 @@ pub unsafe fn do_merge(
     let index = PgSearchRelation::open(index_oid);
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
     let layer_sizes = LayerSizes::from(&index);
+    let metadata = MetaPage::open(&index);
+    let merge_lock = metadata.acquire_merge_lock();
+
+    let needs_background_merge = do_background_merge && {
+        let background_layers = layer_sizes.background();
+        let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
+
+        pgrx::debug1!("background layers: {background_layers:?}");
+
+        background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+        let merge_candidates = background_merge_policy.simulate();
+        !merge_candidates.is_empty()
+    };
 
     // first merge down the foreground layers
     if do_foreground_merge {
         let foreground_layers = layer_sizes.foreground();
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-        unsafe { merge_index_with_policy(&index, foreground_merge_policy, false) };
+        unsafe { foreground_merge_policy.merge_index(&index, merge_lock, false) };
     }
 
     pgrx::debug1!("foreground merge complete, now evaluating background merge");
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
-    if do_background_merge {
-        let merge_candidates = {
-            let metadata = MetaPage::open(&index);
-            let merge_lock = metadata.acquire_merge_lock();
-            let background_layers = layer_sizes.background();
-            let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
-
-            pgrx::debug1!("background layers: {background_layers:?}");
-
-            background_merge_policy.simulate(&metadata, &merge_lock, &merger)
-        };
-
-        pgrx::debug1!("background merge_candidates: {merge_candidates:?}");
-
-        if !merge_candidates.is_empty() {
-            try_launch_background_merger(&index);
-        }
+    if needs_background_merge {
+        try_launch_background_merger(&index);
     }
 
     Ok(())
@@ -199,7 +196,9 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);
-        unsafe { merge_index_with_policy(&index, merge_policy, true) };
+        let metadata = unsafe { MetaPage::open(&index) };
+        let merge_lock = unsafe { metadata.acquire_merge_lock() };
+        unsafe { merge_policy.merge_index(&index, merge_lock, true) };
     });
 }
 

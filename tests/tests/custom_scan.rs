@@ -731,7 +731,7 @@ fn top_n_completes_issue2511(mut conn: PgConnection) {
     r#"
         drop table if exists loop;
         create table loop (id serial8 not null primary key, message text) with (autovacuum_enabled = false);
-        create index idxloop on loop using bm25 (id, message) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        create index idxloop on loop using bm25 (id, message) WITH (key_field = 'id', foreground_layer_sizes = '1GB, 1GB');
 
         insert into loop (message) select md5(x::text) from generate_series(1, 5000) x;
 
@@ -760,7 +760,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', foreground_layer_sizes = '1GB, 1GB');
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);

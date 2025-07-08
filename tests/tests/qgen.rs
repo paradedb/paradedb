@@ -297,9 +297,7 @@ async fn generated_subquery(database: Db) {
         // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
         // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
         // columns here.
-        // TODO: Not ordering by `uuid` until https://github.com/paradedb/paradedb/issues/2703
-        // is fixed.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
     )| {
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \

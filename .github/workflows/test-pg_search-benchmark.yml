@@ -106,7 +106,7 @@ jobs:
             echo "Unknown dataset!"
             exit 1
           fi
-          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --output json
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --runs 10 --output json
 
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1

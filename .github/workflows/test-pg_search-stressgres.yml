@@ -146,6 +146,10 @@ jobs:
           with open('stressgres/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
 
+      # Checkout again at the root to get .git there, for the continuous benchmarking action
+      - name: Checkout Main Repo at Root
+        uses: actions/checkout@v4
+
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -204,14 +208,15 @@ jobs:
             cat $f
           done
 
-      - name: Notify Slack on Failure
-        if: failure()
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-          MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
-          curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\": \"${MESSAGE}\"}" \
-          ${SLACK_WEBHOOK_URL}
+      # TODO: Uncomment once done testing
+      # - name: Notify Slack on Failure
+      #   if: failure()
+      #   env:
+      #     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+      #   run: |
+      #     GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      #     ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
+      #     MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+      #     curl -X POST -H 'Content-type: application/json' \
+      #     --data "{\"text\": \"${MESSAGE}\"}" \
+      #     ${SLACK_WEBHOOK_URL}

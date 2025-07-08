@@ -1,10 +1,11 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS pr2625;
 CREATE TABLE pr2625 (
     id serial8,
     k text,
     v float8
 );
-CREATE INDEX idxpr2625 ON pr2625 USING bm25 (id, k, v) WITH (key_field = 'id');
+CREATE INDEX idxpr2625 ON pr2625 USING bm25 (id, k, v) WITH (key_field = 'id', target_segment_count = 8, layer_sizes = '1gb, 10gb');
 --
 -- test with 1 segment
 --

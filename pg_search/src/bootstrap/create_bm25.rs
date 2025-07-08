@@ -53,7 +53,7 @@ pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     index
         .options()
-        .layer_sizes()
+        .foreground_layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())
         .collect()

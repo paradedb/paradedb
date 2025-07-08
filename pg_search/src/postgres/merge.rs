@@ -32,8 +32,8 @@ use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
 struct LayerSizes {
-    layer_sizes: Vec<u64>,
-    background_layer_size_threshold: u64,
+    foreground_layer_sizes: Vec<u64>,
+    background_layer_sizes: Vec<u64>,
 }
 
 impl From<&PgSearchRelation> for LayerSizes {
@@ -46,9 +46,6 @@ impl From<&PgSearchRelation> for LayerSizes {
             .iter()
             .map(|entry| entry.byte_size())
             .sum::<u64>();
-        let mut layer_sizes = index_options.layer_sizes();
-        pgrx::debug1!("original layer_sizes: {layer_sizes:?}");
-
         let target_segment_count = index_options.target_segment_count();
         let target_byte_size = index_byte_size / target_segment_count as u64;
 
@@ -67,33 +64,29 @@ impl From<&PgSearchRelation> for LayerSizes {
         // - [1mb, 10mb]
         //
         // why? the 100mb layer gets excluded because the target segment size is 20mb
-        let background_layer_size_threshold = index_options.background_layer_size_threshold();
-        layer_sizes.retain(|&layer_size| {
-            layer_size < target_byte_size || layer_size < background_layer_size_threshold
-        });
-        pgrx::debug1!("adjusted layer_sizes {layer_sizes:?} because of threshold {background_layer_size_threshold}");
+        pgrx::debug1!("target_byte_size for merge: {target_byte_size}");
+
+        let mut foreground_layer_sizes = index_options.foreground_layer_sizes();
+        foreground_layer_sizes.retain(|&layer_size| layer_size < target_byte_size);
+        pgrx::debug1!("adjusted foreground_layer_sizes: {foreground_layer_sizes:?}");
+
+        let mut background_layer_sizes = index_options.background_layer_sizes();
+        background_layer_sizes.retain(|&layer_size| layer_size < target_byte_size);
+        pgrx::debug1!("adjusted background_layer_sizes {background_layer_sizes:?}");
 
         Self {
-            layer_sizes,
-            background_layer_size_threshold,
+            foreground_layer_sizes,
+            background_layer_sizes,
         }
     }
 }
 impl LayerSizes {
     fn foreground(&self) -> Vec<u64> {
-        self.layer_sizes
-            .iter()
-            .filter(|&&size| size < self.background_layer_size_threshold)
-            .cloned()
-            .collect::<Vec<u64>>()
+        self.foreground_layer_sizes.clone()
     }
 
     fn background(&self) -> Vec<u64> {
-        self.layer_sizes
-            .iter()
-            .filter(|&&size| size >= self.background_layer_size_threshold)
-            .cloned()
-            .collect::<Vec<u64>>()
+        self.background_layer_sizes.clone()
     }
 }
 
@@ -109,28 +102,26 @@ pub unsafe fn do_merge(
     let index = PgSearchRelation::open(index_oid);
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
     let layer_sizes = LayerSizes::from(&index);
+    let foreground_layers = layer_sizes.foreground();
+    let background_layers = layer_sizes.background();
+
     let metadata = MetaPage::open(&index);
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = do_background_merge && {
-        let background_layers = layer_sizes.background();
+    let needs_background_merge = do_background_merge && !background_layers.is_empty() && {
         let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
-
-        pgrx::debug1!("background layers: {background_layers:?}");
-
         background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
         let merge_candidates = background_merge_policy.simulate();
         !merge_candidates.is_empty()
     };
 
     // first merge down the foreground layers
-    if do_foreground_merge {
-        let foreground_layers = layer_sizes.foreground();
+    if do_foreground_merge && !foreground_layers.is_empty() {
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
         unsafe { foreground_merge_policy.merge_index(&index, merge_lock, false) };
     }
 
-    pgrx::debug1!("foreground merge complete, now evaluating background merge");
+    pgrx::debug1!("foreground merge complete, needs_background_merge: {needs_background_merge}");
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
@@ -200,21 +191,4 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
         unsafe { merge_policy.merge_index(&index, merge_lock, true) };
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::*;
-
-    #[rstest]
-    fn test_layer_sizes() {
-        let layer_sizes = LayerSizes {
-            layer_sizes: vec![100, 1000, 10000, 100000],
-            background_layer_size_threshold: 10000,
-        };
-
-        assert_eq!(layer_sizes.foreground(), vec![100, 1000]);
-        assert_eq!(layer_sizes.background(), vec![10000, 100000]);
-    }
 }

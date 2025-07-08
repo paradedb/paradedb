@@ -99,7 +99,7 @@ sql = """
 UPDATE test
 SET message = substring(message FROM 1 FOR length(message)-1)
               || chr((trunc(random() * 26) + 65)::int)
-WHERE id > 1000 and id < 3000000;
+WHERE id > 1000 and id < 1000000;
 """
 
 [[jobs]]

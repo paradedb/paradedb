@@ -526,6 +526,8 @@ impl SearchTokenizer {
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
                     .filter(filters.stemmer())
+                    .filter(filters.stopwords_language())
+                    .filter(filters.stopwords())
                     .build(),
             ),
         }
@@ -727,5 +729,104 @@ mod tests {
     fn test_search_normalizer() {
         assert_eq!(SearchNormalizer::Lowercase.name(), "lowercase");
         assert_ne!(SearchNormalizer::Raw, SearchNormalizer::Lowercase);
+    }
+
+    #[rstest]
+    fn test_jieba_tokenizer_with_stopwords() {
+        use tantivy::tokenizer::TokenStream;
+
+        // Test Jieba tokenizer with custom stopwords including spaces and content words
+        let json = r#"{
+            "type": "jieba",
+            "stopwords": [" ", "花朵", "公园"]
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: None,
+                stopwords: Some(vec![
+                    " ".to_string(),
+                    "花朵".to_string(),
+                    "公园".to_string()
+                ]),
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing text with spaces and content words that should be filtered out
+        let text = "我们 昨天 在 公园 里 看到 了 很多 美丽 的 花朵";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that custom stopwords are filtered out (spaces, 花朵, 公园)
+        assert!(!tokens.contains(&" ".to_string()));
+        assert!(!tokens.contains(&"花朵".to_string()));
+        assert!(!tokens.contains(&"公园".to_string()));
+
+        // Verify that other words are still present
+        assert!(tokens.contains(&"我们".to_string()));
+        assert!(tokens.contains(&"昨天".to_string()));
+        assert!(tokens.contains(&"美丽".to_string()));
+    }
+
+    #[rstest]
+    fn test_jieba_tokenizer_with_language_stopwords() {
+        use tantivy::tokenizer::{Language, TokenStream};
+
+        // Test Jieba tokenizer with language-based stopwords
+        let json = r#"{
+            "type": "jieba",
+            "stopwords_language": "English"
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::Jieba(SearchTokenizerFilters {
+                remove_long: None,
+                lowercase: None,
+                stemmer: None,
+                stopwords_language: Some(Language::English),
+                stopwords: None,
+            })
+        );
+
+        // Test that the tokenizer is created successfully
+        let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
+
+        // Test tokenizing mixed Chinese and English text
+        let text = "我喜欢在 the library 里读书 and learning";
+        let mut token_stream = analyzer.token_stream(text);
+
+        let mut tokens = Vec::new();
+        while token_stream.advance() {
+            let token = token_stream.token();
+            tokens.push(token.text.clone());
+        }
+
+        // Verify that English stopwords "the", "and" are filtered out
+        assert!(!tokens.contains(&"the".to_string()));
+        assert!(!tokens.contains(&"and".to_string()));
+
+        // Verify that other words are still present
+        assert!(tokens.contains(&"library".to_string()));
+        assert!(tokens.contains(&"读书".to_string()));
+        assert!(tokens.contains(&"learning".to_string()));
     }
 }

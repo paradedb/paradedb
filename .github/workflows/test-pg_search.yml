@@ -17,21 +17,15 @@ on:
       - "tests/**"
       - "tokenizers/**"
   push:
-    branches: # Also run on `main`, `staging` and `dev` to fill the GitHub Actions Rust cache in a way that PRs can see it
+    branches: # Also run on the default branch to fill the GitHub Actions Rust cache in a way that PRs can see it
       - main
-      - staging
-      - dev
     paths:
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
 concurrency:
-  group: test-pg_search-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  group: test-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -78,8 +72,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -87,7 +81,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
@@ -180,8 +174,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -189,7 +183,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof

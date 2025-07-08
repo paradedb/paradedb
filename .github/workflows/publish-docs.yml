@@ -17,12 +17,12 @@ on:
 
 jobs:
   publish-docs:
-    name: Publish ParadeDB Documentation to Mintlify
+    name: Publish ParadeDB Documentation
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, '-rc') }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Install Mintlify CLI

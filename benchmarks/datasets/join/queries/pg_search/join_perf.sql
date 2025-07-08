@@ -121,6 +121,47 @@ GROUP BY LEFT(p.title, 25)
 HAVING COUNT(*) > 10
 ORDER BY total_pages DESC; 
 
+-- 11. Customer's "Parse Hack" vs CTE Performance Issue
+-- This reproduces the customer's specific 1s vs 8s performance difference
+-- Parse hack approach (~1s): Using dynamic IN clause with paradedb.aggregate
+SELECT *
+FROM paradedb.aggregate(
+    'documents_index',
+    paradedb.boolean(must => ARRAY[
+        paradedb.parse((
+            SELECT concat('id:IN [', string_agg(id, ' '), ']')
+            FROM (
+                SELECT id::TEXT
+                FROM files 
+                WHERE title @@@ 'collab12'
+                GROUP BY id
+            )
+        )),
+        paradedb.parse('parents:"SFR"')
+    ]),
+    '{"count": {"value_count": {"field": "id"}}}'
+);
+
+-- 12. Customer's CTE equivalent approach (~8s)
+-- This is what they want to use instead of the parse hack above
+WITH filtered_files AS (
+    SELECT DISTINCT id AS file_id
+    FROM files 
+    WHERE title @@@ 'collab12'
+),
+filtered_documents AS (
+    SELECT id AS doc_id
+    FROM documents 
+    WHERE parents @@@ 'SFR'
+)
+SELECT count(*)
+FROM filtered_files ff
+JOIN pages p ON ff.file_id = p."fileId"
+JOIN documents d ON p."fileId" IN (
+    SELECT f.id FROM files f WHERE f."documentId" = d.id
+)
+WHERE d.id IN (SELECT doc_id FROM filtered_documents);
+
 -- POSTGRESQL EQUIVALENT QUERIES (using LIKE and standard operators)
 -- =================================================================
 
@@ -227,3 +268,31 @@ WHERE p.content IS NOT NULL AND p.content != ''
 GROUP BY LEFT(p.title, 25)
 HAVING COUNT(*) > 10
 ORDER BY total_pages DESC; 
+
+-- 11. Customer's parse hack equivalent - PostgreSQL equivalent
+-- This is the COUNT equivalent of the paradedb.aggregate() workaround
+SELECT count(DISTINCT d.id)
+FROM documents d
+JOIN files f ON d.id = f."documentId"
+WHERE d.parents LIKE '%SFR%'
+  AND f.title LIKE '%collab12%';
+
+-- 12. Customer's CTE equivalent approach - PostgreSQL equivalent
+-- This is what they want to use instead of the parse hack (converted to LIKE)
+WITH filtered_files AS (
+    SELECT DISTINCT id AS file_id
+    FROM files 
+    WHERE title LIKE '%collab12%'
+),
+filtered_documents AS (
+    SELECT id AS doc_id
+    FROM documents 
+    WHERE parents LIKE '%SFR%'
+)
+SELECT count(*)
+FROM filtered_files ff
+JOIN pages p ON ff.file_id = p."fileId"
+JOIN documents d ON p."fileId" IN (
+    SELECT f.id FROM files f WHERE f."documentId" = d.id
+)
+WHERE d.id IN (SELECT doc_id FROM filtered_documents);

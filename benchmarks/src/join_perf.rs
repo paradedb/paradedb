@@ -186,6 +186,14 @@ pub async fn benchmark_join_perf(conn: &mut PgConnection) -> Result<()> {
             "Large Scan with Aggregation - 60s vs 10s Issue (ParadeDB)",
             "SELECT LEFT(p.title, 25) as title_prefix, COUNT(*) as total_pages, COUNT(DISTINCT p.\"fileId\") as unique_files, AVG(p.\"sizeInBytes\") as avg_size FROM pages p WHERE p.content @@@ paradedb.exists('content') GROUP BY LEFT(p.title, 25) HAVING COUNT(*) > 10 ORDER BY total_pages DESC",
         ),
+        (
+            "Parse Hack Aggregate - Customer Workaround (ParadeDB)",
+            "SELECT * FROM paradedb.aggregate('documents_index', paradedb.boolean(must => ARRAY[paradedb.parse((SELECT concat('id:IN [', string_agg(id, ' '), ']') FROM (SELECT id::TEXT FROM files WHERE title @@@ 'collab12' GROUP BY id))), paradedb.parse('parents:\"SFR\"')]), '{\"count\": {\"value_count\": {\"field\": \"id\"}}}')",
+        ),
+        (
+            "CTE Equivalent - What Customer Wants (ParadeDB)",
+            "WITH filtered_files AS (SELECT DISTINCT id AS file_id FROM files WHERE title @@@ 'collab12'), filtered_documents AS (SELECT id AS doc_id FROM documents WHERE parents @@@ 'SFR') SELECT count(*) FROM filtered_files ff JOIN pages p ON ff.file_id = p.\"fileId\" JOIN documents d ON p.\"fileId\" IN (SELECT f.id FROM files f WHERE f.\"documentId\" = d.id) WHERE d.id IN (SELECT doc_id FROM filtered_documents)",
+        ),
     ];
 
     // Test queries from customer_reproduction.sql - POSTGRESQL VERSION
@@ -217,6 +225,14 @@ pub async fn benchmark_join_perf(conn: &mut PgConnection) -> Result<()> {
         (
             "Large Scan with Aggregation - 60s vs 10s Issue (PostgreSQL)",
             "SELECT LEFT(p.title, 25) as title_prefix, COUNT(*) as total_pages, COUNT(DISTINCT p.\"fileId\") as unique_files, AVG(p.\"sizeInBytes\") as avg_size FROM pages p WHERE p.content IS NOT NULL AND p.content != '' GROUP BY LEFT(p.title, 25) HAVING COUNT(*) > 10 ORDER BY total_pages DESC",
+        ),
+        (
+            "Parse Hack Aggregate - Customer Workaround (PostgreSQL)",
+            "SELECT count(DISTINCT d.id) FROM documents d JOIN files f ON d.id = f.\"documentId\" WHERE d.parents LIKE '%SFR%' AND f.title LIKE '%collab12%'",
+        ),
+        (
+            "CTE Equivalent - What Customer Wants (PostgreSQL)",
+            "WITH filtered_files AS (SELECT DISTINCT id AS file_id FROM files WHERE title LIKE '%collab12%'), filtered_documents AS (SELECT id AS doc_id FROM documents WHERE parents LIKE '%SFR%') SELECT count(*) FROM filtered_files ff JOIN pages p ON ff.file_id = p.\"fileId\" JOIN documents d ON p.\"fileId\" IN (SELECT f.id FROM files f WHERE f.\"documentId\" = d.id) WHERE d.id IN (SELECT doc_id FROM filtered_documents)",
         ),
     ];
 
@@ -532,20 +548,35 @@ fn print_join_perf_summary(results: &[JoinPerfResult]) {
         println!("   🐘 PostgreSQL average query time: {avg_postgresql_time:.2}ms");
     }
 
-    println!("\n💡 Recommendations:");
-    println!(
-        "1. Focus on queries with timing discrepancies - these may indicate result set size issues"
-    );
-    println!("2. Investigate heap fetch queries - fast fields should eliminate heap fetches");
-    println!("3. Consider CTE optimizations for complex JOINs");
-    println!("4. Monitor VACUUM schedule to prevent heap fetch regressions");
-    println!("5. ParadeDB shows significant advantages for text search operations");
-    println!("6. PostgreSQL LIKE queries may benefit from proper text indexes (GIN/GiST)");
+    // Show ParadeDB-only queries separately
+    println!("\n🚀 ParadeDB-Only Features:");
+    println!("{:<45} {:<15} {:<15}", "Query Type", "Time (ms)", "Status");
+    println!("{}", "=".repeat(80));
 
-    println!("\n🎯 This benchmark reproduces the customer's specific issues:");
-    println!("   - Basic COUNT queries taking 1s+ (target: sub-second)");
-    println!("   - CTE approach still slow (customer saw 27s)");
-    println!("   - EXPLAIN ANALYZE vs actual execution discrepancy (10s vs 60s)");
-    println!("   - Heap fetches causing performance degradation");
-    println!("   - Direct comparison with PostgreSQL equivalent queries");
+    for (base_name, group_results) in query_groups.iter() {
+        let paradedb_result = group_results
+            .iter()
+            .find(|r| r.query_name.contains("(ParadeDB)"));
+        let postgresql_result = group_results
+            .iter()
+            .find(|r| r.query_name.contains("(PostgreSQL)"));
+
+        // Show ParadeDB-only queries (no PostgreSQL equivalent)
+        if let (Some(paradedb), None) = (paradedb_result, postgresql_result) {
+            let status = if paradedb.actual_execution_time_ms > 10000.0 {
+                "🐌 SLOW"
+            } else if paradedb.actual_execution_time_ms > 1000.0 {
+                "⚠️  MODERATE"
+            } else {
+                "⚡ FAST"
+            };
+
+            println!(
+                "{:<45} {:<15.0} {:<15}",
+                &base_name[..std::cmp::min(45, base_name.len())],
+                paradedb.actual_execution_time_ms,
+                status
+            );
+        }
+    }
 }

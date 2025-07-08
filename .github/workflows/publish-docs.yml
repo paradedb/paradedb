@@ -17,7 +17,7 @@ on:
 
 jobs:
   publish-docs:
-    name: Publish ParadeDB Documentation
+    name: Publish Docs to Mintlify
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, '-rc') }}
 
@@ -28,7 +28,10 @@ jobs:
       - name: Install Mintlify CLI
         run: npm install -g mint
 
-      # - name: Publish Docs
-      #   run: mint deploy --path docs/
-      #   env:
-      #     MINTLIFY_API_KEY: ${{ secrets.MINTLIFY_API_KEY }}
+      - name: Publish Docs to Mintlify
+        working-directory: docs/
+        run: |
+          curl -X POST \
+            https://api.mintlify.com/v1/project/update/${{ secrets.MINTLIFY_PROJECT_ID }} \
+            -H "Authorization: Bearer ${{ secrets.MINTLIFY_API_KEY }}" \
+            -H "Content-Type: application/json"

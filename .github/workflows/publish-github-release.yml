@@ -74,11 +74,19 @@ jobs:
             fi
           fi
 
-          echo "Validating that the version in Cargo.toml matches the upcoming version..."
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          echo "Validating that the version in Cargo.toml matches the upcoming version..."
           if [[ "${{ github.event.inputs.version }}" != "$CARGO_VERSION" ]]; then
             echo "Version in top-level Cargo.toml ($CARGO_VERSION) does not match upcoming version (${{ github.event.inputs.version }})."
             exit 1
+          fi
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "Validating that the version is a minor release on the main branch..."
+            if [[ ! "${{ github.event.inputs.version }}" =~ ^[0-9]+\.[0-9]+\.0(-rc\.[0-9]+)?$ ]]; then
+              echo "On releases of the 'main' branch, releases must be minor (patch = 0)."
+              echo "Provided version '${{ github.event.inputs.version }}' is not a minor release."
+              exit 1
+            fi
           fi
           echo "Version check passed!"
 
@@ -90,7 +98,7 @@ jobs:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
           prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
-          generate_release_notes: true
           make_latest: ${{ github.ref_name == 'main' }} # Only mark as “latest” if we are releasing the `main` branch (beta and patch releases should not be marked as latest)
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

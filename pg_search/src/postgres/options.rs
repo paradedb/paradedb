@@ -152,7 +152,7 @@ extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
         return;
     }
     let cstr = unsafe { CStr::from_ptr(value) };
-    let _ = get_layer_sizes(cstr.to_str().expect("`layer_sizes` must be valid UTF-8"));
+    let _ = get_layer_sizes(cstr.to_str().expect("`layer_sizes` must be valid UTF-8")).collect::<Vec<_>>();
 }
 
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {

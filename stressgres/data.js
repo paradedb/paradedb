@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752089180236,
+  "lastUpdate": 1752089213759,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -2374,6 +2374,102 @@ window.BENCHMARK_DATA = {
             "value": 33.25839899171674,
             "unit": "avg mem",
             "extra": "max mem: 43.30078125, count: 47928"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c448b82dd36af8dd22d27643195da6f8fde2f849",
+          "message": "chore: make benchmarks tolerant of rogue .psqlrc files (#2798)\n\n## What\n\nOur benchmark runner uses `psql` and is sensitive to its output. This\nteaches the runner to ignore any local `.psqlrc` file.\n\n## Why\n\nBasically so @eeeebbbbrrrr can run the benchmarks locally.\n\n## How\n\n## Tests\n\nI ran it and it works.",
+          "timestamp": "2025-07-09T15:09:16-04:00",
+          "tree_id": "3b05239b6fc8db968daf3c83344b12412a697a29",
+          "url": "https://github.com/paradedb/paradedb/commit/c448b82dd36af8dd22d27643195da6f8fde2f849"
+        },
+        "date": 1752089211189,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.312774706161843,
+            "unit": "avg cpu",
+            "extra": "max cpu: 38.323357, count: 56227"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.2414296206671,
+            "unit": "avg mem",
+            "extra": "max mem: 231.80859375, count: 56227"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 5.918141166038495,
+            "unit": "avg tps",
+            "extra": "max tps: 8.809916651231262, count: 56227"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 22.377147411151277,
+            "unit": "avg cpu",
+            "extra": "max cpu: 33.532936, count: 56227"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.3795098996034,
+            "unit": "avg mem",
+            "extra": "max mem: 165.86328125, count: 56227"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.8522740016291195,
+            "unit": "avg tps",
+            "extra": "max tps: 7.147007879349783, count: 56227"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20970.198943568037,
+            "unit": "avg block_count",
+            "extra": "max block_count: 23507.0, count: 56227"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 27.97928041688157,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 58.0, count: 56227"
+          },
+          {
+            "name": "Monitoring - Primary - blocks_under_management",
+            "value": 3429.8524018709873,
+            "unit": "avg blocks_under_management",
+            "extra": "max blocks_under_management: 7272.0, count: 56227"
+          },
+          {
+            "name": "Monitoring - Primary - cpu",
+            "value": 4.270554912341726,
+            "unit": "avg cpu",
+            "extra": "max cpu: 4.7904196, count: 56227"
+          },
+          {
+            "name": "Monitoring - Primary - fsm_size",
+            "value": 3.184395397229089,
+            "unit": "avg fsm_size",
+            "extra": "max fsm_size: 4.0, count: 56227"
+          },
+          {
+            "name": "Monitoring - Primary - mem",
+            "value": 34.57616537928842,
+            "unit": "avg mem",
+            "extra": "max mem: 45.30859375, count: 56227"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752092375159,
+  "lastUpdate": 1752092376862,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -566,6 +566,78 @@ window.BENCHMARK_DATA = {
             "value": 39.83962066253208,
             "unit": "avg tps",
             "extra": "max tps: 56.16817988031372, count: 56839"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@paradedb.com",
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "eebbrr@paradedb.com",
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "distinct": true,
+          "id": "94fe19f0a0f5d84d0c9446f0b9f8910ddf05eeab",
+          "message": "keep fighting...",
+          "timestamp": "2025-07-09T16:02:31-04:00",
+          "tree_id": "7f7d6b950931a7be70040ccc67c814452af7d8d0",
+          "url": "https://github.com/paradedb/paradedb/commit/94fe19f0a0f5d84d0c9446f0b9f8910ddf05eeab"
+        },
+        "date": 1752092374518,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.512363083792852,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.720497, count: 59108"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 182.30139473241778,
+            "unit": "avg mem",
+            "extra": "max mem: 183.11328125, count: 59108"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.982287688270034,
+            "unit": "avg tps",
+            "extra": "max tps: 39.932514255749105, count: 59108"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21856.182513365366,
+            "unit": "avg block_count",
+            "extra": "max block_count: 30018.0, count: 59108"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54.51999729309061,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 156.0, count: 59108"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.027449776885552,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.447853, count: 59108"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.3062281120999,
+            "unit": "avg mem",
+            "extra": "max mem: 175.45703125, count: 59108"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 198.12680214074868,
+            "unit": "avg tps",
+            "extra": "max tps: 218.09605849096886, count: 59108"
           }
         ]
       }

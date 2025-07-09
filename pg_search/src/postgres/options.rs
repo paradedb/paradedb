@@ -49,20 +49,19 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind::Type = 0;
 
 #[allow(clippy::identity_op)]
 pub(crate) const DEFAULT_FOREGROUND_LAYER_SIZES: &[u64] = &[
-    10 * 1024,        // 10KB
-    100 * 1024,       // 100KB
-    1 * 1024 * 1024,  // 1MB
-    10 * 1024 * 1024, // 10MB
+    10 * 1024,       // 10KB
+    100 * 1024,      // 100KB
+    1 * 1024 * 1024, // 1MB
 ];
 
 #[allow(clippy::identity_op)]
 pub(crate) const DEFAULT_BACKGROUND_LAYER_SIZES: &[u64] = &[
-    100 * 1024 * 1024,      // 100MB
-    1000 * 1024 * 1024,     // 1GB
-    10000 * 1024 * 1024,    // 10GB
-    100000 * 1024 * 1024,   // 100GB
-    1000000 * 1024 * 1024,  // 1TB
-    10000000 * 1024 * 1024, // 10TB
+    10 * 1024 * 1024,      // 10MB
+    100 * 1024 * 1024,     // 100MB
+    1000 * 1024 * 1024,    // 1GB
+    10000 * 1024 * 1024,   // 10GB
+    100000 * 1024 * 1024,  // 100GB
+    1000000 * 1024 * 1024, // 1TB
 ];
 
 #[pg_guard]
@@ -152,20 +151,22 @@ extern "C-unwind" fn validate_layer_sizes(value: *const std::os::raw::c_char) {
         return;
     }
     let cstr = unsafe { CStr::from_ptr(value) };
-    let _ = get_layer_sizes(cstr.to_str().expect("`layer_sizes` must be valid UTF-8")).collect::<Vec<_>>();
+    let _ = get_layer_sizes(cstr.to_str().expect("`layer_sizes` must be valid UTF-8"))
+        .collect::<Vec<_>>();
 }
 
 fn get_layer_sizes(s: &str) -> impl Iterator<Item = u64> + use<'_> {
-    s.split(",").map(|part| {
-        unsafe {
-            // just make sure postgres can parse this byte size
-            u64::try_from(
-                direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
-                    .expect("`pg_size_bytes()` should not return NULL"),
-            )
-            .ok()
-            .filter(|b| b > &0)
-            .expect("a single layer size must be greater than zero")
+    s.split(",").filter_map(|part| unsafe {
+        let size = u64::try_from(
+            direct_function_call::<i64>(pg_sys::pg_size_bytes, &[part.into_datum()])
+                .expect("`pg_size_bytes()` should not return NULL"),
+        )
+        .ok();
+
+        match size {
+            Some(b) if b > 0 => Some(b),
+            Some(0) => None,
+            _ => panic!("a single layer size must be non-negative"),
         }
     })
 }

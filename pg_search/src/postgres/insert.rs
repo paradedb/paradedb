@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
-use crate::postgres::merge::do_merge;
+use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
@@ -209,7 +209,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             }
 
             unsafe {
-                do_merge(&indexrel).expect("should be able to merge");
+                do_merge(&indexrel, MergeStyle::Insert).expect("should be able to merge");
             }
         }
     }

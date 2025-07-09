@@ -56,7 +56,7 @@ jobs:
         run: |
           ls -la
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/benchmarks/ benchmarks/
+          cp -rv paradedb-temp/benchmarks .
           rm -rf paradedb-temp
 
           echo "Copied benchmark files:"

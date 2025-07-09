@@ -26,6 +26,6 @@ pub unsafe extern "C-unwind" fn amvacuumcleanup(
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let index = PgSearchRelation::open((*(*info).index).rd_id);
-    do_merge(index.oid(), false, true).expect("should be able to merge");
+    do_merge(&index).expect("should be able to merge");
     stats
 }

@@ -94,21 +94,16 @@ impl IndexLayerSizes {
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(
-    index_oid: pg_sys::Oid,
-    do_foreground_merge: bool,
-    do_background_merge: bool,
-) -> anyhow::Result<()> {
-    let index = PgSearchRelation::open(index_oid);
-    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
-    let layer_sizes = IndexLayerSizes::from(&index);
+pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
+    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+    let layer_sizes = IndexLayerSizes::from(index);
     let foreground_layers = layer_sizes.foreground();
     let background_layers = layer_sizes.background();
 
-    let metadata = MetaPage::open(&index);
+    let metadata = MetaPage::open(index);
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = do_background_merge && !background_layers.is_empty() && {
+    let needs_background_merge = !background_layers.is_empty() && {
         let mut background_merge_policy = LayeredMergePolicy::new(background_layers.clone());
         background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
         let merge_candidates = background_merge_policy.simulate();
@@ -116,9 +111,9 @@ pub unsafe fn do_merge(
     };
 
     // first merge down the foreground layers
-    if do_foreground_merge && !foreground_layers.is_empty() {
+    if !foreground_layers.is_empty() {
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-        unsafe { foreground_merge_policy.merge_index(&index, merge_lock, false) };
+        unsafe { foreground_merge_policy.merge_index(index, merge_lock, false) };
     }
 
     pgrx::debug1!("foreground merge complete, needs_background_merge: {needs_background_merge}");
@@ -126,7 +121,7 @@ pub unsafe fn do_merge(
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
     if needs_background_merge {
-        try_launch_background_merger(&index);
+        try_launch_background_merger(index);
     }
 
     Ok(())

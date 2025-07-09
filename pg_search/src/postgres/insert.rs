@@ -209,7 +209,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             }
 
             unsafe {
-                do_merge(indexrel.oid(), true, true).expect("should be able to merge");
+                do_merge(&indexrel).expect("should be able to merge");
             }
         }
     }

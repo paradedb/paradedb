@@ -527,20 +527,13 @@ fn queries(file: &Path) -> Vec<String> {
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
-        .arg("-c")
-        .arg(command)
-        .output()?;
+    let output = base_psql_command(url).arg("-c").arg(command).output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn execute_sql_with_timing(url: &str, statement: &str) -> f64 {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg("\\timing")
         .arg("-c")
@@ -574,9 +567,7 @@ fn extract_index_name(statement: &str) -> &str {
 
 fn get_index_size(url: &str, index_name: &str) -> i64 {
     let size_query = format!("SELECT pg_relation_size('{index_name}') / (1024 * 1024);");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&size_query)
         .output()
@@ -590,9 +581,7 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
 
 fn get_segment_count(url: &str, index_name: &str) -> i64 {
     let query = format!("SELECT count(*) FROM paradedb.index_info('{index_name}');");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&query)
         .output()
@@ -606,8 +595,7 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
 
 fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
     let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
-    let status = Command::new("psql")
-        .arg(url)
+    let status = base_psql_command(url)
         .arg("-f")
         .arg(&prewarm_sql)
         .status()
@@ -624,9 +612,7 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     let mut num_results = 0;
 
     for i in 0..times {
-        let output = Command::new("psql")
-            .arg(url)
-            .arg("-t")
+        let output = base_psql_command(url)
             .arg("-c")
             .arg("\\timing")
             .arg("-c")
@@ -655,4 +641,12 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     }
 
     (results, num_results)
+}
+
+fn base_psql_command(url: &str) -> Command {
+    let mut command = Command::new("psql");
+    command.arg(url); // connection url
+    command.arg("-X"); // don't use local .psqlrc file
+    command.arg("-t"); // output tuples only
+    command
 }

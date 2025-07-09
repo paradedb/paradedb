@@ -18,6 +18,11 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
+    inputs:
+      commit:
+        description: "A specific commit hash or tag to benchmark.  Uses `main` if not specified."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -42,6 +47,18 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: paradedb
+          ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
+
+      # We manually fetch the benchmark queries from `main` to make sure all are available when backfilling
+      # old commits potentially created before new queries were added.
+      - name: Fetch the Latest Stressgres Jobs
+        run: |
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
+          cp -r paradedb-temp/.github/stressgres .github/
+          rm -rf paradedb-temp
+
+          echo "Copied stressgres jobs:"
+          ls -la .github/stressgres/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

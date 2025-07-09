@@ -33,12 +33,13 @@ concurrency:
 
 jobs:
   benchmark-pg_search:
-    name: Benchmark pg_search
+    name: Benchmark ${{ matrix.dataset }} on pg_search
     runs-on: depot-ubuntu-24.04-8
     strategy:
       matrix:
-        pg_version: [17]
         dataset: ["single", "join"]
+      env:
+        pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -50,15 +51,13 @@ jobs:
       # old commits potentially created before new queries were added.
       - name: Fetch the Latest Benchmark Queries
         run: |
-          pwd
           ls -la
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/benchmarks/ paradedb/benchmarks/
-          echo removing paradedb-temp
+          cp -rv paradedb-temp/benchmarks/ benchmarks/
           rm -rf paradedb-temp
 
           echo "Copied benchmark files:"
-          ls -la paradedb/benchmarks/
+          ls -la benchmarks/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

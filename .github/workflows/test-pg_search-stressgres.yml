@@ -46,7 +46,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
-          path: paradedb
           ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
 
       # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
@@ -54,19 +53,19 @@ jobs:
       - name: Fetch the Latest Stressgres Jobs
         run: |
           ls -la
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/.github/stressgres paradedb/.github/
+          git clone --depth 1 --branch main https://github.com/paradedb.git paradedb-temp
+          cp -rv paradedb-temp/.github/stressgres .github/
           rm -rf paradedb-temp
 
           echo "Copied stressgres jobs:"
-          ls -la paradedb/.github/stressgres/
+          ls -la .github/stressgres/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: paradedb/pg_search/
+        working-directory: pg_search/
         run: |
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
@@ -115,7 +114,7 @@ jobs:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Compile & install pg_search extension
-        working-directory: paradedb/pg_search/
+        working-directory: pg_search/
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Run Stressgres Test Suite
@@ -123,7 +122,7 @@ jobs:
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
           cargo run --release -- headless \
-          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
+          /home/runner/work/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
           --runtime 600000
 

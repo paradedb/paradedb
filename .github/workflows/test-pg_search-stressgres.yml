@@ -32,7 +32,7 @@ concurrency:
 jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: self-hosted
+    runs-on: eebbrr-threadripper
     strategy:
       matrix:
         include:

@@ -9,7 +9,7 @@ name: Test pg_search Benchmark
 on:
   push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
-      - feat/benchmarks-backfill-commits
+      - main
     paths:
       - "benchmarks/**"
       - ".github/workflows/test-pg_search-benchmark.yml"
@@ -33,7 +33,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: eebbrr-threadripper
+    runs-on: ubicloud-standard-8
     strategy:
       matrix:
         pg_version: [17]

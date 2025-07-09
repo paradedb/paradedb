@@ -26,6 +26,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use anyhow::Result;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
@@ -50,10 +51,39 @@ pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {
 
 #[pg_extern]
 pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
+        "`paradedb.layer_sizes` is deprecated, use `paradedb.foreground_layer_sizes` or `paradedb.background_layer_sizes` instead",
+        function_name!(),
+    )
+    .report(PgLogLevel::WARNING);
+
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     index
         .options()
         .foreground_layer_sizes()
+        .into_iter()
+        .map(|layer_size| layer_size.into())
+        .collect()
+}
+
+#[pg_extern]
+pub unsafe fn foreground_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    index
+        .options()
+        .foreground_layer_sizes()
+        .into_iter()
+        .map(|layer_size| layer_size.into())
+        .collect()
+}
+
+#[pg_extern]
+pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    index
+        .options()
+        .background_layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())
         .collect()

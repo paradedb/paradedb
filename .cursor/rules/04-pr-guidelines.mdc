@@ -1,8 +1,0 @@
----
-description:
-globs:
-alwaysApply: false
----
-# Pull Request Guidelines
-
-- The AI agent will not create PRs or perform code reviews automatically.

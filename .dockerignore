@@ -1,9 +1,0 @@
-**/*.csv
-**/*.csv.gz
-**/*.json
-**/*.parquet
-**/*.tbl
-**/*.tsv
-**/*.tsv.gz
-**/*.txt
-**/*.zip

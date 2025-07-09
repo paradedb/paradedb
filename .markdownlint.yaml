@@ -1,5 +1,0 @@
-MD013: false # Line length
-MD026: false # Trailing punctuation in header
-MD029: false # Ordered list item prefix
-MD033: false # Inline HTML
-MD045: false # Images should have alternate text (alt text)

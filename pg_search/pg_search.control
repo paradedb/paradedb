@@ -1,6 +1,0 @@
-comment = 'pg_search: Full text search for PostgreSQL using BM25'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/pg_search'
-relocatable = false
-superuser = false
-schema = paradedb

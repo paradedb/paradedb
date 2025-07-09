@@ -1,2 +1,0 @@
--- this is just an example test that validates that the pg_search extension is installed
-select count(*) from pg_extension where extname = 'pg_search';

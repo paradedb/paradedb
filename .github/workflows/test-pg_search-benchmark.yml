@@ -34,6 +34,7 @@ concurrency:
     (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
   # Keep auto-cancellation for normal CI, switch it off for backfills.
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
 jobs:
   benchmark-pg_search:
     name: Benchmark ${{ matrix.dataset }} on pg_search

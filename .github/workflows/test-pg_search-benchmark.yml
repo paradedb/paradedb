@@ -28,7 +28,12 @@ permissions:
   deployments: write
 
 concurrency:
-  group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
+  # If this is a manual backfill run, use the commit SHA.
+  # Otherwise (push/PR) fall back to the branch name.
+  group: ${{ format('query-benchmarks-{0}',
+    (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
+  # Keep auto-cancellation for normal CI, switch it off for backfills.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   benchmark-pg_search:

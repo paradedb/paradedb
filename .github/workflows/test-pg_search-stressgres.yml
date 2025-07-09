@@ -16,6 +16,10 @@ on:
       - "**/*.toml"
   workflow_dispatch:
 
+permissions:
+  contents: write
+  deployments: write
+
 concurrency:
   group: test-pg_search-stressgres-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -105,7 +109,7 @@ jobs:
         working-directory: paradedb/pg_search/
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
 
-      - name: Run Stressgres Test Suite for 10 minutes
+      - name: Run Stressgres Test Suite
         working-directory: stressgres/
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
@@ -117,6 +121,45 @@ jobs:
       - name: Generate Stressgres Continuous Benchmarking Metrics
         working-directory: stressgres/
         run: cargo run --release -- csv stressgres-${{ matrix.test_file }}.log output.csv
+
+      # This is where we can configure how the different runs are aggregated
+      # into a single JSON file for plotting in our continuous benchmarks.
+      - name: Generate pg_search Continuous Benchmarking Metrics
+        shell: python {0}
+        run: |
+          import csv, json
+          metrics = []
+          with open('stressgres/output.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+              metrics.append({
+                "name":     f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
+                "unit":     f"avg {row['metric_name']}",
+                "value":    float(row['avg']),
+                "extra":    f"max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
+              })
+
+          metrics.sort(key=lambda metric: metric['name'])
+
+          with open('stressgres/pg_search_data.json', 'w') as out:
+              json.dump(metrics, out)
+
+      - name: Check and Publish Continuous Benchmarking Metrics
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search ${{ matrix.test_file }} Performance"
+          tool: "customSmallerIsBetter"
+          output-file-path: "stressgres/pg_search_data.json"
+          github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          gh-repository: "github.com/paradedb/paradedb"
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: stressgres
+          alert-threshold: "110%"
+          # NB: We comment and alert rather than failing, as we have both Github and Slack messages
+          # to notify us.
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
@@ -144,8 +187,8 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *Community Stressgres Results (${{ matrix.test_file }})*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
+              <https://paradedb.github.io/paradedb/stressgres/>
             file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             request_file_info: true

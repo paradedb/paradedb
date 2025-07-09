@@ -29,7 +29,6 @@ permissions:
 
 concurrency:
   group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   benchmark-pg_search:

@@ -16,6 +16,11 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
+    inputs:
+      commit:
+        description: "Commit to test or backfill for. Defaults to the latest commit on the main branch."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -37,6 +42,19 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
+
+      # We manually fetch the benchmark queries from `main` to make sure all are available when backfilling
+      # old commits potentially created before new queries were added.
+      - name: Fetch the Latest Benchmark Queries
+        run: |
+          git clone https://github.com/paradedb/paradedb.git paradedb-temp
+          cp -r paradedb-temp/benchmarks/ benchmarks/
+          rm -rf paradedb-temp  
+
+          echo "Copied benchmark files:"
+          ls -la benchmarks/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

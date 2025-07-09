@@ -7,10 +7,10 @@ SET paradedb.enable_mixed_fast_field_exec = true;
 DROP TABLE IF EXISTS layer_sizes;
 CREATE TABLE layer_sizes (id serial8 not null primary key);
 -- 1 layer ✅
-CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
-------------------------
+CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '1kb');
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+ layer_sizes 
+-------------
  {1024}
 (1 row)
 
@@ -22,8 +22,8 @@ SELECT * FROM paradedb.background_layer_sizes('idxlayer_sizes');
 
 DROP INDEX idxlayer_sizes;
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '1kb');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+      layer_sizes       
 ------------------------
  {10240,102400,1048576}
 (1 row)
@@ -36,15 +36,15 @@ SELECT * FROM paradedb.background_layer_sizes('idxlayer_sizes');
 
 DROP INDEX idxlayer_sizes;
 -- negative layer ❌
-CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '-1kb');
+CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '-1kb');
 ERROR:  a single layer size must be non-negative
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '-1kb');
 ERROR:  a single layer size must be non-negative
 -- zero layer ✅
-CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '0kb, 10kb');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
-------------------------
+CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '0kb, 10kb');
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+ layer_sizes 
+-------------
  {10240}
 (1 row)
 
@@ -56,8 +56,8 @@ SELECT * FROM paradedb.background_layer_sizes('idxlayer_sizes');
 
 DROP INDEX idxlayer_sizes;
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '0kb, 10kb');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+      layer_sizes       
 ------------------------
  {10240,102400,1048576}
 (1 row)
@@ -70,14 +70,14 @@ SELECT * FROM paradedb.background_layer_sizes('idxlayer_sizes');
 
 DROP INDEX idxlayer_sizes;
 -- malformed layer ❌
-CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, bob''s your uncle');
+CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '1kb, bob''s your uncle');
 ERROR:  invalid size: " bob's your uncle"
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '1kb, bob''s your uncle');
 ERROR:  invalid size: " bob's your uncle"
 -- multiple layers ✅
-CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, 10kb, 100MB');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
+CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '1kb, 10kb, 100MB');
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+      layer_sizes       
 ------------------------
  {1024,10240,104857600}
 (1 row)
@@ -90,8 +90,8 @@ SELECT * FROM paradedb.background_layer_sizes('idxlayer_sizes');
 
 DROP INDEX idxlayer_sizes;
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '1kb, 10kb, 100MB');
-SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
- foreground_layer_sizes 
+SELECT * FROM paradedb.layer_sizes('idxlayer_sizes');
+      layer_sizes       
 ------------------------
  {10240,102400,1048576}
 (1 row)

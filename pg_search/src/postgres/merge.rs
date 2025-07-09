@@ -26,8 +26,7 @@ use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
 use pgrx::pg_sys;
-use pgrx::pg_sys::panic::ErrorReport;
-use pgrx::{function_name, pg_guard, FromDatum, IntoDatum, PgLogLevel, PgSqlErrorCode};
+use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,13 +174,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, style: MergeSty
         .load_dynamic()
         .is_err()
     {
-        ErrorReport::new(
-            PgSqlErrorCode::ERRCODE_INSUFFICIENT_RESOURCES,
-            "not enough available `max_worker_processes` to launch a background merger",
-            function_name!(),
-        )
-        .set_hint("`SET max_worker_processes = <number>`")
-        .report(PgLogLevel::WARNING);
+        pgrx::log!("not enough available `max_worker_processes` to launch a background merger");
     }
 }
 

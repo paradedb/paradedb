@@ -231,7 +231,7 @@ pub unsafe extern "C-unwind" fn amoptions(
             offset: offset_of!(BM25IndexOptionsData, key_field_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
-            optname: "foreground_layer_sizes".as_pg_cstr(),
+            optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, foreground_layer_sizes_offset) as i32,
         },
@@ -750,7 +750,7 @@ pub unsafe fn init() {
     );
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
-        "foreground_layer_sizes".as_pg_cstr(),
+        "layer_sizes".as_pg_cstr(),
         "The sizes of each layer to merge in the foreground".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_layer_sizes),

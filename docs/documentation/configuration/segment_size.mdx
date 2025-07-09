@@ -12,18 +12,18 @@ Both the layer sizes and whether merging happens in the foreground (blocking) or
 
 ## Foreground Layer Sizes
 
-By default, layer sizes `1KB`, `10KB`, `100KB` and `1MB` are merged in the foreground. This can be configured with `foreground_layer_sizes`,
+By default, layer sizes `1KB`, `10KB`, `100KB` and `1MB` are merged in the foreground. This can be configured with `layer_sizes`,
 either at `CREATE INDEX` time or afterward with `ALTER INDEX`.
 
 ```sql
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', foreground_layer_sizes = '1kb, 10kb, 100MB');
-ALTER INDEX search_idx SET (foreground_layer_sizes = '100kb, 1mb, 100mb');
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', layer_sizes = '1kb, 10kb, 100MB');
+ALTER INDEX search_idx SET (layer_sizes = '100kb, 1mb, 100mb');
 ```
 
-Setting `foreground_layer_sizes` to `0` disables foreground merging.
+Setting `layer_sizes` to `0` disables foreground merging.
 
 ```sql
-ALTER INDEX search_idx SET (foreground_layer_sizes = '0');
+ALTER INDEX search_idx SET (layer_sizes = '0');
 ```
 
 ## Background Layer Sizes
@@ -32,7 +32,7 @@ By default, layer sizes `10MB`, `100MB`, `1GB`, `10GB`, `100GB`, and `1TB` are m
 `background_layer_sizes`, either at `CREATE INDEX` time or afterward with `ALTER INDEX`.
 
 ```sql
-CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', foreground_layer_sizes = '100MB, 1GB');
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', background_layer_sizes = '100MB, 1GB');
 ALTER INDEX search_idx SET (background_layer_sizes = '100MB, 1GB');
 ```
 
@@ -51,5 +51,5 @@ Write throughput can be improved by moving more layers to the background, at the
 following command moves all merging to the background.
 
 ```sql
-ALTER INDEX search_idx SET (foreground_layer_sizes = '0', background_layer_sizes = '100kb, 1mb, 100mb');
+ALTER INDEX search_idx SET (layer_sizes = '0', background_layer_sizes = '100kb, 1mb, 100mb');
 ```

@@ -233,7 +233,7 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
-            offset: offset_of!(BM25IndexOptionsData, foreground_layer_sizes_offset) as i32,
+            offset: offset_of!(BM25IndexOptionsData, layer_sizes_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "target_segment_count".as_pg_cstr(),
@@ -572,7 +572,7 @@ struct BM25IndexOptionsData {
     range_fields_offset: i32,
     datetime_fields_offset: i32,
     key_field_offset: i32,
-    foreground_layer_sizes_offset: i32,
+    layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
@@ -584,7 +584,7 @@ impl BM25IndexOptionsData {
     /// If none is applied to the index, the specified `default` sizes are used.
     pub fn foreground_layer_sizes(&self) -> Vec<u64> {
         let foreground_layer_sizes_str =
-            self.get_str(self.foreground_layer_sizes_offset, Default::default());
+            self.get_str(self.layer_sizes_offset, Default::default());
         if foreground_layer_sizes_str.trim().is_empty() {
             return DEFAULT_FOREGROUND_LAYER_SIZES.to_vec();
         }

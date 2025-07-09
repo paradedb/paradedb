@@ -41,6 +41,7 @@ jobs:
         test_file: [single-server.toml, bulk-updates.toml, wide-table.toml]
     env:
       pg_version: 17
+      stressgres_path: ../stressgres
 
     steps:
       - name: Checkout Git Repository
@@ -110,7 +111,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paradedb/stressgres
-          path: stressgres
+          path: ${{ env.stressgres_path }}
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Compile & install pg_search extension
@@ -118,7 +119,7 @@ jobs:
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Run Stressgres Test Suite
-        working-directory: stressgres/
+        working-directory: ${{ env.stressgres_path }}
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
           cargo run --release -- headless \
@@ -127,7 +128,7 @@ jobs:
           --runtime 600000
 
       - name: Generate Stressgres Continuous Benchmarking Metrics
-        working-directory: stressgres/
+        working-directory: ${{ env.stressgres_path }}
         run: cargo run --release -- csv stressgres-${{ matrix.test_file }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
@@ -137,7 +138,7 @@ jobs:
         run: |
           import csv, json
           metrics = []
-          with open('stressgres/output.csv', 'r') as f:
+          with open('../stressgres/output.csv', 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
               metrics.append({
@@ -149,7 +150,7 @@ jobs:
 
           metrics.sort(key=lambda metric: metric['name'])
 
-          with open('stressgres/pg_search_data.json', 'w') as out:
+          with open('../stressgres/pg_search_data.json', 'w') as out:
               json.dump(metrics, out)
 
       - name: Check and Publish Continuous Benchmarking Metrics
@@ -170,7 +171,7 @@ jobs:
           alert-comment-cc-users: "@${{ github.actor }}"
 
       - name: Create Stressgres Graph
-        working-directory: stressgres/
+        working-directory: ${{ env.stressgres_path }}
         run: cargo run --release -- graph stressgres-${{ matrix.test_file }}.log stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png
 
       - name: Upload Stressgres Graph
@@ -197,7 +198,7 @@ jobs:
             initial_comment: |
               *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
               <https://paradedb.github.io/paradedb/stressgres/>
-            file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
+            file: "${{ env.stressgres_path }}/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             request_file_info: true
           errors: true

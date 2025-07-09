@@ -53,7 +53,7 @@ jobs:
       - name: Fetch the Latest Stressgres Jobs
         run: |
           ls -la
-          git clone --depth 1 --branch main https://github.com/paradedb.git paradedb-temp
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
           cp -rv paradedb-temp/.github/stressgres .github/
           rm -rf paradedb-temp
 

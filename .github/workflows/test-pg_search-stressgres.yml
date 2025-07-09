@@ -54,13 +54,12 @@ jobs:
       - name: Fetch the Latest Stressgres Jobs
         run: |
           ls -la
-          ls -la .github/
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/.github/stressgres .github/
+          cp -rv paradedb-temp/.github/stressgres paradedb/.github/
           rm -rf paradedb-temp
 
           echo "Copied stressgres jobs:"
-          ls -la .github/stressgres/
+          ls -la paradedb/.github/stressgres/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

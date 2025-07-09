@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752100157906,
+  "lastUpdate": 1752100213944,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -3364,6 +3364,102 @@ window.BENCHMARK_DATA = {
             "value": 29.54473973724785,
             "unit": "avg mem",
             "extra": "max mem: 39.87890625, count: 38915"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@paradedb.com",
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "eebbrr@paradedb.com",
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "distinct": true,
+          "id": "daa02ab0241ab83ee9d5331b0155c8fbaa971597",
+          "message": "god I hate this",
+          "timestamp": "2025-07-09T18:12:50-04:00",
+          "tree_id": "7fbed99cee6c42626e45574860d81689b917035a",
+          "url": "https://github.com/paradedb/paradedb/commit/daa02ab0241ab83ee9d5331b0155c8fbaa971597"
+        },
+        "date": 1752100213123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 20.095805590739502,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.720497, count: 58942"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.99878409336722,
+            "unit": "avg mem",
+            "extra": "max mem: 239.40625, count: 58942"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.423666955123564,
+            "unit": "avg tps",
+            "extra": "max tps: 10.89255731401324, count: 58942"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 21.371258311230005,
+            "unit": "avg cpu",
+            "extra": "max cpu: 34.355827, count: 58942"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.94604865800278,
+            "unit": "avg mem",
+            "extra": "max mem: 164.078125, count: 58942"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.226746424369724,
+            "unit": "avg tps",
+            "extra": "max tps: 8.636723307104615, count: 58942"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22372.45575311323,
+            "unit": "avg block_count",
+            "extra": "max block_count: 24961.0, count: 58942"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32.38334294730413,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 63.0, count: 58942"
+          },
+          {
+            "name": "Monitoring - Primary - blocks_under_management",
+            "value": 3807.3396559329512,
+            "unit": "avg blocks_under_management",
+            "extra": "max blocks_under_management: 8447.0, count: 58942"
+          },
+          {
+            "name": "Monitoring - Primary - cpu",
+            "value": 3.461051178586447,
+            "unit": "avg cpu",
+            "extra": "max cpu: 4.8780484, count: 58942"
+          },
+          {
+            "name": "Monitoring - Primary - fsm_size",
+            "value": 3.4279970140137763,
+            "unit": "avg fsm_size",
+            "extra": "max fsm_size: 5.0, count: 58942"
+          },
+          {
+            "name": "Monitoring - Primary - mem",
+            "value": 33.49535063335567,
+            "unit": "avg mem",
+            "extra": "max mem: 46.6484375, count: 58942"
           }
         ]
       }

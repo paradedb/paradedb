@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752059943835,
+  "lastUpdate": 1752076701543,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -1810,6 +1810,102 @@ window.BENCHMARK_DATA = {
             "value": 26.82928977923428,
             "unit": "avg segment_count",
             "extra": "max segment_count: 50.0, count: 56757"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T11:42:21-04:00",
+          "tree_id": "6134beedfbe82dc68da499b313fab124bd1e4dec",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752076699760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 20.656943875291567,
+            "unit": "avg cpu",
+            "extra": "max cpu: 38.554214, count: 47928"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.04008763796736,
+            "unit": "avg mem",
+            "extra": "max mem: 238.17578125, count: 47928"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 5.438162417221689,
+            "unit": "avg tps",
+            "extra": "max tps: 8.277107449671567, count: 47928"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 22.91806928299898,
+            "unit": "avg cpu",
+            "extra": "max cpu: 33.532936, count: 47928"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.04917116886267,
+            "unit": "avg mem",
+            "extra": "max mem: 165.3984375, count: 47928"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.174788837581349,
+            "unit": "avg tps",
+            "extra": "max tps: 6.349756391172334, count: 47928"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20528.685444833918,
+            "unit": "avg block_count",
+            "extra": "max block_count: 22368.0, count: 47928"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 27.85607578033717,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 51.0, count: 47928"
+          },
+          {
+            "name": "Monitoring - Primary - blocks_under_management",
+            "value": 3194.654481722584,
+            "unit": "avg blocks_under_management",
+            "extra": "max blocks_under_management: 6512.0, count: 47928"
+          },
+          {
+            "name": "Monitoring - Primary - cpu",
+            "value": 4.432244163756785,
+            "unit": "avg cpu",
+            "extra": "max cpu: 4.733728, count: 47928"
+          },
+          {
+            "name": "Monitoring - Primary - fsm_size",
+            "value": 3.098376731764313,
+            "unit": "avg fsm_size",
+            "extra": "max fsm_size: 4.0, count: 47928"
+          },
+          {
+            "name": "Monitoring - Primary - mem",
+            "value": 33.25839899171674,
+            "unit": "avg mem",
+            "extra": "max mem: 43.30078125, count: 47928"
           }
         ]
       }

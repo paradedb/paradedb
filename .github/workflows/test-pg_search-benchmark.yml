@@ -10,6 +10,7 @@ on:
   push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
+      - phil/depot-runners
     paths:
       - "benchmarks/**"
       - ".github/workflows/test-pg_search-benchmark.yml"

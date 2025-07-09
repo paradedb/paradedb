@@ -38,12 +38,8 @@ DROP INDEX idxlayer_sizes;
 -- negative layer ❌
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '-1kb');
 ERROR:  a single layer size must be non-negative
-DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '-1kb');
 ERROR:  a single layer size must be non-negative
-DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 -- zero layer ✅
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '0kb, 10kb');
 SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');
@@ -76,12 +72,8 @@ DROP INDEX idxlayer_sizes;
 -- malformed layer ❌
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, bob''s your uncle');
 ERROR:  invalid size: " bob's your uncle"
-DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '1kb, bob''s your uncle');
 ERROR:  invalid size: " bob's your uncle"
-DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 -- multiple layers ✅
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, 10kb, 100MB');
 SELECT * FROM paradedb.foreground_layer_sizes('idxlayer_sizes');

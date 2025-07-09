@@ -9,6 +9,7 @@ on:
   push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
       - main
+      - phil/depot-runners
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
@@ -26,25 +27,13 @@ concurrency:
 
 jobs:
   test-pg_search-stressgres:
-    name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Run Stressgres ${{ matrix.test_file }} on pg_search
+    runs-on: depot-ubuntu-24.04-8
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: single-server.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: bulk-updates.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: wide-table.toml
+        test_file: [single-server.toml, bulk-updates.toml, wide-table.toml]
     env:
-      default_pg_version: 17
+      pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -68,7 +57,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          key: ${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -89,14 +78,14 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=`which pg_config`
+        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Checkout Stressgres Repo
         uses: actions/checkout@v4
@@ -107,7 +96,7 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
-        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
+        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Run Stressgres Test Suite
         working-directory: stressgres/

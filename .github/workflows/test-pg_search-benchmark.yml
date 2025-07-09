@@ -28,7 +28,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: ubicloud-standard-8
+    runs-on: depot-ubuntu-24.04-8
     strategy:
       matrix:
         pg_version: [17]

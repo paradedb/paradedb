@@ -54,8 +54,6 @@ jobs:
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
-    env:
-      default_pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -156,8 +154,6 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-    env:
-      default_pg_version: 17
 
     steps:
       - name: Checkout Git Repository

@@ -50,12 +50,13 @@ jobs:
       # old commits potentially created before new queries were added.
       - name: Fetch the Latest Benchmark Queries
         run: |
+          ls -la
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -r paradedb-temp/benchmarks/ benchmarks/
+          cp -rv paradedb-temp/benchmarks/ paradedb/benchmarks/
           rm -rf paradedb-temp
 
           echo "Copied benchmark files:"
-          ls -la benchmarks/
+          ls -la paradedb/benchmarks/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

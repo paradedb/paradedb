@@ -49,7 +49,7 @@ jobs:
       # old commits potentially created before new queries were added.
       - name: Fetch the Latest Benchmark Queries
         run: |
-          git clone https://github.com/paradedb/paradedb.git paradedb-temp
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
           cp -r paradedb-temp/benchmarks/ benchmarks/
           rm -rf paradedb-temp
 

@@ -62,7 +62,7 @@ jobs:
       # old commits potentially created before new jobs were added.
       - name: Fetch the Latest Stressgres Jobs
         run: |
-          git clone https://github.com/paradedb/paradedb.git paradedb-temp
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
           cp -r paradedb-temp/.github/stressgres .github/
           rm -rf paradedb-temp
 

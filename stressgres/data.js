@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752059933732,
+  "lastUpdate": 1752059943835,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -350,6 +350,78 @@ window.BENCHMARK_DATA = {
             "value": 66.90708612758496,
             "unit": "avg tps",
             "extra": "max tps: 79.04304385698362, count: 57062"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53e70646d51fc7b4d04f9c5161c73f55c38331a6",
+          "message": "chore: Fix unit for average runtime in the benchmarks (#2796)\n\n## What\n\nThe benchmarks claim to be running in seconds, but are running in\nmilliseconds: fix that.\n\n## Why\n\nTo make the benchmarks look 1000x faster.",
+          "timestamp": "2025-07-09T07:01:48-04:00",
+          "tree_id": "295bed108b383b23f05c3600f26ea5e260097439",
+          "url": "https://github.com/paradedb/paradedb/commit/53e70646d51fc7b4d04f9c5161c73f55c38331a6"
+        },
+        "date": 1752059942377,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 17.978027098657982,
+            "unit": "avg cpu",
+            "extra": "max cpu: 52.071007, count: 57266"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.2839522333278,
+            "unit": "avg mem",
+            "extra": "max mem: 183.4609375, count: 57266"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.922968827599448,
+            "unit": "avg tps",
+            "extra": "max tps: 36.23056484991187, count: 57266"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 12462.807023364649,
+            "unit": "avg block_count",
+            "extra": "max block_count: 13741.0, count: 57266"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 42.4559599064017,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 111.0, count: 57266"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 10.487688198508282,
+            "unit": "avg cpu",
+            "extra": "max cpu: 39.024387, count: 57266"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 155.37869404129412,
+            "unit": "avg mem",
+            "extra": "max mem: 175.44921875, count: 57266"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 92.14620460234103,
+            "unit": "avg tps",
+            "extra": "max tps: 103.09733971671164, count: 57266"
           }
         ]
       }

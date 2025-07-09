@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752038129657,
+  "lastUpdate": 1752038148174,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -70,6 +70,76 @@ window.BENCHMARK_DATA = {
             "value": 65.27144719743694,
             "unit": "avg tps",
             "extra": "max tps: 83.60156536738894, count: 57009"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "f705fe04e1169e06a55144583346354b7d4dc6be",
+          "message": "Backfill for 0.16.0",
+          "timestamp": "2025-07-09T04:35:20Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f705fe04e1169e06a55144583346354b7d4dc6be"
+        },
+        "date": 1752038146702,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.111379135899984,
+            "unit": "avg cpu",
+            "extra": "max cpu: 47.61905, count: 57119"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.70824322084158,
+            "unit": "avg mem",
+            "extra": "max mem: 182.734375, count: 57119"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 15.392540897807033,
+            "unit": "avg tps",
+            "extra": "max tps: 22.302505138507637, count: 57119"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6131.957667326109,
+            "unit": "avg block_count",
+            "extra": "max block_count: 7119.0, count: 57119"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 36.17691136049301,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 77.0, count: 57119"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.066016614321896,
+            "unit": "avg cpu",
+            "extra": "max cpu: 33.939396, count: 57119"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.64757772698226,
+            "unit": "avg mem",
+            "extra": "max mem: 179.01953125, count: 57119"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 52.52614977696351,
+            "unit": "avg tps",
+            "extra": "max tps: 54.5157314636056, count: 57119"
           }
         ]
       }

@@ -30,7 +30,6 @@ permissions:
 
 concurrency:
   group: test-pg_search-stressgres-${{ github.head_ref || github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test-pg_search-stressgres:

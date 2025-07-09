@@ -17,11 +17,9 @@
 
 use pgrx::{pg_sys::ItemPointerData, *};
 
-use super::storage::block::CLEANUP_LOCK;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
 
 use crate::postgres::rel::PgSearchRelation;
@@ -52,8 +50,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     // first, we need an exclusive lock on the CLEANUP_LOCK.  Once we get it, we know that there
     // are no concurrent merges happening
-    let cleanup_lock = BufferManager::new(&index_relation).get_buffer_mut(CLEANUP_LOCK);
     let mut metadata = MetaPage::open(&index_relation);
+    let cleanup_lock = metadata.cleanup_lock_exclusive();
 
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
@@ -61,7 +59,6 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // garbage collecting the MergeList is necessary to remove any stale entries that may have
     // been leftover from a cancelled merge or crash during merge
     merge_lock.merge_list().garbage_collect();
-    pg_sys::IndexFreeSpaceMapVacuum(index_relation.as_ptr());
 
     // and now we should not have any merges happening, and cannot
     assert!(
@@ -140,7 +137,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // Effectively, we're blocking ambulkdelete from finishing until we know that concurrent
     // scans have finished too
     if did_delete {
-        drop(BufferManager::new(&index_relation).get_buffer_for_cleanup(CLEANUP_LOCK));
+        drop(metadata.cleanup_lock_for_cleanup());
     }
 
     // we're done, no need to hold onto the sentinel any longer

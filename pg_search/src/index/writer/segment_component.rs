@@ -91,7 +91,7 @@ struct InnerSegmentComponentWriter {
 
 impl InnerSegmentComponentWriter {
     pub unsafe fn new(indexrel: &PgSearchRelation) -> Self {
-        let segment_component = LinkedBytesList::create(indexrel);
+        let segment_component = LinkedBytesList::create_with_fsm(indexrel);
 
         Self {
             header_blockno: segment_component.header_blockno,

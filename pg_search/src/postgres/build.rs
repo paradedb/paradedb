@@ -20,12 +20,7 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{
-    SegmentMetaEntry, CLEANUP_LOCK, METADATA, SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
-};
-use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::metadata::MetaPageMut;
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType};
 use anyhow::Result;
@@ -43,6 +38,10 @@ pub extern "C-unwind" fn ambuild(
 ) -> *mut pg_sys::IndexBuildResult {
     let heap_relation = unsafe { PgSearchRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgSearchRelation::from_pg(indexrel) };
+
+    unsafe {
+        build_empty(&index_relation);
+    }
 
     // ensure we only allow one `USING bm25` index on this relation, accounting for a REINDEX
     // and accounting for CONCURRENTLY.
@@ -66,8 +65,6 @@ pub extern "C-unwind" fn ambuild(
     }
 
     unsafe {
-        ambuildempty(indexrel);
-
         let heap_tuples = build_index(
             heap_relation,
             index_relation.clone(),
@@ -89,15 +86,17 @@ pub extern "C-unwind" fn ambuild(
 
 #[pg_guard]
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
-    let index_relation = PgSearchRelation::from_pg(index_relation);
+    build_empty(&PgSearchRelation::from_pg(index_relation));
+}
 
+unsafe fn build_empty(index_relation: &PgSearchRelation) {
     unsafe {
-        init_fixed_buffers(&index_relation);
+        MetaPage::init(index_relation);
     }
 
-    validate_index_config(&index_relation);
+    validate_index_config(index_relation);
 
-    create_index(&index_relation).unwrap_or_else(|e| panic!("{e}"));
+    create_index(index_relation).unwrap_or_else(|e| panic!("{e}"));
 }
 
 unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
@@ -247,29 +246,6 @@ fn bm25_amhandler_oid() -> Option<pg_sys::Oid> {
     }
 }
 
-unsafe fn init_fixed_buffers(index_relation: &PgSearchRelation) {
-    let mut bman = BufferManager::new(index_relation);
-
-    // Init merge lock buffer
-    let mut merge_lock = bman.new_buffer();
-    assert_eq!(merge_lock.number(), METADATA);
-    merge_lock.init_page();
-
-    // Init cleanup lock buffer
-    let mut cleanup_lock = bman.new_buffer();
-    assert_eq!(cleanup_lock.number(), CLEANUP_LOCK);
-    cleanup_lock.init_page();
-
-    // initialize all the other required buffers
-    let schema = LinkedBytesList::create(index_relation);
-    let settings = LinkedBytesList::create(index_relation);
-    let segment_metas = LinkedItemList::<SegmentMetaEntry>::create(index_relation);
-
-    assert_eq!(schema.header_blockno, SCHEMA_START);
-    assert_eq!(settings.header_blockno, SETTINGS_START);
-    assert_eq!(segment_metas.header_blockno, SEGMENT_METAS_START);
-}
-
 fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let options = index_relation.options();
     let mut builder = Schema::builder();
@@ -318,14 +294,13 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 }
 
 unsafe fn record_create_index_segment_ids(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
-    let metadata = MetaPageMut::new(indexrel);
     let directory = MvccSatisfies::Snapshot.directory(indexrel);
     let index = Index::open(directory.clone())?;
     let segment_ids = index.searchable_segment_ids()?;
 
     pgrx::debug1!("record_create_index_segment_ids: {:?}", segment_ids);
 
-    metadata
+    MetaPage::open(indexrel)
         .record_create_index_segment_ids(segment_ids)
         .expect("do_heap_scan: should be able to record segment ids in merge lock");
     Ok(())

@@ -23,10 +23,10 @@ use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{SegmentMetaEntry, CLEANUP_LOCK, SEGMENT_METAS_START};
+use crate::postgres::storage::block::SegmentMetaEntry;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
+use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
@@ -160,7 +160,7 @@ pub unsafe extern "C-unwind" fn aminsert(
             )
             .unwrap_or_else(|err| panic!("{err}"));
             writer
-                .insert(search_document, item_pointer_to_u64(*ctid))
+                .insert(search_document, item_pointer_to_u64(*ctid), || {})
                 .expect("insertion into index should succeed");
 
             cxt.reset();
@@ -244,8 +244,8 @@ pub unsafe fn merge_index_with_policy(
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
-    let cleanup_lock = BufferManager::new(indexrel).get_buffer(CLEANUP_LOCK);
     let metadata = MetaPage::open(indexrel);
+    let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
     let directory = MvccSatisfies::Mergeable.directory(indexrel);
     let merger =
@@ -416,8 +416,7 @@ pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
     // SEGMENT_METAS must be updated atomically so that a consistent list is visible for consumers:
     // SEGMENT_METAS_GARBAGE need not be because it is only ever consumed on the physical
     // replication primary.
-    let mut segment_metas_linked_list =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
+    let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
     let mut segment_metas = segment_metas_linked_list.atomically();
     let entries = segment_metas.garbage_collect();
 
@@ -428,15 +427,16 @@ pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
 }
 
 pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
-    for entry in freeable_entries {
-        for (file_entry, _) in entry.file_entries() {
-            unsafe {
-                LinkedBytesList::open(indexrel, file_entry.starting_block).return_to_fsm();
-            }
-        }
-    }
-
-    unsafe {
-        pg_sys::IndexFreeSpaceMapVacuum(indexrel.as_ptr());
-    }
+    let mut bman = BufferManager::new(indexrel);
+    bman.fsm().extend(
+        &mut bman,
+        freeable_entries
+            .iter()
+            .flat_map(move |entry| {
+                entry.file_entries().map(move |(file_entry, _)| {
+                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
+                })
+            })
+            .flatten(),
+    );
 }

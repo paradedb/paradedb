@@ -30,6 +30,21 @@ use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{function_name, pg_guard, FromDatum, IntoDatum, PgLogLevel, PgSqlErrorCode};
 use std::ffi::CStr;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeStyle {
+    Insert,
+    Vacuum,
+}
+
+impl MergeStyle {
+    fn bgworker_consider_foreground_layers(&self) -> bool {
+        match self {
+            MergeStyle::Insert => true,
+            MergeStyle::Vacuum => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct IndexLayerSizes {
     foreground_layer_sizes: Vec<u64>,
@@ -94,7 +109,7 @@ impl IndexLayerSizes {
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
+pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
     let layer_sizes = IndexLayerSizes::from(index);
     let foreground_layers = layer_sizes.foreground();
@@ -111,7 +126,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
     };
 
     // first merge down the foreground layers
-    if !foreground_layers.is_empty() {
+    if !foreground_layers.is_empty() && style == MergeStyle::Insert {
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
         unsafe { foreground_merge_policy.merge_index(index, merge_lock, false) };
     } else {
@@ -123,8 +138,8 @@ pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
 
     // then launch a background process to merge down the background layers
     // only if we determine that there are enough segments to merge in the background
-    if needs_background_merge {
-        try_launch_background_merger(index);
+    if needs_background_merge || style == MergeStyle::Vacuum {
+        try_launch_background_merger(index, style);
     }
 
     Ok(())
@@ -132,7 +147,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
 
 /// Try to launch a background process to merge down the index.
 /// Is not guaranteed to launch the process if there are not enough `max_worker_processes` available.
-unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
+unsafe fn try_launch_background_merger(index: &PgSearchRelation, style: MergeStyle) {
     let dbname = CStr::from_ptr(pg_sys::get_database_name(pg_sys::MyDatabaseId))
         .to_string_lossy()
         .into_owned();
@@ -142,12 +157,19 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation) {
         index.namespace(),
         index.name()
     );
+
     if BackgroundWorkerBuilder::new(&worker_name)
         .enable_spi_access()
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(index.oid().into_datum())
+        .set_argument(
+            (
+                Some(index.oid()),
+                Some(style.bgworker_consider_foreground_layers()),
+            )
+                .into_datum(),
+        )
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic()
@@ -179,13 +201,21 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             );
         };
 
-        let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
-        let index = PgSearchRelation::open(index_oid.into());
-        let layer_sizes = IndexLayerSizes::from(&index);
-        let background_layers = layer_sizes.background();
-
-        let merge_policy = LayeredMergePolicy::new(background_layers);
+        let (index_oid, merge_foreground_layers): (Option<pg_sys::Oid>, Option<bool>) =
+            unsafe { FromDatum::from_datum(arg, false) }.unwrap();
+        let index = PgSearchRelation::open(index_oid.unwrap());
         let metadata = unsafe { MetaPage::open(&index) };
+        let layer_sizes = IndexLayerSizes::from(&index);
+
+        if merge_foreground_layers.unwrap_or_default() {
+            let foreground_layers = layer_sizes.foreground();
+            let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
+            let merge_lock = unsafe { metadata.acquire_merge_lock() };
+            unsafe { foreground_merge_policy.merge_index(&index, merge_lock, true) };
+        }
+
+        let background_layers = layer_sizes.background();
+        let merge_policy = LayeredMergePolicy::new(background_layers);
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
         unsafe { merge_policy.merge_index(&index, merge_lock, true) };
     });

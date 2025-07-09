@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752076729504,
+  "lastUpdate": 1752089147894,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -494,6 +494,78 @@ window.BENCHMARK_DATA = {
             "value": 69.88290498949428,
             "unit": "avg tps",
             "extra": "max tps: 106.63236619561962, count: 55699"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c448b82dd36af8dd22d27643195da6f8fde2f849",
+          "message": "chore: make benchmarks tolerant of rogue .psqlrc files (#2798)\n\n## What\n\nOur benchmark runner uses `psql` and is sensitive to its output. This\nteaches the runner to ignore any local `.psqlrc` file.\n\n## Why\n\nBasically so @eeeebbbbrrrr can run the benchmarks locally.\n\n## How\n\n## Tests\n\nI ran it and it works.",
+          "timestamp": "2025-07-09T15:09:16-04:00",
+          "tree_id": "3b05239b6fc8db968daf3c83344b12412a697a29",
+          "url": "https://github.com/paradedb/paradedb/commit/c448b82dd36af8dd22d27643195da6f8fde2f849"
+        },
+        "date": 1752089145591,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 15.325015292566123,
+            "unit": "avg cpu",
+            "extra": "max cpu: 42.60355, count: 56839"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 181.17653413039463,
+            "unit": "avg mem",
+            "extra": "max mem: 183.94140625, count: 56839"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 17.228246371892734,
+            "unit": "avg tps",
+            "extra": "max tps: 23.994020274251305, count: 56839"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9813.70754235648,
+            "unit": "avg block_count",
+            "extra": "max block_count: 13209.0, count: 56839"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 36.84570453385879,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 83.0, count: 56839"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 8.677738073556442,
+            "unit": "avg cpu",
+            "extra": "max cpu: 28.742516, count: 56839"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 144.2524067431693,
+            "unit": "avg mem",
+            "extra": "max mem: 175.50390625, count: 56839"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 39.83962066253208,
+            "unit": "avg tps",
+            "extra": "max tps: 56.16817988031372, count: 56839"
           }
         ]
       }

@@ -31,12 +31,12 @@ use pgrx::{function_name, pg_guard, FromDatum, IntoDatum, PgLogLevel, PgSqlError
 use std::ffi::CStr;
 
 #[derive(Debug, Clone)]
-struct LayerSizes {
+struct IndexLayerSizes {
     foreground_layer_sizes: Vec<u64>,
     background_layer_sizes: Vec<u64>,
 }
 
-impl From<&PgSearchRelation> for LayerSizes {
+impl From<&PgSearchRelation> for IndexLayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = index.options();
         let segment_components =
@@ -80,7 +80,7 @@ impl From<&PgSearchRelation> for LayerSizes {
         }
     }
 }
-impl LayerSizes {
+impl IndexLayerSizes {
     fn foreground(&self) -> Vec<u64> {
         self.foreground_layer_sizes.clone()
     }
@@ -101,7 +101,7 @@ pub unsafe fn do_merge(
 ) -> anyhow::Result<()> {
     let index = PgSearchRelation::open(index_oid);
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(&index))?;
-    let layer_sizes = LayerSizes::from(&index);
+    let layer_sizes = IndexLayerSizes::from(&index);
     let foreground_layers = layer_sizes.foreground();
     let background_layers = layer_sizes.background();
 
@@ -183,7 +183,7 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 
         let index_oid = unsafe { u32::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::open(index_oid.into());
-        let layer_sizes = LayerSizes::from(&index);
+        let layer_sizes = IndexLayerSizes::from(&index);
         let background_layers = layer_sizes.background();
 
         let merge_policy = LayeredMergePolicy::new(background_layers);
@@ -191,4 +191,101 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
         unsafe { merge_policy.merge_index(&index, merge_lock, true) };
     });
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::options::{
+        DEFAULT_BACKGROUND_LAYER_SIZES, DEFAULT_FOREGROUND_LAYER_SIZES,
+    };
+    use pgrx::prelude::*;
+
+    enum LayerSizes {
+        Default,
+        Foreground(String),
+        Background(String),
+    }
+
+    impl LayerSizes {
+        fn config_str(&self) -> String {
+            match self {
+                LayerSizes::Default => "".to_string(),
+                LayerSizes::Foreground(sizes) => format!(", foreground_layer_sizes = '{sizes}'"),
+                LayerSizes::Background(sizes) => format!(", background_layer_sizes = '{sizes}'"),
+            }
+        }
+    }
+
+    fn create_index_with_layer_sizes(layer_sizes: LayerSizes) -> pg_sys::Oid {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
+        Spi::run("CREATE TABLE IF NOT EXISTS t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('test');").unwrap();
+        Spi::run(
+            format!(
+                "CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id'{})",
+                layer_sizes.config_str()
+            )
+            .as_str(),
+        )
+        .unwrap();
+        Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .unwrap()
+    }
+
+    #[pg_test]
+    fn test_configured_foreground_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Foreground(
+            "1kb, 10kb, 100kb, 1mb".to_string(),
+        ));
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().foreground_layer_sizes();
+        assert_eq!(layer_sizes, vec![1024, 10240, 102400, 1048576]);
+    }
+
+    #[pg_test]
+    fn test_configured_background_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Background(
+            "1kb, 10kb, 100kb, 1mb".to_string(),
+        ));
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().background_layer_sizes();
+        assert_eq!(layer_sizes, vec![1024, 10240, 102400, 1048576]);
+    }
+
+    #[pg_test]
+    fn test_zeroed_foreground_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Foreground("0".to_string()));
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().foreground_layer_sizes();
+        assert!(layer_sizes.is_empty());
+    }
+
+    #[pg_test]
+    fn test_zeroed_background_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Background("0".to_string()));
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().background_layer_sizes();
+        assert!(layer_sizes.is_empty());
+    }
+
+    #[pg_test]
+    fn test_default_foreground_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Default);
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().foreground_layer_sizes();
+        assert_eq!(layer_sizes, DEFAULT_FOREGROUND_LAYER_SIZES.to_vec());
+    }
+
+    #[pg_test]
+    fn test_default_background_layer_sizes() {
+        let index_oid = create_index_with_layer_sizes(LayerSizes::Default);
+        let index = PgSearchRelation::open(index_oid);
+        let layer_sizes = index.options().background_layer_sizes();
+        assert_eq!(layer_sizes, DEFAULT_BACKGROUND_LAYER_SIZES.to_vec());
+    }
 }

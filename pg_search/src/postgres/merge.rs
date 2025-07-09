@@ -114,6 +114,9 @@ pub unsafe fn do_merge(index: &PgSearchRelation) -> anyhow::Result<()> {
     if !foreground_layers.is_empty() {
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
         unsafe { foreground_merge_policy.merge_index(index, merge_lock, false) };
+    } else {
+        // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
+        drop(merge_lock);
     }
 
     pgrx::debug1!("foreground merge complete, needs_background_merge: {needs_background_merge}");

@@ -8,7 +8,7 @@ name: Test pg_search Stressgres
 on:
   push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:
-      - main
+      - feat/benchmarks-backfill-commits
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
@@ -32,20 +32,17 @@ concurrency:
 jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    runs-on: eebbrr-threadripper
     strategy:
       matrix:
         include:
-          - runner: ubicloud-standard-8
-            pg_version: 17
+          - pg_version: 17
             arch: amd64
             test_file: single-server.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
+          - pg_version: 17
             arch: amd64
             test_file: bulk-updates.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
+          - pg_version: 17
             arch: amd64
             test_file: wide-table.toml
     env:

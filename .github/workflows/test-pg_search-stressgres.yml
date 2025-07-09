@@ -63,7 +63,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview

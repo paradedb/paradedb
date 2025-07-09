@@ -13,22 +13,18 @@ CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', 
 DROP INDEX idxlayer_sizes;
 -- negative layer ❌
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '-1kb');
-ERROR:  a single layer size must be greater than zero
+ERROR:  a single layer size must be non-negative
 DROP INDEX idxlayer_sizes;
 ERROR:  index "idxlayer_sizes" does not exist
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '-1kb');
-ERROR:  a single layer size must be greater than zero
+ERROR:  a single layer size must be non-negative
 DROP INDEX idxlayer_sizes;
 ERROR:  index "idxlayer_sizes" does not exist
--- zero layer ❌
+-- zero layer ✅
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '0kb, 10kb');
-ERROR:  a single layer size must be greater than zero
 DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '0kb, 10kb');
-ERROR:  a single layer size must be greater than zero
 DROP INDEX idxlayer_sizes;
-ERROR:  index "idxlayer_sizes" does not exist
 -- malformed layer ❌
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, bob''s your uncle');
 ERROR:  invalid size: " bob's your uncle"

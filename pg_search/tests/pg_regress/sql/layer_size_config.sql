@@ -17,7 +17,7 @@ DROP INDEX idxlayer_sizes;
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', background_layer_sizes = '-1kb');
 DROP INDEX idxlayer_sizes;
 
--- zero layer ❌
+-- zero layer ✅
 CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '0kb, 10kb');
 DROP INDEX idxlayer_sizes;
 

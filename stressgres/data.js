@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752039220359,
+  "lastUpdate": 1752039251830,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -1134,6 +1134,76 @@ window.BENCHMARK_DATA = {
             "value": 23.26199295329298,
             "unit": "avg segment_count",
             "extra": "max segment_count: 38.0, count: 55345"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "477b540f6f4612a93c99de310be1dfb1a2907980",
+          "message": "Backfill for 0.16.2",
+          "timestamp": "2025-07-09T04:35:53Z",
+          "url": "https://github.com/paradedb/paradedb/commit/477b540f6f4612a93c99de310be1dfb1a2907980"
+        },
+        "date": 1752039250154,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.35036348448537,
+            "unit": "avg cpu",
+            "extra": "max cpu: 42.60355, count: 56895"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.86091525507513,
+            "unit": "avg mem",
+            "extra": "max mem: 185.61328125, count: 56895"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 4.857452446111401,
+            "unit": "avg tps",
+            "extra": "max tps: 8.003878094836429, count: 56895"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 22.359796490250627,
+            "unit": "avg cpu",
+            "extra": "max cpu: 33.532936, count: 56895"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.05088334321997,
+            "unit": "avg mem",
+            "extra": "max mem: 164.4140625, count: 56895"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 6.0866285250427445,
+            "unit": "avg tps",
+            "extra": "max tps: 7.8424093432537125, count: 56895"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22843,
+            "unit": "avg block_count",
+            "extra": "max block_count: 22843.0, count: 56895"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 23.574233236664032,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 41.0, count: 56895"
           }
         ]
       }

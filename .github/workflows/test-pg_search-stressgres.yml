@@ -49,12 +49,12 @@ jobs:
           path: paradedb
           ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
 
-      # We manually fetch the benchmark queries from `main` to make sure all are available when backfilling
+      # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
       # old commits potentially created before new queries were added.
       - name: Fetch the Latest Stressgres Jobs
         run: |
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -r paradedb-temp/.github/stressgres .github/
+          cp -rv paradedb-temp/.github/stressgres .github/
           rm -rf paradedb-temp
 
           echo "Copied stressgres jobs:"

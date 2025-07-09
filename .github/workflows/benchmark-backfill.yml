@@ -1,4 +1,6 @@
-# .github/workflows/backfill.yml
+# workflows/benchmark-backfill.yml
+#
+# Backfill benchmarks using an array of git commit hashes
 name: benchmark-backfill
 
 on:
@@ -22,7 +24,7 @@ jobs:
     strategy:
       matrix:
         sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubuntu-latest
 
     steps:
       - name: Fire benchmark & stressgres for ${{ matrix.sha }}

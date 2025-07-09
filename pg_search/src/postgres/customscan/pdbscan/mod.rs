@@ -29,6 +29,7 @@ mod solve_expr;
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
 use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
+use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -56,7 +57,7 @@ use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, Qual,
+    extract_join_predicates, extract_quals, Qual, QualExtractState,
 };
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::customscan::{self, CustomScan, CustomScanState};
@@ -217,8 +218,8 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         schema: &SearchIndexSchema,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
-        let mut uses_tantivy_to_query = false;
-        let quals = extract_quals(
+        let mut state = QualExtractState::default();
+        let mut quals = extract_quals(
             root,
             rti,
             restrict_info.as_ptr().cast(),
@@ -226,16 +227,15 @@ impl PdbScan {
             ri_type,
             schema,
             false, // Base relation quals should not convert external to all
-            &mut uses_tantivy_to_query,
+            &mut state,
         );
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
-        if quals.is_none() {
+        let (quals, ri_type, restrict_info) = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut join_uses_tantivy_to_query = false;
-            let quals = extract_quals(
+            let mut quals = extract_quals(
                 root,
                 rti,
                 joinri.as_ptr().cast(),
@@ -243,18 +243,49 @@ impl PdbScan {
                 RestrictInfoType::Join,
                 schema,
                 true, // Join quals should convert external to all
-                &mut join_uses_tantivy_to_query,
+                &mut state,
             );
-            // If we have used our operator in the join, or if we have used our operator in the
-            // base relation, then we can use the join quals
-            if uses_tantivy_to_query || join_uses_tantivy_to_query {
+
+            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
+
+            // If we have found something to push down in the join, or if we have found something to
+            // push down in the base relation, then we can use the join quals
+            if state.uses_tantivy_to_query {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
                 (None, ri_type, restrict_info)
             }
         } else {
+            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
             (quals, ri_type, restrict_info)
+        };
+
+        // Finally, decide whether we can actually use the extracted quals.
+        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() {
+            (quals, ri_type, restrict_info)
+        } else {
+            (None, ri_type, restrict_info)
         }
+    }
+
+    unsafe fn handle_heap_expr_optimization(
+        state: &QualExtractState,
+        quals: &mut Option<Qual>,
+        root: *mut pg_sys::PlannerInfo,
+        rti: pg_sys::Index,
+    ) -> Option<Qual> {
+        if state.uses_heap_expr && !state.uses_our_operator {
+            return None;
+        }
+
+        // Apply HeapExpr optimization to the base relation quals
+        if let Some(ref mut q) = quals {
+            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
+            let relation_oid = (*rte).relid;
+            qual_inspect::optimize_quals_with_heap_expr(q);
+        }
+
+        quals.clone()
     }
 }
 
@@ -311,7 +342,9 @@ impl CustomScan for PdbScan {
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
             let segment_count = segment_count.load(Ordering::Relaxed);
-            let schema = SearchIndexSchema::from_index(&bm25_index, &index);
+            let schema = bm25_index
+                .schema()
+                .expect("custom_scan: should have a schema");
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -387,6 +420,16 @@ impl CustomScan for PdbScan {
                 // to a join, and would require more planning).
                 return None;
             };
+
+            // Check if this is a partial index and if the query is compatible with it
+            if !bm25_index.rd_indpred.is_null() {
+                // This is a partial index - we need to check if the query can be satisfied by it
+                if !quals.is_query_compatible_with_partial_index() {
+                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                    return None;
+                }
+            }
+
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {
                 (*restrict_info.get_ptr(0).unwrap()).norm_selec
@@ -623,7 +666,7 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = SearchIndexSchema::from_index(&indexrel, &index);
+            let schema = indexrel.schema().expect("should have a schema");
 
             let base_query = builder
                 .custom_private()
@@ -1231,10 +1274,9 @@ fn compute_exec_which_fast_fields(
 ) -> Option<Vec<WhichFastField>> {
     let exec_which_fast_fields = unsafe {
         let indexrel = builder.custom_state().indexrel();
-        let directory = MvccSatisfies::Snapshot.directory(indexrel);
-        let index =
-            Index::open(directory).expect("create_custom_scan_state: should be able to open index");
-        let schema = SearchIndexSchema::from_index(indexrel, &index);
+        let schema = indexrel
+            .schema()
+            .expect("create_custom_scan_state: should have a schema");
 
         // Calculate the ordered set of fast fields which have actually been requested in
         // the target list.
@@ -1615,6 +1657,11 @@ fn base_query_has_search_predicates(
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
+
+        // HeapFilter contains search predicates
+        SearchQueryInput::HeapFilter { indexed_query, .. } => {
+            base_query_has_search_predicates(indexed_query, current_index_oid)
+        }
     }
 }
 

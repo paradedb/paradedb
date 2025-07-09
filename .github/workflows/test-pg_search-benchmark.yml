@@ -7,36 +7,32 @@
 name: Test pg_search Benchmark
 
 on:
-  pull_request:
-    branches: # On the `staging` and `main` branches, we run benchmarks in PRs to test thoroughly
+  push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
+    branches:
       - main
-      - staging
-  push:
-    branches: # On the `dev` branch, we run benchmarks post pushes to speed up CI
-      - dev
     paths:
+      - "benchmarks/**"
       - ".github/workflows/test-pg_search-benchmark.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
+permissions:
+  contents: write
+  deployments: write
+
 concurrency:
-  group: test-pg_search-benchmark-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
+  group: test-pg_search-benchmark-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
     runs-on: ubicloud-standard-8
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
     strategy:
       matrix:
         pg_version: [17]
-        num_rows: [100000000]
+        dataset: ["single", "join"]
 
     steps:
       - name: Checkout Git Repository
@@ -59,6 +55,8 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -66,7 +64,7 @@ jobs:
           key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install pgrx & pg_search
         working-directory: pg_search/
@@ -99,19 +97,32 @@ jobs:
 
       - name: Run Benchmark
         working-directory: benchmarks/
-        run: cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${{ matrix.num_rows }} --type pg_search --output csv
-
-      - name: Upload Benchmark Results to Slack
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
-        working-directory: benchmarks/
         run: |
-          for file in results_pg_search_{test_info,index_creation,benchmark_results,postgres_settings}.csv; do
-            curl -F "file=@$file" \
-              -F "channels=${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}" \
-              -H "Authorization: Bearer ${{ secrets.SLACK_OAUTH_TOKEN }}" \
-              https://slack.com/api/files.upload
-          done
+          if [ "${{ matrix.dataset }}" = "single" ]; then
+            NUM_ROWS=100000000
+          elif [ "${{ matrix.dataset }}" = "join" ]; then
+            NUM_ROWS=25000000
+          else
+            echo "Unknown dataset!"
+            exit 1
+          fi
+          cargo run -- --url postgresql://localhost:288${{ matrix.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --runs 10 --output json
+
+      - name: Check and Publish Continuous Benchmarking Metrics
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search '${{ matrix.dataset }}' Query Performance"
+          tool: "customSmallerIsBetter"
+          output-file-path: "benchmarks/results.json"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: benchmarks
+          alert-threshold: "110%"
+          # NB: We comment and alert rather than failing, as we have both Github and Slack messages
+          # to notify us.
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
 
       - name: Notify Slack on Failure
         if: failure()
@@ -123,3 +134,22 @@ jobs:
           curl -X POST -H 'Content-type: application/json' \
           --data "{\"text\": \"${MESSAGE}\"}" \
           ${SLACK_WEBHOOK_URL}
+
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
+      - name: Report Benchmark Results to Slack
+        uses: slackapi/slack-github-action@v2
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+            text: |
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community "${{ matrix.dataset}}" Query Results available:
+              <https://paradedb.github.io/paradedb/benchmarks/>
+          errors: true
+          retries: 5

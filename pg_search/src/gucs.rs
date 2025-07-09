@@ -26,6 +26,15 @@ use std::num::NonZeroUsize;
 /// Allows the user to toggle the use of our "ParadeDB Custom Scan".  The default is `true`.
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
+/// default is `false`.
+static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Allows the user to toggle the use of custom scan for queries that include non-indexed fields.
+/// When enabled, queries with non-indexed predicates will use HeapExpr for heap filtering.
+/// The default is `true`.
+static ENABLE_FILTER_PUSHDOWN: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 /// Allows the user to enable or disable the FastFieldsExecState executor. Default is `true`.
 static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
@@ -67,6 +76,24 @@ pub fn init() {
         c"Enable ParadeDB's custom scan",
         c"Enable ParadeDB's custom scan",
         &ENABLE_CUSTOM_SCAN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_custom_scan_without_operator",
+        c"Enable ParadeDB's custom scan to run without the `@@@` operator",
+        c"Enable ParadeDB's custom scan to run even when the `@@@` operator has not been used in a query, as long as the entire WHERE clause is able to be pushed down",
+        &ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_filter_pushdown",
+        c"Enable ParadeDB's custom scan for queries with non-indexed fields",
+        c"Enable ParadeDB's custom scan to handle queries that include non-indexed field predicates using HeapExpr for heap filtering. When disabled, such queries will fall back to standard PostgreSQL execution",
+        &ENABLE_FILTER_PUSHDOWN,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -116,6 +143,14 @@ pub fn init() {
 
 pub fn enable_custom_scan() -> bool {
     ENABLE_CUSTOM_SCAN.get()
+}
+
+pub fn enable_custom_scan_without_operator() -> bool {
+    ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR.get()
+}
+
+pub fn enable_filter_pushdown() -> bool {
+    ENABLE_FILTER_PUSHDOWN.get()
 }
 
 pub fn is_fast_field_exec_enabled() -> bool {

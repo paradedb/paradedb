@@ -50,8 +50,6 @@ fn attribute_1_of_table_has_wrong_type(mut conn: PgConnection) {
 
 #[rstest]
 fn generates_custom_scan_for_or(mut conn: PgConnection) {
-    use serde_json::Value;
-
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
@@ -515,6 +513,57 @@ fn cte_issue_1951(mut conn: PgConnection) {
         order by cte.score desc;
     "#.fetch_result::<(i32, )>(&mut conn).expect("query failed");
     assert_eq!(results.len(), 1);
+}
+
+#[rstest]
+fn without_operator_guc(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
+
+    CREATE INDEX search_idx ON mock_items
+    USING bm25 (id, description)
+    WITH (key_field='id');
+    "#
+    .execute(&mut conn);
+
+    "SET enable_indexscan TO OFF;".execute(&mut conn);
+
+    fn plan_uses_custom_scan(conn: &mut PgConnection, query_string: &str) -> bool {
+        let (plan,) = format!("EXPLAIN (FORMAT JSON) {query_string}").fetch_one::<(Value,)>(conn);
+        eprintln!("{plan:#?}");
+        format!("{plan:?}").contains("ParadeDB Scan")
+    }
+
+    for custom_scan_without_operator in [true, false] {
+        format!(
+            "SET paradedb.enable_custom_scan_without_operator = {custom_scan_without_operator}"
+        )
+        .execute(&mut conn);
+
+        // Confirm that a plan which doesn't use our operator is affected by the GUC.
+        let uses_custom_scan =
+            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id = 1");
+        if custom_scan_without_operator {
+            assert!(
+                uses_custom_scan,
+                "Should use the custom scan when the GUC is enabled."
+            );
+        } else {
+            assert!(
+                !uses_custom_scan,
+                "Should not the custom scan when the GUC is disabled."
+            );
+        }
+
+        // And that a plan which does use our operator is not affected by the GUC.
+        let uses_custom_scan =
+            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id @@@ '1'");
+        assert!(
+            uses_custom_scan,
+            "Should use the custom scan when our operator is used, regardless of \
+            the GUC value ({custom_scan_without_operator})"
+        );
+    }
 }
 
 #[rstest]

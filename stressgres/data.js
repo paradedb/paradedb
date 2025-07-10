@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752153224053,
+  "lastUpdate": 1752153255480,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance": [
@@ -1612,6 +1612,60 @@ window.BENCHMARK_DATA = {
             "value": 28.308949007923072,
             "unit": "avg segment_count",
             "extra": "max segment_count: 61.0, count: 59068"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75457722987cf2652425f92585955a3252059d12",
+          "message": "ci: cleanup benchmark running (#2809)\n\niterating on benchmark CI jobs",
+          "timestamp": "2025-07-10T08:57:20-04:00",
+          "tree_id": "2b0db192445c1cd42424c58a6b8cbde94fbc8407",
+          "url": "https://github.com/paradedb/paradedb/commit/75457722987cf2652425f92585955a3252059d12"
+        },
+        "date": 1752153254651,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "block_count",
+            "value": 22460.990111918185,
+            "unit": "avg block_count",
+            "extra": "Monitor Index Size/Primary: avg=22460.990111918185, max=24976.0, n=59061"
+          },
+          {
+            "name": "cpu",
+            "value": 20.844020364693517,
+            "unit": "avg cpu",
+            "extra": "Bulk Update/Primary: avg=20.203003279366943, max=44.444447, n=59061; Count Query/Primary: avg=21.48503745002009, max=34.355827, n=59061"
+          },
+          {
+            "name": "mem",
+            "value": 196.0708045429196,
+            "unit": "avg mem",
+            "extra": "Bulk Update/Primary: avg=229.86239101575066, max=233.66796875, n=59061; Count Query/Primary: avg=162.27921807008855, max=163.9609375, n=59061"
+          },
+          {
+            "name": "segment_count",
+            "value": 32.41993870743807,
+            "unit": "avg segment_count",
+            "extra": "Monitor Index Size/Primary: avg=32.41993870743807, max=64.0, n=59061"
+          },
+          {
+            "name": "tps",
+            "value": 7.317928056262767,
+            "unit": "avg tps",
+            "extra": "Bulk Update/Primary: avg=7.473940678688199, max=10.944745166488485, n=59061; Count Query/Primary: avg=7.161915433837335, max=8.54713854180809, n=59061"
           }
         ]
       }

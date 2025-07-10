@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752158085285,
+  "lastUpdate": 1752160715005,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3304,6 +3304,44 @@ window.BENCHMARK_DATA = {
             "value": 116.58257701875853,
             "unit": "avg tps",
             "extra": "max tps: 120.6617585796345, count: 59123"
+          }
+        ]
+      }
+    ],
+    "pg_search wide-table.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cda725185877312cfb11586efd8ebbd09e533f5e",
+          "message": "ci: separate stressgres tps metrics from others for alerting purposes (#2811)",
+          "timestamp": "2025-07-10T11:02:14-04:00",
+          "tree_id": "6e2f5cae2c1d7d530edcc9e62695c0cdbf968268",
+          "url": "https://github.com/paradedb/paradedb/commit/cda725185877312cfb11586efd8ebbd09e533f5e"
+        },
+        "date": 1752160714148,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 39.558072549482674,
+            "unit": "avg tps",
+            "extra": "max tps: 40.60214962849887, count: 59116"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 205.17729874155546,
+            "unit": "avg tps",
+            "extra": "max tps: 229.98719947531657, count: 59116"
           }
         ]
       }

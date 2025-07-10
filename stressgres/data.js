@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752157587871,
+  "lastUpdate": 1752158085285,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -2372,6 +2372,166 @@ window.BENCHMARK_DATA = {
             "value": 17.904657738376418,
             "unit": "avg tps",
             "extra": "max tps: 495.0647000056437, count: 58495"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752158084292,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 6.915239089419101,
+            "unit": "avg cpu",
+            "extra": "max cpu: 24.691359, count: 58497"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 91.88892465906372,
+            "unit": "avg mem",
+            "extra": "max mem: 104.14453125, count: 58497"
+          },
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 492.4474594260928,
+            "unit": "avg tps",
+            "extra": "max tps: 684.5830075298455, count: 58497"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.739535388495108,
+            "unit": "avg cpu",
+            "extra": "max cpu: 9.756097, count: 58497"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 79.79221437103612,
+            "unit": "avg mem",
+            "extra": "max mem: 88.6171875, count: 58497"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3035.6945346575476,
+            "unit": "avg tps",
+            "extra": "max tps: 3183.842034724039, count: 58497"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 6.861311658168041,
+            "unit": "avg cpu",
+            "extra": "max cpu: 24.84472, count: 58497"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 92.5687051125485,
+            "unit": "avg mem",
+            "extra": "max mem: 104.87109375, count: 58497"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 491.9365979563305,
+            "unit": "avg tps",
+            "extra": "max tps: 685.8053968453374, count: 58497"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.949582434969804,
+            "unit": "avg cpu",
+            "extra": "max cpu: 9.81595, count: 58497"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 88.96794894396294,
+            "unit": "avg mem",
+            "extra": "max mem: 99.2421875, count: 58497"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 449.2266003540065,
+            "unit": "avg tps",
+            "extra": "max tps: 595.9714949217864, count: 58497"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 7.029224559431148,
+            "unit": "avg cpu",
+            "extra": "max cpu: 25.0, count: 116994"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 95.0170126579675,
+            "unit": "avg mem",
+            "extra": "max mem: 108.796875, count: 116994"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 318.18978159220546,
+            "unit": "avg tps",
+            "extra": "max tps: 328.1284107913607, count: 116994"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6748.859599637588,
+            "unit": "avg block_count",
+            "extra": "max block_count: 8001.0, count: 58497"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 116.93413337436108,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 325.0, count: 58497"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 5.666518426211047,
+            "unit": "avg cpu",
+            "extra": "max cpu: 16.0, count: 58497"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 97.96052675511137,
+            "unit": "avg mem",
+            "extra": "max mem: 114.5703125, count: 58497"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 284.8440881924354,
+            "unit": "avg tps",
+            "extra": "max tps: 294.5512040510707, count: 58497"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.90078706170224,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.813665, count: 58497"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 75.01305776097492,
+            "unit": "avg mem",
+            "extra": "max mem: 83.82421875, count: 58497"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 22.731837310284565,
+            "unit": "avg tps",
+            "extra": "max tps: 1610.2878067396985, count: 58497"
           }
         ]
       }

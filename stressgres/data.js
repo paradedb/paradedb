@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752157565948,
+  "lastUpdate": 1752157587871,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3074,6 +3074,76 @@ window.BENCHMARK_DATA = {
             "value": 108.43515174854694,
             "unit": "avg tps",
             "extra": "max tps: 114.81344714163264, count: 59101"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752157587018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 21.578245133210366,
+            "unit": "avg cpu",
+            "extra": "max cpu: 55.72139, count: 59123"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.04223894201496,
+            "unit": "avg mem",
+            "extra": "max mem: 178.9375, count: 59123"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 20.20443736453788,
+            "unit": "avg tps",
+            "extra": "max tps: 31.629035361852363, count: 59123"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7965.542935913266,
+            "unit": "avg block_count",
+            "extra": "max block_count: 9266.0, count: 59123"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 43.19322429511357,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 90.0, count: 59123"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.174458451246162,
+            "unit": "avg cpu",
+            "extra": "max cpu: 39.024387, count: 59123"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.6114443749683,
+            "unit": "avg mem",
+            "extra": "max mem: 176.6953125, count: 59123"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 116.58257701875853,
+            "unit": "avg tps",
+            "extra": "max tps: 120.6617585796345, count: 59123"
           }
         ]
       }

@@ -6,16 +6,20 @@
 
 name: Test pg_search Benchmark
 
+# We run benchmarks on `main`, and on `perf` PRs.
 on:
-  push: # We run benchmarks post-merge rather than on PRs to speed up CI. Results are posted to Slack.
+  push:
     branches:
       - main
-      - phil/depot-runners
     paths:
       - "benchmarks/**"
       - ".github/workflows/test-pg_search-benchmark.yml"
       - "**/*.rs"
       - "**/*.toml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       commit:
@@ -26,6 +30,7 @@ on:
 permissions:
   contents: write
   deployments: write
+  pull-requests: write
 
 concurrency:
   # If this is a manual backfill run, use the commit SHA.
@@ -46,10 +51,17 @@ jobs:
       pg_version: 17
 
     steps:
-      - name: Checkout Git Repository at ref=${{ inputs.commit || 'main' }}
+      - name: Determine ref to benchmark
+        id: determine-ref
+        run: |
+          # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
+          REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
+          echo "::set-output name=ref::$REF"
+
+      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
+          ref: ${{ steps.determine-ref.outputs.ref }}
 
       # We manually fetch the benchmark queries from `main` to make sure all are available when backfilling
       # old commits potentially created before new queries were added.
@@ -149,11 +161,11 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search '${{ matrix.dataset }}' Query Performance"
-          ref: ${{ inputs.commit || steps.commit_info.outputs.short_commit }}
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           tool: "customSmallerIsBetter"
           output-file-path: "benchmarks/results.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
+          auto-push: ${{ github.event_name != 'pull_request' }}
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: benchmarks
           alert-threshold: "110%"
@@ -161,9 +173,10 @@ jobs:
           # to notify us.
           comment-on-alert: true
           alert-comment-cc-users: "@${{ github.actor }}"
+          comment-always: ${{ github.event_name == 'pull_request' }}
 
       - name: Notify Slack on Failure
-        if: failure()
+        if: failure() && github.event_name == 'push'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
         run: |
@@ -180,6 +193,7 @@ jobs:
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
       - name: Report Benchmark Results to Slack
+        if: github.event_name != 'pull_request'
         uses: slackapi/slack-github-action@v2
         with:
           method: chat.postMessage
@@ -187,7 +201,7 @@ jobs:
           payload: |
             channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             text: |
-              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.commit || steps.commit_info.outputs.short_commit }}>*: Community "${{ matrix.dataset}}" Query Results available:
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}>*: Community "${{ matrix.dataset}}" Query Results available:
               <https://paradedb.github.io/paradedb/benchmarks/>
           errors: true
           retries: 5

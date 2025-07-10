@@ -47,7 +47,7 @@ jobs:
       pg_version: 17
 
     steps:
-      - name: Checkout Git Repository
+      - name: Checkout Git Repository at ref=${{ inputs.commit || 'main' }}
         uses: actions/checkout@v4
         with:
           path: paradedb

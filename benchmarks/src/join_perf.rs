@@ -215,6 +215,10 @@ pub async fn benchmark_join_perf(conn: &mut PgConnection) -> Result<()> {
             "SELECT * FROM paradedb.aggregate('documents_index', paradedb.boolean(must => ARRAY[paradedb.parse((SELECT concat('id:IN [', string_agg(id, ' '), ']') FROM (SELECT id::TEXT FROM files WHERE title @@@ 'collab12' GROUP BY id))), paradedb.parse('parents:\"SFR\"')]), '{\"count\": {\"value_count\": {\"field\": \"id\"}}}')",
         ),
         (
+            "Not Parse Hack Aggregate - Customer Workaround (PostgreSQL)",
+            "SELECT count(DISTINCT d.id) FROM documents d JOIN files f ON d.id = f.\"documentId\" WHERE d.parents @@@ 'SFR' AND f.title @@@ 'collab12'",
+        ),
+        (
             "CTE Equivalent - What Customer Wants (ParadeDB)",
             "WITH filtered_files AS (SELECT DISTINCT id AS file_id FROM files WHERE title @@@ 'collab12'), filtered_documents AS (SELECT id AS doc_id FROM documents WHERE parents @@@ 'SFR') SELECT count(*) FROM filtered_files ff JOIN pages p ON ff.file_id = p.\"fileId\" JOIN documents d ON p.\"fileId\" IN (SELECT f.id FROM files f WHERE f.\"documentId\" = d.id) WHERE d.id IN (SELECT doc_id FROM filtered_documents)",
         ),

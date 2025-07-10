@@ -149,9 +149,9 @@ jobs:
             for row in reader:
               metric = {
                 "name":     f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
-                "unit":     f"avg {row['metric_name']}",
-                "value":    float(row['avg']),
-                "extra":    f"max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
+                "unit":     f"median {row['metric_name']}",
+                "value":    float(row['median']),
+                "extra":    f"avg {row['metric_name']}: {float(row['avg'])}, max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
               }
               if row['metric_name'] == 'tps':
                 tps_metrics.append(metric)
@@ -183,6 +183,10 @@ jobs:
           # to notify us.
           comment-on-alert: true
           alert-comment-cc-users: "@${{ github.actor }}"
+
+      - name: Cleanup Previous Benchmark Publish Working Directory
+        run: |
+          rm -rf ./benchmark-data-repository
 
       - name: Check and Publish Continuous Benchmarking Metrics - Other
         uses: benchmark-action/github-action-benchmark@v1
@@ -219,10 +223,6 @@ jobs:
         with:
           name: stressgres-logs-${{ matrix.test_file }}
           path: stressgres/stressgres-${{ matrix.test_file }}.log
-
-      - name: Cleanup git checkout
-        run: |
-          cd paradedb && git checkout .
 
       - name: Upload Stressgres Graphs to Slack
         uses: slackapi/slack-github-action@v2

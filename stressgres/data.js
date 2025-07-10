@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752175364111,
+  "lastUpdate": 1752175425066,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -2046,6 +2046,124 @@ window.BENCHMARK_DATA = {
             "value": 102.31640625,
             "unit": "median mem",
             "extra": "avg mem: 97.46919719678121, max mem: 104.89453125, count: 57677"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "f49e7767f467152f4b210cae02c4ab6e6845b365",
+          "message": "perf: the BAS_BULKWRITE strategy allocation now happens once (#2772)\n\n## What\n\nAllocating the `BAS_BULKWRITE` buffer access strategy is very very very\nexpensive. This moves its allocation up as a Lazy global so it only ever\nneeds to happen once per backend.\n\nLocally, this improved the stressgres \"single-server.toml\" select\nqueries from 296/s, 295/s, 263/s (Custom Scan, Index Only, Index Scan)\nto 523/s, 523/s, 466/s.\n\nAdditionally, the Insert and Update jobs moved from 255/s & 232/s to\n261/s & 238/s\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-05T15:13:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f49e7767f467152f4b210cae02c4ab6e6845b365"
+        },
+        "date": 1752175423806,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.67979000845745, max cpu: 24.671053, count: 57648"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 102.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 102.30598490786758, max mem: 104.7421875, count: 57648"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.830918,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7885296194282665, max cpu: 7.772021, count: 57648"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 92.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.34941381856265, max mem: 92.46484375, count: 57648"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.622329371895744, max cpu: 19.834711, count: 57648"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 102.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 102.34408832754389, max mem: 105.36328125, count: 57648"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.823151,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.707474368781307, max cpu: 4.8859935, count: 57648"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 100.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 98.90781499358174, max mem: 101.23828125, count: 57648"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.8465266,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.528230432576246, max cpu: 19.966722, count: 115296"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 108.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 109.58766925186043, max mem: 115.515625, count: 115296"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8119,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8109.127133638634, max block_count: 8119.0, count: 57648"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.09280460727172, max segment_count: 304.0, count: 57648"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.830918,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.524034607161205, max cpu: 14.876034, count: 57648"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 111.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 110.45827533045379, max mem: 116.72265625, count: 57648"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.693053,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.286711144668388, max cpu: 29.220781, count: 57648"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 90.60810090170084, max mem: 94.125, count: 57648"
           }
         ]
       }

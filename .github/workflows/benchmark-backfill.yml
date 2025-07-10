@@ -38,7 +38,7 @@ jobs:
         run: |
           git config user.name "Benchmark Backfill Job"
           git config user.email "developers@paradedb.com"
-          files=$(git ls-files '**/data.js')
+          files=$(git ls-files stressgres/data.js benchmarks/data.js)
           if [ -n "$files" ]; then
             echo "$files" | xargs git rm
             git commit -m "Reset data.js files"

@@ -37,7 +37,7 @@ concurrency:
 jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search
-    runs-on: depot-ubuntu-24.04-8
+    runs-on: ubicloud-premium-30-ubuntu-2404
     strategy:
       matrix:
         test_file: [single-server.toml, bulk-updates.toml, wide-table.toml]

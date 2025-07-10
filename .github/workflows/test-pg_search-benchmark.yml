@@ -133,6 +133,10 @@ jobs:
           fi
           cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --runs 10 --output json
 
+      - name: Cleanup git checkout
+        run: |
+          git checkout .
+
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:

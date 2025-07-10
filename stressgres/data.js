@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168520437,
+  "lastUpdate": 1752168529886,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -806,6 +806,64 @@ window.BENCHMARK_DATA = {
             "value": 30,
             "unit": "median segment_count",
             "extra": "avg segment_count: 32.18763658540717, max segment_count: 63.0, count: 59029"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752168529002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 24.242424,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.156035387204017, max cpu: 44.444447, count: 59012"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 183.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 183.42914709084593, max mem: 184.734375, count: 59012"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 24.096386,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.876174747262183, max cpu: 34.355827, count: 59012"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.12150177082628, max mem: 163.43359375, count: 59012"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20277,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20277.0, max block_count: 20277.0, count: 59012"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.77124991527147, max segment_count: 44.0, count: 59012"
           }
         ]
       }

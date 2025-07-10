@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752156066342,
+  "lastUpdate": 1752156067969,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -872,6 +872,166 @@ window.BENCHMARK_DATA = {
             "value": 26.55222102181398,
             "unit": "avg tps",
             "extra": "max tps: 1610.6431298017296, count: 58478"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752156066069,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 7.480735434980999,
+            "unit": "avg cpu",
+            "extra": "max cpu: 30.000002, count: 58450"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 110.009655822284,
+            "unit": "avg mem",
+            "extra": "max mem: 117.69140625, count: 58450"
+          },
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 429.3221540341651,
+            "unit": "avg tps",
+            "extra": "max tps: 600.5153507859247, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.939189286532671,
+            "unit": "avg cpu",
+            "extra": "max cpu: 9.876543, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 90.6508495508982,
+            "unit": "avg mem",
+            "extra": "max mem: 96.859375, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2689.5608985732,
+            "unit": "avg tps",
+            "extra": "max tps: 2927.8785979094746, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 7.562028005753056,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.447853, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 110.49182374091103,
+            "unit": "avg mem",
+            "extra": "max mem: 117.79296875, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 429.45560697108834,
+            "unit": "avg tps",
+            "extra": "max tps: 611.1052566046649, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.354601120332436,
+            "unit": "avg cpu",
+            "extra": "max cpu: 5.0, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 107.27565961826348,
+            "unit": "avg mem",
+            "extra": "max mem: 113.984375, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 395.6000950613749,
+            "unit": "avg tps",
+            "extra": "max tps: 488.6118503129779, count: 58450"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 7.197762328636675,
+            "unit": "avg cpu",
+            "extra": "max cpu: 25.157234, count: 116900"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 118.75125664964713,
+            "unit": "avg mem",
+            "extra": "max mem: 126.828125, count: 116900"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 296.89535053379274,
+            "unit": "avg tps",
+            "extra": "max tps: 342.35229028420616, count: 116900"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8796.576834901625,
+            "unit": "avg block_count",
+            "extra": "max block_count: 9487.0, count: 58450"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117.99929854576561,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 359.0, count: 58450"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 5.869989141144621,
+            "unit": "avg cpu",
+            "extra": "max cpu: 19.512194, count: 58450"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 121.32559465889649,
+            "unit": "avg mem",
+            "extra": "max mem: 132.453125, count: 58450"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 271.0023365635679,
+            "unit": "avg tps",
+            "extra": "max tps: 298.9696901087139, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.360337966409158,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.62963, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 93.94771365750641,
+            "unit": "avg mem",
+            "extra": "max mem: 98.140625, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.104392632890004,
+            "unit": "avg tps",
+            "extra": "max tps: 1753.2970751498192, count: 58450"
           }
         ]
       }

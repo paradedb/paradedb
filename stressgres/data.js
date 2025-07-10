@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752160715005,
+  "lastUpdate": 1752160716672,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3342,6 +3342,74 @@ window.BENCHMARK_DATA = {
             "value": 205.17729874155546,
             "unit": "avg tps",
             "extra": "max tps: 229.98719947531657, count: 59116"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cda725185877312cfb11586efd8ebbd09e533f5e",
+          "message": "ci: separate stressgres tps metrics from others for alerting purposes (#2811)",
+          "timestamp": "2025-07-10T11:02:14-04:00",
+          "tree_id": "6e2f5cae2c1d7d530edcc9e62695c0cdbf968268",
+          "url": "https://github.com/paradedb/paradedb/commit/cda725185877312cfb11586efd8ebbd09e533f5e"
+        },
+        "date": 1752160714729,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 494.99182138535673,
+            "unit": "avg tps",
+            "extra": "max tps: 673.301560558791, count: 58472"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3072.4279095948227,
+            "unit": "avg tps",
+            "extra": "max tps: 3350.8694431431404, count: 58472"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 495.07269096146166,
+            "unit": "avg tps",
+            "extra": "max tps: 678.226934627984, count: 58472"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 452.43520055544093,
+            "unit": "avg tps",
+            "extra": "max tps: 586.5563283826219, count: 58472"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 318.0226990166044,
+            "unit": "avg tps",
+            "extra": "max tps: 368.75812259476237, count: 116944"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 284.84686107537823,
+            "unit": "avg tps",
+            "extra": "max tps: 293.71525842517576, count: 58472"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 24.672236197714952,
+            "unit": "avg tps",
+            "extra": "max tps: 1511.8163566435258, count: 58472"
           }
         ]
       }

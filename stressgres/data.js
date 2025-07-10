@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752175232746,
+  "lastUpdate": 1752175244634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -2182,6 +2182,64 @@ window.BENCHMARK_DATA = {
             "value": 170.87109375,
             "unit": "median mem",
             "extra": "avg mem: 164.6047026599876, max mem: 177.48828125, count: 58903"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752175243336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.323671,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.156603528273845, max cpu: 48.939644, count: 58891"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 173.0467942098538, max mem: 183.00390625, count: 58891"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 11135,
+            "unit": "median block_count",
+            "extra": "avg block_count: 9532.885058837513, max block_count: 11341.0, count: 58891"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 67.46336452089453, max segment_count: 123.0, count: 58891"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.708737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.825118376041354, max cpu: 38.27751, count: 58891"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.32158172778946, max mem: 175.66015625, count: 58891"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752173863365,
+  "lastUpdate": 1752173875387,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -230,6 +230,64 @@ window.BENCHMARK_DATA = {
             "value": 55,
             "unit": "median segment_count",
             "extra": "avg segment_count: 57.8033839567832, max segment_count: 94.0, count: 58866"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752173874143,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 24.038462,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.05722395695438, max cpu: 44.189854, count: 15480"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.09547576510013, max mem: 231.234375, count: 15480"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 24.038462,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.819227877871562, max cpu: 29.268291, count: 15480"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.65440841004522, max mem: 160.50390625, count: 15480"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 16774,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17157.08785529716, max block_count: 21043.0, count: 15480"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 47.04799741602067, max segment_count: 74.0, count: 15480"
           }
         ]
       }

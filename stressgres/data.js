@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752173875387,
+  "lastUpdate": 1752173937698,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -170,6 +170,40 @@ window.BENCHMARK_DATA = {
             "value": 230.86224278866604,
             "unit": "median tps",
             "extra": "avg tps: 227.12541748825345, max tps: 244.03866135319626, count: 58910"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752173936488,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 48.53954913535375,
+            "unit": "median tps",
+            "extra": "avg tps: 48.277656444840396, max tps: 49.523237035189396, count: 58892"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 241.12103179193275,
+            "unit": "median tps",
+            "extra": "avg tps: 234.2824725363889, max tps: 272.3349020084868, count: 58892"
           }
         ]
       }

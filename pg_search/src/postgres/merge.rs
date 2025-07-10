@@ -18,10 +18,8 @@
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::SearchIndexMerger;
-use crate::postgres::ps_status::{set_ps_display_suffix, MERGING_IN_BACKGROUND};
-use crate::postgres::storage::block::{SegmentMetaEntry, SEGMENT_METAS_START};
+use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -96,8 +94,7 @@ impl FromDatum for BackgroundMergeArgs {
 
         let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
         let index_oid = pg_sys::Oid::from((raw >> 8) as u32);
-        let merge_style_raw = (raw & 0xFF) as u8;
-        let merge_style = MergeStyle::try_from(merge_style_raw).ok()?;
+        let merge_style = MergeStyle::try_from((raw & 0xFF) as u8).ok()?;
         Some(BackgroundMergeArgs {
             index_oid,
             merge_style,
@@ -114,9 +111,7 @@ struct IndexLayerSizes {
 impl From<&PgSearchRelation> for IndexLayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = index.options();
-        let segment_components =
-            LinkedItemList::<SegmentMetaEntry>::open(index, SEGMENT_METAS_START);
-        let all_entries = unsafe { segment_components.list() };
+        let all_entries = unsafe { MetaPage::open(index).segment_metas().list() };
         let index_byte_size = all_entries
             .iter()
             .map(|entry| entry.byte_size())
@@ -242,24 +237,33 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
     BackgroundWorker::connect_worker_to_spi(Some(BackgroundWorker::get_extra()), None);
     BackgroundWorker::transaction(|| {
         unsafe {
-            set_ps_display_suffix(MERGING_IN_BACKGROUND.as_ptr());
-            pg_sys::pgstat_report_activity(
-                pg_sys::BackendState::STATE_RUNNING,
-                MERGING_IN_BACKGROUND.as_ptr(),
-            );
+            set_ps_display_suffix(MERGING.as_ptr());
+            pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
         };
 
         let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::open(args.index_oid());
-        let metadata = unsafe { MetaPage::open(&index) };
+        let metadata = MetaPage::open(&index);
         let layer_sizes = IndexLayerSizes::from(&index);
 
+        pgrx::debug1!("{}: {:?}", BackgroundWorker::get_name(), args.merge_style());
+
         if args.merge_style() == MergeStyle::Vacuum {
+            pgrx::debug1!(
+                "{}: merging foreground layers",
+                BackgroundWorker::get_name()
+            );
+
             let foreground_layers = layer_sizes.foreground();
             let merge_policy = LayeredMergePolicy::new(foreground_layers);
             let merge_lock = unsafe { metadata.acquire_merge_lock() };
             unsafe { merge_policy.merge_index(&index, merge_lock, true) };
         }
+
+        pgrx::debug1!(
+            "{}: merging background layers",
+            BackgroundWorker::get_name()
+        );
 
         let background_layers = layer_sizes.background();
         let merge_policy = LayeredMergePolicy::new(background_layers);

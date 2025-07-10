@@ -16,12 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{block_number_is_valid, LinkedList, SegmentMetaEntry};
+use crate::postgres::storage::block::{block_number_is_valid, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{
     init_new_buffer, Buffer, BufferManager, BufferMut, PinnedBuffer,
 };
 use crate::postgres::storage::fsm::FreeSpaceManager;
-use crate::postgres::storage::merge::{MergeLock, SegmentIdBytes, VacuumList, VacuumSentinel};
+use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::pg_sys;
 
@@ -40,10 +40,7 @@ pub struct MetaPageData {
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 
     #[allow(dead_code)]
-    _dead_space_2: [u32; 1],
-
-    /// The header block for a [`LinkedBytesList<SegmentIdBytes>]`, which are the segment ids created by `CREATE INDEX`
-    create_index_list: pg_sys::BlockNumber,
+    _dead_space_2: [u32; 2],
 
     /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
     segment_meta_garbage: pg_sys::BlockNumber,

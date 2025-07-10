@@ -287,7 +287,7 @@ mod tests {
         fn config_str(&self) -> String {
             match self {
                 LayerSizes::Default => "".to_string(),
-                LayerSizes::Foreground(sizes) => format!(", foreground_layer_sizes = '{sizes}'"),
+                LayerSizes::Foreground(sizes) => format!(", layer_sizes = '{sizes}'"),
                 LayerSizes::Background(sizes) => format!(", background_layer_sizes = '{sizes}'"),
             }
         }

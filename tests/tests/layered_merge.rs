@@ -25,7 +25,7 @@ use sqlx::PgConnection;
 fn merges_to_1_100k_segment(mut conn: PgConnection) {
     r#"
         CREATE TABLE layer_sizes (id bigint);
-        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', foreground_layer_sizes = '1kb, 10kb, 100kb, 1mb',target_segment_count = 8);
+        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '1kb, 10kb, 100kb, 1mb',target_segment_count = 8);
     "#
     .execute_result(&mut conn).expect("creating table/index should not fail");
 
@@ -52,7 +52,7 @@ fn merge_with_no_positions(mut conn: PgConnection) {
             id serial8,
             message text
         );
-        CREATE INDEX idxtest ON test USING bm25 (id, message) WITH (key_field = 'id', target_segment_count = 8, foreground_layer_sizes = '10kb, 100kb, 1mb');
+        CREATE INDEX idxtest ON test USING bm25 (id, message) WITH (key_field = 'id', target_segment_count = 8, layer_sizes = '10kb, 100kb, 1mb');
     "#
     .execute(&mut conn);
 

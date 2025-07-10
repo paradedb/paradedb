@@ -2,10 +2,15 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes" />
+    <meta
+      name="viewport"
+      content="width=device-width, minimum-scale=1.0, initial-scale=1, user-scalable=yes"
+    />
     <style>
       html {
-        font-family: BlinkMacSystemFont,-apple-system,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Fira Sans","Droid Sans","Helvetica Neue",Helvetica,Arial,sans-serif;
+        font-family: BlinkMacSystemFont, -apple-system, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans",
+          "Helvetica Neue", Helvetica, Arial, sans-serif;
         -webkit-font-smoothing: antialiased;
         background-color: #fff;
         font-size: 16px;
@@ -101,14 +106,21 @@
     <footer>
       <button id="dl-button">Download data as JSON</button>
       <div class="spacer"></div>
-      <div class="small">Powered by <a rel="noopener" href="https://github.com/marketplace/actions/continuous-benchmark">github-action-benchmark</a></div>
+      <div class="small"
+        >Powered by
+        <a
+          rel="noopener"
+          href="https://github.com/marketplace/actions/continuous-benchmark"
+          >github-action-benchmark</a
+        ></div
+      >
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js@2.9.2/dist/Chart.min.js"></script>
     <script src="data.js"></script>
     <script id="main-script">
       'use strict';
-      (function() {
+      (function () {
         // Colors from https://github.com/github/linguist/blob/master/lib/linguist/languages.yml
         const toolColors = {
           cargo: '#dea584',
@@ -123,31 +135,45 @@
           benchmarkdotnet: '#178600',
           customBiggerIsBetter: '#38ff38',
           customSmallerIsBetter: '#ff3838',
-          _: '#333333'
+          _: '#333333',
         };
 
-        function init() {
-          function collectBenchesPerTestCase(entries) {
-            const map = new Map();
-            for (const entry of entries) {
-              const {commit, date, tool, benches} = entry;
-              for (const bench of benches) {
-                const result = { commit, date, tool, bench };
-                const arr = map.get(bench.name);
-                if (arr === undefined) {
-                  map.set(bench.name, [result]);
-                } else {
-                  arr.push(result);
-                }
+        /* ----------------------------------------------------------
+         *  Adjusted: sort each bench’s results by its timestamp
+         * ---------------------------------------------------------*/
+        function collectBenchesPerTestCase(entries) {
+          const map = new Map();
+          for (const entry of entries) {
+            const { commit, date, tool, benches } = entry;
+            for (const bench of benches) {
+              const result = { commit, date, tool, bench };
+              const arr = map.get(bench.name);
+              if (arr === undefined) {
+                map.set(bench.name, [result]);
+              } else {
+                arr.push(result);
               }
             }
-            return map;
           }
 
+          /* NEW ✱✱✱ — ensure chronological order (oldest → newest) */
+          for (const arr of map.values()) {
+            arr.sort(
+              (a, b) =>
+                new Date(a.commit.timestamp || a.date) -
+                new Date(b.commit.timestamp || b.date)
+            );
+          }
+          return map;
+        }
+
+        function init() {
           const data = window.BENCHMARK_DATA;
 
           // Render header
-          document.getElementById('last-update').textContent = new Date(data.lastUpdate).toString();
+          document.getElementById('last-update').textContent = new Date(
+            data.lastUpdate
+          ).toString();
           const repoLink = document.getElementById('repository-link');
           repoLink.href = data.repoUrl;
           repoLink.textContent = data.repoUrl;
@@ -162,29 +188,29 @@
           };
 
           // Prepare data points for charts
-          return Object.keys(data.entries).map(name => ({
+          return Object.keys(data.entries).map((name) => ({
             name,
             dataSet: collectBenchesPerTestCase(data.entries[name]),
           }));
         }
 
         function renderAllChars(dataSets) {
-
           function renderGraph(parent, name, dataset) {
             const canvas = document.createElement('canvas');
             canvas.className = 'benchmark-chart';
             parent.appendChild(canvas);
 
-            const color = toolColors[dataset.length > 0 ? dataset[0].tool : '_'];
+            const color =
+              toolColors[dataset.length > 0 ? dataset[0].tool : '_'];
             const data = {
-              labels: dataset.map(d => d.commit.id.slice(0, 7)),
+              labels: dataset.map((d) => d.commit.id.slice(0, 7)),
               datasets: [
                 {
                   label: name,
-                  data: dataset.map(d => d.bench.value),
+                  data: dataset.map((d) => d.bench.value),
                   borderColor: color,
                   backgroundColor: color + '60', // Add alpha for #rrggbbaa
-                }
+                },
               ],
             };
             const options = {
@@ -195,28 +221,37 @@
                       display: true,
                       labelString: 'commit',
                     },
-                  }
+                  },
                 ],
                 yAxes: [
                   {
                     scaleLabel: {
                       display: true,
-                      labelString: dataset.length > 0 ? dataset[0].bench.unit : '',
+                      labelString:
+                        dataset.length > 0 ? dataset[0].bench.unit : '',
                     },
                     ticks: {
                       beginAtZero: true,
-                    }
-                  }
+                    },
+                  },
                 ],
               },
               tooltips: {
                 callbacks: {
-                  afterTitle: items => {
-                    const {index} = items[0];
+                  afterTitle: (items) => {
+                    const { index } = items[0];
                     const data = dataset[index];
-                    return '\n' + data.commit.message + '\n\n' + data.commit.timestamp + ' committed by @' + data.commit.committer.username + '\n';
+                    return (
+                      '\n' +
+                      data.commit.message +
+                      '\n\n' +
+                      data.commit.timestamp +
+                      ' committed by @' +
+                      data.commit.committer.username +
+                      '\n'
+                    );
                   },
-                  label: item => {
+                  label: (item) => {
                     let label = item.value;
                     const { range, unit } = dataset[item.index].bench;
                     label += ' ' + unit;
@@ -225,11 +260,11 @@
                     }
                     return label;
                   },
-                  afterLabel: item => {
+                  afterLabel: (item) => {
                     const { extra } = dataset[item.index].bench;
                     return extra ? '\n' + extra : '';
-                  }
-                }
+                  },
+                },
               },
               onClick: (_mouseEvent, activeElems) => {
                 if (activeElems.length === 0) {
@@ -264,12 +299,12 @@
             setElem.appendChild(graphsElem);
 
             for (const [benchName, benches] of benchSet.entries()) {
-              renderGraph(graphsElem, benchName, benches)
+              renderGraph(graphsElem, benchName, benches);
             }
           }
 
           const main = document.getElementById('main');
-          for (const {name, dataSet} of dataSets) {
+          for (const { name, dataSet } of dataSets) {
             renderBenchSet(name, dataSet, main);
           }
         }
@@ -279,3 +314,4 @@
     </script>
   </body>
 </html>
+

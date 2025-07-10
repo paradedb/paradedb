@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752174981763,
+  "lastUpdate": 1752174984437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -1874,6 +1874,64 @@ window.BENCHMARK_DATA = {
             "value": 225.9375,
             "unit": "median mem",
             "extra": "avg mem: 214.91310781716766, max mem: 251.0546875, count: 58916"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752174981300,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.323671,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.986740980919443, max cpu: 48.859932, count: 58903"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 177.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 175.689142862524, max mem: 180.44140625, count: 58903"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 10816,
+            "unit": "median block_count",
+            "extra": "avg block_count: 9328.010152284263, max block_count: 10905.0, count: 58903"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 67.58046279476427, max segment_count: 112.0, count: 58903"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.708737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.783414488623434, max cpu: 34.31373, count: 58903"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.6047026599876, max mem: 177.48828125, count: 58903"
           }
         ]
       }

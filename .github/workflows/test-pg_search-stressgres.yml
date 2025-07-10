@@ -139,47 +139,21 @@ jobs:
         shell: python {0}
         run: |
           import csv, json
-          from collections import defaultdict
-          from statistics import mean
-
-          groups = defaultdict(list)
-
-          #
-          # 1.  read the CSV and bucket rows by metric_name
-          #
-          with open("stressgres/output.csv", newline="") as f:
-              for row in csv.DictReader(f):
-                  groups[row["metric_name"]].append(row)
-
-          #
-          # 2.  aggregate each bucket
-          #
           metrics = []
-          for metric, rows in groups.items():
-              avg_values = [float(r["avg"])  for r in rows]
-              max_values = [float(r["max"])  for r in rows]
-              counts     = [int  (r["count"]) for r in rows]
+          with open('stressgres/output.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+              metrics.append({
+                "name":     f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
+                "unit":     f"avg {row['metric_name']}",
+                "value":    float(row['avg']),
+                "extra":    f"max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
+              })
 
-              metrics.append(
-                  {
-                      # one line per metric on the chart
-                      "name": metric,
-                      "unit": f"avg {metric}",          # this is the chart’s y-axis label
-                      "value": mean(avg_values),        # aggregate value
-                      "extra": "; ".join(               # shows up in the tooltip
-                          f"{r['job_title']}/{r['server_name']}: "
-                          f"avg={r['avg']}, max={r['max']}, n={r['count']}"
-                          for r in rows
-                      ),
-                  }
-              )
+          metrics.sort(key=lambda metric: metric['name'])
 
-          #
-          # 3.  deterministic ordering & write JSON
-          #
-          metrics.sort(key=lambda m: m["name"])
-          with open("stressgres/pg_search_data.json", "w") as out:
-              json.dump(metrics, out, indent=2)
+          with open('stressgres/pg_search_data.json', 'w') as out:
+              json.dump(metrics, out)
 
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1

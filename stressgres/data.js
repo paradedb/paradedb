@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752165159359,
+  "lastUpdate": 1752165174451,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3706,6 +3706,68 @@ window.BENCHMARK_DATA = {
             "value": 7.881260441419176,
             "unit": "median tps",
             "extra": "avg tps: 7.232382614560163, max tps: 8.648712087361718, count: 59037"
+          }
+        ]
+      }
+    ],
+    "pg_search wide-table.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c4fdd25eeabf709e90f2c4577143388a4b0146c",
+          "message": "ci: sleep for random seconds before publishing to gh-pages (#2813)\n\nIt's possible for concurrent jobs that were spawned at the same time via\na benchmark backfill to try and publish the benchmark results to\ngh-pages at the same time.\n\nWhile the `benchmark-action` has some accounting for this with a\nhard-coded retry count (of 10), it's not necessarily enough, so we\nintroduce a random sleep between 1 and 66 seconds, in an effort to fend\nthis problem off.",
+          "timestamp": "2025-07-10T12:15:07-04:00",
+          "tree_id": "cae98439ce3358fcf2ed33d718286eb7b28d55d8",
+          "url": "https://github.com/paradedb/paradedb/commit/3c4fdd25eeabf709e90f2c4577143388a4b0146c"
+        },
+        "date": 1752165173552,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.512194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.599615547731844, max cpu: 49.68944, count: 59089"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 182.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 181.13508641360914, max mem: 182.96875, count: 59089"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23546,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21925.44316200985, max block_count: 29367.0, count: 59089"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.341129482644824, max segment_count: 145.0, count: 59089"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.756097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.044617141577186, max cpu: 34.355827, count: 59089"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 169.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 161.29893730220516, max mem: 175.50390625, count: 59089"
           }
         ]
       }

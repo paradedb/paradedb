@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752174984437,
+  "lastUpdate": 1752174988729,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -526,6 +526,70 @@ window.BENCHMARK_DATA = {
             "value": 12.491350515399708,
             "unit": "median tps",
             "extra": "avg tps: 20.615037334631563, max tps: 2059.880732905565, count: 57671"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752174987437,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 539.2597011279865,
+            "unit": "median tps",
+            "extra": "avg tps: 543.5082743494074, max tps: 765.7223558458469, count: 57677"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2216.673976051388,
+            "unit": "median tps",
+            "extra": "avg tps: 2096.6455390311694, max tps: 2837.306356678463, count: 57677"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 535.0071744502883,
+            "unit": "median tps",
+            "extra": "avg tps: 539.7266468017781, max tps: 763.2855328775252, count: 57677"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 493.21871093230095,
+            "unit": "median tps",
+            "extra": "avg tps: 493.2784096601062, max tps: 625.2778969453236, count: 57677"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 299.416318155613,
+            "unit": "median tps",
+            "extra": "avg tps: 297.7972546853404, max tps: 343.09746065205735, count: 115354"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 273.5956854407689,
+            "unit": "median tps",
+            "extra": "avg tps: 270.0478263931931, max tps: 279.1112843863153, count: 57677"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.137398135137493,
+            "unit": "median tps",
+            "extra": "avg tps: 23.08903966586893, max tps: 2163.5889613691193, count: 57677"
           }
         ]
       }

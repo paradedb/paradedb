@@ -58,20 +58,20 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 -- Test snippet function
 \echo 'Testing paradedb.snippet with BIGINT key'
 Testing paradedb.snippet with BIGINT key
-SELECT id, paradedb.snippet(value) FROM bigint_test WHERE value @@@ 'blue'
+SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'blue'
 UNION
-SELECT id, paradedb.snippet(value) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
- id |         snippet          
-----+--------------------------
-  1 | <b>blue</b>tooth
-  1 | blue<b>tooth</b>
-  2 | <b>blue</b>bell
-  3 | jet<b>blue</b>
-  4 | <b>blue</b>&#x27;s clues
-  5 | <b>blue</b> bloods
-  7 | yellow<b>tooth</b>
-  9 | <b>blue</b> skies
+ id |         snippet          |   score    
+----+--------------------------+------------
+  1 | <b>blue</b>tooth         | 0.53654534
+  1 | blue<b>tooth</b>         |   3.022081
+  2 | <b>blue</b>bell          | 0.57459813
+  3 | jet<b>blue</b>           | 0.61846066
+  4 | <b>blue</b>&#x27;s clues | 0.44761515
+  5 | <b>blue</b> bloods       | 0.47379148
+  7 | yellow<b>tooth</b>       |   2.668621
+  9 | <b>blue</b> skies        | 0.50321954
 (8 rows)
 
 -- Test 2: UUID as key field

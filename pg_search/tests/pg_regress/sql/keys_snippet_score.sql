@@ -41,9 +41,9 @@ paradedb.term(field => 'value', value => 'blue') ORDER BY id;
 
 -- Test snippet function
 \echo 'Testing paradedb.snippet with BIGINT key'
-SELECT id, paradedb.snippet(value) FROM bigint_test WHERE value @@@ 'blue'
+SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'blue'
 UNION
-SELECT id, paradedb.snippet(value) FROM bigint_test WHERE value @@@ 'tooth'
+SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
 
 -- Test 2: UUID as key field

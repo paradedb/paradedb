@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752108381983,
+  "lastUpdate": 1752108383747,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance": [
@@ -480,6 +480,166 @@ window.BENCHMARK_DATA = {
             "value": 25.81401332289301,
             "unit": "avg tps",
             "extra": "max tps: 505.2178903717595, count: 58450"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752108379898,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 6.867966618418908,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.813665, count: 58482"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 88.39754974019783,
+            "unit": "avg mem",
+            "extra": "max mem: 101.8046875, count: 58482"
+          },
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 494.8240312467027,
+            "unit": "avg tps",
+            "extra": "max tps: 681.6914888988114, count: 58482"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7645907658733835,
+            "unit": "avg cpu",
+            "extra": "max cpu: 9.937888, count: 58482"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 73.84790378877261,
+            "unit": "avg mem",
+            "extra": "max mem: 83.42578125, count: 58482"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2966.040566331377,
+            "unit": "avg tps",
+            "extra": "max tps: 3271.851626307856, count: 58482"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 6.8566792511143895,
+            "unit": "avg cpu",
+            "extra": "max cpu: 24.84472, count: 58482"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 89.03011757356964,
+            "unit": "avg mem",
+            "extra": "max mem: 101.7421875, count: 58482"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 494.5673607123992,
+            "unit": "avg tps",
+            "extra": "max tps: 687.0097414810527, count: 58482"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.70823319313717,
+            "unit": "avg cpu",
+            "extra": "max cpu: 4.968944, count: 58482"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 84.93762450412093,
+            "unit": "avg mem",
+            "extra": "max mem: 97.171875, count: 58482"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 458.52697838542326,
+            "unit": "avg tps",
+            "extra": "max tps: 585.9814371628372, count: 58482"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 6.865481468347383,
+            "unit": "avg cpu",
+            "extra": "max cpu: 20.125786, count: 116964"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 91.46677289593379,
+            "unit": "avg mem",
+            "extra": "max mem: 109.25390625, count: 116964"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 326.84408612035367,
+            "unit": "avg tps",
+            "extra": "max tps: 352.0698636201697, count: 116964"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6374.67352347731,
+            "unit": "avg block_count",
+            "extra": "max block_count: 7751.0, count: 58482"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117.5101398720974,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 410.0, count: 58482"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 5.743097954200476,
+            "unit": "avg cpu",
+            "extra": "max cpu: 15.000001, count: 58482"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 95.31351172957064,
+            "unit": "avg mem",
+            "extra": "max mem: 107.40625, count: 58482"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 279.8351887140179,
+            "unit": "avg tps",
+            "extra": "max tps: 288.54053253051694, count: 58482"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.540612301518182,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.813665, count: 58482"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 70.52644082794706,
+            "unit": "avg mem",
+            "extra": "max mem: 76.48828125, count: 58482"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.051536508891143,
+            "unit": "avg tps",
+            "extra": "max tps: 1521.574403466755, count: 58482"
           }
         ]
       }

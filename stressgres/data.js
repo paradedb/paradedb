@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752155707103,
+  "lastUpdate": 1752156054303,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -70,6 +70,168 @@ window.BENCHMARK_DATA = {
             "value": 26.50472785435386,
             "unit": "avg segment_count",
             "extra": "max segment_count: 59.0, count: 21257"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance": [
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752156053422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 7.855642356916622,
+            "unit": "avg cpu",
+            "extra": "max cpu: 35.0, count: 58434"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 109.21135029210306,
+            "unit": "avg mem",
+            "extra": "max mem: 113.15234375, count: 58434"
+          },
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 415.42614016097895,
+            "unit": "avg tps",
+            "extra": "max tps: 592.9206984949097, count: 58434"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7719016687781535,
+            "unit": "avg cpu",
+            "extra": "max cpu: 9.81595, count: 58434"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 90.3414423751583,
+            "unit": "avg mem",
+            "extra": "max mem: 95.46875, count: 58434"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2521.3383516822687,
+            "unit": "avg tps",
+            "extra": "max tps: 2865.9185629793024, count: 58434"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 7.870025982056177,
+            "unit": "avg cpu",
+            "extra": "max cpu: 30.188679, count: 58434"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 109.79254131798268,
+            "unit": "avg mem",
+            "extra": "max mem: 114.1484375, count: 58434"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 414.9338018164663,
+            "unit": "avg tps",
+            "extra": "max tps: 592.2500465565683, count: 58434"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.631185465058687,
+            "unit": "avg cpu",
+            "extra": "max cpu: 5.0, count: 58434"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 104.27221530113033,
+            "unit": "avg mem",
+            "extra": "max mem: 106.16796875, count: 58434"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 395.01816844539695,
+            "unit": "avg tps",
+            "extra": "max tps: 501.2510725519825, count: 58434"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 7.292312103701441,
+            "unit": "avg cpu",
+            "extra": "max cpu: 25.316456, count: 116868"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 118.39543514772008,
+            "unit": "avg mem",
+            "extra": "max mem: 124.24609375, count: 116868"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 287.8029569707913,
+            "unit": "avg tps",
+            "extra": "max tps: 330.98892245328, count: 116868"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8574.262706643392,
+            "unit": "avg block_count",
+            "extra": "max block_count: 8585.0, count: 58434"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117.79655679912379,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 296.0, count: 58434"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 5.881267011614395,
+            "unit": "avg cpu",
+            "extra": "max cpu: 19.875776, count: 58434"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 118.9705179534817,
+            "unit": "avg mem",
+            "extra": "max mem: 126.28125, count: 58434"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 266.76935942212276,
+            "unit": "avg tps",
+            "extra": "max tps: 293.0360409212464, count: 58434"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 12.245118274618548,
+            "unit": "avg cpu",
+            "extra": "max cpu: 29.62963, count: 58434"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.48297926132474,
+            "unit": "avg mem",
+            "extra": "max mem: 97.90625, count: 58434"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.6323500058667,
+            "unit": "avg tps",
+            "extra": "max tps: 1704.8641479003745, count: 58434"
           }
         ]
       }

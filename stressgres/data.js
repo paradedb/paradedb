@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168441330,
+  "lastUpdate": 1752168443151,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -2114,6 +2114,124 @@ window.BENCHMARK_DATA = {
             "value": 69.0234375,
             "unit": "median mem",
             "extra": "avg mem: 74.51644496558377, max mem: 90.1015625, count: 58439"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752168438118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.201295098543367, max cpu: 30.000002, count: 58445"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 104.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 102.13653040518864, max mem: 105.171875, count: 58445"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.819028967300791, max cpu: 9.876543, count: 58445"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 89.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 84.70892465672854, max mem: 90.30078125, count: 58445"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.349864328758064, max cpu: 30.000002, count: 58445"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 102.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.47948271344855, max mem: 105.5, count: 58445"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759743967839406, max cpu: 7.8431377, count: 58445"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 101.125,
+            "unit": "median mem",
+            "extra": "avg mem: 98.89583155103088, max mem: 101.375, count: 58445"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.066673355933671, max cpu: 25.0, count: 116890"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 111.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 110.68189413524468, max mem: 117.1640625, count: 116890"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7654,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7520.72447600308, max block_count: 7654.0, count: 58445"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.60744289502952, max segment_count: 294.0, count: 58445"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.708131082455158, max cpu: 16.528925, count: 58445"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 114.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 113.61641821370519, max mem: 119.3046875, count: 58445"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 11.881188,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.759463493056465, max cpu: 29.447853, count: 58445"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 84.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 79.84647866049276, max mem: 92.203125, count: 58445"
           }
         ]
       }

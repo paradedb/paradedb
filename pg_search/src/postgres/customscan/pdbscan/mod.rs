@@ -250,7 +250,7 @@ impl PdbScan {
 
             // If we have found something to push down in the join, or if we have found something to
             // push down in the base relation, then we can use the join quals
-            if state.uses_tantivy_to_query {
+            if state.uses_our_operator {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
                 (None, ri_type, restrict_info)

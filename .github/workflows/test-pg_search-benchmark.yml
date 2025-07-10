@@ -46,7 +46,7 @@ jobs:
       pg_version: 17
 
     steps:
-      - name: Checkout Git Repository
+      - name: Checkout Git Repository at ref=${{ inputs.commit || 'main' }}
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
@@ -137,6 +137,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search '${{ matrix.dataset }}' Query Performance"
+          ref: ${{ inputs.commit || steps.commit_info.outputs.short_commit }}
           tool: "customSmallerIsBetter"
           output-file-path: "benchmarks/results.json"
           github-token: ${{ secrets.GITHUB_TOKEN }}

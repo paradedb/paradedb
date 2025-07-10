@@ -1,6 +1,6 @@
 <h1 align="center">
-  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></img></a>
-<br></br>
+  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB"></a>
+<br>
 </h1>
 
 <p align="center">

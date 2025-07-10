@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752174408890,
+  "lastUpdate": 1752174416846,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -400,6 +400,40 @@ window.BENCHMARK_DATA = {
             "value": 131.245464908546,
             "unit": "median tps",
             "extra": "avg tps: 130.68366276426394, max tps: 134.58631816450114, count: 58882"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "3b55dd29838d74a68bcabe4e5216cc3fb73f358d",
+          "message": "chore: upgrade to `0.15.26` (#2705)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Copilot <175728472+Copilot@users.noreply.github.com>",
+          "timestamp": "2025-06-17T20:34:23Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3b55dd29838d74a68bcabe4e5216cc3fb73f358d"
+        },
+        "date": 1752174415627,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 43.455098413596275,
+            "unit": "median tps",
+            "extra": "avg tps: 42.89627018698154, max tps: 44.915962145017225, count: 58916"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 172.07501372126777,
+            "unit": "median tps",
+            "extra": "avg tps: 167.81594546945644, max tps: 193.94786687085113, count: 58916"
           }
         ]
       }

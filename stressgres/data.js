@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168389984,
+  "lastUpdate": 1752168391853,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -510,6 +510,126 @@ window.BENCHMARK_DATA = {
             "value": 168.953125,
             "unit": "median mem",
             "extra": "avg mem: 159.16871481486965, max mem: 174.875, count: 59107"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752168388444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.26708050909844, max cpu: 35.220127, count: 58468"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 104.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 102.5424432889572, max mem: 108.953125, count: 58468"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.743104658194739, max cpu: 9.81595, count: 58468"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 91.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.71848857227458, max mem: 92.18359375, count: 58468"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.386868311354364, max cpu: 35.220127, count: 58468"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 106.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 104.12835954336133, max mem: 109.82421875, count: 58468"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.660955811468024, max cpu: 9.937888, count: 58468"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 104.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.12013709689488, max mem: 104.88671875, count: 58468"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.193565028314803, max cpu: 25.157234, count: 116936"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 112.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 112.0013559433686, max mem: 122.30078125, count: 116936"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7784,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7618.652134500923, max block_count: 8569.0, count: 58468"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.73371758910858, max segment_count: 386.0, count: 58468"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.934068022345629, max cpu: 19.875776, count: 58468"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 115.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 114.98278959751488, max mem: 122.2421875, count: 58468"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.634146,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.153493186323573, max cpu: 29.447853, count: 58468"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 84.29432091860077, max mem: 99.96875, count: 58468"
           }
         ]
       }

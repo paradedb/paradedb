@@ -25,9 +25,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Mintlify CLI
-        run: npm install -g mint
-
       - name: Publish Docs to Mintlify
         run: |
           curl -X POST \

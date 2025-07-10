@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168411713,
+  "lastUpdate": 1752168418773,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -608,6 +608,70 @@ window.BENCHMARK_DATA = {
             "value": 18.014285758809283,
             "unit": "median tps",
             "extra": "avg tps: 29.55735429375066, max tps: 1714.6129604164453, count: 58455"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "34939519373d98c52461b297080be89398f22c55",
+          "message": "feat: implemented heap-based expression evaluation for non-indexed fields (#2740)\n\n# Ticket(s) Closed\n\n- Closes #2530\n\n## What\n\nImplemented heap-based expression evaluation for non-indexed fields in\npg_search, enabling scoring and filtering on database fields that aren't\nincluded in the search index. This allows queries to combine indexed\nsearch with PostgreSQL expressions on any table column.\n\n## Why\n\nPreviously, pg_search could only evaluate predicates on fields that were\nindexed in the search schema. This limitation prevented users from:\n- Scoring search results based on non-indexed numeric fields (e.g.,\npopularity, price, ratings)\n- Filtering search results using complex PostgreSQL expressions on\nnon-indexed columns\n- Combining full-text search with arbitrary SQL predicates in a single\nefficient query\n\nThis feature bridges the gap between search index capabilities and full\nPostgreSQL expression power.\n\n## How\n\n**Core Architecture:**\n- **HeapExpr Qual Variant**: New qual type that combines indexed search\nwith heap-based expression evaluation\n- **HeapFieldFilter**: PostgreSQL expression evaluator that works\ndirectly on heap tuples using ctid lookups\n- **Expression-Based Approach**: Stores and evaluates serialized\nPostgreSQL expression nodes rather than field-specific operators\n\n## Tests\n\n- Integration tests for various PostgreSQL expression types (boolean,\nNULL tests, constants)\n- All existing pg_search functionality remains intact and passes\nregression tests\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-03T20:59:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/34939519373d98c52461b297080be89398f22c55"
+        },
+        "date": 1752168417908,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 442.193207194664,
+            "unit": "median tps",
+            "extra": "avg tps: 446.86638487675, max tps: 611.0830030642253, count: 58445"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2776.01351490499,
+            "unit": "median tps",
+            "extra": "avg tps: 2753.7722372101457, max tps: 3104.211155215602, count: 58445"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 441.54270498608184,
+            "unit": "median tps",
+            "extra": "avg tps: 446.30664910525053, max tps: 612.4800685670904, count: 58445"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 395.41307129643,
+            "unit": "median tps",
+            "extra": "avg tps: 397.32588376909945, max tps: 483.95692473637416, count: 58445"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 298.74446959800235,
+            "unit": "median tps",
+            "extra": "avg tps: 305.3889744468572, max tps: 350.6661583262986, count: 116890"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 264.39852674741127,
+            "unit": "median tps",
+            "extra": "avg tps: 269.61705015755206, max tps: 297.8147463901349, count: 58445"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.737075485001755,
+            "unit": "median tps",
+            "extra": "avg tps: 17.161247141767817, max tps: 453.5036330176041, count: 58445"
           }
         ]
       }

@@ -1,4 +1,5 @@
 use clap::Parser;
+use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
@@ -113,17 +114,12 @@ struct JSONBenchmarkResult {
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let avg = if res.runtimes_ms.is_empty() {
-            0.0
-        } else {
-            let sum: f64 = res.runtimes_ms.iter().sum();
-            sum / res.runtimes_ms.len() as f64
-        };
+        let median = median(res.runtimes_ms.iter());
 
         Self {
             name: res.query_type,
-            unit: "avg ms",
-            value: avg,
+            unit: "median ms",
+            value: median,
             extra: res.query,
         }
     }

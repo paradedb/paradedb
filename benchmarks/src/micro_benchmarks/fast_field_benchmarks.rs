@@ -15,13 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::median;
+use crate::micro_benchmarks::setup_benchmark_database;
 use anyhow::Result;
 use pretty_assertions::{assert_eq, assert_ne};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
 use std::time::Instant;
-
-use crate::micro_benchmarks::setup_benchmark_database;
 
 pub const ASSERT_HEAP_VIRTUAL_TUPLES: bool = false;
 
@@ -31,6 +31,7 @@ pub struct BenchmarkResult {
     pub test_name: String,
     pub exec_method: String,
     pub avg_time_ms: f64,
+    pub median_time_ms: f64,
     pub min_time_ms: f64,
     pub max_time_ms: f64,
 }
@@ -196,6 +197,7 @@ pub async fn run_benchmark(
     check_execution_plan_metrics(execution_method, &plan);
 
     // Run actual benchmark iterations
+    let mut timings = Vec::with_capacity(config.iterations);
     for _i in 0..config.iterations {
         let start = Instant::now();
         let _res = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
@@ -205,14 +207,17 @@ pub async fn run_benchmark(
         total_time_ms += time_ms;
         min_time_ms = min_time_ms.min(time_ms);
         max_time_ms = max_time_ms.max(time_ms);
+        timings.push(time_ms);
     }
 
     let avg_time_ms = total_time_ms / config.iterations as f64;
+    let median_time_ms = median(timings.iter());
 
     Ok(BenchmarkResult {
         test_name: test_name.to_string(),
         exec_method,
         avg_time_ms,
+        median_time_ms,
         min_time_ms,
         max_time_ms,
     })
@@ -229,10 +234,11 @@ pub fn display_results(results: &[BenchmarkResult]) {
 
     for result in results {
         println!(
-            "{:<65} {:<20} {:<15.2} {:<15.2} {:<15.2}",
+            "{:<65} {:<20} {:<15.2} {:<15.2} {:<15.2} {:<15.2}",
             result.test_name,
             result.exec_method,
             result.avg_time_ms,
+            result.median_time_ms,
             result.min_time_ms,
             result.max_time_ms
         );

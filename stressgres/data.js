@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752156082494,
+  "lastUpdate": 1752156087885,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -210,6 +210,76 @@ window.BENCHMARK_DATA = {
             "value": 24.670726542781157,
             "unit": "avg segment_count",
             "extra": "max segment_count: 44.0, count: 59033"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752156086978,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.221586583430536,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.17178, count: 59038"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 183.98222304913784,
+            "unit": "avg mem",
+            "extra": "max mem: 184.546875, count: 59038"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 5.120284884626034,
+            "unit": "avg tps",
+            "extra": "max tps: 11.321548040961526, count: 59038"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 20.860158132987852,
+            "unit": "avg cpu",
+            "extra": "max cpu: 34.355827, count: 59038"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.939688540114,
+            "unit": "avg mem",
+            "extra": "max mem: 163.5625, count: 59038"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.773519282015295,
+            "unit": "avg tps",
+            "extra": "max tps: 10.12616732732971, count: 59038"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20344,
+            "unit": "avg block_count",
+            "extra": "max block_count: 20344.0, count: 59038"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 24.78132728073444,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 44.0, count: 59038"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752105896102,
+  "lastUpdate": 1752105905829,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance": [
@@ -140,6 +140,76 @@ window.BENCHMARK_DATA = {
             "value": 199.42117450370375,
             "unit": "avg tps",
             "extra": "max tps: 217.38683911004816, count: 59105"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "148c36c366eceb9a4ef2b5ec8e86687a04648ccb",
+          "message": "ci: disable using fsm_info() in stressgres suite (#2803)\n\nFor now disable using fsm_info() in stressgres `bulkd-updates.toml`\nsuite.\n\nThis is because the benchmark workflows use the latest suite files from\n`main` to run against prior branches during a backfill and this is a\nrelatively new function so old branches don't have it.\n\nI am not sure how to handle this going forward. Perhaps stressgres can\nbe taught how to ignore certain errors -- I am not sure.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-09T23:46:43Z",
+          "url": "https://github.com/paradedb/paradedb/commit/148c36c366eceb9a4ef2b5ec8e86687a04648ccb"
+        },
+        "date": 1752105904947,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 26.675825635791888,
+            "unit": "avg cpu",
+            "extra": "max cpu: 60.377357, count: 59128"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 240.90285938187068,
+            "unit": "avg mem",
+            "extra": "max mem: 264.6328125, count: 59128"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.16449538012722,
+            "unit": "avg tps",
+            "extra": "max tps: 38.90653035314374, count: 59128"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18145.211963874983,
+            "unit": "avg block_count",
+            "extra": "max block_count: 20196.0, count: 59128"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54.60749560276011,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 149.0, count: 59128"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 14.5748977430647,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.720497, count: 59128"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 219.8370487676101,
+            "unit": "avg mem",
+            "extra": "max mem: 263.40234375, count: 59128"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 184.1815248374572,
+            "unit": "avg tps",
+            "extra": "max tps: 198.81901305598487, count: 59128"
           }
         ]
       }

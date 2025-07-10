@@ -337,7 +337,7 @@
     "strict": false
   },
   "background": {
-    "image": "/background.png"
+    "image": "/images/background.png"
   },
   "navbar": {
     "links": [
@@ -378,6 +378,10 @@
     }
   },
   "redirects": [
+    {
+      "source": "/blog",
+      "destination": "https://paradedb.com/blog"
+    },
     {
       "source": "/blog/introducing_analytics",
       "destination": "https://paradedb.com/blog/introducing_lakehouse"

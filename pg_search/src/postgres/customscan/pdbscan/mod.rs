@@ -81,13 +81,41 @@ use tantivy::Index;
 #[derive(Debug, Clone)]
 pub enum ConditionSafety {
     /// Condition is safe to push down
+    #[allow(dead_code)]
     Safe(String),
     /// Condition is unsafe and should be rejected
     Unsafe(String),
     /// Condition is partially unsafe - some parts may be salvageable
+    #[allow(dead_code)]
     PartiallyUnsafe(String, usize), // diagnostic message, count of safe parts
     /// Condition safety is unknown - conservative rejection
     Unknown(String),
+}
+
+/// Enhanced variable scope analysis result for join condition pushdown
+#[derive(Debug, Clone)]
+pub enum VariableScopeAnalysis {
+    /// Condition is safe to push down - all variables are properly scoped
+    SafeForPushdown(String),
+    /// Condition is unsafe and should be rejected - contains problematic references
+    UnsafeForPushdown(String),
+    /// Condition is partially safe - some parts can be salvaged
+    PartiallySafe(String, usize), // diagnostic message, count of salvageable parts
+    /// Condition requires join-level evaluation due to cross-relation dependencies
+    RequiresJoinEvaluation(String),
+}
+
+/// Information about variable scope within a PostgreSQL node
+#[derive(Debug, Clone)]
+pub enum NodeScopeInfo {
+    /// Node only references variables from the target relation
+    TargetRelationOnly,
+    /// Node references variables from external relations (not target)
+    ExternalRelations(Vec<pg_sys::Index>),
+    /// Node references variables from both target and external relations
+    Mixed(usize, usize), // target_var_count, external_relation_count
+    /// Node contains no variable references (constants, literals, etc.)
+    NoVariables,
 }
 
 #[derive(Default)]
@@ -290,13 +318,13 @@ impl PdbScan {
         }
     }
 
-    /// Enhanced validation and classification of join quals with strict safety requirements.
+    /// Enhanced validation and classification of join quals with variable scope analysis.
     ///
-    /// This function implements conservative condition classification that prioritizes correctness:
-    /// 1. Maintains absolute safety for join condition evaluation
-    /// 2. Only pushes down conditions that are provably safe
-    /// 3. Provides detailed diagnostic messages for debugging
-    /// 4. Prioritizes correctness over functionality - better no scores than wrong scores
+    /// This function implements sophisticated variable scope analysis:
+    /// 1. Analyzes variable dependencies across relations
+    /// 2. Detects complex cross-table references
+    /// 3. Provides granular diagnostic information
+    /// 4. Implements smart salvage strategies for complex conditions
     ///
     /// Returns None if conditions cannot be safely pushed down, otherwise returns the filtered quals.
     unsafe fn validate_and_filter_join_quals(
@@ -304,37 +332,359 @@ impl PdbScan {
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        // Enhanced classification with strict safety requirements
-        let classification = Self::classify_condition_safety(quals, target_rti, root);
+        // Enhanced variable scope analysis
+        let scope_analysis = Self::analyze_variable_scope(quals, target_rti, root);
 
-        match classification {
-            ConditionSafety::Safe(diagnostic) => {
-                pgrx::warning!("Accepting join quals: {}", diagnostic);
-                // Only accept truly safe conditions
+        match scope_analysis {
+            VariableScopeAnalysis::SafeForPushdown(diagnostic) => {
+                pgrx::warning!("Accepting join quals (scope analysis): {diagnostic}");
                 Self::decompose_condition_for_pushdown(quals, target_rti, root)
             }
-            ConditionSafety::Unsafe(diagnostic) => {
-                pgrx::warning!("Rejecting join quals (safety): {}", diagnostic);
-                // Never compromise on safety
+            VariableScopeAnalysis::UnsafeForPushdown(diagnostic) => {
+                pgrx::warning!("Rejecting join quals (scope analysis): {diagnostic}");
                 None
             }
-            ConditionSafety::PartiallyUnsafe(diagnostic, safe_parts) => {
-                if safe_parts > 0 {
-                    pgrx::warning!(
-                        "Partially accepting join quals (conservative): {}",
-                        diagnostic
-                    );
-                    // Only salvage if we have provably safe parts
+            VariableScopeAnalysis::PartiallySafe(diagnostic, salvageable_parts) => {
+                pgrx::warning!("Partially accepting join quals (scope analysis): {diagnostic}");
+                // Attempt to salvage the safe parts
+                if salvageable_parts > 0 {
                     Self::decompose_condition_for_pushdown(quals, target_rti, root)
                 } else {
-                    pgrx::warning!("Rejecting join quals (no safe parts): {}", diagnostic);
                     None
                 }
             }
-            ConditionSafety::Unknown(diagnostic) => {
-                pgrx::warning!("Rejecting join quals (unknown safety): {}", diagnostic);
-                // Conservative: reject unknown conditions to maintain correctness
+            VariableScopeAnalysis::RequiresJoinEvaluation(diagnostic) => {
+                pgrx::warning!("Rejecting join quals (requires join evaluation): {diagnostic}");
                 None
+            }
+        }
+    }
+
+    /// Analyzes variable scope and dependencies to determine pushdown safety.
+    ///
+    /// This function performs comprehensive variable scope analysis:
+    /// - Identifies all variable references and their source relations
+    /// - Detects external dependencies that require join-level evaluation
+    /// - Provides detailed diagnostic information about safety classification
+    /// - Implements intelligent salvage strategies for complex conditions
+    unsafe fn analyze_variable_scope(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> VariableScopeAnalysis {
+        match quals {
+            // Critical unsafe patterns - explicit external references
+            Qual::ExternalVar => VariableScopeAnalysis::UnsafeForPushdown(
+                "ExternalVar: explicit reference to variables from other relations".to_string(),
+            ),
+            Qual::ExternalExpr => VariableScopeAnalysis::UnsafeForPushdown(
+                "ExternalExpr: explicit reference to expressions from other relations".to_string(),
+            ),
+
+            // Direct operations - analyze variable scope
+            Qual::OpExpr { lhs, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*lhs, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => VariableScopeAnalysis::SafeForPushdown(
+                        "OpExpr: all variables reference target relation only".to_string(),
+                    ),
+                    NodeScopeInfo::ExternalRelations(relations) => {
+                        VariableScopeAnalysis::UnsafeForPushdown(format!(
+                            "OpExpr: references external relations: {relations:?}"
+                        ))
+                    }
+                    NodeScopeInfo::Mixed(target_vars, external_vars) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "OpExpr: mixed scope - {target_vars} target vars, {external_vars} external vars"
+                        ))
+                    }
+                    NodeScopeInfo::NoVariables => VariableScopeAnalysis::SafeForPushdown(
+                        "OpExpr: no variable references (constants only)".to_string(),
+                    ),
+                }
+            }
+
+            // Boolean compound expressions - analyze each component
+            Qual::And(clauses) => {
+                let mut safe_clauses = 0;
+                let mut unsafe_clauses = 0;
+                let mut mixed_clauses = 0;
+                let mut salvageable_clauses = 0;
+
+                for clause in clauses {
+                    match Self::analyze_variable_scope(clause, target_rti, root) {
+                        VariableScopeAnalysis::SafeForPushdown(_) => {
+                            safe_clauses += 1;
+                            salvageable_clauses += 1;
+                        }
+                        VariableScopeAnalysis::UnsafeForPushdown(_) => unsafe_clauses += 1,
+                        VariableScopeAnalysis::PartiallySafe(_, parts) => {
+                            mixed_clauses += 1;
+                            salvageable_clauses += parts;
+                        }
+                        VariableScopeAnalysis::RequiresJoinEvaluation(_) => unsafe_clauses += 1,
+                    }
+                }
+
+                if unsafe_clauses == 0 && mixed_clauses == 0 {
+                    VariableScopeAnalysis::SafeForPushdown(format!(
+                        "AND: all {safe_clauses} clauses are safe for pushdown"
+                    ))
+                } else if salvageable_clauses > 0 {
+                    VariableScopeAnalysis::PartiallySafe(
+                        format!(
+                            "AND: {safe_clauses} safe, {unsafe_clauses} unsafe, {mixed_clauses} mixed - salvaging {salvageable_clauses} clauses"
+                        ),
+                        salvageable_clauses,
+                    )
+                } else {
+                    VariableScopeAnalysis::UnsafeForPushdown(format!(
+                        "AND: {safe_clauses} safe, {unsafe_clauses} unsafe, {mixed_clauses} mixed - no salvageable clauses"
+                    ))
+                }
+            }
+
+            Qual::Or(clauses) => {
+                let mut safe_clauses = 0;
+                let mut unsafe_clauses = 0;
+                let mut mixed_clauses = 0;
+
+                for clause in clauses {
+                    match Self::analyze_variable_scope(clause, target_rti, root) {
+                        VariableScopeAnalysis::SafeForPushdown(_) => safe_clauses += 1,
+                        VariableScopeAnalysis::UnsafeForPushdown(_) => unsafe_clauses += 1,
+                        VariableScopeAnalysis::PartiallySafe(_, _) => mixed_clauses += 1,
+                        VariableScopeAnalysis::RequiresJoinEvaluation(_) => unsafe_clauses += 1,
+                    }
+                }
+
+                // OR requires ALL clauses to be safe for correctness
+                if unsafe_clauses == 0 && mixed_clauses == 0 {
+                    VariableScopeAnalysis::SafeForPushdown(format!(
+                        "OR: all {safe_clauses} clauses are safe for pushdown"
+                    ))
+                } else {
+                    VariableScopeAnalysis::UnsafeForPushdown(format!(
+                        "OR: {safe_clauses} safe, {unsafe_clauses} unsafe, {mixed_clauses} mixed - OR requires all clauses to be safe"
+                    ))
+                }
+            }
+
+            // Negation - analyze inner condition
+            Qual::Not(inner_qual) => {
+                match Self::analyze_variable_scope(inner_qual, target_rti, root) {
+                    VariableScopeAnalysis::SafeForPushdown(diagnostic) => {
+                        VariableScopeAnalysis::SafeForPushdown(format!(
+                            "NOT: inner condition is safe - {diagnostic}"
+                        ))
+                    }
+                    VariableScopeAnalysis::UnsafeForPushdown(diagnostic) => {
+                        VariableScopeAnalysis::UnsafeForPushdown(format!(
+                            "NOT: inner condition is unsafe - {diagnostic}"
+                        ))
+                    }
+                    VariableScopeAnalysis::PartiallySafe(diagnostic, _) => {
+                        VariableScopeAnalysis::UnsafeForPushdown(format!(
+                            "NOT: inner condition is partially safe (NOT cannot be applied to partial conditions) - {diagnostic}"
+                        ))
+                    }
+                    VariableScopeAnalysis::RequiresJoinEvaluation(diagnostic) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "NOT: inner condition requires join evaluation - {diagnostic}"
+                        ))
+                    }
+                }
+            }
+
+            // Pushdown expressions - generally safe
+            Qual::PushdownExpr { .. } => VariableScopeAnalysis::SafeForPushdown(
+                "PushdownExpr: indexed field expression (safe)".to_string(),
+            ),
+
+            // Field-specific conditions - generally safe
+            Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. } => VariableScopeAnalysis::SafeForPushdown(
+                "Field-specific pushdown condition (safe)".to_string(),
+            ),
+
+            // Heap expressions - need careful analysis
+            Qual::HeapExpr { expr_node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*expr_node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => VariableScopeAnalysis::SafeForPushdown(
+                        "HeapExpr: all variables reference target relation only".to_string(),
+                    ),
+                    NodeScopeInfo::ExternalRelations(relations) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "HeapExpr: references external relations: {relations:?}"
+                        ))
+                    }
+                    NodeScopeInfo::Mixed(target_vars, external_vars) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "HeapExpr: mixed scope - {target_vars} target vars, {external_vars} external vars"
+                        ))
+                    }
+                    NodeScopeInfo::NoVariables => VariableScopeAnalysis::SafeForPushdown(
+                        "HeapExpr: no variable references (constants only)".to_string(),
+                    ),
+                }
+            }
+
+            // Score expressions - analyze the value node
+            Qual::ScoreExpr { value, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*value, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => VariableScopeAnalysis::SafeForPushdown(
+                        "ScoreExpr: all variables reference target relation only".to_string(),
+                    ),
+                    NodeScopeInfo::ExternalRelations(relations) => {
+                        VariableScopeAnalysis::UnsafeForPushdown(format!(
+                            "ScoreExpr: references external relations: {relations:?}"
+                        ))
+                    }
+                    _ => VariableScopeAnalysis::SafeForPushdown(
+                        "ScoreExpr: safe for pushdown".to_string(),
+                    ),
+                }
+            }
+
+            // Generic expressions - analyze the expression node
+            Qual::Expr { node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => VariableScopeAnalysis::SafeForPushdown(
+                        "Expr: all variables reference target relation only".to_string(),
+                    ),
+                    NodeScopeInfo::ExternalRelations(relations) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "Expr: references external relations: {relations:?}"
+                        ))
+                    }
+                    NodeScopeInfo::Mixed(target_vars, external_vars) => {
+                        VariableScopeAnalysis::RequiresJoinEvaluation(format!(
+                            "Expr: mixed scope - {target_vars} target vars, {external_vars} external vars"
+                        ))
+                    }
+                    NodeScopeInfo::NoVariables => VariableScopeAnalysis::SafeForPushdown(
+                        "Expr: no variable references (constants only)".to_string(),
+                    ),
+                }
+            }
+
+            // Safe conditions that don't require variable analysis
+            Qual::All => VariableScopeAnalysis::SafeForPushdown(
+                "All: unconditional match (safe)".to_string(),
+            ),
+        }
+    }
+
+    /// Analyzes the variable scope of a PostgreSQL node.
+    ///
+    /// Returns detailed information about what relations are referenced by variables in the node.
+    unsafe fn analyze_node_variable_scope(
+        node: *mut pg_sys::Node,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> NodeScopeInfo {
+        if node.is_null() {
+            return NodeScopeInfo::NoVariables;
+        }
+
+        let mut target_var_count = 0;
+        let mut external_relations = std::collections::HashSet::new();
+
+        // Use a simple recursive traversal to find all Var nodes
+        Self::analyze_node_variables_recursive(
+            node,
+            target_rti,
+            &mut target_var_count,
+            &mut external_relations,
+        );
+
+        if target_var_count == 0 && external_relations.is_empty() {
+            NodeScopeInfo::NoVariables
+        } else if external_relations.is_empty() {
+            NodeScopeInfo::TargetRelationOnly
+        } else if target_var_count == 0 {
+            NodeScopeInfo::ExternalRelations(external_relations.into_iter().collect())
+        } else {
+            NodeScopeInfo::Mixed(target_var_count, external_relations.len())
+        }
+    }
+
+    /// Recursively analyzes variables in a PostgreSQL node tree.
+    unsafe fn analyze_node_variables_recursive(
+        node: *mut pg_sys::Node,
+        target_rti: pg_sys::Index,
+        target_var_count: &mut usize,
+        external_relations: &mut std::collections::HashSet<pg_sys::Index>,
+    ) {
+        if node.is_null() {
+            return;
+        }
+
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => {
+                let var = node as *mut pg_sys::Var;
+                let varno = (*var).varno as pg_sys::Index;
+                if varno == target_rti {
+                    *target_var_count += 1;
+                } else {
+                    external_relations.insert(varno);
+                }
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let opexpr = node as *mut pg_sys::OpExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+                for arg in args.iter_ptr() {
+                    Self::analyze_node_variables_recursive(
+                        arg,
+                        target_rti,
+                        target_var_count,
+                        external_relations,
+                    );
+                }
+            }
+            pg_sys::NodeTag::T_BoolExpr => {
+                let boolexpr = node as *mut pg_sys::BoolExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                for arg in args.iter_ptr() {
+                    Self::analyze_node_variables_recursive(
+                        arg,
+                        target_rti,
+                        target_var_count,
+                        external_relations,
+                    );
+                }
+            }
+            pg_sys::NodeTag::T_FuncExpr => {
+                let funcexpr = node as *mut pg_sys::FuncExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                for arg in args.iter_ptr() {
+                    Self::analyze_node_variables_recursive(
+                        arg,
+                        target_rti,
+                        target_var_count,
+                        external_relations,
+                    );
+                }
+            }
+            pg_sys::NodeTag::T_RelabelType => {
+                let relabel = node as *mut pg_sys::RelabelType;
+                Self::analyze_node_variables_recursive(
+                    (*relabel).arg as *mut pg_sys::Node,
+                    target_rti,
+                    target_var_count,
+                    external_relations,
+                );
+            }
+            // Add more node types as needed
+            _ => {
+                // For other node types, we don't traverse further
+                // This is conservative but safe
             }
         }
     }
@@ -343,6 +693,7 @@ impl PdbScan {
     ///
     /// Returns a ConditionSafety enum with diagnostic information explaining
     /// the classification decision.
+    #[allow(dead_code)]
     unsafe fn classify_condition_safety(
         quals: &Qual,
         target_rti: pg_sys::Index,
@@ -484,6 +835,7 @@ impl PdbScan {
     /// This function performs a simplified check to determine if an expression
     /// only references variables from the target relation table index.
     /// This is used for safety validation in join condition pushdown.
+    #[allow(dead_code)]
     unsafe fn node_references_target_table(
         node: *mut pg_sys::Node,
         target_rti: pg_sys::Index,

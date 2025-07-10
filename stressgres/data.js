@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168406972,
+  "lastUpdate": 1752168408598,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -892,6 +892,64 @@ window.BENCHMARK_DATA = {
             "value": 168.9375,
             "unit": "median mem",
             "extra": "avg mem: 158.43736151282963, max mem: 175.296875, count: 59121"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752168405502,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.512194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.739965372453934, max cpu: 49.382717, count: 59125"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 173.911924352537, max mem: 182.65234375, count: 59125"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 20484,
+            "unit": "median block_count",
+            "extra": "avg block_count: 18372.570350951373, max block_count: 20484.0, count: 59125"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 51,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.595636363636366, max segment_count: 162.0, count: 59125"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.756097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.075242084521662, max cpu: 34.5679, count: 59125"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.01350218023256, max mem: 175.19921875, count: 59125"
           }
         ]
       }

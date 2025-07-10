@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168410148,
+  "lastUpdate": 1752168411713,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -1134,6 +1134,124 @@ window.BENCHMARK_DATA = {
             "value": 91.09375,
             "unit": "median mem",
             "extra": "avg mem: 84.29432091860077, max mem: 99.96875, count: 58468"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Kaihong.Wang",
+            "username": "wangkhc",
+            "email": "wangkhc@163.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7f560910072d570e0dca4d19a9fe02b47f6917e5",
+          "message": "fix: Add missing stopword filters to Jieba tokenizer (#2790)\n\n### What\n\nThis PR fixes a bug where the Jieba tokenizer was missing stopword\nfiltering capabilities that are available in other tokenizers. The fix\nadds both custom stopword lists and language-based stopword filtering\nsupport to the Jieba tokenizer. (Fix #2789 )\n\n### Why\n\nThe Jieba tokenizer implementation was inconsistent with other\ntokenizers in the codebase - it lacked the\n`.filter(filters.stopwords_language())` and\n`.filter(filters.stopwords())` calls that are present in all other\ntokenizer variants (ICU, Chinese Lindera, etc.). This meant users\ncouldn't filter out common Chinese stop words like \"的\", \"了\", \"在\" or\nEnglish stop words when using mixed-language content, reducing search\nquality and relevance.\n\nThis inconsistency was discovered when comparing the Jieba tokenizer\nimplementation against other tokenizer variants in\n`tokenizers/src/manager.rs`.\n\n### How\n\n1. **Bug Fix:** Modified `tokenizers/src/manager.rs` in the\n`SearchTokenizer::Jieba` case within `to_tantivy_tokenizer()` method:\n- Added `.filter(filters.stopwords_language())` to support\nlanguage-based stopwords (e.g., English, Spanish, etc.)\n- Added `.filter(filters.stopwords())` to support custom stopword lists\n- This brings Jieba tokenizer in line with all other tokenizer\nimplementations\n\n2. **Code Changes:**\n   ```rust\n   // Before (missing stopword filters)\n   SearchTokenizer::Jieba(filters) => Some(\n       TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})\n           .filter(filters.remove_long_filter())\n           .filter(filters.lower_caser())\n           .filter(filters.stemmer())\n           .build(),\n   ),\n\n   // After (with stopword filters added)\n   SearchTokenizer::Jieba(filters) => Some(\n       TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})\n           .filter(filters.remove_long_filter())\n           .filter(filters.lower_caser())\n           .filter(filters.stemmer())\n           .filter(filters.stopwords_language())  // ← Added\n           .filter(filters.stopwords())           // ← Added\n           .build(),\n   ),\n   ```\n\n### Tests\n\nAdded comprehensive test coverage in `tokenizers/src/manager.rs`:\n\n1. **`test_jieba_tokenizer_with_stopwords`**: \n   - Tests custom stopword filtering with Chinese stopwords\n- Verifies stopwords are filtered out while content words are preserved\n\n2. **`test_jieba_tokenizer_with_language_stopwords`**:\n   - Tests language-based stopword filtering with English stopwords\n   - Tests the `stopwords_language: \"English\"` configuration option\n\nBoth tests use natural, conversational sentences instead of artificial\ntest data, making them more representative of real-world usage and\nsuitable for open-source community review.\n\n**All existing tests continue to pass** (12/12), ensuring no regressions\nwere introduced.\n\n### Ticket(s) Closed\n\nFix #2789\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-09T12:38:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7f560910072d570e0dca4d19a9fe02b47f6917e5"
+        },
+        "date": 1752168408000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.917651941248885, max cpu: 29.447853, count: 58420"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 87.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.11653182236391, max mem: 104.0078125, count: 58420"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.779696180390482, max cpu: 9.937888, count: 58420"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 74.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 74.32798351377953, max mem: 87.046875, count: 58420"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.888270180962858, max cpu: 29.268291, count: 58420"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 87.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 90.81556642630949, max mem: 104.796875, count: 58420"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.716347711085222, max cpu: 4.968944, count: 58420"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 83.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 85.34593588186837, max mem: 98.43359375, count: 58420"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.021459816871912, max cpu: 24.390244, count: 116840"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 90.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.62825180936537, max mem: 111.84375, count: 116840"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6127,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6722.465337213283, max block_count: 8125.0, count: 58420"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.4828825744608, max segment_count: 420.0, count: 58420"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.7389033938455825, max cpu: 19.512194, count: 58420"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 93.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 95.56017276564104, max mem: 110.26171875, count: 58420"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.634146,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.953768758633066, max cpu: 29.813665, count: 58420"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 73.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 78.05086336015063, max mem: 96.5078125, count: 58420"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752173273537,
+  "lastUpdate": 1752173318154,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -196,6 +196,126 @@ window.BENCHMARK_DATA = {
             "value": 55,
             "unit": "median segment_count",
             "extra": "avg segment_count: 57.8033839567832, max segment_count: 94.0, count: 58866"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "ce8e33ae49785f0afe220ca985de3d0c7c270503",
+          "message": "chore: more improvements to index/schema configuration and management (#2771)\n\n## What\n\n#2660 brought a much needed round of cleanups to how we manage index\nschemas. Unfortunately, it introduced quite some overhead in\nreading/decoding/validating the schema. This process was happening quite\na bit throughout the execution paths of `aminsert` and other hot-spots.\n\n#2176 brought the ability to essentially keep one heavy-weight\n`PgSearchRelation` instantiated and cheaply clone it when necessary.\nThis PR cleans up things further such that the `SearchIndexSchema` is\nnow a lazily-evaluated property of `PgSearchRelation`. This means\n`SearchIndexSchema` is only evaluated when needed, and then only once\n(at least per statement).\n\nFurthermore, its internal properties are lazily-evaluated, ensuring any\ngiven code path doesn't do more work than it needs.\n\nThis also renames `SearchIndexOptions` to `BM25IndexOptions`, mainly\nbecause I kept getting confused about what `SearchIndexOptions`\nrepresented (it was too similarly named to `SearchIndexSchema` for my\ntastes). And `BM25IndexOptions` is now a property of `PgSearchRelation`\ntoo.\n\nThis seems to have drastically improved the write throughput of the\nINSERT/UPDATE jobs in our `single-server.toml` stressgress test.\nv0.15.26 was 176/s INSERTs and 154/s UPDATEs. This PR clocks in at 275/s\nand 260/s, respectively.\n\n# Other Notable Changes\n\n- Index configuration validation now happens during CREATE INDEX/REINDEX\nin `ambuildempty()` rather than on every instantiation of\n`SearchIndexSchema`.\n\n- The \"raw\" tokenizer deprecation warnings are now gone, unless somehow\nthe \"key_field\" is configured with it -- which is no longer possible\n\n## Why\n\nTrying to rollback performance regressions that were introduced in\n0.16.0\n\n## How\n\n## Tests\n\nAll existing tests pass, and a few were updated due to the \"raw\"\ntokenizer deprecation warning going away and a change in wording for a\nspecific validation error.",
+          "timestamp": "2025-07-05T15:13:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ce8e33ae49785f0afe220ca985de3d0c7c270503"
+        },
+        "date": 1752173316906,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.644031635079202, max cpu: 19.23077, count: 57674"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 98.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 97.97659128517616, max mem: 104.125, count: 57674"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.824110258603734, max cpu: 9.74026, count: 57674"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 78.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 77.29807882993204, max mem: 86.2734375, count: 57674"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.619310313109151, max cpu: 19.35484, count: 57674"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 99.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 98.75077428737386, max mem: 104.53125, count: 57674"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.830918,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.899149679223541, max cpu: 9.693053, count: 57674"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 93.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.04995352379322, max mem: 97.3671875, count: 57674"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.8543687,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.470277318476125, max cpu: 19.292604, count: 115348"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 101.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.94637921089875, max mem: 107.76953125, count: 115348"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7792,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7780.993792696882, max block_count: 7792.0, count: 57674"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.03237160592295, max segment_count: 329.0, count: 57674"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.83871,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.424596265628701, max cpu: 14.51613, count: 57674"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 104.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 102.36149338577609, max mem: 110.14453125, count: 57674"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.563106,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.301401998160715, max cpu: 29.31596, count: 57674"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.8251066202925, max mem: 92.2265625, count: 57674"
           }
         ]
       }

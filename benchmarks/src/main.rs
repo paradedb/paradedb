@@ -90,7 +90,7 @@ async fn main() {
 }
 
 struct IndexCreationResult {
-    duration_min_secs: f64,
+    duration_min_ms: f64,
     index_name: String,
     index_size: i64,
     segment_count: i64,
@@ -99,7 +99,7 @@ struct IndexCreationResult {
 struct QueryResult {
     query_type: String,
     query: String,
-    runtimes_secs: Vec<f64>,
+    runtimes_ms: Vec<f64>,
     num_results: usize,
 }
 
@@ -113,16 +113,16 @@ struct JSONBenchmarkResult {
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let avg = if res.runtimes_secs.is_empty() {
+        let avg = if res.runtimes_ms.is_empty() {
             0.0
         } else {
-            let sum: f64 = res.runtimes_secs.iter().sum();
-            sum / res.runtimes_secs.len() as f64
+            let sum: f64 = res.runtimes_ms.iter().sum();
+            sum / res.runtimes_ms.len() as f64
         };
 
         Self {
             name: res.query_type,
-            unit: "avg secs",
+            unit: "avg ms",
             value: avg,
             extra: res.query,
         }
@@ -131,23 +131,21 @@ impl From<QueryResult> for JSONBenchmarkResult {
 
 fn process_index_creation(args: &Args) -> impl Iterator<Item = IndexCreationResult> + '_ {
     let index_sql = format!("datasets/{}/create_index/{}.sql", args.dataset, args.r#type);
-    queries(Path::new(&index_sql))
-        .into_iter()
-        .map(|(_, statement)| {
-            println!("{statement}");
+    queries(Path::new(&index_sql)).into_iter().map(|statement| {
+        println!("{statement}");
 
-            let duration_min_secs = execute_sql_with_timing(&args.url, &statement);
-            let index_name = extract_index_name(&statement).to_owned();
-            let index_size = get_index_size(&args.url, &index_name);
-            let segment_count = get_segment_count(&args.url, &index_name);
+        let duration_min_ms = execute_sql_with_timing(&args.url, &statement);
+        let index_name = extract_index_name(&statement).to_owned();
+        let index_size = get_index_size(&args.url, &index_name);
+        let segment_count = get_segment_count(&args.url, &index_name);
 
-            IndexCreationResult {
-                duration_min_secs,
-                index_name,
-                index_size,
-                segment_count,
-            }
-        })
+        IndexCreationResult {
+            duration_min_ms,
+            index_name,
+            index_size,
+            segment_count,
+        }
+    })
 }
 
 fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
@@ -168,20 +166,35 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                vec![]
-            } else {
-                queries(&path)
+                return vec![];
             }
+
+            let queries = queries(&path);
+            let query_type = path.file_stem().unwrap().to_string_lossy();
+            queries
+                .into_iter()
+                .enumerate()
+                .map(|(idx, query)| {
+                    // We treat the first query in the file as the canonical way to write the query: we
+                    // suffix the rest as alternatives.
+                    let query_type = if idx == 0 {
+                        query_type.clone().into_owned()
+                    } else {
+                        format!("{query_type} - alternative {idx}")
+                    };
+                    (query_type, query)
+                })
+                .collect()
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
-            let (runtimes_secs, num_results) =
+            let (runtimes_ms, num_results) =
                 execute_query_multiple_times(&args.url, &query, args.runs);
-            println!("Results: {runtimes_secs:?} | Rows Returned: {num_results}\n");
+            println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
             QueryResult {
                 query_type,
                 query,
-                runtimes_secs,
+                runtimes_ms,
                 num_results,
             }
         })
@@ -277,14 +290,14 @@ fn process_index_creation_csv(args: &Args) {
 
     for result in process_index_creation(args) {
         let IndexCreationResult {
-            duration_min_secs,
+            duration_min_ms,
             index_name,
             index_size,
             segment_count,
         } = result;
         writeln!(
             file,
-            "{index_name},{duration_min_secs:.2},{index_size},{segment_count}"
+            "{index_name},{duration_min_ms:.2},{index_size},{segment_count}"
         )
         .unwrap();
     }
@@ -306,13 +319,13 @@ fn run_benchmarks_csv(args: &Args) {
         let QueryResult {
             query_type,
             query,
-            runtimes_secs,
+            runtimes_ms,
             num_results,
         } = result;
 
         let mut result_line = query_type;
-        for &runtime_secs in &runtimes_secs {
-            result_line.push_str(&format!(",{runtime_secs:.0}"));
+        for &runtime_ms in &runtimes_ms {
+            result_line.push_str(&format!(",{runtime_ms:.0}"));
         }
         result_line.push_str(&format!(
             ",{},\"{}\"",
@@ -404,7 +417,7 @@ fn process_index_creation_md(file: &mut File, args: &Args) {
 
     for result in process_index_creation(args) {
         let IndexCreationResult {
-            duration_min_secs,
+            duration_min_ms,
             index_name,
             index_size,
             segment_count,
@@ -412,7 +425,7 @@ fn process_index_creation_md(file: &mut File, args: &Args) {
 
         writeln!(
             file,
-            "| {index_name} | {duration_min_secs:.2} | {index_size} | {segment_count} |"
+            "| {index_name} | {duration_min_ms:.2} | {index_size} | {segment_count} |"
         )
         .unwrap();
     }
@@ -427,11 +440,11 @@ fn run_benchmarks_md(file: &mut File, args: &Args) {
         let QueryResult {
             query_type,
             query,
-            runtimes_secs,
+            runtimes_ms,
             num_results,
         } = result;
         let md_query = query.replace("|", "\\|");
-        write_benchmark_results_md(file, &query_type, &runtimes_secs, num_results, &md_query);
+        write_benchmark_results_md(file, &query_type, &runtimes_ms, num_results, &md_query);
     }
 }
 
@@ -489,8 +502,7 @@ fn run_benchmarks_json(args: &Args) {
 ///
 /// Strips comments and flattens each query onto a single line.
 ///
-fn queries(file: &Path) -> Vec<(String, String)> {
-    let query_type = file.file_stem().unwrap().to_string_lossy();
+fn queries(file: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(file)
         .unwrap_or_else(|e| panic!("Failed to read file `{file:?}`: {e}"));
 
@@ -511,25 +523,17 @@ fn queries(file: &Path) -> Vec<(String, String)> {
                 Some(query)
             }
         })
-        .map(move |query| (query_type.clone().into_owned(), query))
         .collect()
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
-        .arg("-c")
-        .arg(command)
-        .output()?;
+    let output = base_psql_command(url).arg("-c").arg(command).output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn execute_sql_with_timing(url: &str, statement: &str) -> f64 {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg("\\timing")
         .arg("-c")
@@ -563,9 +567,7 @@ fn extract_index_name(statement: &str) -> &str {
 
 fn get_index_size(url: &str, index_name: &str) -> i64 {
     let size_query = format!("SELECT pg_relation_size('{index_name}') / (1024 * 1024);");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&size_query)
         .output()
@@ -579,9 +581,7 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
 
 fn get_segment_count(url: &str, index_name: &str) -> i64 {
     let query = format!("SELECT count(*) FROM paradedb.index_info('{index_name}');");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&query)
         .output()
@@ -595,8 +595,7 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
 
 fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
     let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
-    let status = Command::new("psql")
-        .arg(url)
+    let status = base_psql_command(url)
         .arg("-f")
         .arg(&prewarm_sql)
         .status()
@@ -613,9 +612,7 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     let mut num_results = 0;
 
     for i in 0..times {
-        let output = Command::new("psql")
-            .arg(url)
-            .arg("-t")
+        let output = base_psql_command(url)
             .arg("-c")
             .arg("\\timing")
             .arg("-c")
@@ -644,4 +641,12 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     }
 
     (results, num_results)
+}
+
+fn base_psql_command(url: &str) -> Command {
+    let mut command = Command::new("psql");
+    command.arg(url); // connection url
+    command.arg("-X"); // don't use local .psqlrc file
+    command.arg("-t"); // output tuples only
+    command
 }

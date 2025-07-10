@@ -524,4 +524,13 @@ pub mod reader {
             self.blocks.get(i).cloned()
         }
     }
+
+    impl IntoIterator for BlockList {
+        type Item = pg_sys::BlockNumber;
+        type IntoIter = std::vec::IntoIter<pg_sys::BlockNumber>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.blocks.into_iter()
+        }
+    }
 }

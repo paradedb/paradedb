@@ -300,7 +300,7 @@ impl ParallelStateManager {
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,no_run,compile_fail
 /// use pg_search::launch_parallel_process;
 /// use pg_search::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker, WorkerStyle};
 /// use pg_search::parallel_worker::ParallelStateManager;
@@ -582,4 +582,28 @@ pub fn chunk_range(n: usize, m: usize, i: usize) -> (usize, usize) {
     let start = quotient * i + (if i < remainder { i } else { remainder });
     let length = quotient + if i < remainder { 1 } else { 0 };
     (start, length)
+}
+
+/// For a (possibly parallel) query, describes the worker that is running the query
+#[derive(Debug, Copy, Clone)]
+pub enum QueryWorkerStyle {
+    ParallelLeader,
+    ParallelWorker(i32),
+    NonParallel,
+}
+
+impl QueryWorkerStyle {
+    pub fn worker_number(&self) -> i32 {
+        match self {
+            QueryWorkerStyle::ParallelWorker(worker_number) => {
+                if unsafe { pg_sys::parallel_leader_participation } {
+                    *worker_number + 1
+                } else {
+                    *worker_number
+                }
+            }
+            QueryWorkerStyle::ParallelLeader => 0,
+            QueryWorkerStyle::NonParallel => 0,
+        }
+    }
 }

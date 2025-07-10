@@ -35,10 +35,10 @@ flow for making a change:
 
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.
-3. Fork the ParadeDB repo and branch out from the `dev` branch.
+3. Fork the ParadeDB repo and branch out from the `main` branch.
 4. Install [pre-commit](https://pre-commit.com/) hooks within your fork with `pre-commit install` to ensure code quality and consistency with upstream.
 5. Make your changes. If you've added new functionality, please add tests. We will not merge a feature without appropriate tests.
-6. Open a pull request towards the `dev` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
+6. Open a pull request towards the `main` branch. Ensure that all tests and checks pass. Note that the ParadeDB repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 7. Congratulations! Our team will review your pull request.
 
 ### Documentation

@@ -1,0 +1,54 @@
+# workflows/benchmark-backfill.yml
+#
+# Backfill benchmarks using an array of git commit hashes
+name: benchmark-backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      commits: # JSON array of SHAs
+        description: >
+          Commits to re-run, written as a JSON array.
+          Example: ["6d3c1f0", "a1b2c3d", "deadbeef"]
+        required: true
+        type: string
+
+# the token must be allowed to start other workflows
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    # one job per commit
+    strategy:
+      matrix:
+        sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fire benchmark & stressgres for ${{ matrix.sha }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const sha   = '${{ matrix.sha }}';
+
+            // Workflows you want to queue
+            const targets = ['test-pg_search-benchmark.yml', 'test-pg_search-stressgres.yml'];
+
+            for (const wf of targets) {
+              /*  createWorkflowDispatch must point at a branch or tag, not a
+                  bare SHA, so we send `ref:"main"` and hand the commit SHA
+                  through an input named `commit`  */                       // :contentReference[oaicite:0]{index=0}
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: wf,
+                ref: 'main',
+                inputs: { commit: sha }
+              });
+              core.info(`queued ${wf} for ${sha}`);
+            }

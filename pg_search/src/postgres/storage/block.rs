@@ -26,22 +26,6 @@ use std::slice::from_raw_parts;
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
-pub const METADATA: pg_sys::BlockNumber = 0;
-pub const CLEANUP_LOCK: pg_sys::BlockNumber = 1;
-pub const SCHEMA_START: pg_sys::BlockNumber = 2;
-pub const SETTINGS_START: pg_sys::BlockNumber = 4;
-pub const SEGMENT_METAS_START: pg_sys::BlockNumber = 6;
-
-// keep this sorted, please
-// and update it if a new hardcoded block number is added in the future
-pub const FIXED_BLOCK_NUMBERS: [pg_sys::BlockNumber; 5] = [
-    METADATA,
-    CLEANUP_LOCK,
-    SCHEMA_START,
-    SETTINGS_START,
-    SEGMENT_METAS_START,
-];
-
 // ---------------------------------------------------------
 // BM25 page special data
 // ---------------------------------------------------------
@@ -135,7 +119,7 @@ pub trait LinkedList {
     ///
     /// Note: It is not safe to begin iteration of the list using this method, as the buffer for
     /// the metadata is released when it returns. Use `get_start_blockno` to begin iteration.
-    unsafe fn get_linked_list_data(&self) -> LinkedListData {
+    fn get_linked_list_data(&self) -> LinkedListData {
         self.bman()
             .get_buffer(self.get_header_blockno())
             .page()
@@ -430,6 +414,7 @@ pub const fn bm25_max_free_space() -> usize {
     }
 }
 
+#[inline(always)]
 pub fn block_number_is_valid(block_number: pg_sys::BlockNumber) -> bool {
     block_number != 0 && block_number != pg_sys::InvalidBlockNumber
 }

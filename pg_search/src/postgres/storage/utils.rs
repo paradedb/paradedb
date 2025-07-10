@@ -16,10 +16,11 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData, PgItem};
+use crate::postgres::storage::block::PgItem;
 use pgrx::pg_sys::OffsetNumber;
-use pgrx::{check_for_interrupts, pg_sys};
+use pgrx::{pg_sys, PgMemoryContexts};
 use std::fmt::Debug;
+use std::sync::LazyLock;
 
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
@@ -33,11 +34,6 @@ pub trait BM25Page {
         &self,
         offsetno: pg_sys::OffsetNumber,
     ) -> Option<(T, pg_sys::Size)>;
-
-    unsafe fn xmax(&self) -> pg_sys::TransactionId;
-
-    /// Return true if the page is able to reused as if it were a new page
-    unsafe fn is_reusable(&self) -> bool;
 }
 
 impl BM25Page for pg_sys::Page {
@@ -61,276 +57,209 @@ impl BM25Page for pg_sys::Page {
         let size = (*item_id).lp_len() as pg_sys::Size;
         Some(PgItem(item, size))
     }
-
-    unsafe fn xmax(&self) -> pg_sys::TransactionId {
-        let special = pg_sys::PageGetSpecialPointer(*self) as *mut BM25PageSpecialData;
-        (*special).xmax
-    }
-
-    unsafe fn is_reusable(&self) -> bool {
-        if pg_sys::PageIsNew(*self) {
-            return true;
-        }
-
-        // technically we're only called on pages given to us by the FSM, and in that case the page
-        // can be immediately reused if our internal `xmax` tracking is set to frozen, indicating
-        // that it's been deleted
-        self.xmax() == pg_sys::FrozenTransactionId
-    }
 }
 
-#[cfg(any(feature = "pg16", feature = "pg17"))]
-mod bas_bulkwrite {
-    use pgrx::{pg_sys, PgMemoryContexts};
-    use std::sync::LazyLock;
+struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
+unsafe impl Send for BufferAccessStrategyHolder {}
+unsafe impl Sync for BufferAccessStrategyHolder {}
 
-    pub(super) struct BufferAccessStrategyHolder(pub(super) pg_sys::BufferAccessStrategy);
-    unsafe impl Send for BufferAccessStrategyHolder {}
-    unsafe impl Sync for BufferAccessStrategyHolder {}
-
-    pub(super) static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
-        BufferAccessStrategyHolder(unsafe {
-            // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
-            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
-                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
-            })
+static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
+    BufferAccessStrategyHolder(unsafe {
+        // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
+        PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
         })
-    });
-}
+    })
+});
 
-#[derive(Debug)]
-pub struct BM25BufferCache {
+/// [`RelationBufferAccess`] a lower level interface for directly reading existing, and creating new,
+/// buffers in an efficient manner.
+///
+/// Every new [`pg_sys::Buffer`] it creates is as the result of relation extension and is returned
+/// with an exclusive lock.  Its [`pg_sys::Page`] representation has not been initialized.
+#[derive(Clone, Debug)]
+pub struct RelationBufferAccess {
     rel: PgSearchRelation,
 }
 
-unsafe impl Send for BM25BufferCache {}
-unsafe impl Sync for BM25BufferCache {}
+unsafe impl Send for RelationBufferAccess {}
+unsafe impl Sync for RelationBufferAccess {}
 
-impl BM25BufferCache {
+impl RelationBufferAccess {
     pub fn open(rel: &PgSearchRelation) -> Self {
-        Self {
-            rel: Clone::clone(rel),
-        }
+        Self { rel: rel.clone() }
     }
 
     pub fn rel(&self) -> &PgSearchRelation {
         &self.rel
     }
 
-    unsafe fn bulk_extend_relation(
-        &self,
-        npages: usize,
-    ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
-        let mut buffers = [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
+    /// Return one [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`].  This buffer
+    /// is guaranteed to be "new" in that it was created by extending the relation
+    ///
+    /// The [`pg_sys::Page`] representation has not been initialized.  The caller must do this.
+    pub fn new_buffer(&self) -> pg_sys::Buffer {
+        unsafe {
+            pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
+            let buffer = self.get_buffer(
+                pg_sys::InvalidBlockNumber,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            );
+            pg_sys::UnlockRelationForExtension(
+                self.rel.as_ptr(),
+                pg_sys::AccessExclusiveLock as i32,
+            );
+            buffer
+        }
+    }
 
-        #[cfg(any(feature = "pg16", feature = "pg17"))]
-        {
-            // `ExtendBufferedRelBy` is only allowed from certain backends
-            let can_use_extend_buffered_rel_by = npages > 1
-                && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
-                    || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
+    /// Return an iterator of [`pg_sys::BUFFER_LOCK_EXCLUSIVE`] locked [`pg_sys:Buffer`]s.  The buffers
+    /// are pinned _a priori_ but are locked during iteration.
+    ///
+    /// These buffers are guaranteed to be "new" in that they were created by extending the relation.
+    ///
+    /// The [`pg_sys::Page`] representation of each buffer has not been initialized.  The caller must do this.
+    pub fn new_buffers(&self, npages: usize) -> impl Iterator<Item = pg_sys::Buffer> {
+        unsafe {
+            // a simple wrapper so we can make sure the buffer is released if the iterator
+            // is dropped before exhaustion.
+            struct BufferIter<I: Iterator<Item = pg_sys::Buffer>> {
+                iter: I,
+            }
+            impl<I: Iterator<Item = pg_sys::Buffer>> Drop for BufferIter<I> {
+                fn drop(&mut self) {
+                    unsafe {
+                        if !pg_sys::IsTransactionState() {
+                            return;
+                        }
+                    }
 
-            if can_use_extend_buffered_rel_by {
-                let mut filled = 0;
-                let mut extended_by = 0;
-                loop {
-                    check_for_interrupts!();
-                    let bmr = pg_sys::BufferManagerRelation {
-                        rel: self.rel.as_ptr(),
-                        ..Default::default()
-                    };
-                    pg_sys::ExtendBufferedRelBy(
-                        bmr,
-                        pg_sys::ForkNumber::MAIN_FORKNUM,
-                        bas_bulkwrite::BAS_BULKWRITE.0,
-                        0,
-                        (npages - filled) as _,
-                        buffers.as_mut_ptr().add(filled),
-                        &mut extended_by,
-                    );
-                    filled += extended_by as usize;
-                    extended_by = 0;
-                    if filled == npages {
-                        break;
+                    for pg_buffer in &mut self.iter {
+                        unsafe {
+                            pg_sys::ReleaseBuffer(pg_buffer);
+                        }
                     }
                 }
-
-                return buffers;
             }
-        }
+            impl<I: Iterator<Item = pg_sys::Buffer>> Iterator for BufferIter<I> {
+                type Item = pg_sys::Buffer;
 
-        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
-        for buffer in buffers.iter_mut().take(npages) {
-            *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
-        }
-        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
-        buffers
-    }
-
-    unsafe fn recycled_buffer(&self) -> Option<pg_sys::Buffer> {
-        loop {
-            check_for_interrupts!();
-            // ask for a page with at least `bm25_max_free_space()` -- that's how much we need to do our things
-            let blockno =
-                pg_sys::GetPageWithFreeSpace(self.rel.as_ptr(), bm25_max_free_space() as _);
-            if blockno == pg_sys::InvalidBlockNumber {
-                return None;
-            }
-            // we got one, so let Postgres know so the FSM will stop considering it
-            pg_sys::RecordUsedIndexPage(self.rel.as_ptr(), blockno);
-
-            let buffer = self.get_buffer(blockno, None);
-            if pg_sys::ConditionalLockBuffer(buffer) {
-                let page = pg_sys::BufferGetPage(buffer);
-
-                // the FSM would have returned a page to us that was previously known to be reusable,
-                // but it may not still be reusable now that we have a lock.
-                //
-                // between then and now some other backend could have gotten this page too, locked it,
-                // (re)initialized it, and released its lock, making it unusable by us
-                if page.is_reusable() {
-                    return Some(buffer);
+                #[inline]
+                fn next(&mut self) -> Option<Self::Item> {
+                    self.iter.next()
                 }
-
-                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_UNLOCK as i32);
             }
 
-            pg_sys::ReleaseBuffer(buffer);
+            let rel = self.rel.as_ptr();
+            let iter = (0..npages)
+                .step_by(MAX_BUFFERS_TO_EXTEND_BY)
+                .flat_map(move |i| {
+                    let many = (npages - i).min(MAX_BUFFERS_TO_EXTEND_BY);
+
+                    // bulk_extend_relation() returns `pg_sys::Buffer` instances that are not locked...
+                    let buffers = bulk_extend_relation(rel, many);
+                    buffers.into_iter().take(many)
+                })
+                .inspect(move |&pg_buffer| {
+                    // ... so we need to lock them here
+                    pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+                });
+            BufferIter { iter }
         }
     }
 
-    pub unsafe fn new_buffer(&self) -> pg_sys::Buffer {
-        self.recycled_buffer().unwrap_or_else(|| {
-            let buffer = self.bulk_extend_relation(1)[0];
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-            buffer
-        })
-    }
-
-    pub unsafe fn new_buffers(&self, npages: usize) -> BufferMutVec {
-        let mut buffers =
-            [(pg_sys::InvalidBuffer as pg_sys::Buffer, false); MAX_BUFFERS_TO_EXTEND_BY];
-        let mut remaining = npages;
-        let mut cursor = 0;
-
-        while remaining > 0 {
-            if let Some(buffer) = self.recycled_buffer() {
-                // recycled_buffers() returns buffers that are already locked
-                buffers[cursor] = (buffer, false);
-                cursor += 1;
-                remaining -= 1;
-            } else {
-                break;
-            }
-        }
-
-        if remaining > 0 {
-            let extended_buffers = self.bulk_extend_relation(remaining);
-            // bulk_extend_relation() returns buffers that are not locked
-            for buffer in extended_buffers.iter().take(remaining) {
-                buffers[cursor] = (*buffer, true);
-                cursor += 1;
-            }
-        }
-
-        BufferMutVec::new(buffers)
-    }
-
-    pub unsafe fn get_buffer(
-        &self,
-        blockno: pg_sys::BlockNumber,
-        lock: Option<u32>,
-    ) -> pg_sys::Buffer {
+    /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
+    /// and if `lock` is `Some`, it'll be locked with that lock level.
+    pub fn get_buffer(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> pg_sys::Buffer {
         self.get_buffer_with_strategy(blockno, std::ptr::null_mut(), lock)
     }
 
-    pub unsafe fn get_buffer_with_strategy(
+    fn get_buffer_with_strategy(
         &self,
         blockno: pg_sys::BlockNumber,
         strategy: pg_sys::BufferAccessStrategy,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
-        let buffer = pg_sys::ReadBufferExtended(
-            self.rel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            strategy,
-        );
-        debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        if let Some(lock) = lock {
-            pg_sys::LockBuffer(buffer, lock as i32);
-        }
-        buffer
-    }
-}
-
-/// Holds an array of buffers -- used for bulk allocating new buffers.
-///
-/// These buffers can either be locked (if retrieved from the FSM) or unlocked (if the relation was extended)
-/// [`BufferMutVec`] locks/releases them appropriately when they are claimed/dropped.
-type NeedsLock = bool;
-pub struct BufferMutVec {
-    inner: [(pg_sys::Buffer, NeedsLock); MAX_BUFFERS_TO_EXTEND_BY],
-    cursor: usize,
-}
-
-impl BufferMutVec {
-    pub fn new(buffers: [(pg_sys::Buffer, NeedsLock); MAX_BUFFERS_TO_EXTEND_BY]) -> Self {
-        Self {
-            inner: buffers,
-            cursor: 0,
-        }
-    }
-
-    /// Claim a buffer from the start, which ensures that the buffers are in the same order as they were created.
-    /// Typically this means in order of increasing block number.
-    pub fn next(&mut self) -> Option<pg_sys::Buffer> {
-        if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
-            return None;
-        }
-
-        let (buffer, needs_lock) = self.inner[self.cursor];
-        self.cursor += 1;
-
-        if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
-            return None;
-        }
-
-        if needs_lock {
-            unsafe {
-                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+        unsafe {
+            let buffer = pg_sys::ReadBufferExtended(
+                self.rel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                strategy,
+            );
+            debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+            if let Some(lock) = lock {
+                pg_sys::LockBuffer(buffer, lock as i32);
             }
+            buffer
         }
-        Some(buffer)
     }
 }
 
-impl Drop for BufferMutVec {
-    fn drop(&mut self) {
-        if unsafe { pg_sys::InterruptHoldoffCount > 0 }
-            && unsafe { crate::postgres::utils::IsTransactionState() }
-        {
+unsafe fn bulk_extend_relation(
+    rel: pg_sys::Relation,
+    npages: usize,
+) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
+    let mut buffers = [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
+    assert!(
+        npages <= buffers.len(),
+        "requested too many pages for relation extension: npages={npages}, buffers.len={}",
+        buffers.len()
+    );
+    let is_backend_bulk_compatible = npages > 1
+        && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
+            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
+
+    #[cfg(any(feature = "pg16", feature = "pg17"))]
+    {
+        // `ExtendBufferedRelBy` is only allowed from certain backends
+        if is_backend_bulk_compatible {
+            let mut filled = 0;
+            let mut extended_by = 0;
             loop {
-                if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
+                let bmr = pg_sys::BufferManagerRelation {
+                    rel,
+                    ..Default::default()
+                };
+                pg_sys::ExtendBufferedRelBy(
+                    bmr,
+                    pg_sys::ForkNumber::MAIN_FORKNUM,
+                    BAS_BULKWRITE.0,
+                    0,
+                    (npages - filled) as _,
+                    buffers[filled..].as_mut_ptr(),
+                    &mut extended_by,
+                );
+                filled += extended_by as usize;
+                extended_by = 0;
+                if filled == npages {
                     break;
                 }
-
-                unsafe {
-                    let (buffer, needs_lock) = self.inner[self.cursor];
-                    if buffer == pg_sys::InvalidBuffer as pg_sys::Buffer {
-                        break;
-                    }
-
-                    if needs_lock {
-                        pg_sys::ReleaseBuffer(buffer);
-                    } else {
-                        pg_sys::UnlockReleaseBuffer(buffer);
-                    }
-
-                    self.cursor += 1;
-                }
             }
+
+            return buffers;
         }
     }
+
+    pg_sys::LockRelationForExtension(rel, pg_sys::AccessExclusiveLock as i32);
+    for slot in buffers.iter_mut().take(npages) {
+        let pg_buffer = pg_sys::ReadBufferExtended(
+            rel,
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            pg_sys::InvalidBlockNumber,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            if is_backend_bulk_compatible {
+                // only bgworker and backends can use the BULKWRITE BufferAccessStrategy
+                // specifically, using this in an autovacuum worker can trip an internal postgres assert
+                BAS_BULKWRITE.0
+            } else {
+                std::ptr::null_mut()
+            },
+        );
+        debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+        *slot = pg_buffer;
+    }
+    pg_sys::UnlockRelationForExtension(rel, pg_sys::AccessExclusiveLock as i32);
+    buffers
 }

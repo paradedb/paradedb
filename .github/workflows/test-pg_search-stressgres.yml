@@ -5,57 +5,65 @@
 
 name: Test pg_search Stressgres
 
+# TODO:  delete me later -- eeeebbbbrrrr
+
 on:
-  pull_request:
-    branches: # On the `staging` and `main` branches, we run Stressgres in PRs to test thoroughly
+  push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
+    branches:
       - main
-      - staging
-  push:
-    branches: # On the `dev` branch, we run Stressgres post pushes to speed up CI
-      - dev
+      - phil/depot-runners
     paths:
       - ".github/stressgres/**"
       - ".github/workflows/test-pg_search-stressgres.yml"
       - "**/*.rs"
       - "**/*.toml"
   workflow_dispatch:
+    inputs:
+      commit:
+        description: "A specific commit hash or tag to benchmark.  Uses `main` if not specified."
+        required: false
+        default: ""
 
-# - New commits to a feature branch PR cancel previous runs.
-# - Pushes to `dev` get grouped under "dev".
-# - Pushes to `staging` get grouped under "staging".
-# - A PR from `dev` to `main` uses the same key as pushes to `dev`, avoiding duplicate runs when doing a promotion.
+permissions:
+  contents: write
+  deployments: write
+
 concurrency:
-  group: test-pg_search-stressgres-${{ (github.event_name == 'push' && github.ref == 'refs/heads/dev' || github.event.pull_request.head.ref == 'dev') && 'dev' || (github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event.pull_request.head.ref == 'staging') && 'staging' || github.event.pull_request.number }}
-  cancel-in-progress: true
+  # If this is a manual backfill run, use the commit SHA.
+  # Otherwise (push/PR) fall back to the branch name.
+  group: ${{ format('stressgres-benchmarks-{0}',
+    (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
+  # Keep auto-cancellation for normal CI, switch it off for backfills.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   test-pg_search-stressgres:
-    name: Run Stressgres ${{ matrix.test_file }} on pg_search with PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    name: Run Stressgres ${{ matrix.test_file }} on pg_search
+    runs-on: depot-ubuntu-24.04-8
     strategy:
       matrix:
-        include:
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: single-server.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: bulk-updates.toml
-          - runner: ubicloud-standard-8
-            pg_version: 17
-            arch: amd64
-            test_file: wide-table.toml
+        test_file: [single-server.toml, bulk-updates.toml, wide-table.toml]
     env:
-      default_pg_version: 17
+      pg_version: 17
 
     steps:
-      - name: Checkout Git Repository
+      - name: Checkout Git Repository at ref=${{ inputs.commit || 'main' }}
         uses: actions/checkout@v4
         with:
           path: paradedb
+          ref: ${{ inputs.commit || 'main' }} # If no commit is provided, use the main branch.
+
+      # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
+      # old commits potentially created before new queries were added.
+      - name: Fetch the Latest Stressgres Jobs
+        run: |
+          ls -la
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
+          cp -rv paradedb-temp/.github/stressgres paradedb/.github/
+          rm -rf paradedb-temp
+
+          echo "Copied stressgres jobs:"
+          ls -la paradedb/.github/stressgres/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -67,19 +75,19 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the 'dev' branch, but load it on all branches.
+      # Caches from base branches are available to PRs, but not across unrelated branches,
+      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          key: ${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof
+        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
@@ -94,14 +102,14 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install cargo-pgrx
         run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=`which pg_config`
+        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
       - name: Checkout Stressgres Repo
         uses: actions/checkout@v4
@@ -112,9 +120,9 @@ jobs:
 
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
-        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ matrix.pg_version }},icu --no-default-features
+        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
-      - name: Run Stressgres Test Suite for 10 minutes
+      - name: Run Stressgres Test Suite
         working-directory: stressgres/
         run: |
           sudo chmod a+rwx /var/run/postgresql/ && \
@@ -122,6 +130,50 @@ jobs:
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
           --runtime 600000
+
+      - name: Generate Stressgres Continuous Benchmarking Metrics
+        working-directory: stressgres/
+        run: cargo run --release -- csv stressgres-${{ matrix.test_file }}.log output.csv
+
+      # This is where we can configure how the different runs are aggregated
+      # into a single JSON file for plotting in our continuous benchmarks.
+      - name: Generate pg_search Continuous Benchmarking Metrics
+        shell: python {0}
+        run: |
+          import csv, json
+          metrics = []
+          with open('stressgres/output.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+              metrics.append({
+                "name":     f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
+                "unit":     f"avg {row['metric_name']}",
+                "value":    float(row['avg']),
+                "extra":    f"max {row['metric_name']}: {float(row['max'])}, count: {int(row['count'])}",
+              })
+
+          metrics.sort(key=lambda metric: metric['name'])
+
+          with open('stressgres/pg_search_data.json', 'w') as out:
+              json.dump(metrics, out)
+
+      - name: Check and Publish Continuous Benchmarking Metrics
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: "pg_search ${{ matrix.test_file }} Performance"
+          ref: ${{ inputs.commit || steps.commit_info.outputs.short_commit }}
+          tool: "customSmallerIsBetter"
+          output-file-path: "stressgres/pg_search_data.json"
+          github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          gh-repository: "github.com/paradedb/paradedb"
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: stressgres
+          alert-threshold: "110%"
+          # NB: We comment and alert rather than failing, as we have both Github and Slack messages
+          # to notify us.
+          comment-on-alert: true
+          alert-comment-cc-users: "@${{ github.actor }}"
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
@@ -149,8 +201,8 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *Community Stressgres Results (${{ matrix.test_file }})*
-              <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}> | <${{ steps.artifact-logs.outputs.artifact-url }} | Download Logs>
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
+              <https://paradedb.github.io/paradedb/stressgres/>
             file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
             request_file_info: true

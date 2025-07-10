@@ -5,8 +5,6 @@
 
 name: Test pg_search Stressgres
 
-# TODO:  delete me later -- eeeebbbbrrrr
-
 on:
   push: # We run Stressgres post-merge rather than on PRs to speed up CI. Results are posted to Slack.
     branches:

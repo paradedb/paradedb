@@ -30,17 +30,78 @@ use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MergeStyle {
+#[repr(u8)]
+pub(crate) enum MergeStyle {
     Insert,
     Vacuum,
 }
 
-impl MergeStyle {
-    fn bgworker_consider_foreground_layers(&self) -> bool {
-        match self {
-            MergeStyle::Insert => true,
-            MergeStyle::Vacuum => false,
+impl TryFrom<u8> for MergeStyle {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => MergeStyle::Insert,
+            1 => MergeStyle::Vacuum,
+            _ => anyhow::bail!("invalid merge style: {value}"),
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct BackgroundMergeArgs {
+    index_oid: pg_sys::Oid,
+    merge_style: MergeStyle,
+}
+
+impl BackgroundMergeArgs {
+    pub fn new(index_oid: pg_sys::Oid, merge_style: MergeStyle) -> Self {
+        Self {
+            index_oid,
+            merge_style,
         }
+    }
+
+    pub fn index_oid(&self) -> pg_sys::Oid {
+        self.index_oid
+    }
+
+    pub fn merge_style(&self) -> MergeStyle {
+        self.merge_style
+    }
+}
+
+impl IntoDatum for BackgroundMergeArgs {
+    fn into_datum(self) -> Option<pg_sys::Datum> {
+        let oid = u32::from(self.index_oid) as u64;
+        let style = self.merge_style as u8 as u64;
+        let raw: u64 = (oid << 8) | style;
+        Some(pg_sys::Datum::from(raw as i64))
+    }
+
+    fn type_oid() -> pg_sys::Oid {
+        pg_sys::INT8OID
+    }
+}
+
+impl FromDatum for BackgroundMergeArgs {
+    unsafe fn from_polymorphic_datum(
+        datum: pg_sys::Datum,
+        is_null: bool,
+        typoid: pg_sys::Oid,
+    ) -> Option<Self> {
+        if is_null {
+            return None;
+        }
+
+        let raw = i64::from_polymorphic_datum(datum, is_null, typoid).unwrap() as u64;
+        let index_oid = pg_sys::Oid::from((raw >> 8) as u32);
+        let merge_style_raw = (raw & 0xFF) as u8;
+        let merge_style = MergeStyle::try_from(merge_style_raw).ok()?;
+        Some(BackgroundMergeArgs {
+            index_oid,
+            merge_style,
+        })
     }
 }
 
@@ -162,13 +223,7 @@ unsafe fn try_launch_background_merger(index: &PgSearchRelation, style: MergeSty
         .enable_shmem_access(None)
         .set_library("pg_search")
         .set_function("background_merge")
-        .set_argument(
-            (
-                Some(index.oid()),
-                Some(style.bgworker_consider_foreground_layers()),
-            )
-                .into_datum(),
-        )
+        .set_argument(BackgroundMergeArgs::new(index.oid(), style).into_datum())
         .set_extra(&dbname)
         .set_notify_pid(unsafe { pg_sys::MyProcPid })
         .load_dynamic()
@@ -194,17 +249,16 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             );
         };
 
-        let (index_oid, merge_foreground_layers): (Option<pg_sys::Oid>, Option<bool>) =
-            unsafe { FromDatum::from_datum(arg, false) }.unwrap();
-        let index = PgSearchRelation::open(index_oid.unwrap());
+        let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
+        let index = PgSearchRelation::open(args.index_oid());
         let metadata = unsafe { MetaPage::open(&index) };
         let layer_sizes = IndexLayerSizes::from(&index);
 
-        if merge_foreground_layers.unwrap_or_default() {
+        if args.merge_style() == MergeStyle::Vacuum {
             let foreground_layers = layer_sizes.foreground();
-            let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
+            let merge_policy = LayeredMergePolicy::new(foreground_layers);
             let merge_lock = unsafe { metadata.acquire_merge_lock() };
-            unsafe { foreground_merge_policy.merge_index(&index, merge_lock, true) };
+            unsafe { merge_policy.merge_index(&index, merge_lock, true) };
         }
 
         let background_layers = layer_sizes.background();

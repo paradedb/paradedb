@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752175337908,
+  "lastUpdate": 1752175364111,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -624,6 +624,70 @@ window.BENCHMARK_DATA = {
             "value": 15.137398135137493,
             "unit": "median tps",
             "extra": "avg tps: 23.08903966586893, max tps: 2163.5889613691193, count: 57677"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "f49e7767f467152f4b210cae02c4ab6e6845b365",
+          "message": "perf: the BAS_BULKWRITE strategy allocation now happens once (#2772)\n\n## What\n\nAllocating the `BAS_BULKWRITE` buffer access strategy is very very very\nexpensive. This moves its allocation up as a Lazy global so it only ever\nneeds to happen once per backend.\n\nLocally, this improved the stressgres \"single-server.toml\" select\nqueries from 296/s, 295/s, 263/s (Custom Scan, Index Only, Index Scan)\nto 523/s, 523/s, 466/s.\n\nAdditionally, the Insert and Update jobs moved from 255/s & 232/s to\n261/s & 238/s\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-05T15:13:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f49e7767f467152f4b210cae02c4ab6e6845b365"
+        },
+        "date": 1752175362840,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 579.825403281405,
+            "unit": "median tps",
+            "extra": "avg tps: 583.3125790660972, max tps: 822.0735837763159, count: 57648"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2503.334483287761,
+            "unit": "median tps",
+            "extra": "avg tps: 2405.181286370046, max tps: 2962.9290576700423, count: 57648"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 577.9041976052158,
+            "unit": "median tps",
+            "extra": "avg tps: 581.1825681542821, max tps: 777.5888636833299, count: 57648"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 542.3528062818244,
+            "unit": "median tps",
+            "extra": "avg tps: 544.6081684529026, max tps: 693.7996443999302, count: 57648"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 303.3945501514716,
+            "unit": "median tps",
+            "extra": "avg tps: 304.8572468754131, max tps: 326.2375605095038, count: 115296"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 278.2940920543478,
+            "unit": "median tps",
+            "extra": "avg tps: 275.0103764700353, max tps: 286.13351962879847, count: 57648"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 12.097878601147324,
+            "unit": "median tps",
+            "extra": "avg tps: 19.152474652489452, max tps: 1816.398445162931, count: 57648"
           }
         ]
       }

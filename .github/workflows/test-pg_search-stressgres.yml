@@ -187,6 +187,7 @@ jobs:
         uses: benchmark-action/github-action-benchmark@v1
         with:
           name: "pg_search ${{ matrix.test_file }} Performance"
+          ref: ${{ inputs.commit || steps.commit_info.outputs.short_commit }}
           tool: "customSmallerIsBetter"
           output-file-path: "stressgres/pg_search_data.json"
           github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

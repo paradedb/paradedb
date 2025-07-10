@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752156073167,
+  "lastUpdate": 1752156074696,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -1474,6 +1474,76 @@ window.BENCHMARK_DATA = {
             "value": 189.67710260004205,
             "unit": "avg tps",
             "extra": "max tps: 204.97936968290034, count: 59112"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Moe",
+            "username": "mdashti",
+            "email": "mdashti@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe",
+          "message": "feat: Added a GUC (`enable_custom_scan_for_non_indexed_fields`) for handling non-indexed fields in queries (#2767)\n\n## What\n\n- Disabled using bm25 index for handling queries that require\nHeapFilter, but do not use the `@@@` operator.\n- Added a new GUC `paradedb.enable_filter_pushdown` to control whether\nParadeDB's custom scan should handle queries that include non-indexed\nfield predicates.\n\n## Why\n\nThis GUC provides users with fine-grained control over when ParadeDB's\ncustom scan is used, particularly for queries that mix indexed and\nnon-indexed predicates. This is useful for:\n\n- **Performance tuning**: Users can compare custom scan performance\nagainst standard PostgreSQL execution\n- **Debugging**: Helps isolate issues related to HeapExpr filtering vs\nstandard execution\n- **Backward compatibility**: Allows disabling the feature if it causes\nissues in specific scenarios\n\n## How\n\n1. **Added GUC definition** in `src/gucs.rs`.\n2. **Integrated GUC checks** in\n`src/postgres/customscan/pdbscan/qual_inspect.rs`\n\n## Tests\n\nAdded a regression test (Test Case 19) in\n`score_non_indexed_predicates.sql`\n\nThe test shows that users can control execution strategy with:\n```sql\nSET paradedb.enable_filter_pushdown = false; -- Disable HeapExpr\nSET paradedb.enable_filter_pushdown = true;  -- Enable HeapExpr (default)\n```",
+          "timestamp": "2025-07-05T18:06:46Z",
+          "url": "https://github.com/paradedb/paradedb/commit/70f65d99d8f6cd7c112b8c4aa00d8c410b55efbe"
+        },
+        "date": 1752156064282,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 21.479224280852804,
+            "unit": "avg cpu",
+            "extra": "max cpu: 58.536583, count: 59095"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.48603605687876,
+            "unit": "avg mem",
+            "extra": "max mem: 178.25, count: 59095"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 20.064376959339967,
+            "unit": "avg tps",
+            "extra": "max tps: 30.30136200186079, count: 59095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8157.147745156105,
+            "unit": "avg block_count",
+            "extra": "max block_count: 9504.0, count: 59095"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 43.23013791352906,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 97.0, count: 59095"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.288322988968552,
+            "unit": "avg cpu",
+            "extra": "max cpu: 34.782608, count: 59095"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.54484100019036,
+            "unit": "avg mem",
+            "extra": "max mem: 176.625, count: 59095"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 111.59817541741016,
+            "unit": "avg tps",
+            "extra": "max tps: 116.31279018281052, count: 59095"
           }
         ]
       }

@@ -26,14 +26,15 @@ permissions:
 
 jobs:
   reset:
-    if: ${{ inputs.reset_data }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout gh-pages
+        if: ${{ inputs.reset_data }}
         uses: actions/checkout@v4
         with:
           ref: gh-pages
       - name: Reset data.js files
+        if: ${{ inputs.reset_data }}
         run: |
           git config user.name "Benchmark Backfill Job"
           git config user.email "developers@paradedb.com"

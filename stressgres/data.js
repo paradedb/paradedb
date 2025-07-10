@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168469583,
+  "lastUpdate": 1752168481271,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -482,6 +482,64 @@ window.BENCHMARK_DATA = {
             "value": 25,
             "unit": "median segment_count",
             "extra": "avg segment_count: 24.727936319756118, max segment_count: 44.0, count: 59045"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "f49e7767f467152f4b210cae02c4ab6e6845b365",
+          "message": "perf: the BAS_BULKWRITE strategy allocation now happens once (#2772)\n\n## What\n\nAllocating the `BAS_BULKWRITE` buffer access strategy is very very very\nexpensive. This moves its allocation up as a Lazy global so it only ever\nneeds to happen once per backend.\n\nLocally, this improved the stressgres \"single-server.toml\" select\nqueries from 296/s, 295/s, 263/s (Custom Scan, Index Only, Index Scan)\nto 523/s, 523/s, 466/s.\n\nAdditionally, the Insert and Update jobs moved from 255/s & 232/s to\n261/s & 238/s\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-05T15:13:02Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f49e7767f467152f4b210cae02c4ab6e6845b365"
+        },
+        "date": 1752168480385,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.376009734393403, max cpu: 44.444447, count: 59034"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.69771981241743, max mem: 231.88671875, count: 59034"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 24.096386,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.47179746000873, max cpu: 34.355827, count: 59034"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.4947260926966, max mem: 163.30859375, count: 59034"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22585,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21819.923501710877, max block_count: 22585.0, count: 59034"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.802859369177085, max segment_count: 64.0, count: 59034"
           }
         ]
       }

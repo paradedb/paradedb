@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752161450653,
+  "lastUpdate": 1752165118321,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3444,6 +3444,72 @@ window.BENCHMARK_DATA = {
             "value": 24.672236197714952,
             "unit": "avg tps",
             "extra": "max tps: 1511.8163566435258, count: 58472"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c4fdd25eeabf709e90f2c4577143388a4b0146c",
+          "message": "ci: sleep for random seconds before publishing to gh-pages (#2813)\n\nIt's possible for concurrent jobs that were spawned at the same time via\na benchmark backfill to try and publish the benchmark results to\ngh-pages at the same time.\n\nWhile the `benchmark-action` has some accounting for this with a\nhard-coded retry count (of 10), it's not necessarily enough, so we\nintroduce a random sleep between 1 and 66 seconds, in an effort to fend\nthis problem off.",
+          "timestamp": "2025-07-10T12:15:07-04:00",
+          "tree_id": "cae98439ce3358fcf2ed33d718286eb7b28d55d8",
+          "url": "https://github.com/paradedb/paradedb/commit/3c4fdd25eeabf709e90f2c4577143388a4b0146c"
+        },
+        "date": 1752165117413,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 485.09276465046094,
+            "unit": "median tps",
+            "extra": "avg tps: 488.9673617692158, max tps: 669.0675593712967, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3036.8537254322873,
+            "unit": "median tps",
+            "extra": "avg tps: 3042.7460602949113, max tps: 3191.005350868113, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 485.298749247197,
+            "unit": "median tps",
+            "extra": "avg tps: 489.15427174742905, max tps: 664.1054183004488, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 432.74489898239483,
+            "unit": "median tps",
+            "extra": "avg tps: 436.3801998128478, max tps: 575.5149578351844, count: 58450"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 328.62905754026895,
+            "unit": "median tps",
+            "extra": "avg tps: 337.7162024198329, max tps: 367.52483964371777, count: 116900"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 281.79476707229446,
+            "unit": "median tps",
+            "extra": "avg tps: 281.57921609552506, max tps: 284.54401503501447, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.793397454488634,
+            "unit": "median tps",
+            "extra": "avg tps: 25.635148212556814, max tps: 1890.0340395130518, count: 58450"
           }
         ]
       }

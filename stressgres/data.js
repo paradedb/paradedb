@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752156087885,
+  "lastUpdate": 1752156089579,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -280,6 +280,76 @@ window.BENCHMARK_DATA = {
             "value": 24.78132728073444,
             "unit": "avg segment_count",
             "extra": "max segment_count: 44.0, count: 59038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "ce8e33ae49785f0afe220ca985de3d0c7c270503",
+          "message": "chore: more improvements to index/schema configuration and management (#2771)\n\n## What\n\n#2660 brought a much needed round of cleanups to how we manage index\nschemas. Unfortunately, it introduced quite some overhead in\nreading/decoding/validating the schema. This process was happening quite\na bit throughout the execution paths of `aminsert` and other hot-spots.\n\n#2176 brought the ability to essentially keep one heavy-weight\n`PgSearchRelation` instantiated and cheaply clone it when necessary.\nThis PR cleans up things further such that the `SearchIndexSchema` is\nnow a lazily-evaluated property of `PgSearchRelation`. This means\n`SearchIndexSchema` is only evaluated when needed, and then only once\n(at least per statement).\n\nFurthermore, its internal properties are lazily-evaluated, ensuring any\ngiven code path doesn't do more work than it needs.\n\nThis also renames `SearchIndexOptions` to `BM25IndexOptions`, mainly\nbecause I kept getting confused about what `SearchIndexOptions`\nrepresented (it was too similarly named to `SearchIndexSchema` for my\ntastes). And `BM25IndexOptions` is now a property of `PgSearchRelation`\ntoo.\n\nThis seems to have drastically improved the write throughput of the\nINSERT/UPDATE jobs in our `single-server.toml` stressgress test.\nv0.15.26 was 176/s INSERTs and 154/s UPDATEs. This PR clocks in at 275/s\nand 260/s, respectively.\n\n# Other Notable Changes\n\n- Index configuration validation now happens during CREATE INDEX/REINDEX\nin `ambuildempty()` rather than on every instantiation of\n`SearchIndexSchema`.\n\n- The \"raw\" tokenizer deprecation warnings are now gone, unless somehow\nthe \"key_field\" is configured with it -- which is no longer possible\n\n## Why\n\nTrying to rollback performance regressions that were introduced in\n0.16.0\n\n## How\n\n## Tests\n\nAll existing tests pass, and a few were updated due to the \"raw\"\ntokenizer deprecation warning going away and a change in wording for a\nspecific validation error.",
+          "timestamp": "2025-07-05T15:13:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ce8e33ae49785f0afe220ca985de3d0c7c270503"
+        },
+        "date": 1752156088695,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 20.19384724084506,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.17178, count: 59043"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.66881301022136,
+            "unit": "avg mem",
+            "extra": "max mem: 239.328125, count: 59043"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.431964286465918,
+            "unit": "avg tps",
+            "extra": "max tps: 10.852994834062413, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 21.44578361946624,
+            "unit": "avg cpu",
+            "extra": "max cpu: 34.355827, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.76262374455905,
+            "unit": "avg mem",
+            "extra": "max mem: 163.8125, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.160045143943519,
+            "unit": "avg tps",
+            "extra": "max tps: 8.51684874352496, count: 59043"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21484.46408549701,
+            "unit": "avg block_count",
+            "extra": "max block_count: 22842.0, count: 59043"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32.347898988872515,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 64.0, count: 59043"
           }
         ]
       }

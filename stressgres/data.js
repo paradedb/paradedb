@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168372229,
+  "lastUpdate": 1752168385096,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -160,6 +160,70 @@ window.BENCHMARK_DATA = {
             "value": 14.452775520804673,
             "unit": "median tps",
             "extra": "avg tps: 24.291048794026157, max tps: 1741.8719898274674, count: 58468"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "ce8e33ae49785f0afe220ca985de3d0c7c270503",
+          "message": "chore: more improvements to index/schema configuration and management (#2771)\n\n## What\n\n#2660 brought a much needed round of cleanups to how we manage index\nschemas. Unfortunately, it introduced quite some overhead in\nreading/decoding/validating the schema. This process was happening quite\na bit throughout the execution paths of `aminsert` and other hot-spots.\n\n#2176 brought the ability to essentially keep one heavy-weight\n`PgSearchRelation` instantiated and cheaply clone it when necessary.\nThis PR cleans up things further such that the `SearchIndexSchema` is\nnow a lazily-evaluated property of `PgSearchRelation`. This means\n`SearchIndexSchema` is only evaluated when needed, and then only once\n(at least per statement).\n\nFurthermore, its internal properties are lazily-evaluated, ensuring any\ngiven code path doesn't do more work than it needs.\n\nThis also renames `SearchIndexOptions` to `BM25IndexOptions`, mainly\nbecause I kept getting confused about what `SearchIndexOptions`\nrepresented (it was too similarly named to `SearchIndexSchema` for my\ntastes). And `BM25IndexOptions` is now a property of `PgSearchRelation`\ntoo.\n\nThis seems to have drastically improved the write throughput of the\nINSERT/UPDATE jobs in our `single-server.toml` stressgress test.\nv0.15.26 was 176/s INSERTs and 154/s UPDATEs. This PR clocks in at 275/s\nand 260/s, respectively.\n\n# Other Notable Changes\n\n- Index configuration validation now happens during CREATE INDEX/REINDEX\nin `ambuildempty()` rather than on every instantiation of\n`SearchIndexSchema`.\n\n- The \"raw\" tokenizer deprecation warnings are now gone, unless somehow\nthe \"key_field\" is configured with it -- which is no longer possible\n\n## Why\n\nTrying to rollback performance regressions that were introduced in\n0.16.0\n\n## How\n\n## Tests\n\nAll existing tests pass, and a few were updated due to the \"raw\"\ntokenizer deprecation warning going away and a change in wording for a\nspecific validation error.",
+          "timestamp": "2025-07-05T15:13:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/ce8e33ae49785f0afe220ca985de3d0c7c270503"
+        },
+        "date": 1752168384236,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 464.8811990087773,
+            "unit": "median tps",
+            "extra": "avg tps: 469.85646322826295, max tps: 655.8886631256029, count: 58439"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2915.5618380316473,
+            "unit": "median tps",
+            "extra": "avg tps: 2932.1736560091085, max tps: 3039.753736522289, count: 58439"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 464.6816349695032,
+            "unit": "median tps",
+            "extra": "avg tps: 469.6128652393644, max tps: 653.5878111282227, count: 58439"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 457.92124424136614,
+            "unit": "median tps",
+            "extra": "avg tps: 461.806744246927, max tps: 590.0543971148701, count: 58439"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 317.96401099412475,
+            "unit": "median tps",
+            "extra": "avg tps: 317.78394137019785, max tps: 374.57464243615743, count: 116878"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 292.67575858066374,
+            "unit": "median tps",
+            "extra": "avg tps: 293.53381603010575, max tps: 336.7877280876234, count: 58439"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.53754131439579,
+            "unit": "median tps",
+            "extra": "avg tps: 24.487470245813206, max tps: 1773.7604075391914, count: 58439"
           }
         ]
       }

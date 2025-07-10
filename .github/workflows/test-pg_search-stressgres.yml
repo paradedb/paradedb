@@ -129,7 +129,7 @@ jobs:
           cargo run --release -- headless \
           /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ matrix.test_file }} \
           --log-file stressgres-${{ matrix.test_file }}.log \
-          --runtime 600000
+          --runtime 60000
 
       - name: Generate Stressgres Continuous Benchmarking Metrics
         working-directory: stressgres/

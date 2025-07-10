@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752108437493,
+  "lastUpdate": 1752153221569,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance": [
@@ -800,6 +800,60 @@ window.BENCHMARK_DATA = {
             "value": 13.204977787272538,
             "unit": "avg tps",
             "extra": "max tps: 1596.439301781307, count: 58311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75457722987cf2652425f92585955a3252059d12",
+          "message": "ci: cleanup benchmark running (#2809)\n\niterating on benchmark CI jobs",
+          "timestamp": "2025-07-10T08:57:20-04:00",
+          "tree_id": "2b0db192445c1cd42424c58a6b8cbde94fbc8407",
+          "url": "https://github.com/paradedb/paradedb/commit/75457722987cf2652425f92585955a3252059d12"
+        },
+        "date": 1752153220666,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "block_count",
+            "value": 6025.918717821528,
+            "unit": "avg block_count",
+            "extra": "Monitor Index Size/Primary: avg=6025.918717821528, max=6540.0, n=58463"
+          },
+          {
+            "name": "cpu",
+            "value": 7.000149089117782,
+            "unit": "avg cpu",
+            "extra": "Custom Scan/Primary: avg=6.953528731522018, max=24.84472, n=58463; Delete values/Primary: avg=4.793749521951578, max=9.756097, n=58463; Index Only Scan/Primary: avg=6.916058946802774, max=24.84472, n=58463; Index Scan/Primary: avg=4.752795937619512, max=4.968944, n=58463; Insert value/Primary: avg=7.02367548074915, max=20.125786, n=116926; Update random values/Primary: avg=5.62973864967879, max=14.814815, n=58463; Vacuum/Primary: avg=12.931496355500656, max=29.62963, n=58463"
+          },
+          {
+            "name": "mem",
+            "value": 84.4978954704792,
+            "unit": "avg mem",
+            "extra": "Custom Scan/Primary: avg=86.1963314403982, max=93.25, n=58463; Delete values/Primary: avg=76.12144486683886, max=81.296875, n=58463; Index Only Scan/Primary: avg=86.71823157648855, max=93.625, n=58463; Index Scan/Primary: avg=83.56860355320887, max=89.47265625, n=58463; Insert value/Primary: avg=90.3795599420253, max=99.83203125, n=116926; Update random values/Primary: avg=93.56367769465302, max=102.625, n=58463; Vacuum/Primary: avg=74.93741921974154, max=84.05078125, n=58463"
+          },
+          {
+            "name": "segment_count",
+            "value": 117.18611771547816,
+            "unit": "avg segment_count",
+            "extra": "Monitor Index Size/Primary: avg=117.18611771547816, max=287.0, n=58463"
+          },
+          {
+            "name": "tps",
+            "value": 712.1455055359263,
+            "unit": "avg tps",
+            "extra": "Custom Scan/Primary: avg=481.6042687645301, max=676.7913025862069, n=58463; Delete values/Primary: avg=2958.5548537793, max=3245.5534925455227, n=58463; Index Only Scan/Primary: avg=481.6755631716094, max=676.4955299690555, n=58463; Index Scan/Primary: avg=444.7807028354106, max=592.14575501959, n=58463; Insert value/Primary: avg=312.96261993784566, max=328.8256911153749, n=116926; Update random values/Primary: avg=283.0155852810592, max=295.4878521451854, n=58463; Vacuum/Primary: avg=22.424944981728665, max=1826.774300208435, n=58463"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168403636,
+  "lastUpdate": 1752168405124,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -480,6 +480,70 @@ window.BENCHMARK_DATA = {
             "value": 12.423442033472217,
             "unit": "median tps",
             "extra": "avg tps: 14.774338414049655, max tps: 606.3457723147371, count: 58442"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Kaihong.Wang",
+            "username": "wangkhc",
+            "email": "wangkhc@163.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7f560910072d570e0dca4d19a9fe02b47f6917e5",
+          "message": "fix: Add missing stopword filters to Jieba tokenizer (#2790)\n\n### What\n\nThis PR fixes a bug where the Jieba tokenizer was missing stopword\nfiltering capabilities that are available in other tokenizers. The fix\nadds both custom stopword lists and language-based stopword filtering\nsupport to the Jieba tokenizer. (Fix #2789 )\n\n### Why\n\nThe Jieba tokenizer implementation was inconsistent with other\ntokenizers in the codebase - it lacked the\n`.filter(filters.stopwords_language())` and\n`.filter(filters.stopwords())` calls that are present in all other\ntokenizer variants (ICU, Chinese Lindera, etc.). This meant users\ncouldn't filter out common Chinese stop words like \"的\", \"了\", \"在\" or\nEnglish stop words when using mixed-language content, reducing search\nquality and relevance.\n\nThis inconsistency was discovered when comparing the Jieba tokenizer\nimplementation against other tokenizer variants in\n`tokenizers/src/manager.rs`.\n\n### How\n\n1. **Bug Fix:** Modified `tokenizers/src/manager.rs` in the\n`SearchTokenizer::Jieba` case within `to_tantivy_tokenizer()` method:\n- Added `.filter(filters.stopwords_language())` to support\nlanguage-based stopwords (e.g., English, Spanish, etc.)\n- Added `.filter(filters.stopwords())` to support custom stopword lists\n- This brings Jieba tokenizer in line with all other tokenizer\nimplementations\n\n2. **Code Changes:**\n   ```rust\n   // Before (missing stopword filters)\n   SearchTokenizer::Jieba(filters) => Some(\n       TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})\n           .filter(filters.remove_long_filter())\n           .filter(filters.lower_caser())\n           .filter(filters.stemmer())\n           .build(),\n   ),\n\n   // After (with stopword filters added)\n   SearchTokenizer::Jieba(filters) => Some(\n       TextAnalyzer::builder(tantivy_jieba::JiebaTokenizer {})\n           .filter(filters.remove_long_filter())\n           .filter(filters.lower_caser())\n           .filter(filters.stemmer())\n           .filter(filters.stopwords_language())  // ← Added\n           .filter(filters.stopwords())           // ← Added\n           .build(),\n   ),\n   ```\n\n### Tests\n\nAdded comprehensive test coverage in `tokenizers/src/manager.rs`:\n\n1. **`test_jieba_tokenizer_with_stopwords`**: \n   - Tests custom stopword filtering with Chinese stopwords\n- Verifies stopwords are filtered out while content words are preserved\n\n2. **`test_jieba_tokenizer_with_language_stopwords`**:\n   - Tests language-based stopword filtering with English stopwords\n   - Tests the `stopwords_language: \"English\"` configuration option\n\nBoth tests use natural, conversational sentences instead of artificial\ntest data, making them more representative of real-world usage and\nsuitable for open-source community review.\n\n**All existing tests continue to pass** (12/12), ensuring no regressions\nwere introduced.\n\n### Ticket(s) Closed\n\nFix #2789\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-09T12:38:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/7f560910072d570e0dca4d19a9fe02b47f6917e5"
+        },
+        "date": 1752168402110,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 491.21032426791163,
+            "unit": "median tps",
+            "extra": "avg tps: 495.8638916578647, max tps: 664.1487832058575, count: 58420"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3044.35827719763,
+            "unit": "median tps",
+            "extra": "avg tps: 3057.449268914986, max tps: 3151.084122481109, count: 58420"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 491.18122169521814,
+            "unit": "median tps",
+            "extra": "avg tps: 495.7294836593001, max tps: 663.4695517922291, count: 58420"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 447.15279740439126,
+            "unit": "median tps",
+            "extra": "avg tps: 448.40938371346465, max tps: 530.5595397629438, count: 58420"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 313.42306584682564,
+            "unit": "median tps",
+            "extra": "avg tps: 313.75518429518434, max tps: 368.3453591039659, count: 116840"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 282.280689527415,
+            "unit": "median tps",
+            "extra": "avg tps: 281.80553399431574, max tps: 301.84306035233465, count: 58420"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.8138853679661,
+            "unit": "median tps",
+            "extra": "avg tps: 21.31709094365533, max tps: 1579.5767050345848, count: 58420"
           }
         ]
       }

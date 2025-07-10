@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752173976321,
+  "lastUpdate": 1752174246718,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -134,6 +134,70 @@ window.BENCHMARK_DATA = {
             "value": 12.897728028034766,
             "unit": "median tps",
             "extra": "avg tps: 19.404932844662685, max tps: 1673.7298064498852, count: 57674"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752174245449,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 587.1316558436688,
+            "unit": "median tps",
+            "extra": "avg tps: 589.227719220513, max tps: 852.827966294409, count: 57662"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2476.5775164854135,
+            "unit": "median tps",
+            "extra": "avg tps: 2343.602433971075, max tps: 2984.8078427026853, count: 57662"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 585.6424347032557,
+            "unit": "median tps",
+            "extra": "avg tps: 586.9771033588031, max tps: 833.5181659866408, count: 57662"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 539.4718227922251,
+            "unit": "median tps",
+            "extra": "avg tps: 537.9606092323903, max tps: 734.3843989728313, count: 57662"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 309.6451452617598,
+            "unit": "median tps",
+            "extra": "avg tps: 304.1759777619652, max tps: 316.51075925233954, count: 115324"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 284.01598556179067,
+            "unit": "median tps",
+            "extra": "avg tps: 277.48811790346684, max tps: 306.62683079102266, count: 57662"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.92900477156219,
+            "unit": "median tps",
+            "extra": "avg tps: 19.437826895632117, max tps: 2104.337249504955, count: 57662"
           }
         ]
       }

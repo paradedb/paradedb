@@ -224,14 +224,14 @@ jobs:
 
       - name: Create Stressgres Graph
         working-directory: stressgres/
-        run: cargo run --release -- graph stressgres-${{ matrix.test_file }}.log stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png
+        run: cargo run --release -- graph stressgres-${{ matrix.test_file }}.log stressgres-${{ matrix.test_file }}-${{ inputs.commit || steps.commit_info.outputs.short_commit }}.png
 
       - name: Upload Stressgres Graph
         id: artifact-graph
         uses: actions/upload-artifact@v4
         with:
           name: stressgres-graph-${{ matrix.test_file }}
-          path: stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png
+          path: stressgres/stressgres-${{ matrix.test_file }}-${{ inputs.commit || steps.commit_info.outputs.short_commit }}.png
 
       - name: Upload Stressgres Logs
         id: artifact-logs
@@ -248,10 +248,10 @@ jobs:
           payload: |
             channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
             initial_comment: |
-              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
+              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.commit || steps.commit_info.outputs.short_commit }}>*: Community Stressgres "${{ matrix.test_file }}" Results available (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>):
               <https://paradedb.github.io/paradedb/stressgres/>
-            file: "stressgres/stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
-            filename: "stressgres-${{ matrix.test_file }}-${{ steps.commit_info.outputs.short_commit }}.png"
+            file: "stressgres/stressgres-${{ matrix.test_file }}-${{ inputs.commit || steps.commit_info.outputs.short_commit }}.png"
+            filename: "stressgres-${{ matrix.test_file }}-${{ inputs.commit || steps.commit_info.outputs.short_commit }}.png"
             request_file_info: true
           errors: true
           payload-templated: false

@@ -583,8 +583,7 @@ impl BM25IndexOptionsData {
     ///
     /// If none is applied to the index, the specified `default` sizes are used.
     pub fn foreground_layer_sizes(&self) -> Vec<u64> {
-        let foreground_layer_sizes_str =
-            self.get_str(self.layer_sizes_offset, Default::default());
+        let foreground_layer_sizes_str = self.get_str(self.layer_sizes_offset, Default::default());
         if foreground_layer_sizes_str.trim().is_empty() {
             return DEFAULT_FOREGROUND_LAYER_SIZES.to_vec();
         }

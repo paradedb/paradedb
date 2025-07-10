@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752165118321,
+  "lastUpdate": 1752165128411,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -3510,6 +3510,128 @@ window.BENCHMARK_DATA = {
             "value": 14.793397454488634,
             "unit": "median tps",
             "extra": "avg tps: 25.635148212556814, max tps: 1890.0340395130518, count: 58450"
+          }
+        ]
+      }
+    ],
+    "pg_search single-server.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c4fdd25eeabf709e90f2c4577143388a4b0146c",
+          "message": "ci: sleep for random seconds before publishing to gh-pages (#2813)\n\nIt's possible for concurrent jobs that were spawned at the same time via\na benchmark backfill to try and publish the benchmark results to\ngh-pages at the same time.\n\nWhile the `benchmark-action` has some accounting for this with a\nhard-coded retry count (of 10), it's not necessarily enough, so we\nintroduce a random sleep between 1 and 66 seconds, in an effort to fend\nthis problem off.",
+          "timestamp": "2025-07-10T12:15:07-04:00",
+          "tree_id": "cae98439ce3358fcf2ed33d718286eb7b28d55d8",
+          "url": "https://github.com/paradedb/paradedb/commit/3c4fdd25eeabf709e90f2c4577143388a4b0146c"
+        },
+        "date": 1752165127519,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.9382715,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.911798277297724, max cpu: 30.188679, count: 58450"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 94.75,
+            "unit": "median mem",
+            "extra": "avg mem: 91.43522902855004, max mem: 103.12109375, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.734753078874196, max cpu: 9.937888, count: 58450"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 81.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 80.82490135799829, max mem: 90.796875, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.871616655843663, max cpu: 30.188679, count: 58450"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 95.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.11394895476903, max mem: 103.5625, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.8780484,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.638689341025957, max cpu: 7.8431377, count: 58450"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 91.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.75359548759624, max mem: 99.04296875, count: 58450"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.706687448367497, max cpu: 25.157234, count: 116900"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 102.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.94955841664884, max mem: 108.55859375, count: 116900"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6986,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6650.533601368691, max block_count: 7775.0, count: 58450"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 117,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.28347305389221, max segment_count: 419.0, count: 58450"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.907975,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6676818039021475, max cpu: 14.814815, count: 58450"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 98.3313207736313, max mem: 112.57421875, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.723927,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.596557702093747, max cpu: 30.000002, count: 58450"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 72.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 79.36238919482463, max mem: 93.48046875, count: 58450"
           }
         ]
       }

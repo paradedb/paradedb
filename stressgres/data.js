@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752168405124,
+  "lastUpdate": 1752168406972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -682,6 +682,40 @@ window.BENCHMARK_DATA = {
             "value": 200.6192638887635,
             "unit": "median tps",
             "extra": "avg tps: 194.9650887729076, max tps: 214.60263362601742, count: 59125"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752168406055,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 37.894388868921034,
+            "unit": "median tps",
+            "extra": "avg tps: 37.77719332393526, max tps: 38.80545868942742, count: 59100"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 198.71812566051585,
+            "unit": "median tps",
+            "extra": "avg tps: 197.52936662957282, max tps: 223.19164596536942, count: 59100"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752156097614,
+  "lastUpdate": 1752156100697,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance": [
@@ -420,6 +420,76 @@ window.BENCHMARK_DATA = {
             "value": 24.76062730752295,
             "unit": "avg segment_count",
             "extra": "max segment_count: 45.0, count: 59046"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752156092420,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 20.312897405923763,
+            "unit": "avg cpu",
+            "extra": "max cpu: 44.17178, count: 59043"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.23124771088445,
+            "unit": "avg mem",
+            "extra": "max mem: 237.81640625, count: 59043"
+          },
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.289390535392586,
+            "unit": "avg tps",
+            "extra": "max tps: 10.696052901732074, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 21.435771561438845,
+            "unit": "avg cpu",
+            "extra": "max cpu: 34.146343, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.1599795382179,
+            "unit": "avg mem",
+            "extra": "max mem: 163.40625, count: 59043"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.190602004018975,
+            "unit": "avg tps",
+            "extra": "max tps: 8.674354297446003, count: 59043"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21813.86530155988,
+            "unit": "avg block_count",
+            "extra": "max block_count: 22693.0, count: 59043"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 31.855410463560457,
+            "unit": "avg segment_count",
+            "extra": "max segment_count: 63.0, count: 59043"
           }
         ]
       }

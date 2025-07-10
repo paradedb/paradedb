@@ -67,6 +67,8 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
+WARNING:  Rejecting join quals: contains external variables
+WARNING:  Rejecting join quals: contains external variables
  id | id 
 ----+----
   1 |  1

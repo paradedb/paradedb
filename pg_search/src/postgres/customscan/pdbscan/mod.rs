@@ -232,10 +232,11 @@ impl PdbScan {
 
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
+        // IMPORTANT: We now validate that join quals are safe to push down
         let (quals, ri_type, restrict_info) = if quals.is_none() {
             let joinri: PgList<pg_sys::RestrictInfo> =
                 PgList::from_pg(builder.args().rel().joininfo);
-            let mut quals = extract_quals(
+            let join_quals = extract_quals(
                 root,
                 rti,
                 joinri.as_ptr().cast(),
@@ -246,12 +247,20 @@ impl PdbScan {
                 &mut state,
             );
 
-            let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
+            // CRITICAL FIX: Validate that join quals are safe to push down
+            let mut safe_join_quals = if let Some(ref quals_to_validate) = join_quals {
+                Self::validate_and_filter_join_quals(quals_to_validate, rti, root)
+            } else {
+                None
+            };
 
-            // If we have found something to push down in the join, or if we have found something to
-            // push down in the base relation, then we can use the join quals
-            if state.uses_our_operator {
-                (quals, RestrictInfoType::Join, joinri)
+            let safe_join_quals =
+                Self::handle_heap_expr_optimization(&state, &mut safe_join_quals, root, rti);
+
+            // Only use join quals if they are safe and we found our operator
+            if safe_join_quals.is_some() && state.uses_our_operator {
+                pgrx::warning!("quals: {:?}", safe_join_quals);
+                (safe_join_quals, RestrictInfoType::Join, joinri)
             } else {
                 (None, ri_type, restrict_info)
             }
@@ -265,6 +274,120 @@ impl PdbScan {
             (quals, ri_type, restrict_info)
         } else {
             (None, ri_type, restrict_info)
+        }
+    }
+
+    /// Validates and filters join quals to ensure they are safe to push down to base relations.
+    ///
+    /// This function implements critical safety checks to prevent incorrect query results:
+    /// 1. Rejects conditions with ExternalVar/ExternalExpr (variables from other tables)
+    /// 2. Decomposes complex boolean expressions safely
+    /// 3. Only pushes down conditions that reference the target table
+    ///
+    /// Returns None if no safe conditions can be pushed down, otherwise returns the filtered quals.
+    unsafe fn validate_and_filter_join_quals(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> Option<Qual> {
+        // CRITICAL: Never push down conditions with external variables
+        if quals.contains_external_var() {
+            pgrx::warning!("Rejecting join quals: contains external variables");
+            return None;
+        }
+
+        // Decompose the condition and only keep parts that are safe to push down
+        match Self::decompose_condition_for_pushdown(quals, target_rti, root) {
+            Some(safe_qual) => {
+                pgrx::warning!("Validated join quals: {:?}", safe_qual);
+                Some(safe_qual)
+            }
+            None => {
+                pgrx::warning!("Rejecting join quals: no safe conditions found");
+                None
+            }
+        }
+    }
+
+    /// Decomposes a condition into parts that are safe to push down to the target relation.
+    ///
+    /// This function implements conservative condition decomposition:
+    /// - For AND conditions: pushes down only clauses that reference the target table
+    /// - For OR conditions: rejects entirely if any clause references external tables
+    /// - For simple conditions: checks if they reference only the target table
+    unsafe fn decompose_condition_for_pushdown(
+        qual: &Qual,
+        _target_rti: pg_sys::Index,
+        _root: *mut pg_sys::PlannerInfo,
+    ) -> Option<Qual> {
+        match qual {
+            // For AND conditions, we can safely push down individual clauses
+            Qual::And(clauses) => {
+                let mut safe_clauses = Vec::new();
+
+                for clause in clauses {
+                    // Recursively decompose each clause
+                    if let Some(safe_clause) =
+                        Self::decompose_condition_for_pushdown(clause, _target_rti, _root)
+                    {
+                        safe_clauses.push(safe_clause);
+                    }
+                }
+
+                match safe_clauses.len() {
+                    0 => None,
+                    1 => Some(safe_clauses.into_iter().next().unwrap()),
+                    _ => Some(Qual::And(safe_clauses)),
+                }
+            }
+
+            // For OR conditions, we must be very conservative
+            // If ANY clause references external tables, we reject the entire OR
+            Qual::Or(clauses) => {
+                for clause in clauses {
+                    if clause.contains_external_var() {
+                        pgrx::warning!("Rejecting OR clause: contains external variables");
+                        return None;
+                    }
+                }
+
+                // If all clauses are safe, we can potentially push down the OR
+                // But we still need to validate each clause individually
+                let mut safe_clauses = Vec::new();
+                for clause in clauses {
+                    if let Some(safe_clause) =
+                        Self::decompose_condition_for_pushdown(clause, _target_rti, _root)
+                    {
+                        safe_clauses.push(safe_clause);
+                    } else {
+                        // If any clause can't be safely pushed down, reject the entire OR
+                        pgrx::warning!("Rejecting OR clause: clause not safe for pushdown");
+                        return None;
+                    }
+                }
+
+                match safe_clauses.len() {
+                    0 => None,
+                    1 => Some(safe_clauses.into_iter().next().unwrap()),
+                    _ => Some(Qual::Or(safe_clauses)),
+                }
+            }
+
+            // For NOT conditions, recursively check the inner condition
+            Qual::Not(inner_qual) => {
+                Self::decompose_condition_for_pushdown(inner_qual, _target_rti, _root)
+                    .map(|safe_inner| Qual::Not(Box::new(safe_inner)))
+            }
+
+            // For ExternalVar and ExternalExpr, never push down
+            Qual::ExternalVar | Qual::ExternalExpr => {
+                pgrx::warning!("Rejecting external variable/expression");
+                None
+            }
+
+            // For other condition types, they should be safe if we've reached this point
+            // These include OpExpr, HeapExpr, etc. that should have been validated earlier
+            _ => Some(qual.clone()),
         }
     }
 

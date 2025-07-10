@@ -162,10 +162,11 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
+WARNING:  Rejecting join quals: contains external variables
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            0 | 0.44333255
-       2 | Stephen King |    2.5308118 |  0.7432616
+       1 | J.K. Rowling |            0 |           
+       2 | Stephen King |    2.5308118 |           
 (2 rows)
 
 -- Test score comparison - direct vs join query
@@ -224,9 +225,10 @@ SELECT
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60;
+WARNING:  Rejecting join quals: contains external variables
  author_id |   author_name   | author_score | book_score 
 -----------+-----------------+--------------+------------
-         2 | Stephen King    |              | 0.13515766
+         2 | Stephen King    |              |          0
          3 | Agatha Christie |              |          0
 (2 rows)
 

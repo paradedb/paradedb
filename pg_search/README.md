@@ -1,6 +1,5 @@
 <h1 align="center">
   <img src="../docs/logo/pg_search.svg" alt="pg_search"></img>
-<br></br>
 </h1>
 
 ## Overview

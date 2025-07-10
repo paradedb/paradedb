@@ -137,6 +137,14 @@ jobs:
         run: |
           git checkout .
 
+      # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
+      # benchmark-action publish actions running in other jobs
+      - name: Sleep
+        run: |
+          LOW=1
+          HIGH=66
+          sleep $(( $LOW + RANDOM % ( $HIGH - $LOW + 1 ) ))
+
       - name: Check and Publish Continuous Benchmarking Metrics
         uses: benchmark-action/github-action-benchmark@v1
         with:

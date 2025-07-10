@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/publish-docs-manually # TODO: Remove once done testing
   workflow_dispatch:
 
 jobs:

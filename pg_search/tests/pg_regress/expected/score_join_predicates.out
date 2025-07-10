@@ -162,7 +162,7 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
-WARNING:  Rejecting join quals: contains external variables
+WARNING:  Rejecting join quals (safety): OR expression: 1 safe, 2 unsafe, 0 unknown clauses (OR requires all safe for correctness)
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        1 | J.K. Rowling |            0 |           
@@ -225,7 +225,7 @@ SELECT
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60;
-WARNING:  Rejecting join quals: contains external variables
+WARNING:  Rejecting join quals (no safe parts): AND expression: 0 safe, 2 unsafe, 0 unknown clauses
  author_id |   author_name   | author_score | book_score 
 -----------+-----------------+--------------+------------
          2 | Stephen King    |              |          0

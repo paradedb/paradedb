@@ -102,8 +102,8 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
+WARNING:  Rejecting join quals (no safe parts): AND expression: 0 safe, 2 unsafe, 0 unknown clauses
+WARNING:  Rejecting join quals (no safe parts): AND expression: 0 safe, 2 unsafe, 0 unknown clauses
  book_id | book_snippet | book_positions |   author_snippet    | author_positions | review_snippet | review_positions | book_score | author_score | review_score 
 ---------+--------------+----------------+---------------------+------------------+----------------+------------------+------------+--------------+--------------
        1 |              |                |                     |                  |                |                  |            |            0 |             

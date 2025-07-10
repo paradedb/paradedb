@@ -77,6 +77,19 @@ use std::sync::atomic::Ordering;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
+/// Classification of condition safety for join condition pushdown
+#[derive(Debug, Clone)]
+pub enum ConditionSafety {
+    /// Condition is safe to push down
+    Safe(String),
+    /// Condition is unsafe and should be rejected
+    Unsafe(String),
+    /// Condition is partially unsafe - some parts may be salvageable
+    PartiallyUnsafe(String, usize), // diagnostic message, count of safe parts
+    /// Condition safety is unknown - conservative rejection
+    Unknown(String),
+}
+
 #[derive(Default)]
 pub struct PdbScan;
 
@@ -277,34 +290,245 @@ impl PdbScan {
         }
     }
 
-    /// Validates and filters join quals to ensure they are safe to push down to base relations.
+    /// Enhanced validation and classification of join quals with strict safety requirements.
     ///
-    /// This function implements critical safety checks to prevent incorrect query results:
-    /// 1. Rejects conditions with ExternalVar/ExternalExpr (variables from other tables)
-    /// 2. Decomposes complex boolean expressions safely
-    /// 3. Only pushes down conditions that reference the target table
+    /// This function implements conservative condition classification that prioritizes correctness:
+    /// 1. Maintains absolute safety for join condition evaluation
+    /// 2. Only pushes down conditions that are provably safe
+    /// 3. Provides detailed diagnostic messages for debugging
+    /// 4. Prioritizes correctness over functionality - better no scores than wrong scores
     ///
-    /// Returns None if no safe conditions can be pushed down, otherwise returns the filtered quals.
+    /// Returns None if conditions cannot be safely pushed down, otherwise returns the filtered quals.
     unsafe fn validate_and_filter_join_quals(
         quals: &Qual,
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        // CRITICAL: Never push down conditions with external variables
-        if quals.contains_external_var() {
-            pgrx::warning!("Rejecting join quals: contains external variables");
-            return None;
+        // Enhanced classification with strict safety requirements
+        let classification = Self::classify_condition_safety(quals, target_rti, root);
+
+        match classification {
+            ConditionSafety::Safe(diagnostic) => {
+                pgrx::warning!("Accepting join quals: {}", diagnostic);
+                // Only accept truly safe conditions
+                Self::decompose_condition_for_pushdown(quals, target_rti, root)
+            }
+            ConditionSafety::Unsafe(diagnostic) => {
+                pgrx::warning!("Rejecting join quals (safety): {}", diagnostic);
+                // Never compromise on safety
+                None
+            }
+            ConditionSafety::PartiallyUnsafe(diagnostic, safe_parts) => {
+                if safe_parts > 0 {
+                    pgrx::warning!(
+                        "Partially accepting join quals (conservative): {}",
+                        diagnostic
+                    );
+                    // Only salvage if we have provably safe parts
+                    Self::decompose_condition_for_pushdown(quals, target_rti, root)
+                } else {
+                    pgrx::warning!("Rejecting join quals (no safe parts): {}", diagnostic);
+                    None
+                }
+            }
+            ConditionSafety::Unknown(diagnostic) => {
+                pgrx::warning!("Rejecting join quals (unknown safety): {}", diagnostic);
+                // Conservative: reject unknown conditions to maintain correctness
+                None
+            }
+        }
+    }
+
+    /// Classifies the safety of a condition for pushdown with detailed analysis.
+    ///
+    /// Returns a ConditionSafety enum with diagnostic information explaining
+    /// the classification decision.
+    unsafe fn classify_condition_safety(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> ConditionSafety {
+        match quals {
+            // Critical safety violations - never safe to push down
+            Qual::ExternalVar => ConditionSafety::Unsafe(
+                "contains ExternalVar (references variables from other relations)".to_string(),
+            ),
+            Qual::ExternalExpr => ConditionSafety::Unsafe(
+                "contains ExternalExpr (references expressions from other relations)".to_string(),
+            ),
+
+            // Direct search conditions - generally safe if they reference target table
+            Qual::OpExpr { lhs, .. } => {
+                if Self::node_references_target_table(*lhs, target_rti, root) {
+                    ConditionSafety::Safe("OpExpr references target table only".to_string())
+                } else {
+                    ConditionSafety::Unsafe("OpExpr references non-target relations".to_string())
+                }
+            }
+
+            // Pushdown expressions - check field references
+            Qual::PushdownExpr { .. } => {
+                ConditionSafety::Safe("PushdownExpr (indexed field expression)".to_string())
+            }
+
+            // Boolean field conditions - generally safe
+            Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. } => {
+                ConditionSafety::Safe("boolean field condition on indexed field".to_string())
+            }
+
+            // Complex boolean expressions - need detailed analysis
+            Qual::And(clauses) => {
+                let mut safe_count = 0;
+                let mut unsafe_count = 0;
+                let mut unknown_count = 0;
+
+                for clause in clauses {
+                    match Self::classify_condition_safety(clause, target_rti, root) {
+                        ConditionSafety::Safe(_) => safe_count += 1,
+                        ConditionSafety::Unsafe(_) => unsafe_count += 1,
+                        ConditionSafety::PartiallyUnsafe(_, _) => unsafe_count += 1,
+                        ConditionSafety::Unknown(_) => unknown_count += 1,
+                    }
+                }
+
+                if unsafe_count > 0 {
+                    ConditionSafety::PartiallyUnsafe(
+                        format!(
+                            "AND expression: {safe_count} safe, {unsafe_count} unsafe, {unknown_count} unknown clauses"
+                        ),
+                        safe_count,
+                    )
+                } else if unknown_count > 0 {
+                    ConditionSafety::Unknown(format!(
+                        "AND expression: {safe_count} safe, {unknown_count} unknown clauses"
+                    ))
+                } else {
+                    ConditionSafety::Safe(format!(
+                        "AND expression: all {safe_count} clauses are safe"
+                    ))
+                }
+            }
+
+            Qual::Or(clauses) => {
+                let mut safe_count = 0;
+                let mut unsafe_count = 0;
+                let mut unknown_count = 0;
+
+                for clause in clauses {
+                    match Self::classify_condition_safety(clause, target_rti, root) {
+                        ConditionSafety::Safe(_) => safe_count += 1,
+                        ConditionSafety::Unsafe(_) => unsafe_count += 1,
+                        ConditionSafety::PartiallyUnsafe(_, _) => unsafe_count += 1,
+                        ConditionSafety::Unknown(_) => unknown_count += 1,
+                    }
+                }
+
+                // Conservative: OR conditions require all clauses to be safe for correctness
+                if unsafe_count > 0 || unknown_count > 0 {
+                    ConditionSafety::Unsafe(
+                        format!("OR expression: {safe_count} safe, {unsafe_count} unsafe, {unknown_count} unknown clauses (OR requires all safe for correctness)")
+                    )
+                } else {
+                    ConditionSafety::Safe(format!(
+                        "OR expression: all {safe_count} clauses are safe"
+                    ))
+                }
+            }
+
+            Qual::Not(inner_qual) => {
+                match Self::classify_condition_safety(inner_qual, target_rti, root) {
+                    ConditionSafety::Safe(_) => ConditionSafety::Safe(
+                        "NOT expression with safe inner condition".to_string(),
+                    ),
+                    ConditionSafety::Unsafe(msg) => ConditionSafety::Unsafe(format!(
+                        "NOT expression with unsafe inner condition: {msg}"
+                    )),
+                    ConditionSafety::PartiallyUnsafe(msg, _) => ConditionSafety::Unsafe(format!(
+                        "NOT expression with partially unsafe inner condition: {msg}"
+                    )),
+                    ConditionSafety::Unknown(msg) => ConditionSafety::Unknown(format!(
+                        "NOT expression with unknown inner condition: {msg}"
+                    )),
+                }
+            }
+
+            // Special cases
+            Qual::All => ConditionSafety::Safe("Qual::All (match all documents)".to_string()),
+
+            Qual::ScoreExpr { .. } => {
+                ConditionSafety::Safe("ScoreExpr (search score expression)".to_string())
+            }
+
+            // Heap expressions - need special handling
+            Qual::HeapExpr { .. } => {
+                ConditionSafety::Unknown("HeapExpr (requires heap tuple evaluation)".to_string())
+            }
+
+            // Expression evaluation - check for external references
+            Qual::Expr { node, .. } => {
+                if Self::node_references_target_table(*node, target_rti, root) {
+                    ConditionSafety::Safe("Expr references target table only".to_string())
+                } else {
+                    ConditionSafety::Unsafe("Expr references non-target relations".to_string())
+                }
+            }
+        }
+    }
+
+    /// Checks if a PostgreSQL node references only the target table.
+    ///
+    /// This function performs a simplified check to determine if an expression
+    /// only references variables from the target relation table index.
+    /// This is used for safety validation in join condition pushdown.
+    unsafe fn node_references_target_table(
+        node: *mut pg_sys::Node,
+        target_rti: pg_sys::Index,
+        _root: *mut pg_sys::PlannerInfo,
+    ) -> bool {
+        if node.is_null() {
+            return false;
         }
 
-        // Decompose the condition and only keep parts that are safe to push down
-        match Self::decompose_condition_for_pushdown(quals, target_rti, root) {
-            Some(safe_qual) => {
-                pgrx::warning!("Validated join quals: {:?}", safe_qual);
-                Some(safe_qual)
+        match (*node).type_ {
+            pg_sys::NodeTag::T_Var => {
+                let var = node as *mut pg_sys::Var;
+                (*var).varno as pg_sys::Index == target_rti
             }
-            None => {
-                pgrx::warning!("Rejecting join quals: no safe conditions found");
-                None
+            pg_sys::NodeTag::T_Const => {
+                // Constants are always safe
+                true
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                let opexpr = node as *mut pg_sys::OpExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+
+                // Check all arguments - all must reference target table
+                for arg in args.iter_ptr() {
+                    if !Self::node_references_target_table(arg, target_rti, _root) {
+                        return false;
+                    }
+                }
+                true
+            }
+            pg_sys::NodeTag::T_FuncExpr => {
+                let funcexpr = node as *mut pg_sys::FuncExpr;
+                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+
+                // Check all arguments - all must reference target table
+                for arg in args.iter_ptr() {
+                    if !Self::node_references_target_table(arg, target_rti, _root) {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => {
+                // For other node types, be conservative
+                false
             }
         }
     }
@@ -321,7 +545,18 @@ impl PdbScan {
         _root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
         match qual {
-            // For AND conditions, we can safely push down individual clauses
+            // Simple conditions that are already validated as safe
+            Qual::OpExpr { .. }
+            | Qual::PushdownExpr { .. }
+            | Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. }
+            | Qual::ScoreExpr { .. }
+            | Qual::Expr { .. } => Some(qual.clone()),
+
+            // Complex conditions requiring decomposition
             Qual::And(clauses) => {
                 let mut safe_clauses = Vec::new();
 
@@ -334,42 +569,34 @@ impl PdbScan {
                     }
                 }
 
-                match safe_clauses.len() {
-                    0 => None,
-                    1 => Some(safe_clauses.into_iter().next().unwrap()),
-                    _ => Some(Qual::And(safe_clauses)),
+                if safe_clauses.is_empty() {
+                    None
+                } else if safe_clauses.len() == 1 {
+                    Some(safe_clauses.into_iter().next().unwrap())
+                } else {
+                    Some(Qual::And(safe_clauses))
                 }
             }
 
-            // For OR conditions, we must be very conservative
-            // If ANY clause references external tables, we reject the entire OR
             Qual::Or(clauses) => {
-                for clause in clauses {
-                    if clause.contains_external_var() {
-                        pgrx::warning!("Rejecting OR clause: contains external variables");
-                        return None;
-                    }
-                }
-
-                // If all clauses are safe, we can potentially push down the OR
-                // But we still need to validate each clause individually
                 let mut safe_clauses = Vec::new();
+
                 for clause in clauses {
                     if let Some(safe_clause) =
                         Self::decompose_condition_for_pushdown(clause, _target_rti, _root)
                     {
                         safe_clauses.push(safe_clause);
                     } else {
-                        // If any clause can't be safely pushed down, reject the entire OR
-                        pgrx::warning!("Rejecting OR clause: clause not safe for pushdown");
+                        // For OR conditions, if any clause is unsafe, reject the entire OR for correctness
                         return None;
                     }
                 }
 
-                match safe_clauses.len() {
-                    0 => None,
-                    1 => Some(safe_clauses.into_iter().next().unwrap()),
-                    _ => Some(Qual::Or(safe_clauses)),
+                if safe_clauses.len() == clauses.len() {
+                    // All clauses are safe
+                    Some(qual.clone())
+                } else {
+                    None
                 }
             }
 
@@ -379,15 +606,8 @@ impl PdbScan {
                     .map(|safe_inner| Qual::Not(Box::new(safe_inner)))
             }
 
-            // For ExternalVar and ExternalExpr, never push down
-            Qual::ExternalVar | Qual::ExternalExpr => {
-                pgrx::warning!("Rejecting external variable/expression");
-                None
-            }
-
-            // For other condition types, they should be safe if we've reached this point
-            // These include OpExpr, HeapExpr, etc. that should have been validated earlier
-            _ => Some(qual.clone()),
+            // Conservative approach for other cases
+            _ => None,
         }
     }
 

@@ -17,11 +17,9 @@
 
 use crate::api::FieldName;
 use crate::api::{HashMap, HashSet};
-use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
-use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
@@ -55,7 +53,18 @@ pub unsafe fn layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     index
         .options()
-        .layer_sizes()
+        .foreground_layer_sizes()
+        .into_iter()
+        .map(|layer_size| layer_size.into())
+        .collect()
+}
+
+#[pg_extern]
+pub unsafe fn background_layer_sizes(index: PgRelation) -> Vec<AnyNumeric> {
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+    index
+        .options()
+        .background_layer_sizes()
         .into_iter()
         .map(|layer_size| layer_size.into())
         .collect()
@@ -358,42 +367,20 @@ fn version_info() -> TableIterator<
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_pretty_bytes(
-    index: PgRelation,
-    oversized_layer_size_pretty: String,
+    _index: PgRelation,
+    _oversized_layer_size_pretty: String,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    let byte_size = unsafe {
-        pgrx::direct_function_call::<i64>(
-            pg_sys::pg_size_bytes,
-            &[oversized_layer_size_pretty.into_datum()],
-        )
-        .expect("pg_size_bytes should not return null")
-    };
-
-    force_merge_raw_bytes(index, byte_size)
+    anyhow::bail!("force_merge is deprecated, run `VACUUM` instead");
 }
 
 #[pg_extern(name = "force_merge")]
 fn force_merge_raw_bytes(
-    index: PgRelation,
-    oversized_layer_size_bytes: i64,
+    _index: PgRelation,
+    _oversized_layer_size_bytes: i64,
 ) -> anyhow::Result<TableIterator<'static, (name!(new_segments, i64), name!(merged_segments, i64))>>
 {
-    let index = {
-        let oid = index.oid();
-        drop(index);
-
-        // reopen the index with a RowExclusiveLock b/c we are going to be changing its physical structure
-        PgSearchRelation::with_lock(oid, pg_sys::RowExclusiveLock as _)
-    };
-
-    let merge_policy = LayeredMergePolicy::new(vec![oversized_layer_size_bytes.try_into()?]);
-    let (ncandidates, nmerged) =
-        unsafe { merge_index_with_policy(&index, merge_policy, true, true, true) };
-    Ok(TableIterator::once((
-        ncandidates.try_into()?,
-        nmerged.try_into()?,
-    )))
+    anyhow::bail!("force_merge is deprecated, run `VACUUM` instead");
 }
 
 #[pg_extern]

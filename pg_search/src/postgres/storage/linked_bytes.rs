@@ -157,6 +157,7 @@ impl LinkedBytesListWriter {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn into_inner(mut self) -> Result<LinkedBytesList> {
         self.flush_inner()?;
         Ok(self.list)

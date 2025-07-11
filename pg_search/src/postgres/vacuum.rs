@@ -17,10 +17,15 @@
 
 use pgrx::*;
 
+use crate::postgres::merge::{do_merge, MergeStyle};
+use crate::postgres::rel::PgSearchRelation;
+
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amvacuumcleanup(
-    _info: *mut pg_sys::IndexVacuumInfo,
+    info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
+    let index = PgSearchRelation::open((*(*info).index).rd_id);
+    do_merge(&index, MergeStyle::Vacuum).expect("should be able to merge");
     stats
 }

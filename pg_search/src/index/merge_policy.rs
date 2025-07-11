@@ -1,10 +1,16 @@
 use crate::api::{HashMap, HashSet};
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::writer::index::{Mergeable, SearchIndexMerger};
+use crate::postgres::insert::garbage_collect_index;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
-use pgrx::pg_sys;
+use crate::postgres::storage::merge::MergeLock;
+use crate::postgres::storage::metadata::MetaPage;
+use pgrx::{check_for_interrupts, pg_sys};
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tantivy::index::{DeleteMeta, InnerSegmentMeta, SegmentId};
+use tantivy::index::{DeleteMeta, Index, InnerSegmentMeta, SegmentId};
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
@@ -19,9 +25,6 @@ pub struct LayeredMergePolicy {
     mergeable_segments: HashMap<SegmentId, SegmentMetaEntry>,
     already_processed: AtomicBool,
 }
-
-pub type NumCandidates = usize;
-pub type NumMerged = usize;
 
 impl MergePolicy for LayeredMergePolicy {
     fn compute_merge_candidates(
@@ -72,6 +75,7 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
+            pgrx::debug1!("compute_merge_candidates: evaluating layer_size={layer_size}");
             // individual segments that total a certain byte amount typically merge together into
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
@@ -96,11 +100,19 @@ impl MergePolicy for LayeredMergePolicy {
                 }
 
                 // add this segment as a candidate
-                candidate_byte_size +=
+                let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
+                candidate_byte_size += segment_byte_size;
+
+                pgrx::debug1!(
+                    "compute_merge_candidates: adding segment={} with byte_size={} to candidate",
+                    segment.id(),
+                    segment_byte_size
+                );
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
+                    pgrx::debug1!("compute_merge_candidates: candidate exceeds layer_size={}, candidate_byte_size={}", layer_size, candidate_byte_size);
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
@@ -108,6 +120,7 @@ impl MergePolicy for LayeredMergePolicy {
             }
 
             if candidate_byte_size < extended_layer_size {
+                pgrx::debug1!("compute_merge_candidates: throwing away candidate because {} is less than required layer size {}", candidate_byte_size, layer_size);
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }
@@ -186,16 +199,130 @@ impl LayeredMergePolicy {
         }
     }
 
+    pub unsafe fn merge_index(
+        mut self,
+        indexrel: &PgSearchRelation,
+        merge_lock: MergeLock,
+        gc_after_merge: bool,
+    ) {
+        // keep track of how many segments we had before we started merging
+        // used to terminate this merge early if we predict we'll end up below the target segment count
+        let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
+            .expect("should be able to open index")
+            .searchable_segment_ids()
+            .expect("should be able to get searchable segment ids")
+            .len() as i32;
+        let index_options = indexrel.options();
+        let target_segment_count = index_options.target_segment_count() as i32;
+
+        // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
+        // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
+        // before it decides to find the segments it should vacuum.  The reason is that it needs to see
+        // the final merged segment, not the original segments that will be deleted
+        let metadata = MetaPage::open(indexrel);
+        let cleanup_lock = metadata.cleanup_lock_shared();
+        let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
+            .expect("should be able to open merger");
+
+        // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
+        // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
+        // the segments it decides can be merged into one or more candidates
+        self.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+        let merge_candidates = self.simulate();
+        // before we start merging, tell the merger to release pins on the segments it won't be merging
+        let mut merger = merger
+            .adjust_pins(self.mergeable_segments())
+            .expect("should be table to adjust merger pins");
+
+        let mut need_gc = !gc_after_merge;
+        let ncandidates = merge_candidates.len();
+        if ncandidates > 0 {
+            // record all the segments the SearchIndexMerger can see, as those are the ones that
+            // could be merged
+            let merge_entry = merge_lock
+                .merge_list()
+                .add_segment_ids(self.mergeable_segments())
+                .expect("should be able to write current merge segment_id list");
+            drop(merge_lock);
+
+            // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
+            //
+            // we defer raising a panic in the face of a merge error as we need to remove the created
+            // `merge_entry` whether the merge worked or not
+
+            let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
+
+            for candidate in merge_candidates {
+                segment_count -= candidate.0.len() as i32 - 1;
+                if segment_count < target_segment_count {
+                    pgrx::debug1!("ending merge early: segment count {segment_count} would be less than target segment count {target_segment_count}");
+                    break;
+                }
+
+                pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
+
+                merge_result = merger.merge_segments(&candidate.0);
+                if merge_result.is_err() {
+                    break;
+                }
+                if gc_after_merge {
+                    garbage_collect_index(indexrel);
+                    need_gc = false;
+                }
+            }
+
+            // re-acquire the MergeLock to remove the entry we made above
+            let merge_lock = metadata.acquire_merge_lock();
+            merge_lock
+                .merge_list()
+                .remove_entry(merge_entry)
+                .expect("should be able to remove MergeEntry");
+            drop(merge_lock);
+
+            // we can garbage collect and return blocks back to the FSM without being under the MergeLock
+            if need_gc {
+                garbage_collect_index(indexrel);
+            }
+
+            // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
+            check_for_interrupts!();
+
+            if let Err(e) = merge_result {
+                panic!("failed to merge: {e:?}");
+            }
+        } else {
+            drop(merge_lock);
+        }
+        drop(cleanup_lock);
+    }
+
     pub fn set_mergeable_segment_entries(
         &mut self,
-        mergeable_segments: impl Iterator<Item = (SegmentId, SegmentMetaEntry)>,
+        metadata: &MetaPage,
+        merge_lock: &MergeLock,
+        merger: &SearchIndexMerger,
     ) {
-        self.mergeable_segments = mergeable_segments.collect();
+        let mut non_mergeable_segments = metadata.vacuum_list().read_list();
+        non_mergeable_segments.extend(unsafe { merge_lock.merge_list().list_segment_ids() });
+
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!("do_merge: non_mergeable_segments={non_mergeable_segments:?}");
+        }
+
+        // tell the MergePolicy which segments it's initially allowed to consider for merging
+        self.mergeable_segments = merger
+            .all_entries()
+            .into_iter()
+            .filter(|(segment_id, _)| {
+                // skip segments that are already being vacuumed or merged
+                !non_mergeable_segments.contains(segment_id)
+            })
+            .collect();
     }
 
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
-    pub fn simulate(&mut self) -> (Vec<MergeCandidate>, NumMerged) {
+    pub fn simulate(&mut self) -> Vec<MergeCandidate> {
         // we don't want the whole world to know how to do this conversion
         #[allow(non_local_definitions)]
         impl From<SegmentMetaEntry> for SegmentMeta {
@@ -221,7 +348,6 @@ impl LayeredMergePolicy {
             .map(From::from)
             .collect::<Vec<SegmentMeta>>();
         let candidates = self.compute_merge_candidates(None, &segment_metas);
-        let nmerged = candidates.iter().flat_map(|candidate| &candidate.0).count();
         let segment_ids = candidates
             .iter()
             .flat_map(|candidate| &candidate.0)
@@ -229,7 +355,7 @@ impl LayeredMergePolicy {
 
         self.retain(segment_ids);
 
-        (candidates, nmerged)
+        candidates
     }
 
     fn retain(&mut self, to_keep: HashSet<&SegmentId>) {

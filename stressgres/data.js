@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752242385397,
+  "lastUpdate": 1752244968284,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -884,6 +884,72 @@ window.BENCHMARK_DATA = {
             "value": 13.216902839826679,
             "unit": "median tps",
             "extra": "avg tps: 18.804213195048224, max tps: 1537.8156558860662, count: 58517"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752244967409,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 421.2826013107481,
+            "unit": "median tps",
+            "extra": "avg tps: 428.325355520748, max tps: 616.2326010612538, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2736.17931266536,
+            "unit": "median tps",
+            "extra": "avg tps: 2617.8567420999116, max tps: 3091.7522449634653, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 423.0311407474487,
+            "unit": "median tps",
+            "extra": "avg tps: 429.7644639397119, max tps: 625.2291059432195, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.5294389352778,
+            "unit": "median tps",
+            "extra": "avg tps: 427.4669617590523, max tps: 549.6119904231209, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 290.3436499725682,
+            "unit": "median tps",
+            "extra": "avg tps: 289.142625824739, max tps: 306.39042894660054, count: 116984"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 267.6721357924853,
+            "unit": "median tps",
+            "extra": "avg tps: 264.93818993107095, max tps: 279.0778420400053, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.157395946021119,
+            "unit": "median tps",
+            "extra": "avg tps: 18.466957270305603, max tps: 1429.6252666251123, count: 58492"
           }
         ]
       }

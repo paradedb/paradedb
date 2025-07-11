@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752175980081,
+  "lastUpdate": 1752203044509,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -982,6 +982,72 @@ window.BENCHMARK_DATA = {
             "value": 18.34923363135176,
             "unit": "median tps",
             "extra": "avg tps: 25.02302779732774, max tps: 1813.6279632413884, count: 57662"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7811b7597a46784212ef6cb4bdf556050edb5d52",
+          "message": "perf: Adjust benchmark job to post for `perf` PRs. (#2820)\n\n## What\n\nAdjusts the new benchmark jobs to run and comment on `perf:` PRs\n(without pushing to the graphs).\n\n## Why\n\nTo more easily evaluate that `perf:` PRs do what they say on the tin.\n\n## How\n\n* Run for PRs with `perf` in their title.\n* Calculate the sha once, potentially from the PR head.\n* Give permission to comment on PRs.\n* Always comment on perf PRs.\n\n## Tests\n\nManual testing via the PR: see comments made by the gitub-actions bot\nhere.",
+          "timestamp": "2025-07-10T22:48:59-04:00",
+          "tree_id": "e2efebb1cc82bb6bee9a9b4ac7f89031206aba87",
+          "url": "https://github.com/paradedb/paradedb/commit/7811b7597a46784212ef6cb4bdf556050edb5d52"
+        },
+        "date": 1752203043208,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 584.444828677738,
+            "unit": "median tps",
+            "extra": "avg tps: 586.1159091161753, max tps: 832.9463288004141, count: 57679"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2242.1312022075244,
+            "unit": "median tps",
+            "extra": "avg tps: 2099.3258744230247, max tps: 2841.0459588789413, count: 57679"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 585.0528650650319,
+            "unit": "median tps",
+            "extra": "avg tps: 588.4552688865307, max tps: 817.7062786743899, count: 57679"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 533.509833283873,
+            "unit": "median tps",
+            "extra": "avg tps: 537.5149240518138, max tps: 644.3293571983478, count: 57679"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 319.38845712276486,
+            "unit": "median tps",
+            "extra": "avg tps: 313.2445251169138, max tps: 342.22384343374324, count: 115358"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 335.93768526159744,
+            "unit": "median tps",
+            "extra": "avg tps: 323.9342725130997, max tps: 347.2822400453752, count: 57679"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.98244070221615,
+            "unit": "median tps",
+            "extra": "avg tps: 25.000414832207333, max tps: 1469.5444265323308, count: 57679"
           }
         ]
       }

@@ -67,8 +67,8 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
-WARNING:  Rejecting join quals (scope analysis): OR: 0 safe, 1 unsafe, 1 mixed - OR requires all clauses to be safe
-WARNING:  Rejecting join quals (scope analysis): OR: 1 safe, 1 unsafe, 0 mixed - OR requires all clauses to be safe
+WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: true)
+WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
  id | id 
 ----+----
   1 |  1

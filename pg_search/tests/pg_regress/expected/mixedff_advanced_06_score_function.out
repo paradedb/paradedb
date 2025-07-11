@@ -666,7 +666,7 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  Rejecting join quals (scope analysis): ExternalVar: explicit reference to variables from other relations
+WARNING:  Cannot use join quals (hybrid): External variable/expression - cannot extract
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -715,7 +715,7 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  Rejecting join quals (scope analysis): ExternalVar: explicit reference to variables from other relations
+WARNING:  Cannot use join quals (hybrid): External variable/expression - cannot extract
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

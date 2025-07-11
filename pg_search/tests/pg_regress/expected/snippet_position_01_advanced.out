@@ -102,8 +102,8 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
-WARNING:  Rejecting join quals (scope analysis): AND: 0 safe, 2 unsafe, 0 mixed - no salvageable clauses
-WARNING:  Rejecting join quals (scope analysis): AND: 0 safe, 2 unsafe, 0 mixed - no salvageable clauses
+WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
+WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
  book_id | book_snippet | book_positions |   author_snippet    | author_positions | review_snippet | review_positions | book_score | author_score | review_score 
 ---------+--------------+----------------+---------------------+------------------+----------------+------------------+------------+--------------+--------------
        1 |              |                |                     |                  |                |                  |            |            0 |             

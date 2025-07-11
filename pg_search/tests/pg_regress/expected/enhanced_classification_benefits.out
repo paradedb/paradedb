@@ -90,8 +90,8 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
-WARNING:  Rejecting join quals (scope analysis): OR: 2 safe, 2 unsafe, 0 mixed - OR requires all clauses to be safe
-WARNING:  Rejecting join quals (scope analysis): OR: 2 safe, 2 unsafe, 0 mixed - OR requires all clauses to be safe
+WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: true)
+WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
                test_name                | product_name |                     review_content                     | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
  Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |               |             
@@ -208,7 +208,7 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
-WARNING:  Rejecting join quals (scope analysis): OR: 1 safe, 1 unsafe, 0 mixed - OR requires all clauses to be safe
+WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |              

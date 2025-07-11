@@ -118,6 +118,19 @@ pub enum NodeScopeInfo {
     NoVariables,
 }
 
+/// Result of hybrid query extraction for maximum custom scan utilization
+#[derive(Debug, Clone)]
+pub enum HybridExtractionResult {
+    /// All conditions can be safely pushed down to custom scan
+    FullyUsable(Qual, String), // extracted_quals, diagnostic
+    /// Some conditions can be pushed down, others handled by heap filtering
+    PartiallyUsable(Qual, String), // safe_quals, diagnostic
+    /// Only search predicates can be extracted, other conditions handled by PostgreSQL
+    SearchOnlyUsable(Qual, String), // search_quals, diagnostic
+    /// No conditions can be safely extracted for custom scan
+    NotUsable(String), // diagnostic
+}
+
 #[derive(Default)]
 pub struct PdbScan;
 
@@ -318,45 +331,306 @@ impl PdbScan {
         }
     }
 
-    /// Enhanced validation and classification of join quals with variable scope analysis.
+    /// Enhanced validation with hybrid query building for maximum custom scan utilization.
     ///
-    /// This function implements sophisticated variable scope analysis:
-    /// 1. Analyzes variable dependencies across relations
-    /// 2. Detects complex cross-table references
-    /// 3. Provides granular diagnostic information
-    /// 4. Implements smart salvage strategies for complex conditions
+    /// This function implements a hybrid approach:
+    /// 1. Analyzes conditions to extract safe search predicates
+    /// 2. Builds partial BM25 queries from safe parts
+    /// 3. Allows PostgreSQL to handle remaining conditions via heap filtering
+    /// 4. Maximizes custom scan usage while maintaining correctness
     ///
-    /// Returns None if conditions cannot be safely pushed down, otherwise returns the filtered quals.
+    /// Returns a partial query if any search predicates can be safely extracted, None otherwise.
     unsafe fn validate_and_filter_join_quals(
         quals: &Qual,
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        // Enhanced variable scope analysis
-        let scope_analysis = Self::analyze_variable_scope(quals, target_rti, root);
+        // Extract safe search predicates using hybrid approach
+        let hybrid_result = Self::extract_safe_search_predicates(quals, target_rti, root);
 
-        match scope_analysis {
-            VariableScopeAnalysis::SafeForPushdown(diagnostic) => {
-                pgrx::warning!("Accepting join quals (scope analysis): {diagnostic}");
-                Self::decompose_condition_for_pushdown(quals, target_rti, root)
+        match hybrid_result {
+            HybridExtractionResult::FullyUsable(safe_quals, diagnostic) => {
+                pgrx::warning!("Using full join quals (hybrid): {diagnostic}");
+                Some(safe_quals)
             }
-            VariableScopeAnalysis::UnsafeForPushdown(diagnostic) => {
-                pgrx::warning!("Rejecting join quals (scope analysis): {diagnostic}");
+            HybridExtractionResult::PartiallyUsable(safe_quals, diagnostic) => {
+                pgrx::warning!("Using partial join quals (hybrid): {diagnostic}");
+                Some(safe_quals)
+            }
+            HybridExtractionResult::SearchOnlyUsable(search_quals, diagnostic) => {
+                pgrx::warning!("Using search-only join quals (hybrid): {diagnostic}");
+                Some(search_quals)
+            }
+            HybridExtractionResult::NotUsable(diagnostic) => {
+                pgrx::warning!("Cannot use join quals (hybrid): {diagnostic}");
                 None
             }
-            VariableScopeAnalysis::PartiallySafe(diagnostic, salvageable_parts) => {
-                pgrx::warning!("Partially accepting join quals (scope analysis): {diagnostic}");
-                // Attempt to salvage the safe parts
-                if salvageable_parts > 0 {
-                    Self::decompose_condition_for_pushdown(quals, target_rti, root)
-                } else {
-                    None
+        }
+    }
+
+    /// Extracts safe search predicates using hybrid query building approach.
+    ///
+    /// This function aggressively extracts any search predicates that can be safely
+    /// evaluated, building partial queries that maximize BM25 scoring opportunities.
+    unsafe fn extract_safe_search_predicates(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> HybridExtractionResult {
+        match quals {
+            // Direct search operations - highest priority for extraction
+            Qual::OpExpr { lhs, opno, val } => {
+                let scope_info = Self::analyze_node_variable_scope(*lhs, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        "OpExpr targets only our relation - fully usable".to_string(),
+                    ),
+                    NodeScopeInfo::ExternalRelations(_) => HybridExtractionResult::NotUsable(
+                        "OpExpr references external relations only".to_string(),
+                    ),
+                    NodeScopeInfo::Mixed(target_vars, external_vars) => {
+                        // For mixed scope, we can't use this specific OpExpr but might extract parts
+                        HybridExtractionResult::NotUsable(format!(
+                            "OpExpr has mixed scope ({target_vars} target, {external_vars} external) - cannot extract"
+                        ))
+                    }
+                    NodeScopeInfo::NoVariables => HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        "OpExpr has no variable dependencies - fully usable".to_string(),
+                    ),
                 }
             }
-            VariableScopeAnalysis::RequiresJoinEvaluation(diagnostic) => {
-                pgrx::warning!("Rejecting join quals (requires join evaluation): {diagnostic}");
-                None
+
+            // AND expressions - extract all safe search predicates
+            Qual::And(clauses) => {
+                let mut safe_search_predicates = Vec::new();
+                let mut safe_other_predicates = Vec::new();
+                let mut rejected_predicates = 0;
+
+                for clause in clauses {
+                    match Self::extract_safe_search_predicates(clause, target_rti, root) {
+                        HybridExtractionResult::FullyUsable(safe_qual, _) => {
+                            if Self::is_search_predicate(&safe_qual) {
+                                safe_search_predicates.push(safe_qual);
+                            } else {
+                                safe_other_predicates.push(safe_qual);
+                            }
+                        }
+                        HybridExtractionResult::PartiallyUsable(safe_qual, _) => {
+                            if Self::is_search_predicate(&safe_qual) {
+                                safe_search_predicates.push(safe_qual);
+                            }
+                        }
+                        HybridExtractionResult::SearchOnlyUsable(search_qual, _) => {
+                            safe_search_predicates.push(search_qual);
+                        }
+                        HybridExtractionResult::NotUsable(_) => {
+                            rejected_predicates += 1;
+                        }
+                    }
+                }
+
+                // Build result based on what we extracted
+                if !safe_search_predicates.is_empty() {
+                    let search_count = safe_search_predicates.len();
+                    let other_count = safe_other_predicates.len();
+                    let total_clauses = clauses.len();
+
+                    if rejected_predicates == 0 && safe_other_predicates.is_empty() {
+                        // All predicates are search predicates and safe
+                        let extracted_qual = if search_count == 1 {
+                            safe_search_predicates.into_iter().next().unwrap()
+                        } else {
+                            Qual::And(safe_search_predicates)
+                        };
+                        HybridExtractionResult::FullyUsable(
+                            extracted_qual,
+                            format!("AND: extracted all {total_clauses} search predicates"),
+                        )
+                    } else if safe_other_predicates.is_empty() {
+                        // Only search predicates, some rejected
+                        let extracted_qual = if search_count == 1 {
+                            safe_search_predicates.into_iter().next().unwrap()
+                        } else {
+                            Qual::And(safe_search_predicates)
+                        };
+                        HybridExtractionResult::SearchOnlyUsable(
+                            extracted_qual,
+                            format!(
+                                "AND: extracted {search_count} search predicates, {rejected_predicates} rejected"
+                            ),
+                        )
+                    } else {
+                        // Combine search and non-search safe predicates
+                        let mut all_safe = safe_search_predicates;
+                        all_safe.extend(safe_other_predicates);
+                        let all_safe_count = search_count + other_count;
+
+                        let combined_qual = if all_safe_count == 1 {
+                            all_safe.into_iter().next().unwrap()
+                        } else {
+                            Qual::And(all_safe)
+                        };
+
+                        HybridExtractionResult::PartiallyUsable(
+                            combined_qual,
+                            format!(
+                                "AND: extracted {all_safe_count} safe predicates, {rejected_predicates} rejected"
+                            ),
+                        )
+                    }
+                } else {
+                    HybridExtractionResult::NotUsable(format!(
+                        "AND: no extractable search predicates from {} clauses",
+                        clauses.len()
+                    ))
+                }
             }
+
+            // OR expressions - can only extract if ALL clauses are safe for target relation
+            Qual::Or(clauses) => {
+                let mut all_safe_for_target = true;
+                let mut has_search_predicates = false;
+
+                for clause in clauses {
+                    match Self::extract_safe_search_predicates(clause, target_rti, root) {
+                        HybridExtractionResult::FullyUsable(ref safe_qual, _) => {
+                            if Self::is_search_predicate(safe_qual) {
+                                has_search_predicates = true;
+                            }
+                        }
+                        HybridExtractionResult::SearchOnlyUsable(_, _) => {
+                            has_search_predicates = true;
+                        }
+                        _ => {
+                            all_safe_for_target = false;
+                            break;
+                        }
+                    }
+                }
+
+                if all_safe_for_target && has_search_predicates {
+                    HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        format!(
+                            "OR: all {} clauses are safe for target relation",
+                            clauses.len()
+                        ),
+                    )
+                } else {
+                    HybridExtractionResult::NotUsable(format!(
+                        "OR: requires all clauses to be safe (safe_target: {all_safe_for_target}, has_search: {has_search_predicates})"
+                    ))
+                }
+            }
+
+            // NOT expressions - can extract if inner condition is safe
+            Qual::Not(inner_qual) => {
+                match Self::extract_safe_search_predicates(inner_qual, target_rti, root) {
+                    HybridExtractionResult::FullyUsable(safe_qual, _) => {
+                        HybridExtractionResult::FullyUsable(
+                            Qual::Not(Box::new(safe_qual)),
+                            "NOT: inner condition is fully safe".to_string(),
+                        )
+                    }
+                    HybridExtractionResult::SearchOnlyUsable(search_qual, _) => {
+                        HybridExtractionResult::SearchOnlyUsable(
+                            Qual::Not(Box::new(search_qual)),
+                            "NOT: inner search condition is safe".to_string(),
+                        )
+                    }
+                    _ => HybridExtractionResult::NotUsable(
+                        "NOT: inner condition is not extractable".to_string(),
+                    ),
+                }
+            }
+
+            // Always safe predicates - extract directly
+            Qual::PushdownExpr { .. }
+            | Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. } => HybridExtractionResult::FullyUsable(
+                quals.clone(),
+                "Pushdown predicate - fully safe".to_string(),
+            ),
+
+            // Heap expressions - extract if they reference target relation
+            Qual::HeapExpr { expr_node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*expr_node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        "HeapExpr references target relation only".to_string(),
+                    ),
+                    _ => HybridExtractionResult::NotUsable(
+                        "HeapExpr has external dependencies".to_string(),
+                    ),
+                }
+            }
+
+            // Unsafe predicates - cannot extract
+            Qual::ExternalVar | Qual::ExternalExpr => HybridExtractionResult::NotUsable(
+                "External variable/expression - cannot extract".to_string(),
+            ),
+
+            // Score expressions - extract if safe
+            Qual::ScoreExpr { value, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*value, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        HybridExtractionResult::SearchOnlyUsable(
+                            quals.clone(),
+                            "ScoreExpr is safe search predicate".to_string(),
+                        )
+                    }
+                    _ => HybridExtractionResult::NotUsable(
+                        "ScoreExpr has external dependencies".to_string(),
+                    ),
+                }
+            }
+
+            // Generic expressions - analyze scope
+            Qual::Expr { node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        "Expr references target relation only".to_string(),
+                    ),
+                    NodeScopeInfo::NoVariables => HybridExtractionResult::FullyUsable(
+                        quals.clone(),
+                        "Expr has no variable dependencies".to_string(),
+                    ),
+                    _ => HybridExtractionResult::NotUsable(
+                        "Expr has external dependencies".to_string(),
+                    ),
+                }
+            }
+
+            // Always safe
+            Qual::All => HybridExtractionResult::FullyUsable(
+                quals.clone(),
+                "All predicate - always safe".to_string(),
+            ),
+        }
+    }
+
+    /// Checks if a qualifier contains search predicates (uses our @@@ operator or related).
+    unsafe fn is_search_predicate(qual: &Qual) -> bool {
+        match qual {
+            Qual::OpExpr { opno, .. } => {
+                // Check if this is our search operator
+                *opno == anyelement_query_input_opoid()
+            }
+            Qual::ScoreExpr { .. } => true,
+            Qual::And(clauses) | Qual::Or(clauses) => clauses
+                .iter()
+                .any(|clause| Self::is_search_predicate(clause)),
+            Qual::Not(inner) => Self::is_search_predicate(inner),
+            _ => false,
         }
     }
 

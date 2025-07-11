@@ -27,7 +27,14 @@ ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pus
 
 ### Inverted Index
 
+Full text search in ParadeDB is backed by an inverted index.
+
+An inverted index is a structure that maps each term (i.e., tokenized word) to a list of documents that contain that term, along with metadata like term frequency and document frequency.
+This structure allows ParadeDB to efficiently retrieve all documents matching a particular search term or phrase without scanning the entire table.
+
 ### Columnar Index
+
+Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format.
 
 ### LSM Tree
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752242290466,
+  "lastUpdate": 1752242298595,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -204,6 +204,40 @@ window.BENCHMARK_DATA = {
             "value": 200.95279863069567,
             "unit": "median tps",
             "extra": "avg tps: 205.07650664493136, max tps: 238.30423395993574, count: 59156"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242297691,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.530638674566504,
+            "unit": "median tps",
+            "extra": "avg tps: 38.54578320184089, max tps: 39.69305130939306, count: 59169"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 203.3153258696447,
+            "unit": "median tps",
+            "extra": "avg tps: 204.12094986004436, max tps: 236.93919046235746, count: 59169"
           }
         ]
       }

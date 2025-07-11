@@ -43,7 +43,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark ${{ matrix.dataset }} on pg_search
-    runs-on: ubicloud-premium-30-ubuntu-2404
+    runs-on: depot-ubuntu-24.04-32
     strategy:
       matrix:
         dataset: ["single", "join"]

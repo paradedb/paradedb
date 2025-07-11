@@ -68,7 +68,9 @@ CREATE INDEX ON books USING bm25 (
 SELECT
     b.id as book_id,
     paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
@@ -78,7 +80,8 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
 SELECT
     a.id as author_id,
     paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score
 FROM authors a
 WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50';
 
@@ -86,7 +89,8 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50';
 SELECT
     b.id as book_id,
     paradedb.snippet(b.content) as content_snippet,
-    paradedb.snippet_positions(b.content) as content_positions
+    paradedb.snippet_positions(b.content) as content_positions,
+    paradedb.score(b.id) as book_score
 FROM books b
 WHERE b.content @@@ 'test';
 
@@ -111,7 +115,9 @@ SELECT
     paradedb.snippet(a.name) as author_snippet,
     paradedb.snippet(b.content) as content_snippet,
     paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.snippet_positions(b.content) as content_positions
+    paradedb.snippet_positions(b.content) as content_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
@@ -133,7 +139,9 @@ WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
 SELECT
     b.id as book_id,
     a.name as author_name,
-    paradedb.snippet(a.name) as author_snippet
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';

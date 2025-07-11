@@ -206,9 +206,9 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
 WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fba7c06baa8, opno: 56500, val: 0x7fba7c094ad8 }, HeapExpr { expr_node: 0x7fba7c097868, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
+WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fc44280caa8, opno: 59572, val: 0x7fc4428152d8 }, HeapExpr { expr_node: 0x7fc442818068, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
 WARNING:  OR decomposition (partial): OR condition: extracted 1 predicates (0 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(HeapExpr { expr_node: 0x7fba7c097958, expr_desc: "OpExpr with operator OID 96", search_query_input: All })
+WARNING:  quals: Some(HeapExpr { expr_node: 0x7fc442818158, expr_desc: "OpExpr with operator OID 96", search_query_input: All })
         a_content         | a_value |          b_content           | b_priority |  a_score  | b_score 
 --------------------------+---------+------------------------------+------------+-----------+---------
  laptop computer powerful |     200 | advanced features smartphone |          1 | 1.2039728 |       0
@@ -272,7 +272,7 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
 WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(OpExpr { lhs: 0x7fba7d0819f8, opno: 56500, val: 0x7fba7d083a30 })
+WARNING:  quals: Some(OpExpr { lhs: 0x7fc441811ff8, opno: 59572, val: 0x7fc441814030 })
 WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
            a_content            |          b_content           |  a_score  | b_score 
 --------------------------------+------------------------------+-----------+---------

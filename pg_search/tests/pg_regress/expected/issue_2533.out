@@ -282,9 +282,9 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
-WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
-WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
+WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
+WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
+WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
  count | count 
 -------+-------
     13 |    13

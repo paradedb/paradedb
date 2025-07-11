@@ -162,11 +162,12 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
+WARNING:  quals: Some(OpExpr { lhs: 0x7fc45182ffd0, opno: 59572, val: 0x7fc451831f78 })
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            0 |           
-       2 | Stephen King |    2.5308118 |           
+       1 | J.K. Rowling |            0 | 0.44333255
+       2 | Stephen King |    2.5308118 |  0.7432616
 (2 rows)
 
 -- Test score comparison - direct vs join query
@@ -225,7 +226,7 @@ SELECT
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60;
-WARNING:  Cannot use join quals (hybrid): AND: no extractable search predicates from 2 clauses
+WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
  author_id |   author_name   | author_score | book_score 
 -----------+-----------------+--------------+------------
          2 | Stephen King    |              |          0

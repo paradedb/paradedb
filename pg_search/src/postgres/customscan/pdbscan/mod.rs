@@ -131,6 +131,43 @@ pub enum HybridExtractionResult {
     NotUsable(String), // diagnostic
 }
 
+/// Result of cross-table OR condition decomposition for relation-specific extraction
+#[derive(Debug, Clone)]
+pub enum OrDecompositionResult {
+    /// All OR clauses can be extracted for the target relation
+    FullyExtractable(Qual, String), // extracted_quals, diagnostic
+    /// Some OR clauses can be extracted, others remain for join evaluation
+    PartiallyExtractable(Qual, String), // partial_quals, diagnostic
+    /// Only search predicates can be extracted from OR clauses
+    SearchOnlyExtractable(Qual, String), // search_quals, diagnostic
+    /// No OR clauses can be safely extracted for the target relation
+    NotExtractable(String), // diagnostic
+}
+
+/// Analysis result for individual OR clauses in relation to target relation
+#[derive(Debug, Clone)]
+pub enum OrClauseAnalysis {
+    /// Clause is a search predicate targeting the target relation
+    TargetRelationSearchPredicate(Qual),
+    /// Clause is a non-search predicate targeting the target relation
+    TargetRelationNonSearchPredicate(Qual),
+    /// Clause involves other relations (cross-table predicate)
+    CrossTablePredicate,
+    /// Clause contains unsafe references and cannot be decomposed
+    UnsafePredicate,
+}
+
+/// Scope analysis for predicates in relation to target relation
+#[derive(Debug, Clone)]
+pub enum PredicateScope {
+    /// Predicate only references the target relation
+    TargetRelationOnly,
+    /// Predicate references multiple relations (cross-table)
+    CrossTable,
+    /// Predicate contains unsafe references
+    Unsafe,
+}
+
 #[derive(Default)]
 pub struct PdbScan;
 
@@ -331,38 +368,39 @@ impl PdbScan {
         }
     }
 
-    /// Enhanced validation with hybrid query building for maximum custom scan utilization.
+    /// Enhanced validation with OR condition decomposition for cross-table search queries.
     ///
-    /// This function implements a hybrid approach:
-    /// 1. Analyzes conditions to extract safe search predicates
-    /// 2. Builds partial BM25 queries from safe parts
-    /// 3. Allows PostgreSQL to handle remaining conditions via heap filtering
-    /// 4. Maximizes custom scan usage while maintaining correctness
+    /// This function implements sophisticated OR decomposition:
+    /// 1. Detects OR conditions spanning multiple relations (e.g., a.col1 @@@ 'test1' OR b.col2 @@@ 'test2')
+    /// 2. Safely decomposes them by extracting relation-specific search predicates
+    /// 3. Pushes down the relevant parts to each relation for BM25 scoring
+    /// 4. Allows PostgreSQL to handle the full OR condition at join level for correctness
     ///
-    /// Returns a partial query if any search predicates can be safely extracted, None otherwise.
+    /// This enables BM25 scoring for cross-table OR queries while maintaining semantic correctness.
     unsafe fn validate_and_filter_join_quals(
         quals: &Qual,
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        // Extract safe search predicates using hybrid approach
-        let hybrid_result = Self::extract_safe_search_predicates(quals, target_rti, root);
+        // Apply OR decomposition strategy
+        let decomposition_result =
+            Self::decompose_cross_table_or_conditions(quals, target_rti, root);
 
-        match hybrid_result {
-            HybridExtractionResult::FullyUsable(safe_quals, diagnostic) => {
-                pgrx::warning!("Using full join quals (hybrid): {diagnostic}");
-                Some(safe_quals)
+        match decomposition_result {
+            OrDecompositionResult::FullyExtractable(extracted_quals, diagnostic) => {
+                pgrx::warning!("OR decomposition (full): {diagnostic}");
+                Some(extracted_quals)
             }
-            HybridExtractionResult::PartiallyUsable(safe_quals, diagnostic) => {
-                pgrx::warning!("Using partial join quals (hybrid): {diagnostic}");
-                Some(safe_quals)
+            OrDecompositionResult::PartiallyExtractable(extracted_quals, diagnostic) => {
+                pgrx::warning!("OR decomposition (partial): {diagnostic}");
+                Some(extracted_quals)
             }
-            HybridExtractionResult::SearchOnlyUsable(search_quals, diagnostic) => {
-                pgrx::warning!("Using search-only join quals (hybrid): {diagnostic}");
+            OrDecompositionResult::SearchOnlyExtractable(search_quals, diagnostic) => {
+                pgrx::warning!("OR decomposition (search-only): {diagnostic}");
                 Some(search_quals)
             }
-            HybridExtractionResult::NotUsable(diagnostic) => {
-                pgrx::warning!("Cannot use join quals (hybrid): {diagnostic}");
+            OrDecompositionResult::NotExtractable(diagnostic) => {
+                pgrx::warning!("OR decomposition (rejected): {diagnostic}");
                 None
             }
         }
@@ -1255,6 +1293,237 @@ impl PdbScan {
         }
 
         quals.clone()
+    }
+
+    /// Decomposes cross-table OR conditions into relation-specific search predicates.
+    ///
+    /// This function implements the core OR decomposition strategy:
+    /// - For `a.col1 @@@ 'test1' OR b.col2 @@@ 'test2'`, extracts `a.col1 @@@ 'test1'` for relation `a`
+    /// - For `a.col1 @@@ 'test1' OR b.col2 @@@ 'test2' OR c.col3 @@@ 'test3'`, extracts `a.col1 @@@ 'test1'` for relation `a`
+    /// - Handles nested AND/OR combinations intelligently
+    /// - Maintains safety by only extracting provably safe predicates
+    unsafe fn decompose_cross_table_or_conditions(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> OrDecompositionResult {
+        match quals {
+            // Core OR decomposition logic
+            Qual::Or(clauses) => {
+                let mut target_relation_predicates = Vec::new();
+                let mut cross_table_predicates = 0;
+                let mut non_search_predicates = 0;
+                let total_clauses = clauses.len();
+
+                for clause in clauses {
+                    let clause_analysis =
+                        Self::analyze_or_clause_for_target_relation(clause, target_rti, root);
+
+                    match clause_analysis {
+                        OrClauseAnalysis::TargetRelationSearchPredicate(search_qual) => {
+                            target_relation_predicates.push(search_qual);
+                        }
+                        OrClauseAnalysis::TargetRelationNonSearchPredicate(non_search_qual) => {
+                            target_relation_predicates.push(non_search_qual);
+                            non_search_predicates += 1;
+                        }
+                        OrClauseAnalysis::CrossTablePredicate => {
+                            cross_table_predicates += 1;
+                        }
+                        OrClauseAnalysis::UnsafePredicate => {
+                            // For OR conditions, unsafe predicates don't prevent decomposition
+                            // We just don't extract them for this relation
+                        }
+                    }
+                }
+
+                // Determine decomposition result based on what we found
+                if target_relation_predicates.is_empty() {
+                    OrDecompositionResult::NotExtractable(format!(
+                        "OR condition: no extractable predicates for target relation (checked {total_clauses} clauses)"
+                    ))
+                } else {
+                    let target_predicates_count = target_relation_predicates.len();
+                    let extracted_qual = if target_predicates_count == 1 {
+                        target_relation_predicates.into_iter().next().unwrap()
+                    } else {
+                        // Multiple predicates for target relation - combine with OR
+                        Qual::Or(target_relation_predicates)
+                    };
+
+                    let search_only_count = target_predicates_count - non_search_predicates;
+
+                    if cross_table_predicates == 0 && non_search_predicates == 0 {
+                        // All clauses are search predicates for target relation
+                        OrDecompositionResult::FullyExtractable(
+                            extracted_qual,
+                            format!("OR condition: extracted all {target_predicates_count} search predicates for target relation")
+                        )
+                    } else if non_search_predicates == 0 {
+                        // Only search predicates, but some cross-table clauses exist
+                        OrDecompositionResult::SearchOnlyExtractable(
+                            extracted_qual,
+                            format!(
+                                "OR condition: extracted {search_only_count} search predicates, {cross_table_predicates} cross-table clauses remain for join evaluation"
+                            )
+                        )
+                    } else {
+                        // Mix of search and non-search predicates
+                        OrDecompositionResult::PartiallyExtractable(
+                            extracted_qual,
+                            format!(
+                                "OR condition: extracted {target_predicates_count} predicates ({search_only_count} search, {non_search_predicates} non-search), {cross_table_predicates} cross-table clauses remain"
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Single predicates - check if they can be directly extracted
+            _ => {
+                let scope_info = Self::analyze_predicate_scope(quals, target_rti, root);
+                match scope_info {
+                    PredicateScope::TargetRelationOnly => {
+                        if Self::is_search_predicate(quals) {
+                            OrDecompositionResult::SearchOnlyExtractable(
+                                quals.clone(),
+                                "Single search predicate for target relation".to_string(),
+                            )
+                        } else {
+                            OrDecompositionResult::FullyExtractable(
+                                quals.clone(),
+                                "Single predicate for target relation".to_string(),
+                            )
+                        }
+                    }
+                    PredicateScope::CrossTable => OrDecompositionResult::NotExtractable(
+                        "Single predicate spans multiple relations".to_string(),
+                    ),
+                    PredicateScope::Unsafe => OrDecompositionResult::NotExtractable(
+                        "Single predicate contains unsafe references".to_string(),
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Analyzes a single OR clause to determine its relationship to the target relation.
+    unsafe fn analyze_or_clause_for_target_relation(
+        clause: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> OrClauseAnalysis {
+        match clause {
+            // Direct search operations
+            Qual::OpExpr { lhs, opno, .. } => {
+                // Check if this is our search operator
+                if *opno == anyelement_query_input_opoid() {
+                    let scope_info = Self::analyze_node_variable_scope(*lhs, target_rti, root);
+                    match scope_info {
+                        NodeScopeInfo::TargetRelationOnly => {
+                            OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                        }
+                        NodeScopeInfo::ExternalRelations(_) => {
+                            OrClauseAnalysis::CrossTablePredicate
+                        }
+                        NodeScopeInfo::Mixed(_, _) => OrClauseAnalysis::UnsafePredicate,
+                        NodeScopeInfo::NoVariables => {
+                            OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                        }
+                    }
+                } else {
+                    // Non-search operator
+                    let scope_info = Self::analyze_node_variable_scope(*lhs, target_rti, root);
+                    match scope_info {
+                        NodeScopeInfo::TargetRelationOnly => {
+                            OrClauseAnalysis::TargetRelationNonSearchPredicate(clause.clone())
+                        }
+                        NodeScopeInfo::ExternalRelations(_) => {
+                            OrClauseAnalysis::CrossTablePredicate
+                        }
+                        NodeScopeInfo::Mixed(_, _) => OrClauseAnalysis::UnsafePredicate,
+                        NodeScopeInfo::NoVariables => {
+                            OrClauseAnalysis::TargetRelationNonSearchPredicate(clause.clone())
+                        }
+                    }
+                }
+            }
+
+            // Score expressions
+            Qual::ScoreExpr { value, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*value, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                    }
+                    _ => OrClauseAnalysis::CrossTablePredicate,
+                }
+            }
+
+            // Unsafe patterns
+            Qual::ExternalVar | Qual::ExternalExpr => OrClauseAnalysis::UnsafePredicate,
+
+            // Other expressions - analyze their scope
+            _ => {
+                let scope = Self::analyze_predicate_scope(clause, target_rti, root);
+                match scope {
+                    PredicateScope::TargetRelationOnly => {
+                        if Self::is_search_predicate(clause) {
+                            OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                        } else {
+                            OrClauseAnalysis::TargetRelationNonSearchPredicate(clause.clone())
+                        }
+                    }
+                    PredicateScope::CrossTable => OrClauseAnalysis::CrossTablePredicate,
+                    PredicateScope::Unsafe => OrClauseAnalysis::UnsafePredicate,
+                }
+            }
+        }
+    }
+
+    /// Analyzes the scope of a predicate to determine if it's safe for extraction.
+    unsafe fn analyze_predicate_scope(
+        predicate: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> PredicateScope {
+        match predicate {
+            Qual::OpExpr { lhs, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*lhs, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        PredicateScope::TargetRelationOnly
+                    }
+                    NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
+                    NodeScopeInfo::Mixed(_, _) => PredicateScope::Unsafe,
+                }
+            }
+            Qual::HeapExpr { expr_node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*expr_node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly => PredicateScope::TargetRelationOnly,
+                    _ => PredicateScope::CrossTable,
+                }
+            }
+            Qual::ScoreExpr { value, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*value, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        PredicateScope::TargetRelationOnly
+                    }
+                    _ => PredicateScope::CrossTable,
+                }
+            }
+            Qual::ExternalVar | Qual::ExternalExpr => PredicateScope::Unsafe,
+            Qual::PushdownExpr { .. }
+            | Qual::PushdownVarEqTrue { .. }
+            | Qual::PushdownVarEqFalse { .. }
+            | Qual::PushdownVarIsTrue { .. }
+            | Qual::PushdownVarIsFalse { .. }
+            | Qual::PushdownIsNotNull { .. } => PredicateScope::TargetRelationOnly,
+            Qual::All => PredicateScope::TargetRelationOnly,
+            _ => PredicateScope::Unsafe,
+        }
     }
 }
 

@@ -90,15 +90,14 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: true)
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
-               test_name                | product_name |                     review_content                     | product_score | review_score 
-----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
- Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |               |             
- Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming       |               |             
- Test 1b: OR expression safety analysis | Novel        | Captivating story with excellent character development |               |             
- Test 1b: OR expression safety analysis | Laptop       | Great laptop but a bit expensive for students          |               |             
-(4 rows)
+WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
+WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fc4718b8e80, opno: 59572, val: 0x7fc4718c2da0 }, HeapExpr { expr_node: 0x7fc4780515e0, expr_desc: "OpExpr with operator OID 1756", search_query_input: All }]))
+WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
+WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fc4718c5a40, opno: 59572, val: 0x7fc4718c80c8 }, HeapExpr { expr_node: 0x7fc4780516d0, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
+               test_name                | product_name |                  review_content                  | product_score | review_score 
+----------------------------------------+--------------+--------------------------------------------------+---------------+--------------
+ Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming |      1.257669 |    0.8754688
+(1 row)
 
 -- =============================================================================
 -- BENEFIT 2: Intelligent Partial Salvage of AND Expressions
@@ -208,7 +207,7 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
+WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |              

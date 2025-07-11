@@ -67,8 +67,9 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: true)
-WARNING:  Cannot use join quals (hybrid): OR: requires all clauses to be safe (safe_target: false, has_search: false)
+WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
+WARNING:  quals: Some(OpExpr { lhs: 0x7fc461814d28, opno: 59572, val: 0x7fc46181ba68 })
  id | id 
 ----+----
   1 |  1

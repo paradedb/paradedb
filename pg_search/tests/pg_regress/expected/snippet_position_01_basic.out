@@ -22,8 +22,6 @@ CREATE INDEX ON snippet_test USING bm25 (
 SELECT id, paradedb.snippet(content), paradedb.snippet_positions(content)
 FROM snippet_test
 WHERE content @@@ 'test' OR content @@@ 'snippet';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |                                                                         snippet                                                                          |             snippet_positions             
 ----+----------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------
   1 | This is a <b>test</b> <b>test</b> of the <b>snippet</b> function with multiple <b>test</b> words                                                         | {"{10,14}","{15,19}","{27,34}","{58,62}"}
@@ -35,8 +33,6 @@ WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicat
 SELECT id, paradedb.snippet(titles), paradedb.snippet_positions(titles)
 FROM snippet_test
 WHERE titles @@@ 'test' OR titles @@@ 'snippet';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |                snippet                 |      snippet_positions       
 ----+----------------------------------------+------------------------------
   1 | <b>test</b> <b>snippet</b> function    | {"{0,4}","{5,12}"}
@@ -50,8 +46,6 @@ FROM snippet_test
 WHERE titles @@@ 'test' OR content @@@ 'ipsum'
 ORDER BY score DESC
 LIMIT 5;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |                                                                     content_snippet                                                                      | content_snippet_positions |          titles_snippet          | titles_snippet_positions |   score    
 ----+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------+----------------------------------+--------------------------+------------
   4 | test Lorem <b>ipsum</b> dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{11,16}","{860,865}"}   | <b>test</b> snippet function     | {"{0,4}"}                |  1.0748948
@@ -65,8 +59,6 @@ FROM snippet_test
 WHERE titles @@@ 'test' OR content @@@ 'ipsum'
 ORDER BY id ASC
 LIMIT 5;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |                                                                     content_snippet                                                                      | content_snippet_positions |          titles_snippet          | titles_snippet_positions |   score    
 ----+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------+----------------------------------+--------------------------+------------
   1 |                                                                                                                                                          |                           | <b>test</b> snippet function     | {"{0,4}"}                | 0.10536056

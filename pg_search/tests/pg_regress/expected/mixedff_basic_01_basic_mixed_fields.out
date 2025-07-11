@@ -49,8 +49,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT numeric_field1, numeric_field2, string_field1, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red';
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                    QUERY PLAN                                                                   
 ------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mixed_numeric_string_test
@@ -68,8 +66,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 SELECT numeric_field1, numeric_field2, string_field1, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red';
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  numeric_field1 | numeric_field2 | string_field1 | string_field2 
 ----------------+----------------+---------------+---------------
             100 |          10000 | Apple         | Red

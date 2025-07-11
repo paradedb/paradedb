@@ -40,8 +40,6 @@ SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -58,8 +56,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 (11 rows)
 
 select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  assert | count 
 --------+-------
  t      |     8
@@ -67,8 +63,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -85,8 +79,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 (11 rows)
 
 select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  assert | count | max 
 --------+-------+-----
  t      |     8 |  11
@@ -94,8 +86,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -112,8 +102,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 (11 rows)
 
 select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  assert | count | max 
 --------+-------+-----
  t      |     8 |  12

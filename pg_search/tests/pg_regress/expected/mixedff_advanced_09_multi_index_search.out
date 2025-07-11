@@ -143,14 +143,6 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
 ('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
 ('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
 ('page2', 'file1', 2, 'Page 2 of Invoice PDF with payment information'),
@@ -158,18 +150,6 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create recursive CTE test data
 CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
@@ -195,18 +175,6 @@ INSERT INTO categories (name, description, parent_id) VALUES
 ('Food', 'Edible products', NULL),
 ('Dairy', 'Milk and dairy products', 7),
 ('Bakery', 'Bread and baked goods', 7);
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create products for multi-index search
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -231,18 +199,6 @@ INSERT INTO products (name, category_id, price) VALUES
 ('Women''s Dress', 6, 199.99),
 ('Milk Carton', 8, 3.99),
 ('Bread Loaf', 9, 5.99);
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
-psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create table for type conversion testing
 CREATE TABLE conversion_test (
     id TEXT PRIMARY KEY,
@@ -478,10 +434,6 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 4
-WARNING:  OR decomposition (full): Single predicate for target relation
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -514,10 +466,6 @@ JOIN categories c ON pc.category_id = c.id
 WHERE p.name @@@ 'Product' AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 4
-WARNING:  OR decomposition (full): Single predicate for target relation
     name     | price |    category    
 -------------+-------+----------------
  Product 100 |  1050 | Electronics
@@ -540,10 +488,6 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 2
-WARNING:  OR decomposition (full): Single predicate for target relation
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -571,10 +515,6 @@ JOIN reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'product' AND r.rating >= 4
 ORDER BY r.helpful_votes DESC
 LIMIT 5;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 2
-WARNING:  OR decomposition (full): Single predicate for target relation
     name    | rating |                  content                   
 ------------+--------+--------------------------------------------
  Product 10 |      5 | Terrible product, complete waste of money!
@@ -631,12 +571,6 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 6
-WARNING:  OR decomposition (full): Single predicate for target relation
                                                                                                                                                                                                                                    QUERY PLAN                                                                                                                                                                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -695,12 +629,6 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 6
-WARNING:  OR decomposition (full): Single predicate for target relation
     name    | price |     avg_rating     |    category    
 ------------+-------+--------------------+----------------
  Product 19 |   240 | 4.0000000000000000 | Outdoors
@@ -725,12 +653,6 @@ SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
 WHERE content @@@ 'great'
 ORDER BY type, item_name;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                                                                                       QUERY PLAN                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -768,12 +690,6 @@ SELECT 'Review' as type, reviewer_name as item_name, content
 FROM reviews
 WHERE content @@@ 'great'
 ORDER BY type, item_name;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
   type   |  item_name  |                                      content                                      
 ---------+-------------+-----------------------------------------------------------------------------------
  Product | Product 10  | Description for product 10. This product has various features and specifications.
@@ -832,10 +748,6 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
-WARNING:  Detected SEMI/ANTI JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (full): OUTER JOIN: single predicate for target relation
-WARNING:  Detected SEMI/ANTI JOIN involving relation 4 - disabling OR optimization
-WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
                                                                                        QUERY PLAN                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -870,10 +782,6 @@ WHERE p.id IN (
 AND p.stock_count > 50
 AND p.price < 500
 ORDER BY p.price;
-WARNING:  Detected SEMI/ANTI JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (full): OUTER JOIN: single predicate for target relation
-WARNING:  Detected SEMI/ANTI JOIN involving relation 4 - disabling OR optimization
-WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
     name    | price | stock_count 
 ------------+-------+-------------
  Product 27 |   320 |          54
@@ -910,8 +818,6 @@ ORDER BY
     END DESC,
     paradedb.score(p.id),
     p.price;
-WARNING:  Detected OUTER JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -955,8 +861,6 @@ ORDER BY
     END DESC,
     paradedb.score(p.id),
     p.price;
-WARNING:  Detected OUTER JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
     name    | price |  review_status  
 ------------+-------+-----------------
  Product 19 |   240 | Great reviews
@@ -1005,12 +909,6 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 2
-WARNING:  OR decomposition (full): Single predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 6
-WARNING:  OR decomposition (full): Single predicate for target relation
                                                                                                                                QUERY PLAN                                                                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1051,12 +949,6 @@ WHERE p.name @@@ 'Product'
   AND c.name = 'Electronics'
   AND p.is_available = true
 ORDER BY r.rating DESC, p.price DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 2
-WARNING:  OR decomposition (full): Single predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 6
-WARNING:  OR decomposition (full): Single predicate for target relation
  name | price | content | rating 
 ------+-------+---------+--------
 (0 rows)
@@ -1070,10 +962,6 @@ WHERE p.name @@@ 'Product 1'
   AND c.is_active = true
 ORDER BY p.price DESC
 LIMIT 5;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing Other for target_rti 4
-WARNING:  OR decomposition (full): Single predicate for target relation
     name     | price |  category   
 -------------+-------+-------------
  Product 100 |  1050 | Electronics

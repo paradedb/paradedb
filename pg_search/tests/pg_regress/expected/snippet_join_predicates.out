@@ -64,10 +64,6 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 2
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
        1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111 | 0.20342469
@@ -84,8 +80,6 @@ SELECT
     paradedb.score(a.id) as author_score
 FROM authors a
 WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50';
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
          1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111
@@ -99,8 +93,6 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 WHERE b.content @@@ 'test';
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  book_id |                                      content_snippet                                      |        content_positions        | book_score 
 ---------+-------------------------------------------------------------------------------------------+---------------------------------+------------
        1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"} | 0.20342469
@@ -134,10 +126,6 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 2
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |        content_positions        | author_score | book_score 
 ---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{5,12}"}       | {"{10,14}","{15,19}","{58,62}"} |    2.3042111 | 0.20342469
@@ -156,10 +144,6 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 2
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469
@@ -178,10 +162,6 @@ SELECT
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing OpExpr for target_rti 2
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469

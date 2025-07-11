@@ -142,8 +142,6 @@ SELECT id, string_field, numeric_field
 FROM nullable_test
 WHERE content @@@ 'null'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -164,8 +162,6 @@ SELECT id, string_field, numeric_field
 FROM nullable_test
 WHERE content @@@ 'null'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
   id   | string_field | numeric_field 
 -------+--------------+---------------
  null1 |              |              

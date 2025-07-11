@@ -45,8 +45,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   title    |                          valid_period                           
 ----+------------+-----------------------------------------------------------------
   1 | Product 1  | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
@@ -67,8 +65,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -88,8 +84,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   title    | quantity_range 
 ----+------------+----------------
  10 | Product 10 | [0,10)
@@ -110,8 +104,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -131,8 +123,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   title    | quantity_range |                          valid_period                           
 ----+------------+----------------+-----------------------------------------------------------------
  10 | Product 10 | [0,10)         | ["Wed Jan 11 00:00:00 2023 PST","Sat Feb 11 00:00:00 2023 PST")
@@ -153,8 +143,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY quantity_range, valid_period
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -174,8 +162,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   title    |  price   |                          valid_period                           
 ----+------------+----------+-----------------------------------------------------------------
   1 | Product 1  |  1000.00 | ["Mon Jan 02 00:00:00 2023 PST","Thu Feb 02 00:00:00 2023 PST")
@@ -196,8 +182,6 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price ASC, valid_period ASC
 LIMIT 10;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

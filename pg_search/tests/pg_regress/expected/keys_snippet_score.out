@@ -30,8 +30,6 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 Query with ORDER BY score DESC for BIGINT key
 SELECT id, paradedb.score(id) FROM bigint_test WHERE bigint_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   score    
 ----+------------
   3 | 0.61846066
@@ -47,8 +45,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 Query without score sorting for BIGINT key
 SELECT id, paradedb.score(id) FROM bigint_test WHERE bigint_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |   score    
 ----+------------
   1 | 0.53654534
@@ -66,10 +62,6 @@ SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE va
 UNION
 SELECT id, paradedb.snippet(value), paradedb.score(id) FROM bigint_test WHERE value @@@ 'tooth'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |         snippet          |   score    
 ----+--------------------------+------------
   1 | <b>blue</b>tooth         | 0.53654534
@@ -107,8 +99,6 @@ WARNING:  the `raw` tokenizer is deprecated
 Query with ORDER BY score DESC for UUID key
 SELECT CAST(id AS TEXT), paradedb.score(id) FROM uuid_test WHERE uuid_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                   id                  |   score    
 --------------------------------------+------------
  b5faacc0-9eba-441a-81f8-820b46a3b57e | 0.61846066
@@ -124,8 +114,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 Query without score sorting for UUID key
 SELECT CAST(id AS TEXT), paradedb.score(id) FROM uuid_test WHERE uuid_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                   id                  |   score    
 --------------------------------------+------------
  38bf27a0-1aa8-42cd-9cb0-993025e0b8d0 | 0.57459813
@@ -143,10 +131,6 @@ SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 
 UNION
 SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM uuid_test WHERE value @@@ 'tooth'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                   id                  |         snippet          
 --------------------------------------+--------------------------
  38bf27a0-1aa8-42cd-9cb0-993025e0b8d0 | <b>blue</b>bell
@@ -183,8 +167,6 @@ WITH (key_field='id', text_fields='{"value": {"tokenizer": {"type": "ngram", "mi
 Query with ORDER BY score DESC for TIMESTAMPTZ key
 SELECT CAST(id AS TEXT), paradedb.score(id) FROM timestamp_test WHERE timestamp_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY paradedb.score(id) DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
               id              |   score    
 ------------------------------+------------
  Fri May 05 10:11:12 2023 PDT | 0.61846066
@@ -200,8 +182,6 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 Query without score sorting for TIMESTAMPTZ key
 SELECT CAST(id AS TEXT), paradedb.score(id) FROM timestamp_test WHERE timestamp_test @@@ 
 paradedb.term(field => 'value', value => 'blue') ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
               id              |   score    
 ------------------------------+------------
  Fri May 05 10:11:12 2023 PDT | 0.61846066
@@ -219,10 +199,6 @@ SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value
 UNION
 SELECT CAST(id AS TEXT), paradedb.snippet(value) FROM timestamp_test WHERE value @@@ 'tooth'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
               id              |         snippet          
 ------------------------------+--------------------------
  Fri May 05 10:11:12 2023 PDT | jet<b>blue</b>

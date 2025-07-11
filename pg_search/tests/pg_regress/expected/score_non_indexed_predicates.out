@@ -51,8 +51,6 @@ SELECT
 FROM products 
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
                                                                                                                                                       QUERY PLAN                                                                                                                                                       
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -72,8 +70,6 @@ SELECT
 FROM products 
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |      name       |   score   
 ----+-----------------+-----------
   1 | Apple iPhone 14 | 2.5521502
@@ -92,8 +88,6 @@ SELECT
 FROM products 
 WHERE category_name = 'Electronics'
 ORDER BY id;
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
  id |      name       | category_name | score 
 ----+-----------------+---------------+-------
   2 | MacBook Pro     | Electronics   |      
@@ -111,8 +105,6 @@ SELECT
 FROM products 
 WHERE category_name = 'Electronics'
 ORDER BY id;
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
  id |      name       | category_name 
 ----+-----------------+---------------
   2 | MacBook Pro     | Electronics
@@ -133,11 +125,8 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
-                                                                                                                                                      QUERY PLAN                                                                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -145,7 +134,7 @@ WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicat
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Apple","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -157,16 +146,12 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
- id |      name       | category_name |   score   
-----+-----------------+---------------+-----------
-  1 | Apple iPhone 14 | Casual        | 2.5521502
-  7 | Apple Watch     | Electronics   | 1.6239789
-  4 | Samsung Galaxy  | Electronics   | 1.2838018
- 10 | Budget Phone    | Electronics   | 1.2838018
-(4 rows)
+ id |      name      | category_name |   score   
+----+----------------+---------------+-----------
+  7 | Apple Watch    | Electronics   | 1.6239789
+  4 | Samsung Galaxy | Electronics   | 1.2838018
+ 10 | Budget Phone   | Electronics   | 1.2838018
+(3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
@@ -178,8 +163,6 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 3 predicates (2 search, 1 non-search) for target relation only
                                                                                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -201,8 +184,6 @@ FROM products
 WHERE (name @@@ 'Apple' OR description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 3 predicates (2 search, 1 non-search) for target relation only
  id |      name       | category_name |   score   
 ----+-----------------+---------------+-----------
   1 | Apple iPhone 14 | Casual        | 2.5521502
@@ -223,8 +204,6 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search) for target relation only
                                                                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -246,8 +225,6 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search) for target relation only
  id |      name       | category_name |   score   
 ----+-----------------+---------------+-----------
   1 | Apple iPhone 14 | Casual        | 2.5521502
@@ -311,8 +288,6 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -334,8 +309,6 @@ FROM products
 WHERE description @@@ 'running' 
   AND price < 200.00
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |       name        | price  |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      | 149.99 | 1.2838018
@@ -354,8 +327,6 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -377,8 +348,6 @@ FROM products
 WHERE description @@@ 'technology' 
   AND in_stock = true
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |       name        | in_stock |   score   
 ----+-------------------+----------+-----------
   5 | Adidas Ultraboost | t        | 1.5177236
@@ -395,8 +364,6 @@ FROM products
 WHERE name @@@ 'MacBook' 
   AND description @@@ 'laptop'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                     QUERY PLAN                                                                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -418,8 +385,6 @@ FROM products
 WHERE name @@@ 'MacBook' 
   AND description @@@ 'laptop'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |    name     |               description               |  score   
 ----+-------------+-----------------------------------------+----------
   2 | MacBook Pro | Powerful Apple laptop for professionals | 4.319457
@@ -439,11 +404,8 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
-                                                                                                                                                     QUERY PLAN                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -451,7 +413,7 @@ WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicat
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1757 :opfuncid 1721 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1757"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 1755 :opfuncid 1723 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 -56 0 ]}) :location -1}","description":"OpExpr with operator OID 1755"}]}},{"heap_filter":{"indexed_query":{"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"shoes","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running","lenient":null,"conjunction_mode":null}}}}]}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 12 [ 48 0 0 0 70 111 111 116 119 101 97 114 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (8 rows)
 
 SELECT 
@@ -465,14 +427,11 @@ WHERE (name @@@ 'shoes' OR description @@@ 'running')
   AND category_name = 'Footwear'
   AND price BETWEEN 100.00 AND 200.00
 ORDER BY score DESC; 
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |       name        | category_name | price  |   score   
 ----+-------------------+---------------+--------+-----------
-  3 | Nike Air Max      | Footwear      | 149.99 | 1.2838018
-  5 | Adidas Ultraboost | Footwear      | 179.99 | 1.1921678
-  6 | Nike Normal       | Footwear      | 149.99 | 1.0432408
+  3 | Nike Air Max      | Footwear      | 149.99 | 3.8514054
+  5 | Adidas Ultraboost | Footwear      | 179.99 | 3.5765033
+  6 | Nike Normal       | Footwear      | 149.99 | 3.1297224
 (3 rows)
 
 -- Test Case 6: Multiple AND conditions with different data types
@@ -491,8 +450,6 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -518,8 +475,6 @@ WHERE description @@@ 'Apple'
   AND price > 500.00
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |    name     | category_id |  price  | category_name |  score   
 ----+-------------+-------------+---------+---------------+----------
   2 | MacBook Pro |           1 | 2499.99 | Electronics   | 4.903143
@@ -541,11 +496,8 @@ WHERE description @@@ 'smartphone'
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (0 search, 2 non-search) for target relation only
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -553,7 +505,7 @@ WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (0 se
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 -12 1 ]}) :location -1}","description":"OpExpr with operator OID 1754"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 32 3 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"smartphone","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 -12 1 ]}) :location -1}","description":"OpExpr with operator OID 1754"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}},{"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 32 3 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -569,19 +521,10 @@ WHERE description @@@ 'smartphone'
     (price > 800.00 AND category_name = 'Electronics')
   )
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (0 search, 2 non-search) for target relation only
- id |       name        |  price  | in_stock | score 
-----+-------------------+---------+----------+-------
-  2 | MacBook Pro       | 2499.99 | t        |     0
-  3 | Nike Air Max      |  149.99 | t        |     0
-  4 | Samsung Galaxy    |  899.99 | f        |     0
-  5 | Adidas Ultraboost |  179.99 | t        |     0
-  7 | Apple Watch       |  399.99 | t        |     0
-  8 | Sony Headphones   |  299.99 | t        |     0
-  9 | Running Socks     |   19.99 | t        |     0
-(7 rows)
+ id |      name      | price  | in_stock |   score   
+----+----------------+--------+----------+-----------
+  4 | Samsung Galaxy | 899.99 | f        | 1.2838018
+(1 row)
 
 -- Test Case 8: Real number (REAL) filtering
 -- Tests heap filtering with floating-point comparisons
@@ -595,8 +538,6 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -618,8 +559,6 @@ FROM products
 WHERE description @@@ 'running'
   AND rating >= 4.0
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |       name        | rating |   score   
 ----+-------------------+--------+-----------
   3 | Nike Air Max      |    4.2 | 1.2838018
@@ -638,8 +577,6 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                             
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -661,8 +598,6 @@ FROM products
 WHERE name @@@ 'phone'
   AND tags IS NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |     name     | tags |   score   
 ----+--------------+------+-----------
  10 | Budget Phone |      | 2.1528337
@@ -678,8 +613,6 @@ FROM products
 WHERE name @@@ 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search) for target relation only
                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                     
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -701,8 +634,6 @@ FROM products
 WHERE name @@@ 'phone'
   OR tags IS NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search) for target relation only
  id |     name      | tags |   score   
 ----+---------------+------+-----------
  10 | Budget Phone  |      | 2.1528337
@@ -721,8 +652,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -744,8 +673,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND tags IS NOT NULL
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |      name       |        tags        |   score   
 ----+-----------------+--------------------+-----------
   2 | MacBook Pro     | {laptop,apple}     | 1.6343809
@@ -769,11 +696,8 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 3 predicates (0 search, 3 non-search) for target relation only
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (paradedb.score(id)) DESC
    ->  Custom Scan (ParadeDB Scan) on products
@@ -781,7 +705,7 @@ WARNING:  OR decomposition (partial): OR condition: extracted 3 predicates (0 se
          Index: products_bm25_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1754"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"boolean":{"should":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1754 :opfuncid 1722 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 1700 :vartypmod 655366 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 4 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -127 100 0 ]}) :location -1}","description":"OpExpr with operator OID 1754"}]}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 98 :opfuncid 67 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 25 :vartypmod -1 :varcollid 100 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 15 [ 60 0 0 0 69 108 101 99 116 114 111 110 105 99 115 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}},{"boolean":{"must":["all"],"must_not":[{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{VAR :varno 1 :varattno 7 :vartype 16 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1}","description":"Boolean field_7 = true"}]}}]}}]}}]}}
 (8 rows)
 
 SELECT 
@@ -798,20 +722,10 @@ WHERE description @@@ 'technology'
     in_stock = false
   )
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (partial): OR condition: extracted 3 predicates (0 search, 3 non-search) for target relation only
- id |      name       |  price  | category_name | score 
-----+-----------------+---------+---------------+-------
-  2 | MacBook Pro     | 2499.99 | Electronics   |     0
-  4 | Samsung Galaxy  |  899.99 | Electronics   |     0
-  6 | Nike Normal     |  149.99 | Footwear      |     0
-  7 | Apple Watch     |  399.99 | Electronics   |     0
-  8 | Sony Headphones |  299.99 | Electronics   |     0
-  9 | Running Socks   |   19.99 | Footwear      |     0
- 10 | Budget Phone    |  199.99 | Electronics   |     0
- 11 | Budget Tablet   |  199.99 | Garbage       |     0
-(8 rows)
+ id |    name     | price  | category_name |   score   
+----+-------------+--------+---------------+-----------
+  6 | Nike Normal | 149.99 | Footwear      | 1.3281277
+(1 row)
 
 -- Test Case 12: Edge case - all tuples filtered out
 -- Tests behavior when heap filtering eliminates all results
@@ -825,8 +739,6 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -848,8 +760,6 @@ FROM products
 WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id | name | price | score 
 ----+------+-------+-------
 (0 rows)
@@ -867,8 +777,6 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (full): AND clause for target relation
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Sort
@@ -887,8 +795,6 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (full): AND clause for target relation
  id |       name        | price  | in_stock | score 
 ----+-------------------+--------+----------+-------
   3 | Nike Air Max      | 149.99 | t        |      
@@ -908,8 +814,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -931,8 +835,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND 'apple' = ANY(tags)
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |      name       |        tags        |   score   
 ----+-----------------+--------------------+-----------
   2 | MacBook Pro     | {laptop,apple}     | 1.6343809
@@ -951,8 +853,6 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -974,8 +874,6 @@ FROM products
 WHERE name @@@ 'Apple'
   AND created_at > '2024-01-01 00:00:00'::timestamp
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |      name       |        created_at        |   score   
 ----+-----------------+--------------------------+-----------
   7 | Apple Watch     | Wed Jan 01 12:00:00 2025 | 1.6239789
@@ -998,8 +896,6 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1025,8 +921,6 @@ WHERE description @@@ 'shoes'
   AND rating > 4.0
   AND category_id = 2
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |       name        | price  | rating | category_id |   score   
 ----+-------------------+--------+--------+-------------+-----------
   3 | Nike Air Max      | 149.99 |    4.2 |           2 | 3.8514054
@@ -1045,8 +939,6 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1068,8 +960,6 @@ FROM products
 WHERE description @@@ 'technology'
   AND category_name LIKE 'Elect%'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id | name | category_name | score 
 ----+------+---------------+-------
 (0 rows)
@@ -1092,8 +982,6 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1121,8 +1009,6 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
     (category_name = 'Electronics' AND rating > 4.5)
   )
 ORDER BY score DESC; 
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |      name       | price  | in_stock | rating |   score   
 ----+-----------------+--------+----------+--------+-----------
   1 | Apple iPhone 14 | 999.99 | t        |    4.5 | 2.5521502
@@ -1150,8 +1036,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1173,8 +1057,6 @@ FROM products
 WHERE description @@@ 'Apple'
   AND category_name = 'Electronics'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |    name     | category_name |   score   
 ----+-------------+---------------+-----------
   2 | MacBook Pro | Electronics   | 1.6343809
@@ -1217,8 +1099,6 @@ SELECT
 FROM products 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -1238,8 +1118,6 @@ SELECT
 FROM products 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |      name       |   score   
 ----+-----------------+-----------
   2 | MacBook Pro     | 1.6343809

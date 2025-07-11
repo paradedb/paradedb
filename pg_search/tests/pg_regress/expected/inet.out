@@ -4,16 +4,12 @@ CREATE TABLE tbl_inet (ip inet);
 CREATE INDEX idx_inet ON tbl_inet USING bm25 (ip) WITH (key_field = 'ip');
 INSERT INTO tbl_inet (ip) VALUES ('192.168.0.1');
 SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  count 
 -------
      1
 (1 row)
 
 EXPLAIN SELECT count(*) FROM tbl_inet WHERE ip @@@ '192.168.0.1';
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Aggregate  (cost=1010.11..1010.12 rows=1 width=8)

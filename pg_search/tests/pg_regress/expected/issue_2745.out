@@ -28,8 +28,6 @@ SET paradedb.enable_custom_scan = on;
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
-WARNING:  Detected SEMI/ANTI JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (full): OUTER JOIN: single predicate for target relation
  contact_name 
 --------------
  Alice
@@ -39,8 +37,6 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
-WARNING:  Detected SEMI/ANTI JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (full): OUTER JOIN: single predicate for target relation
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Hash Right Anti Join
@@ -68,8 +64,6 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
-WARNING:  Detected SEMI/ANTI JOIN involving relation 1 - disabling OR optimization
-WARNING:  OR decomposition (full): OUTER JOIN: single predicate for target relation
  contact_id 
 ------------
       17969

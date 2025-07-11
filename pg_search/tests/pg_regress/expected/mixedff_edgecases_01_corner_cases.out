@@ -144,8 +144,6 @@ SELECT id, empty_string
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -165,8 +163,6 @@ SELECT id, empty_string
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    |    empty_string     
 ----------+---------------------
  case1    | 
@@ -184,8 +180,6 @@ SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -202,8 +196,6 @@ SELECT id, length(very_long_string) as long_string_length
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    | long_string_length 
 ----------+--------------------
  case1    |               8000
@@ -221,8 +213,6 @@ SELECT id, special_chars
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -241,8 +231,6 @@ SELECT id, special_chars
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    |        special_chars        
 ----------+-----------------------------
  case1    | !@#$%^&*()_+{}[]|:;"'<>,.?/
@@ -260,8 +248,6 @@ SELECT id, extreme_large, extreme_small
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -282,8 +268,6 @@ SELECT id, extreme_large, extreme_small
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    |    extreme_large    |    extreme_small     
 ----------+---------------------+----------------------
  case1    | 9223372036854775807 | -9223372036854775808
@@ -301,8 +285,6 @@ SELECT id, bool_field
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -322,8 +304,6 @@ SELECT id, bool_field
 FROM corner_case_test
 WHERE content @@@ 'test'
 ORDER BY id;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    | bool_field 
 ----------+------------
  case1    | t

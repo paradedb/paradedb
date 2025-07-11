@@ -25,8 +25,6 @@ SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
@@ -45,8 +43,6 @@ SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id | description  |  category   |   score    
 ----+--------------+-------------+------------
   1 | Apple iPhone | Electronics | 0.47000363
@@ -65,8 +61,6 @@ SELECT id, description, category, rating, paradedb.score(id) as score
 FROM partial_test 
 WHERE description @@@ 'Apple' AND rating >= 4
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing And for target_rti 1
-WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id | description  |  category   | rating | score 
 ----+--------------+-------------+--------+-------
   1 | Apple iPhone | Electronics |      5 |      
@@ -80,8 +74,6 @@ SELECT id, description, category, rating, paradedb.score(id) as score
 FROM partial_test 
 WHERE rating >= 4
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
               QUERY PLAN               
 ---------------------------------------
  Sort
@@ -94,8 +86,6 @@ SELECT id, description, category, rating, paradedb.score(id) as score
 FROM partial_test 
 WHERE rating >= 4
 ORDER BY score DESC;
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
  id |  description   |  category   | rating | score 
 ----+----------------+-------------+--------+-------
   1 | Apple iPhone   | Electronics |      5 |      
@@ -128,8 +118,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                           QUERY PLAN                                                           
 -------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -148,8 +136,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
          description         | rating |  category   
 -----------------------------+--------+-------------
  Bluetooth-enabled speaker   |      3 | Electronics
@@ -171,8 +157,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -193,8 +177,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
          description         | rating |  category   
 -----------------------------+--------+-------------
  Product 1                   |      2 | Electronics
@@ -207,15 +189,11 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 
 -- Test 3: Update Product 1 to Footwear - should reduce results to 5
 UPDATE paradedb.test_partial_index SET category = 'Footwear' WHERE description = 'Product 1';
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -236,8 +214,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
          description         | rating |  category   
 -----------------------------+--------+-------------
  Bluetooth-enabled speaker   |      3 | Electronics
@@ -249,15 +225,11 @@ WARNING:  OR decomposition (search-only): Single search predicate for target rel
 
 -- Test 4: Update Product 3 to Electronics - should increase results to 6  
 UPDATE paradedb.test_partial_index SET category = 'Electronics' WHERE description = 'Product 3';
-WARNING:  OR decomposition analyzing Other for target_rti 1
-WARNING:  OR decomposition (full): Single predicate for target relation
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                              QUERY PLAN                                                              
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -278,8 +250,6 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
          description         | rating |  category   
 -----------------------------+--------+-------------
  Product 3                   |      2 | Electronics
@@ -296,8 +266,6 @@ SELECT description, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                         QUERY PLAN                                                                         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -318,8 +286,6 @@ SELECT description, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
  description | category 
 -------------+----------
 (0 rows)

@@ -193,7 +193,7 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           tool: "customBiggerIsBetter"
           output-file-path: "stressgres/pg_search_tps.json"
-          github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-repository: "github.com/paradedb/paradedb"
           auto-push: ${{ github.event_name != 'pull_request' }}
           gh-pages-branch: gh-pages
@@ -224,7 +224,7 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           tool: "customSmallerIsBetter"
           output-file-path: "stressgres/pg_search_other.json"
-          github-token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           gh-repository: "github.com/paradedb/paradedb"
           auto-push: ${{ github.event_name != 'pull_request' }}
           gh-pages-branch: gh-pages

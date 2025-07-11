@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752203060953,
+  "lastUpdate": 1752203076695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -340,6 +340,42 @@ window.BENCHMARK_DATA = {
             "value": 8.44230395997256,
             "unit": "median tps",
             "extra": "avg tps: 7.761977267123515, max tps: 9.332853759357228, count: 58848"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7811b7597a46784212ef6cb4bdf556050edb5d52",
+          "message": "perf: Adjust benchmark job to post for `perf` PRs. (#2820)\n\n## What\n\nAdjusts the new benchmark jobs to run and comment on `perf:` PRs\n(without pushing to the graphs).\n\n## Why\n\nTo more easily evaluate that `perf:` PRs do what they say on the tin.\n\n## How\n\n* Run for PRs with `perf` in their title.\n* Calculate the sha once, potentially from the PR head.\n* Give permission to comment on PRs.\n* Always comment on perf PRs.\n\n## Tests\n\nManual testing via the PR: see comments made by the gitub-actions bot\nhere.",
+          "timestamp": "2025-07-10T22:48:59-04:00",
+          "tree_id": "e2efebb1cc82bb6bee9a9b4ac7f89031206aba87",
+          "url": "https://github.com/paradedb/paradedb/commit/7811b7597a46784212ef6cb4bdf556050edb5d52"
+        },
+        "date": 1752203075446,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 10.192534593573093,
+            "unit": "median tps",
+            "extra": "avg tps: 8.847731665420744, max tps: 13.289094853890921, count: 58859"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 8.380449743485421,
+            "unit": "median tps",
+            "extra": "avg tps: 7.716038891897618, max tps: 9.270037770088289, count: 58859"
           }
         ]
       }

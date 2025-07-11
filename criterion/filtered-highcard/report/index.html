@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>filtered-highcard - Criterion.rs</title>
+    <style type="text/css">
+        body {
+            font: 14px Helvetica Neue;
+            text-rendering: optimizelegibility;
+        }
+
+        .body {
+            width: 960px;
+            margin: auto;
+        }
+
+        th {
+            font-weight: 200
+        }
+
+        th,
+        td {
+            padding-right: 3px;
+            padding-bottom: 3px;
+        }
+
+        a:link {
+            color: #1F78B4;
+            text-decoration: none;
+        }
+
+        th.ci-bound {
+            opacity: 0.6
+        }
+
+        td.ci-bound {
+            opacity: 0.5
+        }
+
+        .stats {
+            width: 80%;
+            margin: auto;
+            display: flex;
+        }
+
+        .additional_stats {
+            flex: 0 0 60%
+        }
+
+        .additional_plots {
+            flex: 1
+        }
+
+        h2 {
+            font-size: 36px;
+            font-weight: 300;
+        }
+
+        h3 {
+            font-size: 24px;
+            font-weight: 300;
+        }
+
+        #footer {
+            height: 40px;
+            background: #888;
+            color: white;
+            font-size: larger;
+            font-weight: 300;
+        }
+
+        #footer a {
+            color: white;
+            text-decoration: underline;
+        }
+
+        #footer p {
+            text-align: center
+        }
+    </style>
+</head>
+
+<body>
+    <div class="body">
+        <h2>filtered-highcard</h2>
+        <div class="absolute">
+            <section class="plots">
+                <table width="100%">
+                    <tbody>
+                        <tr>
+                            <td>
+                                <a href="pdf.svg">
+                                    <img src="pdf_small.svg" alt="PDF of Slope" width="450" height="300" />
+                                </a>
+                            </td>
+                            <td>
+                                <a href="regression.svg">
+                                    <img src="regression_small.svg" alt="Regression" width="450" height="300" />
+                                </a>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+            <section class="stats">
+                <div class="additional_stats">
+                    <h4>Additional Statistics:</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th></th>
+                                <th title="0.95 confidence level" class="ci-bound">Lower bound</th>
+                                <th>Estimate</th>
+                                <th title="0.95 confidence level" class="ci-bound">Upper bound</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Slope</td>
+                                <td class="ci-bound">547.62 µs</td>
+                                <td>549.22 µs</td>
+                                <td class="ci-bound">550.62 µs</td>
+                            </tr>
+                            <tr>
+                                <td>R&#xb2;</td>
+                                <td class="ci-bound">0.9814958</td>
+                                <td>0.9825706</td>
+                                <td class="ci-bound">0.9817533</td>
+                            </tr>
+                            <tr>
+                                <td>Mean</td>
+                                <td class="ci-bound">545.27 µs</td>
+                                <td>546.86 µs</td>
+                                <td class="ci-bound">548.44 µs</td>
+                            </tr>
+                            <tr>
+                                <td title="Standard Deviation">Std. Dev.</td>
+                                <td class="ci-bound">7.1409 µs</td>
+                                <td>8.0944 µs</td>
+                                <td class="ci-bound">8.9277 µs</td>
+                            </tr>
+                            <tr>
+                                <td>Median</td>
+                                <td class="ci-bound">544.17 µs</td>
+                                <td>546.86 µs</td>
+                                <td class="ci-bound">548.48 µs</td>
+                            </tr>
+                            <tr>
+                                <td title="Median Absolute Deviation">MAD</td>
+                                <td class="ci-bound">6.2764 µs</td>
+                                <td>8.9489 µs</td>
+                                <td class="ci-bound">10.865 µs</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="additional_plots">
+                    <h4>Additional Plots:</h4>
+                    <ul>
+                        
+                        <li>
+                            <a href="typical.svg">Typical</a>
+                        </li>
+                        <li>
+                            <a href="mean.svg">Mean</a>
+                        </li>
+                        <li>
+                            <a href="SD.svg">Std. Dev.</a>
+                        </li>
+                        <li>
+                            <a href="median.svg">Median</a>
+                        </li>
+                        <li>
+                            <a href="MAD.svg">MAD</a>
+                        </li>
+                        <li>
+                            <a href="slope.svg">Slope</a>
+                        </li>
+                    </ul>
+                </div>
+            </section>
+            <section class="explanation">
+                <h4>Understanding this report:</h4>
+                <p>The plot on the left displays the average time per iteration for this benchmark. The shaded region
+                    shows the estimated probability of an iteration taking a certain amount of time, while the line
+                    shows the mean. Click on the plot for a larger view showing the outliers.</p>
+                <p>The plot on the right shows the linear regression calculated from the measurements. Each point
+                    represents a sample, though here it shows the total time for the sample rather than time per
+                    iteration. The line is the line of best fit for these measurements.</p>
+                <p>See <a href="https://bheisler.github.io/criterion.rs/book/user_guide/command_line_output.html#additional-statistics">the
+                        documentation</a> for more details on the additional statistics.</p>
+            </section>
+        </div>
+    </div>
+    <div id="footer">
+        <p>This report was generated by
+            <a href="https://github.com/bheisler/criterion.rs">Criterion.rs</a>, a statistics-driven benchmarking
+            library in Rust.</p>
+    </div>
+</body>
+
+</html>

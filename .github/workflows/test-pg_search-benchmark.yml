@@ -6,7 +6,7 @@
 
 name: Test pg_search Benchmark
 
-# We run benchmarks on `main`, and on `perf` PRs.
+# We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:
   push:
     branches:
@@ -17,7 +17,7 @@ on:
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [labeled, synchronize]
     branches:
       - main
   workflow_dispatch:
@@ -44,6 +44,7 @@ jobs:
   benchmark-pg_search:
     name: Benchmark ${{ matrix.dataset }} on pg_search
     runs-on: depot-ubuntu-24.04-32
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     strategy:
       matrix:
         dataset: ["single", "join"]
@@ -51,6 +52,12 @@ jobs:
       pg_version: 17
 
     steps:
+      - name: Maybe remove label
+        uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark'
+        with:
+          labels: benchmark
+
       - name: Determine ref to benchmark
         id: determine-ref
         run: |

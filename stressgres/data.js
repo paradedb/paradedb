@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752252240508,
+  "lastUpdate": 1752252244082,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -342,6 +342,42 @@ window.BENCHMARK_DATA = {
             "value": 204.17603081686661,
             "unit": "median tps",
             "extra": "avg tps: 207.86482160704657, max tps: 235.55131576811144, count: 59174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252243234,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 38.96194088043833,
+            "unit": "median tps",
+            "extra": "avg tps: 39.091641575236, max tps: 40.244620676149026, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 201.55868289259345,
+            "unit": "median tps",
+            "extra": "avg tps: 204.59735368339355, max tps: 238.58220830567413, count: 59159"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752252244082,
+  "lastUpdate": 1752252250217,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -1022,6 +1022,72 @@ window.BENCHMARK_DATA = {
             "value": 13.157395946021119,
             "unit": "median tps",
             "extra": "avg tps: 18.466957270305603, max tps: 1429.6252666251123, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252249319,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 422.9282614795088,
+            "unit": "median tps",
+            "extra": "avg tps: 429.5687800923141, max tps: 631.8394721491362, count: 58492"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2604.8651612858453,
+            "unit": "median tps",
+            "extra": "avg tps: 2452.288141621637, max tps: 3114.310870107762, count: 58492"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 420.5582671105377,
+            "unit": "median tps",
+            "extra": "avg tps: 426.7801318782761, max tps: 623.6397579584806, count: 58492"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 422.8547845975581,
+            "unit": "median tps",
+            "extra": "avg tps: 425.5039507494837, max tps: 545.7662673003814, count: 58492"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 287.14507088241055,
+            "unit": "median tps",
+            "extra": "avg tps: 281.4711506432522, max tps: 297.1321756108476, count: 116984"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 262.0414504078653,
+            "unit": "median tps",
+            "extra": "avg tps: 254.11868183108103, max tps: 270.10925993230427, count: 58492"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 11.26868584326516,
+            "unit": "median tps",
+            "extra": "avg tps: 16.916883202126595, max tps: 1662.6541280376691, count: 58492"
           }
         ]
       }

@@ -32,7 +32,7 @@ permissions:
   deployments: write
   pull-requests: write
 
-#concurrency:
+# concurrency:
 #  # If this is a manual backfill run, use the commit SHA.
 #  # Otherwise (push/PR) fall back to the branch name.
 #  group: ${{ format('query-benchmarks-{0}',

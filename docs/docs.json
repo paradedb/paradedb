@@ -21,6 +21,7 @@
                 "group": "Documentation",
                 "pages": [
                   "welcome/introduction",
+                  "welcome/architecture",
                   {
                     "group": "Getting Started",
                     "pages": [

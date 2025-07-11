@@ -2,29 +2,32 @@
 title: Architecture
 ---
 
-All of the functionalities of ParadeDB are shipped as a Postgres extension called `pg_search`.
+All of the functionalities of ParadeDB are shipped as a Postgres extension called `pg_search`. `pg_search` introduces a new
+index, along with custom query execution methods, to Postgres.
 
-## Index Access Method
+## Custom Index
 
 ![ParadeDB BYOC Topology](/images/architecture_indexam.png)
 
-Postgre supports pluggable index access methods, which allow extensions to define their own index types. Indexes are useful because they allow the
-underlying Postgres table (which Postgres calls a *heap table*) to be represented in alternative data structures that are optimized for different types
+In Postgres, indexes allow the underlying Postgres table (which Postgres calls a *heap table*) to be represented in alternative data structures optimized for different types
 of queries. For instance, the built-in Postgres B-tree index is used for point lookups and range scans.
 
-ParadeDB introduces a custom access method called the BM25 index that's designed full text search and analytics.
+ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytics.
 
 ### Index Updates
 
-When a table row is inserted or updated, Postgres automatically notifies the index via the access method's insert hooks. These changes are recorded as part of the current transaction, ensuring that index updates are fully transactional.
+When a table row is inserted or updated, Postgres automatically notifies the index. These changes are recorded as part of the current transaction, ensuring that index updates are real-time and transactional.
 
-### Custom Scan
+### Parallel Custom Scan
+
+In Postgres, custom scans allow extensions to define new execution nodes that can run custom logic — such as filters or aggregations — natively within the query executor.
+ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index.
 
 ## Underlying Data Structures
 
 ### Inverted Index
 
-### Columnar
+### Columnar Index
 
 ### LSM Tree
 

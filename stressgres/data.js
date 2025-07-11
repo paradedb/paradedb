@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752252250217,
+  "lastUpdate": 1752252304790,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -2856,6 +2856,66 @@ window.BENCHMARK_DATA = {
             "value": 165.078125,
             "unit": "median mem",
             "extra": "avg mem: 157.11647885103676, max mem: 173.6953125, count: 59174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e0a552a073d66f6de8ad45fc0587a4f2ba39dac",
+          "message": "chore: Run benchmarks on `benchmark`-labeled PRs. (#2826)\n\n## What\n\nAdjust benchmarks jobs to automatically run when the `benchmark` label\nis applied.\n\n## Why\n\n#2820 failed to actually filter to `perf:`-titled PRs, but additionally,\nin practice that would have been too noisy, since they would have re-run\non every push to the PR.\n\n## Tests\n\nManually tested adding/removing the label.",
+          "timestamp": "2025-07-11T09:27:20-07:00",
+          "tree_id": "0d8f5a0d7fda145130d823ec6bc08e217a9677d0",
+          "url": "https://github.com/paradedb/paradedb/commit/0e0a552a073d66f6de8ad45fc0587a4f2ba39dac"
+        },
+        "date": 1752252303923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.1373401249354, max cpu: 48.1203, count: 59159"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.1948773643909, max mem: 181.015625, count: 59159"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24046,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21968.797731537044, max block_count: 28000.0, count: 59159"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 73,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 76.31222637299481, max segment_count: 171.0, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.453471,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.722875524282287, max cpu: 33.785824, count: 59159"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.65540614065483, max mem: 174.63671875, count: 59159"
           }
         ]
       }

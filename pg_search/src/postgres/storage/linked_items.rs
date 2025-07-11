@@ -409,6 +409,8 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             "Must contain at least one block."
         );
         let mut previous_new_buffer: Option<BufferMut> = None;
+        let mut last_cloned_blockno = pg_sys::InvalidBlockNumber;
+
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman.get_buffer_mut(blockno);
             let page = buffer.page();
@@ -417,6 +419,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
             let mut new_buffer = cloned.bman.new_buffer();
             let new_blockno = new_buffer.number();
+            last_cloned_blockno = new_blockno;
             let mut new_page = new_buffer.init_page();
 
             // Link the new block in with the previous block, or with the header.
@@ -450,6 +453,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
             previous_buffer = buffer;
             previous_new_buffer = Some(new_buffer);
         }
+
+        previous_buffer
+            .page_mut()
+            .contents_mut::<LinkedListData>()
+            .last_blockno = last_cloned_blockno;
 
         AtomicGuard {
             original: Some((self, original_header_lock)),

@@ -348,8 +348,19 @@ impl PdbScan {
             let safe_join_quals =
                 Self::handle_heap_expr_optimization(&state, &mut safe_join_quals, root, rti);
 
-            // Only use join quals if they are safe and we found our operator
-            if safe_join_quals.is_some() && state.uses_our_operator {
+            // Check if OR decomposition found search predicates
+            let decomposition_found_search_predicates = if let Some(ref quals) = safe_join_quals {
+                Self::is_search_predicate(quals)
+            } else {
+                false
+            };
+
+            // Only use join quals if they are safe and either:
+            // 1. We found our operator in base relation, OR
+            // 2. OR decomposition found search predicates for this relation
+            if safe_join_quals.is_some()
+                && (state.uses_our_operator || decomposition_found_search_predicates)
+            {
                 pgrx::warning!("quals: {:?}", safe_join_quals);
                 (safe_join_quals, RestrictInfoType::Join, joinri)
             } else {
@@ -361,7 +372,20 @@ impl PdbScan {
         };
 
         // Finally, decide whether we can actually use the extracted quals.
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() {
+        // Enable custom scan if:
+        // 1. We found our operator in base relation, OR
+        // 2. The extracted quals contain search predicates (from OR decomposition), OR
+        // 3. Custom scan is explicitly enabled without operator
+        let quals_contain_search_predicates = if let Some(ref q) = quals {
+            Self::is_search_predicate(q)
+        } else {
+            false
+        };
+
+        if state.uses_our_operator
+            || quals_contain_search_predicates
+            || gucs::enable_custom_scan_without_operator()
+        {
             (quals, ri_type, restrict_info)
         } else {
             (None, ri_type, restrict_info)
@@ -1426,7 +1450,16 @@ impl PdbScan {
                         NodeScopeInfo::ExternalRelations(_) => {
                             OrClauseAnalysis::CrossTablePredicate
                         }
-                        NodeScopeInfo::Mixed(_, _) => OrClauseAnalysis::UnsafePredicate,
+                        NodeScopeInfo::Mixed(target_vars, _) => {
+                            // For Mixed scope, if the target relation is referenced, we can extract it
+                            // This is less conservative than before - we allow extraction as long as
+                            // the target relation is involved
+                            if target_vars > 0 {
+                                OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                            } else {
+                                OrClauseAnalysis::CrossTablePredicate
+                            }
+                        }
                         NodeScopeInfo::NoVariables => {
                             OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
                         }
@@ -1441,7 +1474,14 @@ impl PdbScan {
                         NodeScopeInfo::ExternalRelations(_) => {
                             OrClauseAnalysis::CrossTablePredicate
                         }
-                        NodeScopeInfo::Mixed(_, _) => OrClauseAnalysis::UnsafePredicate,
+                        NodeScopeInfo::Mixed(target_vars, _) => {
+                            // For Mixed scope, if the target relation is referenced, we can extract it
+                            if target_vars > 0 {
+                                OrClauseAnalysis::TargetRelationNonSearchPredicate(clause.clone())
+                            } else {
+                                OrClauseAnalysis::CrossTablePredicate
+                            }
+                        }
                         NodeScopeInfo::NoVariables => {
                             OrClauseAnalysis::TargetRelationNonSearchPredicate(clause.clone())
                         }
@@ -1455,6 +1495,14 @@ impl PdbScan {
                 match scope_info {
                     NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
                         OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                    }
+                    NodeScopeInfo::Mixed(target_vars, _) => {
+                        // For Mixed scope, if the target relation is referenced, we can extract it
+                        if target_vars > 0 {
+                            OrClauseAnalysis::TargetRelationSearchPredicate(clause.clone())
+                        } else {
+                            OrClauseAnalysis::CrossTablePredicate
+                        }
                     }
                     _ => OrClauseAnalysis::CrossTablePredicate,
                 }
@@ -1514,15 +1562,90 @@ impl PdbScan {
                     _ => PredicateScope::CrossTable,
                 }
             }
+            Qual::Expr { node, .. } => {
+                let scope_info = Self::analyze_node_variable_scope(*node, target_rti, root);
+                match scope_info {
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        PredicateScope::TargetRelationOnly
+                    }
+                    NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
+                    NodeScopeInfo::Mixed(_, _) => PredicateScope::Unsafe,
+                }
+            }
+            // Explicitly unsafe patterns
             Qual::ExternalVar | Qual::ExternalExpr => PredicateScope::Unsafe,
+            // Safe pushdown predicates
             Qual::PushdownExpr { .. }
             | Qual::PushdownVarEqTrue { .. }
             | Qual::PushdownVarEqFalse { .. }
             | Qual::PushdownVarIsTrue { .. }
             | Qual::PushdownVarIsFalse { .. }
             | Qual::PushdownIsNotNull { .. } => PredicateScope::TargetRelationOnly,
+            // Always safe predicates
             Qual::All => PredicateScope::TargetRelationOnly,
-            _ => PredicateScope::Unsafe,
+            // Complex predicates that need decomposition
+            Qual::And(clauses) => {
+                // For AND predicates, check if all clauses are safe for the target relation
+                let mut all_target_only = true;
+                let mut has_cross_table = false;
+
+                for clause in clauses {
+                    match Self::analyze_predicate_scope(clause, target_rti, root) {
+                        PredicateScope::TargetRelationOnly => {
+                            // Good, this clause is safe
+                        }
+                        PredicateScope::CrossTable => {
+                            has_cross_table = true;
+                            all_target_only = false;
+                        }
+                        PredicateScope::Unsafe => {
+                            return PredicateScope::Unsafe;
+                        }
+                    }
+                }
+
+                if all_target_only {
+                    PredicateScope::TargetRelationOnly
+                } else if has_cross_table {
+                    PredicateScope::CrossTable
+                } else {
+                    PredicateScope::Unsafe
+                }
+            }
+            Qual::Or(clauses) => {
+                // For OR predicates, be more conservative - if any clause is unsafe, mark as unsafe
+                // If all clauses are target-only, mark as target-only
+                // Otherwise, mark as cross-table
+                let mut all_target_only = true;
+                let mut has_cross_table = false;
+
+                for clause in clauses {
+                    match Self::analyze_predicate_scope(clause, target_rti, root) {
+                        PredicateScope::TargetRelationOnly => {
+                            // Good, this clause is safe
+                        }
+                        PredicateScope::CrossTable => {
+                            has_cross_table = true;
+                            all_target_only = false;
+                        }
+                        PredicateScope::Unsafe => {
+                            return PredicateScope::Unsafe;
+                        }
+                    }
+                }
+
+                if all_target_only {
+                    PredicateScope::TargetRelationOnly
+                } else if has_cross_table {
+                    PredicateScope::CrossTable
+                } else {
+                    PredicateScope::Unsafe
+                }
+            }
+            Qual::Not(inner) => {
+                // For NOT predicates, inherit the scope of the inner predicate
+                Self::analyze_predicate_scope(inner, target_rti, root)
+            }
         }
     }
 }

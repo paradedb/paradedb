@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752203111237,
+  "lastUpdate": 1752203123006,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -2044,6 +2044,66 @@ window.BENCHMARK_DATA = {
             "value": 55,
             "unit": "median segment_count",
             "extra": "avg segment_count: 57.634668977705275, max segment_count: 94.0, count: 58848"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7811b7597a46784212ef6cb4bdf556050edb5d52",
+          "message": "perf: Adjust benchmark job to post for `perf` PRs. (#2820)\n\n## What\n\nAdjusts the new benchmark jobs to run and comment on `perf:` PRs\n(without pushing to the graphs).\n\n## Why\n\nTo more easily evaluate that `perf:` PRs do what they say on the tin.\n\n## How\n\n* Run for PRs with `perf` in their title.\n* Calculate the sha once, potentially from the PR head.\n* Give permission to comment on PRs.\n* Always comment on perf PRs.\n\n## Tests\n\nManual testing via the PR: see comments made by the gitub-actions bot\nhere.",
+          "timestamp": "2025-07-10T22:48:59-04:00",
+          "tree_id": "e2efebb1cc82bb6bee9a9b4ac7f89031206aba87",
+          "url": "https://github.com/paradedb/paradedb/commit/7811b7597a46784212ef6cb4bdf556050edb5d52"
+        },
+        "date": 1752203121770,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 15.645371,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.543296869949675, max cpu: 49.180325, count: 58859"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.3115048383637, max mem: 231.26171875, count: 58859"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 24,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.448123136052754, max cpu: 34.035656, count: 58859"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.87958511017857, max mem: 163.625, count: 58859"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 25278,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23243.31155813045, max block_count: 27213.0, count: 58859"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 55,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 57.556448461577666, max segment_count: 94.0, count: 58859"
           }
         ]
       }

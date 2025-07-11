@@ -31,13 +31,13 @@ permissions:
   deployments: write
   pull-requests: write
 
-concurrency:
-  # If this is a manual backfill run, use the commit SHA.
-  # Otherwise (push/PR) fall back to the branch name.
-  group: ${{ format('stressgres-benchmarks-{0}',
-    (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
-  # Keep auto-cancellation for normal CI, switch it off for backfills.
-  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+#concurrency:
+#  # If this is a manual backfill run, use the commit SHA.
+#  # Otherwise (push/PR) fall back to the branch name.
+#  group: ${{ format('stressgres-benchmarks-{0}',
+#    (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
+#  # Keep auto-cancellation for normal CI, switch it off for backfills.
+#  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   test-pg_search-stressgres:

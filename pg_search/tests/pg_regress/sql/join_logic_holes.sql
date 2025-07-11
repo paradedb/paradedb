@@ -1,0 +1,306 @@
+-- Test cases to expose logical holes in join condition pushdown
+-- These tests demonstrate scenarios where the current implementation
+-- might produce incorrect results by pushing down conditions that
+-- PostgreSQL correctly identified as requiring join-level evaluation
+
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Setup test tables for join scenarios
+DROP TABLE IF EXISTS authors;
+DROP TABLE IF EXISTS books;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS categories;
+
+CREATE TABLE authors (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    bio TEXT,
+    country TEXT,
+    birth_year INTEGER,
+    is_active BOOLEAN DEFAULT true
+);
+
+CREATE TABLE books (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT,
+    author_id INTEGER REFERENCES authors(id),
+    category_id INTEGER,
+    publication_year INTEGER,
+    is_published BOOLEAN DEFAULT true,
+    rating DECIMAL(3,2)
+);
+
+CREATE TABLE reviews (
+    id SERIAL PRIMARY KEY,
+    book_id INTEGER REFERENCES books(id),
+    author_id INTEGER REFERENCES authors(id),  -- reviewer
+    content TEXT,
+    score INTEGER,
+    is_verified BOOLEAN DEFAULT false
+);
+
+CREATE TABLE categories (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true
+);
+
+-- Insert test data
+INSERT INTO authors (name, bio, country, birth_year, is_active) VALUES
+('J.K. Rowling', 'British author famous for Harry Potter series', 'UK', 1965, true),
+('Stephen King', 'American author of horror and supernatural fiction', 'USA', 1947, true),
+('Agatha Christie', 'English writer known for detective novels', 'UK', 1890, false),
+('George Orwell', 'English novelist and essayist', 'UK', 1903, false),
+('Jane Austen', 'English novelist known for romantic fiction', 'UK', 1775, false);
+
+INSERT INTO categories (name, description, is_active) VALUES
+('Fantasy', 'Fantasy and magical realism books', true),
+('Horror', 'Horror and thriller books', true),
+('Mystery', 'Detective and mystery books', true),
+('Classic', 'Classic literature books', true),
+('Romance', 'Romantic fiction books', false);
+
+INSERT INTO books (title, content, author_id, category_id, publication_year, is_published, rating) VALUES
+('Harry Potter Magic', 'A magical story about wizards and magic spells', 1, 1, 1997, true, 4.8),
+('The Shining Terror', 'A horror story about supernatural terror events', 2, 2, 1977, true, 4.5),
+('Murder Mystery Case', 'A detective story with mystery and murder investigation', 3, 3, 1934, true, 4.2),
+('Dystopian Future', 'A story about totalitarian surveillance and control', 4, 4, 1949, true, 4.7),
+('Pride Romance', 'A romantic story about love and prejudice', 5, 5, 1813, false, 4.6),
+('Magic Detective', 'A mystery story with magical elements and detective work', 1, 3, 2001, true, 4.1);
+
+INSERT INTO reviews (book_id, author_id, content, score, is_verified) VALUES
+(1, 2, 'Amazing magical story with great characters', 5, true),
+(2, 1, 'Terrifying horror story that kept me awake', 4, true),
+(3, 4, 'Classic mystery with excellent detective work', 5, false),
+(4, 3, 'Thought-provoking story about surveillance', 4, true),
+(5, 2, 'Beautiful romantic story with great character development', 5, false),
+(6, 5, 'Interesting combination of mystery and magic', 4, true);
+
+-- Create BM25 indexes
+CREATE INDEX authors_bm25_idx ON authors USING bm25 (id, name, bio, country) WITH (key_field = 'id');
+CREATE INDEX books_bm25_idx ON books USING bm25 (id, title, content) WITH (key_field = 'id');
+CREATE INDEX reviews_bm25_idx ON reviews USING bm25 (id, content) WITH (key_field = 'id');
+CREATE INDEX categories_bm25_idx ON categories USING bm25 (id, name, description) WITH (key_field = 'id');
+
+-- Test Case 1: Variable Scope Violation
+-- This tests conditions that reference both tables in a way that
+-- PostgreSQL correctly identifies as requiring join-level evaluation
+SELECT 
+    'Test 1: Variable Scope Violation' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE a.bio @@@ 'author' AND b.category_id = 1
+ORDER BY author_score DESC, book_score DESC;
+
+-- Test Case 2: Join Type Semantics - LEFT JOIN
+-- This tests how LEFT JOIN semantics are affected by pushdown
+-- The condition on the right table should not eliminate rows from the left table
+SELECT 
+    'Test 2: LEFT JOIN Semantics' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+LEFT JOIN books b ON a.id = b.author_id
+WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
+ORDER BY a.id;
+
+-- Test Case 3: Complex Boolean Logic Across Tables
+-- This tests complex OR conditions that span multiple tables
+-- Each part of the OR should be evaluated correctly
+SELECT 
+    'Test 3: Complex Boolean Logic' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE (a.bio @@@ 'British' AND b.is_published = true) 
+   OR (a.country = 'USA' AND b.content @@@ 'horror')
+ORDER BY author_score DESC, book_score DESC;
+
+-- Test Case 4: Three-table Join with Complex Logic
+-- This tests conditions that span three tables with complex dependencies
+SELECT 
+    'Test 4: Three-table Join' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    r.content as review_content,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score,
+    paradedb.score(r.id) as review_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+JOIN reviews r ON b.id = r.book_id
+WHERE (a.bio @@@ 'author' AND b.rating > 4.0) 
+   OR (b.content @@@ 'magic' AND r.score >= 4)
+ORDER BY author_score DESC, book_score DESC, review_score DESC;
+
+-- Test Case 5: RIGHT JOIN with Conditions
+-- This tests RIGHT JOIN where conditions might affect NULL generation
+SELECT 
+    'Test 5: RIGHT JOIN Semantics' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+RIGHT JOIN books b ON a.id = b.author_id
+WHERE a.bio @@@ 'British' OR b.content @@@ 'story'
+ORDER BY b.id;
+
+-- Test Case 6: Conditions with NULL-generating Joins
+-- This tests how NULL values are handled in join conditions
+SELECT 
+    'Test 6: NULL-generating Join' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    c.name as category_name,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score,
+    paradedb.score(c.id) as category_score
+FROM authors a
+LEFT JOIN books b ON a.id = b.author_id
+LEFT JOIN categories c ON b.category_id = c.id
+WHERE a.bio @@@ 'author' 
+   OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
+ORDER BY a.id;
+
+-- Test Case 7: Mixed Indexed and Non-indexed Conditions in Joins
+-- This tests how mixed conditions are handled across joins
+SELECT 
+    'Test 7: Mixed Conditions' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE (a.bio @@@ 'British' AND a.birth_year < 1900)
+   OR (b.content @@@ 'magic' AND b.publication_year > 2000)
+ORDER BY author_score DESC, book_score DESC;
+
+-- Test Case 8: Correlated Subquery-like Conditions
+-- This tests conditions that would be similar to correlated subqueries
+-- but expressed as joins
+SELECT 
+    'Test 8: Correlated Conditions' as test_name,
+    a.name as author_name,
+    COUNT(b.id) as book_count,
+    AVG(paradedb.score(a.id)) as avg_author_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE a.bio @@@ 'author' 
+  AND EXISTS (
+    SELECT 1 FROM reviews r 
+    WHERE r.book_id = b.id 
+    AND r.content @@@ 'story'
+  )
+GROUP BY a.id, a.name
+ORDER BY avg_author_score DESC;
+
+-- Test Case 9: Cross-table OR with Different Join Types
+-- This tests how OR conditions work with different join types
+SELECT 
+    'Test 9: Cross-table OR' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    r.content as review_content,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score,
+    paradedb.score(r.id) as review_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+LEFT JOIN reviews r ON b.id = r.book_id
+WHERE a.bio @@@ 'author' 
+   OR b.content @@@ 'magic' 
+   OR r.content @@@ 'story'
+ORDER BY author_score DESC, book_score DESC, review_score DESC;
+
+-- Test Case 10: Nested Boolean Logic
+-- This tests deeply nested boolean expressions across tables
+SELECT 
+    'Test 10: Nested Boolean Logic' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE (
+    (a.bio @@@ 'British' AND (b.content @@@ 'magic' OR b.content @@@ 'story'))
+    OR 
+    (a.country = 'USA' AND (b.rating > 4.0 OR b.publication_year > 1980))
+)
+ORDER BY author_score DESC, book_score DESC;
+
+-- Test Case 11: Edge Case - All Variables External
+-- This tests conditions where all variables reference external tables
+SELECT 
+    'Test 11: All External Variables' as test_name,
+    a.name as author_name,
+    b.title as book_title,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+JOIN categories c ON b.category_id = c.id
+WHERE a.bio @@@ 'author' 
+  AND c.name = 'Fantasy'
+  AND b.publication_year > 1990
+ORDER BY author_score DESC, book_score DESC;
+
+-- Test Case 12: Score Consistency Check
+-- This tests whether scores remain consistent across different query forms
+-- that should be semantically equivalent
+SELECT 
+    'Test 12a: Direct Query' as test_name,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score
+FROM authors a
+WHERE a.bio @@@ 'author'
+ORDER BY author_score DESC;
+
+SELECT 
+    'Test 12b: Join Query (should have same scores)' as test_name,
+    a.name as author_name,
+    paradedb.score(a.id) as author_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE a.bio @@@ 'author'
+ORDER BY author_score DESC;
+
+-- Test Case 13: Performance vs Correctness
+-- This tests a case where the current implementation might be fast
+-- but potentially incorrect
+SELECT 
+    'Test 13: Performance vs Correctness' as test_name,
+    COUNT(*) as total_results,
+    AVG(paradedb.score(a.id)) as avg_author_score,
+    AVG(paradedb.score(b.id)) as avg_book_score
+FROM authors a
+JOIN books b ON a.id = b.author_id
+WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
+  AND (a.is_active = true OR b.is_published = true);
+
+-- Cleanup
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS books;
+DROP TABLE IF EXISTS authors;
+DROP TABLE IF EXISTS categories; 
+
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;

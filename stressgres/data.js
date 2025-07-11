@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752244996007,
+  "lastUpdate": 1752245034386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -306,6 +306,42 @@ window.BENCHMARK_DATA = {
             "value": 204.7102159695084,
             "unit": "median tps",
             "extra": "avg tps: 208.70117700234437, max tps: 224.13753765138432, count: 59164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245033538,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 36.288242763496385,
+            "unit": "median tps",
+            "extra": "avg tps: 36.766143239941414, max tps: 38.0815200998229, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 204.17603081686661,
+            "unit": "median tps",
+            "extra": "avg tps: 207.86482160704657, max tps: 235.55131576811144, count: 59174"
           }
         ]
       }

@@ -9,7 +9,7 @@ index, along with custom query execution methods, to Postgres.
 
 ![ParadeDB BYOC Topology](/images/architecture_indexam.png)
 
-In Postgres, indexes allow the underlying Postgres table (which Postgres calls a *heap table*) to be represented in alternative data structures optimized for different types
+In Postgres, indexes allow the underlying Postgres table (which Postgres calls a *heap table*) to be represented using alternative data structures optimized for different types
 of queries. For instance, the built-in Postgres B-tree index is used for point lookups and range scans.
 
 ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytics.
@@ -27,22 +27,24 @@ ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pus
 
 ### Inverted Index
 
-Full text search in ParadeDB is backed by an inverted index.
-
-An inverted index is a structure that maps each term (i.e., tokenized word) to a list of documents that contain that term, along with metadata like term frequency and document frequency.
+An inverted index is a structure that maps each term (i.e., tokenized word) to a list of documents that contain that term (called a "postings list") along with metadata like term frequency and document frequency.
 This structure allows ParadeDB to efficiently retrieve all documents matching a particular search term or phrase without scanning the entire table.
 
 ### Columnar Index
 
-Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format.
+Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format. Columnar formats are standard
+for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets.
 
 ### LSM Tree
 
-The BM25 index is arranged as Log-Structured Merge (LSM) tree on disk. An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra.
+To support real-time updates, the BM25 index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
 
-The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer called a memtable, which is fast to update. Once the memtable fills up, it is flushed to disk as a sorted, immutable segment file (often called an SSTable).
+An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer called a memtable, which is fast to update. Once the memtable fills up, it is flushed to disk as a sorted, immutable segment file (often called an SSTable).
 
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
+
+In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
+is actually a collection of segments arranged in an LSM tree.
 
 ## Guarantees
 

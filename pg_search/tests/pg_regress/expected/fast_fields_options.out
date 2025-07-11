@@ -70,6 +70,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY title
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -91,6 +93,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY id
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -111,6 +115,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY category
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -131,6 +137,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -151,6 +159,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -171,6 +181,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -191,6 +203,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -211,6 +225,8 @@ SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, 
 FROM data_records
 WHERE title @@@ 'product'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -249,6 +265,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -269,6 +287,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -289,6 +309,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -309,6 +331,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -329,6 +353,8 @@ SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, 
 FROM data_records
 WHERE title @@@ 'product'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -367,6 +393,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY price
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -387,6 +415,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY in_stock
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -407,6 +437,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -427,6 +459,8 @@ FROM data_records
 WHERE title @@@ 'product'
 ORDER BY created_at
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -447,6 +481,8 @@ SELECT id, category, price, in_stock, created_at, valid_period, quantity_range, 
 FROM data_records
 WHERE title @@@ 'product'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort

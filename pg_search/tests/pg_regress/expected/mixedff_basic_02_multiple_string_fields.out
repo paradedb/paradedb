@@ -50,6 +50,8 @@ SELECT string_field1, string_field2, string_field3
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -69,6 +71,8 @@ SELECT string_field1, string_field2, string_field3
 FROM mixed_numeric_string_test
 WHERE content @@@ 'red'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  string_field1 | string_field2 | string_field3 
 ---------------+---------------+---------------
  Apple         | Red           | Fruit

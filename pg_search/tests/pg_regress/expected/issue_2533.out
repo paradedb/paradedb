@@ -32,6 +32,7 @@ CREATE INDEX idxusers ON users USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
+ERROR:  access method "bm25" does not exist
 CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
     WITH (
     key_field = 'id',
@@ -42,6 +43,7 @@ CREATE INDEX idxproducts ON products USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
+ERROR:  access method "bm25" does not exist
 CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
     WITH (
     key_field = 'id',
@@ -52,6 +54,7 @@ CREATE INDEX idxorders ON orders USING bm25 (id, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" } }
             }'
     );
+ERROR:  access method "bm25" does not exist
 CREATE INDEX idxusers_name ON users (name);
 CREATE INDEX idxusers_color ON users (color);
 CREATE INDEX idxusers_age ON users (age);
@@ -148,11 +151,7 @@ SELECT (SELECT COUNT(*)
            OR (NOT (products.age @@@ '20')) AND (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND (products.color @@@ 'blue')
            OR (NOT (products.name @@@ 'bob')));
- count | count 
--------+-------
-    13 |    13
-(1 row)
-
+ERROR:  operator does not exist: text @@@ unknown at character 573
 ---- idx=4 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -171,11 +170,7 @@ SELECT (SELECT COUNT(*)
            OR (orders.age @@@ '20') AND NOT (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
               NOT ((orders.name @@@ 'bob') OR (orders.age @@@ '20')) AND (orders.name @@@ 'bob'));
- count | count 
--------+-------
-     0 |     0
-(1 row)
-
+ERROR:  operator does not exist: text @@@ unknown at character 624
 ---- idx=37 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -194,11 +189,7 @@ SELECT (SELECT COUNT(*)
            OR ((products.color @@@ 'blue') AND (products.color @@@ 'blue')) AND NOT (users.color @@@ 'blue')
            OR ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.color @@@ 'blue') AND
               ((products.color @@@ 'blue') OR (products.color @@@ 'blue')));
- count | count 
--------+-------
-     2 |     2
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 663
 ---- idx=46 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -217,11 +208,7 @@ SELECT (SELECT COUNT(*)
            OR ((products.age @@@ '20') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.age @@@ '20') AND
               (NOT (NOT (products.name @@@ 'bob'))));
- count | count 
--------+-------
-     3 |     3
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 635
 ---- idx=55 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -240,11 +227,7 @@ SELECT (SELECT COUNT(*)
            OR ((products.name @@@ 'bob') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND NOT (products.age @@@ '20') AND
               ((products.color @@@ 'blue') AND (products.name @@@ 'bob')));
- count | count 
--------+-------
-     2 |     2
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 663
 ---- idx=83 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -261,11 +244,7 @@ SELECT (SELECT COUNT(*)
            OR ((users.age @@@ '20') OR (NOT (users.name @@@ 'bob'))) AND
               NOT NOT (NOT ((NOT (orders.name @@@ 'bob')) OR (orders.name @@@ 'bob'))) AND NOT (users.age @@@ '20')
            OR ((users.age @@@ '20') AND (NOT (users.color @@@ 'blue'))));
- count | count 
--------+-------
-    13 |    13
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 598
 ---- idx=92 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -282,14 +261,7 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
- count | count 
--------+-------
-    13 |    13
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 623
 ---- idx=74 ----
 ---- connector=AND NOT ----
 SELECT (SELECT COUNT(*)
@@ -308,11 +280,7 @@ SELECT (SELECT COUNT(*)
               NOT ((orders.age @@@ '20') AND (orders.age @@@ '20'))
            OR (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
            OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
- count | count 
--------+-------
-    14 |    14
-(1 row)
-
+ERROR:  operator does not exist: character varying @@@ unknown at character 613
 --
 -- removing the `uses_tantivy_to_query` code so that we always push down quals if we can exposed
 -- a bug where we'd confuse vars by their names if different tables in the query contain fields
@@ -328,8 +296,4 @@ SELECT (SELECT COUNT(*)
                  JOIN orders ON products.name = orders.name
         WHERE (NOT (products.id @@@ '3'))
            OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
- count | count 
--------+-------
-    19 |    19
-(1 row)
-
+ERROR:  operator does not exist: bigint @@@ unknown at character 349

@@ -144,6 +144,14 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
 ('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
 ('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
 ('page2', 'file1', 2, 'Page 2 of Invoice PDF with payment information'),
@@ -151,6 +159,18 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create recursive CTE test data
 CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
@@ -176,6 +196,18 @@ INSERT INTO categories (name, description, parent_id) VALUES
 ('Food', 'Edible products', NULL),
 ('Dairy', 'Milk and dairy products', 7),
 ('Bakery', 'Bread and baked goods', 7);
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create products for multi-index search
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -200,6 +232,18 @@ INSERT INTO products (name, category_id, price) VALUES
 ('Women''s Dress', 6, 199.99),
 ('Milk Carton', 8, 3.99),
 ('Bread Loaf', 9, 5.99);
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create table for type conversion testing
 CREATE TABLE conversion_test (
     id TEXT PRIMARY KEY,
@@ -347,6 +391,8 @@ FROM limit_topn_test
 WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                        QUERY PLAN                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -368,6 +414,8 @@ FROM limit_topn_test
 WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -387,6 +435,8 @@ FROM limit_topn_test
 WHERE category @@@ 'Electronics'
 ORDER BY price ASC
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
    title    |  category   | rating | price 
 ------------+-------------+--------+-------
  Product 5  | Electronics |      1 |   500
@@ -403,6 +453,8 @@ FROM limit_topn_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                QUERY PLAN                                                                               
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -422,6 +474,8 @@ FROM limit_topn_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
     title    |  category   
 -------------+-------------
  Product 1   | Books
@@ -448,6 +502,8 @@ FROM limit_topn_test
 WHERE is_available = true
 ORDER BY rating DESC, title ASC
 LIMIT 7;
+WARNING:  OR decomposition analyzing Other for target_rti 1
+WARNING:  OR decomposition (full): Single predicate for target relation
                QUERY PLAN                
 -----------------------------------------
  Limit
@@ -462,6 +518,8 @@ FROM limit_topn_test
 WHERE is_available = true
 ORDER BY rating DESC, title ASC
 LIMIT 7;
+WARNING:  OR decomposition analyzing Other for target_rti 1
+WARNING:  OR decomposition (full): Single predicate for target relation
    title    | is_available | rating 
 ------------+--------------+--------
  Product 14 | t            |      5
@@ -480,6 +538,8 @@ FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (full): AND clause for target relation
                                            QUERY PLAN                                           
 ------------------------------------------------------------------------------------------------
  Limit
@@ -494,6 +554,8 @@ FROM limit_topn_test
 WHERE rating > 3.0 AND price < 500
 ORDER BY price DESC
 LIMIT 12;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (full): AND clause for target relation
  rating | price 
 --------+-------
       5 |   400
@@ -507,6 +569,8 @@ FROM limit_topn_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -526,6 +590,8 @@ FROM limit_topn_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
    title    | category | rating | price 
 ------------+----------+--------+-------
  Product 97 | Clothing |      3 |  9700
@@ -544,6 +610,8 @@ FROM limit_topn_test
 WHERE title @@@ 'Product'
 ORDER BY rating DESC
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
    title    | rating | price | category 
 ------------+--------+-------+----------
  Product 4  |      5 |   400 | Toys

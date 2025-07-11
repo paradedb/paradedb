@@ -67,16 +67,14 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
-           a_content            |          b_content           |  a_score  |  b_score  
---------------------------------+------------------------------+-----------+-----------
- smartphone technology advanced | high performance specs       | 1.2039728 | 1.1608026
- smartphone technology advanced | storytelling narrative       | 1.2039728 |         0
- smartphone technology advanced | advanced features smartphone | 1.2039728 |         0
- smartphone technology advanced | gaming experience immersive  | 1.2039728 |         0
- laptop computer powerful       | high performance specs       |         0 | 1.1608026
- book fiction story             | high performance specs       |         0 | 1.1608026
- game console modern            | high performance specs       |         0 | 1.1608026
-(7 rows)
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 2
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+           a_content            |       b_content        |  a_score  |  b_score  
+--------------------------------+------------------------+-----------+-----------
+ smartphone technology advanced | high performance specs | 1.2039728 | 1.1608026
+(1 row)
 
 -- =============================================================================
 -- MULTI-RELATION TEST: Three-table OR decomposition
@@ -102,46 +100,16 @@ CROSS JOIN table_b b
 CROSS JOIN table_c c
 WHERE (a.content @@@ 'laptop' OR b.content @@@ 'gaming' OR c.content @@@ 'innovation')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-           a_content            |          b_content           |       c_content        |  a_score  |  b_score  |  c_score  
---------------------------------+------------------------------+------------------------+-----------+-----------+-----------
- laptop computer powerful       | gaming experience immersive  | technology innovation  | 1.2039728 | 1.1608026 | 1.2039728
- laptop computer powerful       | gaming experience immersive  | performance benchmarks | 1.2039728 | 1.1608026 |         0
- laptop computer powerful       | gaming experience immersive  | narrative structure    | 1.2039728 | 1.1608026 |         0
- laptop computer powerful       | gaming experience immersive  | entertainment value    | 1.2039728 | 1.1608026 |         0
- laptop computer powerful       | advanced features smartphone | technology innovation  | 1.2039728 |         0 | 1.2039728
- laptop computer powerful       | storytelling narrative       | technology innovation  | 1.2039728 |         0 | 1.2039728
- laptop computer powerful       | high performance specs       | technology innovation  | 1.2039728 |         0 | 1.2039728
- laptop computer powerful       | storytelling narrative       | entertainment value    | 1.2039728 |         0 |         0
- laptop computer powerful       | advanced features smartphone | performance benchmarks | 1.2039728 |         0 |         0
- laptop computer powerful       | advanced features smartphone | narrative structure    | 1.2039728 |         0 |         0
- laptop computer powerful       | advanced features smartphone | entertainment value    | 1.2039728 |         0 |         0
- laptop computer powerful       | high performance specs       | entertainment value    | 1.2039728 |         0 |         0
- laptop computer powerful       | storytelling narrative       | performance benchmarks | 1.2039728 |         0 |         0
- laptop computer powerful       | storytelling narrative       | narrative structure    | 1.2039728 |         0 |         0
- laptop computer powerful       | high performance specs       | performance benchmarks | 1.2039728 |         0 |         0
- laptop computer powerful       | high performance specs       | narrative structure    | 1.2039728 |         0 |         0
- smartphone technology advanced | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
- game console modern            | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
- book fiction story             | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
- game console modern            | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
- smartphone technology advanced | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
- smartphone technology advanced | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
- smartphone technology advanced | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
- book fiction story             | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
- book fiction story             | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
- book fiction story             | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
- game console modern            | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
- game console modern            | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
- smartphone technology advanced | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
- smartphone technology advanced | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
- game console modern            | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
- game console modern            | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
- book fiction story             | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
- book fiction story             | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
- book fiction story             | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
- smartphone technology advanced | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
- game console modern            | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
-(37 rows)
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 2
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 4
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+        a_content         |          b_content          |       c_content       |  a_score  |  b_score  |  c_score  
+--------------------------+-----------------------------+-----------------------+-----------+-----------+-----------
+ laptop computer powerful | gaming experience immersive | technology innovation | 1.2039728 | 1.1608026 | 1.2039728
+(1 row)
 
 -- =============================================================================
 -- MULTIPLE CONDITIONS PER RELATION TEST
@@ -165,22 +133,16 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.category @@@ 'electronics' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
-           a_content            | a_category  |          b_content           |  a_score   |  b_score  
---------------------------------+-------------+------------------------------+------------+-----------
- smartphone technology advanced | electronics | high performance specs       |  1.5606477 | 1.1608026
- smartphone technology advanced | electronics | storytelling narrative       |  1.5606477 |         0
- smartphone technology advanced | electronics | gaming experience immersive  |  1.5606477 |         0
- smartphone technology advanced | electronics | advanced features smartphone |  1.5606477 |         0
- game console modern            | electronics | high performance specs       | 0.35667497 | 1.1608026
- laptop computer powerful       | electronics | high performance specs       | 0.35667497 | 1.1608026
- game console modern            | electronics | gaming experience immersive  | 0.35667497 |         0
- laptop computer powerful       | electronics | advanced features smartphone | 0.35667497 |         0
- laptop computer powerful       | electronics | storytelling narrative       | 0.35667497 |         0
- laptop computer powerful       | electronics | gaming experience immersive  | 0.35667497 |         0
- game console modern            | electronics | advanced features smartphone | 0.35667497 |         0
- game console modern            | electronics | storytelling narrative       | 0.35667497 |         0
- book fiction story             | literature  | high performance specs       |          0 | 1.1608026
-(13 rows)
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 2
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+           a_content            | a_category  |       b_content        |  a_score   |  b_score  
+--------------------------------+-------------+------------------------+------------+-----------
+ smartphone technology advanced | electronics | high performance specs |  1.5606477 | 1.1608026
+ laptop computer powerful       | electronics | high performance specs | 0.35667497 | 1.1608026
+ game console modern            | electronics | high performance specs | 0.35667497 | 1.1608026
+(3 rows)
 
 -- =============================================================================
 -- MIXED SEARCH AND NON-SEARCH TEST
@@ -205,15 +167,19 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fa49e00c6a8, opno: 63386, val: 0x7fa49e014ed8 }, HeapExpr { expr_node: 0x7fa49e017c68, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
-WARNING:  OR decomposition (partial): OR condition: extracted 1 predicates (0 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(HeapExpr { expr_node: 0x7fa49e017d58, expr_desc: "OpExpr with operator OID 96", search_query_input: All })
-        a_content         | a_value |          b_content           | b_priority |  a_score  | b_score 
---------------------------+---------+------------------------------+------------+-----------+---------
- laptop computer powerful |     200 | advanced features smartphone |          1 | 1.2039728 |       0
- laptop computer powerful |     200 | gaming experience immersive  |          1 | 1.2039728 |       0
-(2 rows)
+           a_content            | a_value |          b_content           | b_priority | a_score | b_score 
+--------------------------------+---------+------------------------------+------------+---------+---------
+ smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
+ smartphone technology advanced |     100 | gaming experience immersive  |          1 |         |        
+ laptop computer powerful       |     200 | advanced features smartphone |          1 |         |        
+ laptop computer powerful       |     200 | high performance specs       |          2 |         |        
+ laptop computer powerful       |     200 | storytelling narrative       |          3 |         |        
+ laptop computer powerful       |     200 | gaming experience immersive  |          1 |         |        
+ book fiction story             |      50 | advanced features smartphone |          1 |         |        
+ book fiction story             |      50 | gaming experience immersive  |          1 |         |        
+ game console modern            |     150 | advanced features smartphone |          1 |         |        
+ game console modern            |     150 | gaming experience immersive  |          1 |         |        
+(10 rows)
 
 -- =============================================================================
 -- NESTED AND/OR TEST
@@ -238,14 +204,16 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa4ce014588, expr_desc: "OpExpr with operator OID 521", search_query_input: Boolean { must: [WithIndex { oid: 63448, query: ParseWithField { field: FieldName("content"), query_string: "smartphone", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa490008178, expr_desc: "OpExpr with operator OID 96", search_query_input: Boolean { must: [WithIndex { oid: 63449, query: ParseWithField { field: FieldName("content"), query_string: "gaming", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
-           a_content            | a_value |          b_content          | b_priority |  a_score  |  b_score  
---------------------------------+---------+-----------------------------+------------+-----------+-----------
- smartphone technology advanced |     100 | gaming experience immersive |          1 | 1.2039728 | 1.1608026
-(1 row)
+           a_content            | a_value |          b_content           | b_priority | a_score | b_score 
+--------------------------------+---------+------------------------------+------------+---------+---------
+ smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
+ smartphone technology advanced |     100 | high performance specs       |          2 |         |        
+ smartphone technology advanced |     100 | storytelling narrative       |          3 |         |        
+ smartphone technology advanced |     100 | gaming experience immersive  |          1 |         |        
+ laptop computer powerful       |     200 | gaming experience immersive  |          1 |         |        
+ book fiction story             |      50 | gaming experience immersive  |          1 |         |        
+ game console modern            |     150 | gaming experience immersive  |          1 |         |        
+(7 rows)
 
 -- =============================================================================
 -- UNSAFE CONDITIONS TEST (should be rejected)
@@ -267,15 +235,12 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(OpExpr { lhs: 0x7fa4ee057df8, opno: 63386, val: 0x7fa4ee059e30 })
-WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
-           a_content            |          b_content           |  a_score  | b_score 
---------------------------------+------------------------------+-----------+---------
- smartphone technology advanced | advanced features smartphone | 1.2039728 |        
- smartphone technology advanced | high performance specs       | 1.2039728 |        
- smartphone technology advanced | storytelling narrative       | 1.2039728 |        
- smartphone technology advanced | gaming experience immersive  | 1.2039728 |        
+           a_content            |          b_content           | a_score | b_score 
+--------------------------------+------------------------------+---------+---------
+ smartphone technology advanced | advanced features smartphone |         |        
+ smartphone technology advanced | high performance specs       |         |        
+ smartphone technology advanced | storytelling narrative       |         |        
+ smartphone technology advanced | gaming experience immersive  |         |        
 (4 rows)
 
 -- =============================================================================
@@ -298,10 +263,13 @@ FROM table_a a
 JOIN table_b b ON a.value = b.priority * 100  -- Join condition
 WHERE (a.content @@@ 'electronics' OR b.description @@@ 'capabilities')
 ORDER BY a_score DESC, b_score DESC;
-           a_content            |          b_content           | a_score | b_score  
---------------------------------+------------------------------+---------+----------
- smartphone technology advanced | advanced features smartphone |       0 | 1.261305
-(1 row)
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 2
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+ a_content | b_content | a_score | b_score 
+-----------+-----------+---------+---------
+(0 rows)
 
 -- =============================================================================
 -- COMPLEX REAL-WORLD SCENARIO
@@ -327,9 +295,6 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
            a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
 --------------------------------+------------------------------+------------------------+---------+---------+---------
  smartphone technology advanced | advanced features smartphone |                        |         |         |        
@@ -366,6 +331,10 @@ SELECT 'Single table B - performance' as query_type,
 FROM table_b b
 WHERE b.content @@@ 'performance'
 ORDER BY score DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
           query_type          |            content             |   score   
 ------------------------------+--------------------------------+-----------
  Single table A - smartphone  | smartphone technology advanced | 1.2039728

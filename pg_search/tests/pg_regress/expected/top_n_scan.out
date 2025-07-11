@@ -108,6 +108,8 @@ FROM records
 WHERE notes @@@ 'check'
 ORDER BY id
 LIMIT 25;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                       QUERY PLAN                                                                      
 ------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -137,6 +139,8 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -165,6 +169,8 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -188,6 +194,8 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 25;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                       QUERY PLAN                       
 -------------------------------------------------------
  Limit
@@ -211,6 +219,8 @@ FROM records
 WHERE NOT id @@@ paradedb.exists('removed_at')
 ORDER BY id
 LIMIT 25;
+WARNING:  OR decomposition analyzing Other for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                          QUERY PLAN                                                          
 -----------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -234,6 +244,8 @@ FROM records
 WHERE NOT source_id @@@ 'IN [source-1 source-2 source-3]'
 ORDER BY id
 LIMIT 25;
+WARNING:  OR decomposition analyzing Other for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                                           QUERY PLAN                                                                                                          
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -259,6 +271,8 @@ WHERE tenant_id = 'tenant-1'
   AND id @@@ paradedb.match('notes', 'check')
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -282,6 +296,8 @@ FROM records
 WHERE id @@@ paradedb.match('notes', 'check', conjunction_mode => true, 
        tokenizer => paradedb.tokenizer('ngram', min_gram => 3, max_gram => 3, prefix_only => false))
 LIMIT 25;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                                                                           QUERY PLAN                                                                                                                                           
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -316,6 +332,8 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                                                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -341,6 +359,8 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                              QUERY PLAN                                                                                                                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

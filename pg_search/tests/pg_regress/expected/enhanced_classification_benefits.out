@@ -72,6 +72,10 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone' AND p.price > 500)  -- Mixed: search + non-indexed
   AND (c.name @@@ 'Electronics' AND c.is_active = true)   -- Mixed: search + indexed
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                test_name                | product_name | category_name | product_score | category_score 
 ----------------------------------------+--------------+---------------+---------------+----------------
  Test 1a: Complex AND with mixed safety | Smartphone   | Electronics   |      1.257669 |      1.2039728
@@ -90,14 +94,13 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fa4de817880, opno: 63386, val: 0x7fa4de8195a0 }, HeapExpr { expr_node: 0x7fa4c80095e0, expr_desc: "OpExpr with operator OID 1756", search_query_input: All }]))
-WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fa4de81c240, opno: 63386, val: 0x7fa4de81e8c8 }, HeapExpr { expr_node: 0x7fa4c80096d0, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
-               test_name                | product_name |                  review_content                  | product_score | review_score 
-----------------------------------------+--------------+--------------------------------------------------+---------------+--------------
- Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming |      1.257669 |    0.8754688
-(1 row)
+               test_name                | product_name |                     review_content                     | product_score | review_score 
+----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
+ Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |               |             
+ Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming       |               |             
+ Test 1b: OR expression safety analysis | Novel        | Captivating story with excellent character development |               |             
+ Test 1b: OR expression safety analysis | Laptop       | Great laptop but a bit expensive for students          |               |             
+(4 rows)
 
 -- =============================================================================
 -- BENEFIT 2: Intelligent Partial Salvage of AND Expressions
@@ -120,6 +123,10 @@ WHERE (p.description @@@ 'laptop')        -- Safe: search on target table
   AND (p.price > 1000)                    -- Unsafe: non-indexed field
   AND (c.name @@@ 'Electronics')         -- Unsafe: external table reference
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 2
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
               test_name               | product_name | product_score 
 --------------------------------------+--------------+---------------
  Test 2a: Salvaging safe parts of AND | Laptop       |      1.257669
@@ -134,6 +141,8 @@ SELECT
 FROM products p
 WHERE p.description @@@ 'laptop'
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
               test_name               | product_name | product_score 
 --------------------------------------+--------------+---------------
  Test 2b: Direct query for comparison | Laptop       |      1.257669
@@ -161,11 +170,14 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')    -- Safe condition on products
    OR (c.description @@@ 'electronic')    -- External condition on categories
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 2
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
               test_name              | product_name | category_name | product_score | category_score 
 -------------------------------------+--------------+---------------+---------------+----------------
  Test 3a: OR with external variables | Smartphone   | Electronics   |      1.257669 |      1.1374958
- Test 3a: OR with external variables | Laptop       | Electronics   |             0 |      1.1374958
-(2 rows)
+(1 row)
 
 -- Test Case 3b: Safe OR expression (all clauses reference same table)
 -- Shows when OR expressions can be safely pushed down
@@ -177,6 +189,8 @@ FROM products p
 WHERE (p.description @@@ 'smartphone')
    OR (p.name @@@ 'laptop')
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
           test_name          | product_name | product_score 
 -----------------------------+--------------+---------------
  Test 3b: Safe OR expression | Laptop       |     1.4877304
@@ -207,12 +221,10 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa4df029d38, expr_desc: "Boolean field_6 = true", search_query_input: Boolean { must: [WithIndex { oid: 63503, query: ParseWithField { field: FieldName("description"), query_string: "smartphone", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
- Test 4a: Nested boolean logic | Smartphone   |      1.257669
- Test 4a: Nested boolean logic | Smartphone   |      1.257669
+ Test 4a: Nested boolean logic | Smartphone   |              
+ Test 4a: Nested boolean logic | Smartphone   |              
 (2 rows)
 
 -- Test Case 4b: Mixed indexed and non-indexed conditions across tables
@@ -228,6 +240,10 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' AND p.price > 1000)     -- Mixed on products
   AND (r.content @@@ 'excellent' AND r.is_verified = true) -- Mixed on reviews
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                 test_name                | product_name |                  review_content                  | product_score | review_score 
 -----------------------------------------+--------------+--------------------------------------------------+---------------+--------------
  Test 4b: Mixed conditions across tables | Laptop       | Excellent laptop performance for work and gaming |      1.257669 |    0.8754688
@@ -255,6 +271,10 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')
   AND (c.name = 'Electronics')  -- Non-search condition that could cause issues
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing Other for target_rti 2
+WARNING:  OR decomposition (full): Single predicate for target relation
                test_name               | product_name | category_name | product_score | category_score 
 ---------------------------------------+--------------+---------------+---------------+----------------
  Test 5a: Prevented incorrect pushdown | Smartphone   | Electronics   |      1.257669 |               
@@ -269,6 +289,8 @@ SELECT
 FROM products p
 WHERE p.description @@@ 'smartphone'
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                 test_name                 | product_name | product_score 
 ------------------------------------------+--------------+---------------
  Test 5b: Consistent scoring verification | Smartphone   |      1.257669
@@ -327,6 +349,10 @@ WHERE (p.description @@@ 'smartphone')   -- Safe: can be pushed down
   AND (c.is_active = true)               -- Unsafe: external table
   AND (p.name @@@ 'phone')              -- Safe: can be pushed down
 ORDER BY product_score DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing Other for target_rti 2
+WARNING:  OR decomposition (full): Single predicate for target relation
  test_name | product_name | product_score 
 -----------+--------------+---------------
 (0 rows)

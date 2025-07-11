@@ -142,6 +142,14 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
 ('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
 ('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
 ('page2', 'file1', 2, 'Page 2 of Invoice PDF with payment information'),
@@ -149,6 +157,18 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create recursive CTE test data
 CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
@@ -174,6 +194,18 @@ INSERT INTO categories (name, description, parent_id) VALUES
 ('Food', 'Edible products', NULL),
 ('Dairy', 'Milk and dairy products', 7),
 ('Bakery', 'Bread and baked goods', 7);
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create products for multi-index search
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -198,6 +230,18 @@ INSERT INTO products (name, category_id, price) VALUES
 ('Women''s Dress', 6, 199.99),
 ('Milk Carton', 8, 3.99),
 ('Bread Loaf', 9, 5.99);
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create table for type conversion testing
 CREATE TABLE conversion_test (
     id TEXT PRIMARY KEY,
@@ -314,6 +358,10 @@ SELECT title, author, rating, price
 FROM union_test_b
 WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                          QUERY PLAN                                                                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -349,6 +397,10 @@ SELECT title, author, rating, price
 FROM union_test_b
 WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title   |  author   | rating | price 
 ----------+-----------+--------+-------
  Book A11 | Author 2  |      5 |    65
@@ -400,6 +452,10 @@ SELECT title, price, year
 FROM union_test_b
 WHERE price < 45 AND year > 1982 and title @@@ 'Book B'
 ORDER BY price;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -433,6 +489,10 @@ SELECT title, price, year
 FROM union_test_b
 WHERE price < 45 AND year > 1982 and title @@@ 'Book B'
 ORDER BY price;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title  | price | year 
 ---------+-------+------
  Book A1 |    15 | 2001
@@ -454,6 +514,8 @@ SELECT title, author, price, rating,
 FROM union_test_a
 WHERE title @@@ 'Book A'
 ORDER BY title, author, author_rank;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -477,6 +539,8 @@ SELECT title, author, price, rating,
 FROM union_test_a
 WHERE title @@@ 'Book A'
 ORDER BY title, author, author_rank;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   title   |  author   | price | rating | author_rank 
 ----------+-----------+-------+--------+-------------
  Book A1  | Author 2  |    15 |      4 |           1
@@ -538,6 +602,8 @@ SELECT title, author, price,
 FROM union_test_a
 WHERE author @@@ 'Author'
 ORDER BY title, author, price;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                              QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -561,6 +627,8 @@ SELECT title, author, price,
 FROM union_test_a
 WHERE author @@@ 'Author'
 ORDER BY title, author, price;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   title   |  author   | price | running_avg_price 
 ----------+-----------+-------+-------------------
  Book A1  | Author 2  |    15 |                15
@@ -630,6 +698,10 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY title, author, author_rank;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                   QUERY PLAN                                                                                                                                                   
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -668,6 +740,10 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY title, author, author_rank;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title   |  author   | rating | source | author_rank 
 ----------+-----------+--------+--------+-------------
  Book A1  | Author 2  |      4 | A      |           3
@@ -746,6 +822,10 @@ SELECT title, author, is_published
 FROM union_test_b
 WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                               QUERY PLAN                                                                                                                              
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -785,6 +865,10 @@ SELECT title, author, is_published
 FROM union_test_b
 WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title   |  author   | is_published 
 ----------+-----------+--------------
  Book A10 | Author 1  | t
@@ -873,6 +957,8 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  WindowAgg
@@ -904,6 +990,8 @@ FROM union_test_a
 WHERE author @@@ 'Author'
 GROUP BY author
 ORDER BY avg_rating DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   author   | avg_rating | avg_price | book_count | rating_rank | price_rank 
 -----------+------------+-----------+------------+-------------+------------
  Author 2  |        4.2 |       115 |          5 |           1 |          1
@@ -923,6 +1011,10 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                          QUERY PLAN                                                                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  HashSetOp Intersect
@@ -950,6 +1042,10 @@ INTERSECT
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A');
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   author   
 -----------
  Author 5
@@ -966,6 +1062,10 @@ FROM union_test_b
 WHERE title @@@ 'Book B1' AND rating > 3
 ORDER BY rating DESC, title
 LIMIT 10;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title   |  author   | rating | price 
 ----------+-----------+--------+-------
  Book A11 | Author 2  |      5 |    65
@@ -987,6 +1087,8 @@ FROM union_test_a
 WHERE author @@@ 'Author 1'
 ORDER BY title, author, price
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   title   |  author  | price | rating | author_rank 
 ----------+----------+-------+--------+-------------
  Book A1  | Author 2 |    15 |      4 |           1

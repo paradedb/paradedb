@@ -75,13 +75,16 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
- book_id |   author_snippet    | author_positions | author_score | book_score |                                     review                                      |                                               review_snippet                                                |             review_positions             | review_score 
----------+---------------------+------------------+--------------+------------+---------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+--------------
-       1 |                     |                  |            0 | 0.20262644 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
-       2 |                     |                  |            0 | 0.16421193 | Another test review of the snippet snippet function with repeated snippet words | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} |    0.7406344
-       2 |                     |                  |            0 | 0.16421193 | test review of the snippet snippet function with repeated snippet words         | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  |   0.75704324
-       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 | 0.20443876 | test review of the snippet function with multiple test words                    | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            |    0.5505729
-(4 rows)
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing Or for target_rti 4
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+WARNING:  OR decomposition analyzing Or for target_rti 5
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
+ book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |       review_positions        | review_score 
+---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------------+--------------
+       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 | 0.20443876 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {"{0,4}","{19,26}","{50,54}"} |    0.5505729
+(1 row)
 
 SELECT
     b.id as book_id,
@@ -102,8 +105,8 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
+WARNING:  Detected OUTER JOIN involving relation 2 - disabling OR optimization
+WARNING:  OR decomposition (rejected): OUTER JOIN detected: rejecting OR decomposition to preserve join semantics (3 cross-table, 1 target-relation predicates)
  book_id | book_snippet | book_positions |   author_snippet    | author_positions | review_snippet | review_positions | book_score | author_score | review_score 
 ---------+--------------+----------------+---------------------+------------------+----------------+------------------+------------+--------------+--------------
        1 |              |                |                     |                  |                |                  |            |            0 |             

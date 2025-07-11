@@ -142,6 +142,8 @@ SELECT id, string_field1, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'edge case'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                          QUERY PLAN                                                                         
 ------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -161,6 +163,8 @@ SELECT id, string_field1, string_field2
 FROM mixed_numeric_string_test
 WHERE content @@@ 'edge case'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   id   |                                                                               string_field1                                                                                | string_field2 
 -------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------
  edge1 |                                                                                                                                                                            | empty_first

@@ -142,6 +142,14 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
 ('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
 ('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:152: WARNING:  OR decomposition (full): Single predicate for target relation
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
 ('page2', 'file1', 2, 'Page 2 of Invoice PDF with payment information'),
@@ -149,6 +157,18 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:160: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create recursive CTE test data
 CREATE TABLE categories (
     id SERIAL PRIMARY KEY,
@@ -174,6 +194,18 @@ INSERT INTO categories (name, description, parent_id) VALUES
 ('Food', 'Edible products', NULL),
 ('Dairy', 'Milk and dairy products', 7),
 ('Bakery', 'Bread and baked goods', 7);
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:188: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create products for multi-index search
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -198,6 +230,18 @@ INSERT INTO products (name, category_id, price) VALUES
 ('Women''s Dress', 6, 199.99),
 ('Milk Carton', 8, 3.99),
 ('Bread Loaf', 9, 5.99);
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_advanced_setup.sql:215: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Create table for type conversion testing
 CREATE TABLE conversion_test (
     id TEXT PRIMARY KEY,
@@ -356,6 +400,8 @@ FROM score_test
 WHERE content @@@ 'technology'
 ORDER BY title, paradedb.score(id), rating DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -375,6 +421,8 @@ FROM score_test
 WHERE content @@@ 'technology'
 ORDER BY title, paradedb.score(id), rating DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   title   |    score    | rating 
 ----------+-------------+--------
  Post 1   | 0.019852143 |      2
@@ -396,6 +444,8 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, paradedb.score(id) DESC
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                            QUERY PLAN                                                                            
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -415,6 +465,8 @@ FROM score_test
 WHERE content @@@ 'research'
 ORDER BY title, author, rating, views, paradedb.score(id) DESC
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
            title           |    author     | rating | views |    score    
 ---------------------------+---------------+--------+-------+-------------
  Advanced Science Research | Author Expert |      5 |  8888 | 0.022842946
@@ -430,6 +482,8 @@ SELECT title, author, paradedb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY title, author, paradedb.score(id) DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -449,6 +503,8 @@ SELECT title, author, paradedb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY title, author, paradedb.score(id) DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
            title            |    author     |   score   
 ----------------------------+---------------+-----------
  Post 14                    | Author 5      | 2.8002355
@@ -473,6 +529,8 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY title, author, relevance DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                              QUERY PLAN                                                                                                                                             
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -497,6 +555,8 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY title, author, relevance DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
            title           |    author     | rating | relevance 
 ---------------------------+---------------+--------+-----------
  Advanced Science Research | Author Expert |      5 |  1.022843
@@ -521,6 +581,8 @@ FROM (
 ) sp
 WHERE sp.relevance > 0.5
 ORDER BY sp.title, sp.author, sp.relevance DESC;
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                         QUERY PLAN                                                                                                                                                                        
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -544,6 +606,8 @@ FROM (
 ) sp
 WHERE sp.relevance > 0.5
 ORDER BY sp.title, sp.author, sp.relevance DESC;
+WARNING:  OR decomposition analyzing And for target_rti 2
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
            title            |    author     | relevance 
 ----------------------------+---------------+-----------
  Post 13                    | Author 4      | 1.0181726
@@ -601,6 +665,10 @@ FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -636,6 +704,10 @@ FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
 LIMIT 10;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
   title   |  author  |  relevance  
 ----------+----------+-------------
  Post 1   | Author 2 | 0.046778545
@@ -666,7 +738,10 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  Detected SEMI/ANTI JOIN involving relation 6 - disabling OR optimization
+WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -715,7 +790,10 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  OR decomposition (rejected): Single predicate contains unsafe references
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  Detected SEMI/ANTI JOIN involving relation 6 - disabling OR optimization
+WARNING:  OR decomposition (search-only): OUTER JOIN: single search predicate for target relation
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11
@@ -795,6 +873,8 @@ SELECT
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
 ORDER BY title, author, paradedb.score(id) DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
                                                                                                                                             QUERY PLAN                                                                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -822,6 +902,8 @@ SELECT
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
 ORDER BY title, author, paradedb.score(id) DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
            title           |    author     | rating | relevance_category 
 ---------------------------+---------------+--------+--------------------
  Advanced Science Research | Author Expert |      5 | High Relevance
@@ -853,6 +935,8 @@ SELECT title, author, rating, paradedb.score(id) as relevance
 FROM score_test
 WHERE content @@@ 'technology' AND rating > 4
 ORDER BY title, author, relevance DESC;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
           title          |    author     | rating | relevance 
 -------------------------+---------------+--------+-----------
  Post 14                 | Author 5      |      5 | 1.0180454

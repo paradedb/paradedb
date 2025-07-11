@@ -142,6 +142,8 @@ SELECT id, empty_string, special_chars
 FROM corner_case_test
 WHERE content @@@ 'complex pattern'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -161,6 +163,8 @@ SELECT id, empty_string, special_chars
 FROM corner_case_test
 WHERE content @@@ 'complex pattern'
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
     id    |    empty_string     | special_chars 
 ----------+---------------------+---------------
  complex1 | pattern with spaces | tab    tab

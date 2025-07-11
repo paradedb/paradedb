@@ -26,6 +26,8 @@ CREATE INDEX ON issue_2585_test USING bm25 (
     key_field = 'id'
 );
 SELECT * FROM issue_2585_test WHERE content @@@ 'content' AND titles IS NOT NULL AND metadata IS NOT NULL AND is_null IS NOT NULL;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |     content      |        titles         |     metadata      | is_null 
 ----+------------------+-----------------------+-------------------+---------
   1 | Sample content 1 | {"Title 1","Title 2"} | {"key": "value1"} | f
@@ -33,6 +35,8 @@ SELECT * FROM issue_2585_test WHERE content @@@ 'content' AND titles IS NOT NULL
 (2 rows)
 
 SELECT * FROM issue_2585_test WHERE content @@@ 'fields' AND titles IS NULL AND metadata IS NULL AND is_null IS FALSE;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
  id |      content       | titles | metadata | is_null 
 ----+--------------------+--------+----------+---------
   7 | All fields present |        |          | f

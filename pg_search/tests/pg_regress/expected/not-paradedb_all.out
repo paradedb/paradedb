@@ -8,6 +8,8 @@ SELECT id
 FROM notpdball
 WHERE id @@@ paradedb.all()
 ORDER BY id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id 
 ----
   1
@@ -57,6 +59,8 @@ SELECT id
 FROM notpdball
 WHERE NOT id @@@ paradedb.all()
 ORDER BY id;
+WARNING:  OR decomposition analyzing Other for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id 
 ----
 (0 rows)
@@ -67,9 +71,6 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
-WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(OpExpr { lhs: 0x7fa4d8811928, opno: 63386, val: 0x7fa4d8818668 })
  id | id 
 ----+----
   1 |  1

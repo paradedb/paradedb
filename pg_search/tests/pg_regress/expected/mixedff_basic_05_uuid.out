@@ -33,6 +33,8 @@ WITH (
 WARNING:  the `raw` tokenizer is deprecated
 -- Confirm that the UUID key_field is fast and gets MixedFF.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  name 
 ------
  bob
@@ -41,6 +43,8 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -57,6 +61,8 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
 
 -- And that non-key UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  name 
 ------
  bob
@@ -65,6 +71,8 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                     QUERY PLAN                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------
  Sort

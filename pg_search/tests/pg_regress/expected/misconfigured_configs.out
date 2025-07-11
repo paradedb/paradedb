@@ -10,6 +10,8 @@ SELECT description, rating, category
 FROM mock_items
 WHERE id @@@ paradedb.term('description', 'Sleek running shoes')
 LIMIT 5;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
      description     | rating | category 
 ---------------------+--------+----------
  Sleek running shoes |      5 | Footwear

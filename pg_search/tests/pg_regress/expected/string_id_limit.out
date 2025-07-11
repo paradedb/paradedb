@@ -39,6 +39,8 @@ SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id desc
 LIMIT 2;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
             id            | customer_id | text 
 --------------------------+-------------+------
  ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
@@ -50,6 +52,8 @@ SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id desc
 LIMIT 2;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -69,6 +73,8 @@ LIMIT 2;
 SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
             id            | customer_id | text 
 --------------------------+-------------+------
  ctx_01iso5q4prkOQVGKK0ue | customer_1  | 
@@ -81,6 +87,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id DESC;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                         QUERY PLAN                                                         
 ---------------------------------------------------------------------------------------------------------------------------
  Sort

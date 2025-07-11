@@ -321,6 +321,17 @@ impl PdbScan {
             &mut state,
         );
 
+        // Apply OR decomposition to base relation quals if they contain cross-table predicates
+        if let Some(ref base_quals) = quals {
+            if let Some(decomposed_quals) =
+                Self::validate_and_filter_join_quals(base_quals, rti, root)
+            {
+                quals = Some(decomposed_quals);
+            }
+            // If OR decomposition rejects the base quals, keep the original
+            // (this preserves the existing behavior for non-cross-table cases)
+        }
+
         // If we couldn't push down quals, try to push down quals from the join
         // This is only done if we have a join predicate, and only if we have used our operator
         // IMPORTANT: We now validate that join quals are safe to push down
@@ -334,7 +345,7 @@ impl PdbScan {
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
                 schema,
-                true, // Join quals should convert external to all
+                false, // Preserve predicate structure for OR decomposition to detect cross-table predicates correctly
                 &mut state,
             );
 
@@ -406,9 +417,17 @@ impl PdbScan {
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        // Apply OR decomposition strategy
-        let decomposition_result =
-            Self::decompose_cross_table_or_conditions(quals, target_rti, root);
+        // Determine if we're dealing with inner joins or outer joins
+        let has_outer_joins = Self::has_outer_joins_involving_relation(target_rti, root);
+
+        // Apply OR decomposition strategy based on join type
+        let decomposition_result = if has_outer_joins {
+            // For OUTER JOINs: Disable OR optimization to preserve outer join semantics
+            Self::decompose_cross_table_or_conditions_conservative(quals, target_rti, root)
+        } else {
+            // For INNER JOINs: Enable OR optimization
+            Self::decompose_cross_table_or_conditions(quals, target_rti, root)
+        };
 
         match decomposition_result {
             OrDecompositionResult::FullyExtractable(extracted_quals, diagnostic) => {
@@ -426,6 +445,148 @@ impl PdbScan {
             OrDecompositionResult::NotExtractable(diagnostic) => {
                 pgrx::warning!("OR decomposition (rejected): {diagnostic}");
                 None
+            }
+        }
+    }
+
+    /// Check if the target relation is involved in any outer joins.
+    /// Returns true if outer joins are present, false for inner joins only.
+    unsafe fn has_outer_joins_involving_relation(
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> bool {
+        if (*root).join_info_list.is_null() {
+            return false;
+        }
+
+        let join_info_list = PgList::<pg_sys::SpecialJoinInfo>::from_pg((*root).join_info_list);
+
+        for sjinfo in join_info_list.iter_ptr() {
+            let sjinfo = &*sjinfo;
+
+            // Check if this join involves our target relation
+            let involves_target = pg_sys::bms_is_member(target_rti as i32, sjinfo.min_lefthand)
+                || pg_sys::bms_is_member(target_rti as i32, sjinfo.min_righthand)
+                || pg_sys::bms_is_member(target_rti as i32, sjinfo.syn_lefthand)
+                || pg_sys::bms_is_member(target_rti as i32, sjinfo.syn_righthand);
+
+            if involves_target {
+                // Check if this is an outer join
+                match sjinfo.jointype {
+                    pg_sys::JoinType::JOIN_LEFT
+                    | pg_sys::JoinType::JOIN_RIGHT
+                    | pg_sys::JoinType::JOIN_FULL => {
+                        pgrx::warning!("Detected OUTER JOIN involving relation {target_rti} - disabling OR optimization");
+                        return true;
+                    }
+                    pg_sys::JoinType::JOIN_INNER => {
+                        // Inner join - continue checking other joins
+                        continue;
+                    }
+                    pg_sys::JoinType::JOIN_SEMI | pg_sys::JoinType::JOIN_ANTI => {
+                        // Semi/Anti joins - treat as outer joins for safety
+                        pgrx::warning!("Detected SEMI/ANTI JOIN involving relation {target_rti} - disabling OR optimization");
+                        return true;
+                    }
+                    _ => {
+                        // Unknown join type - be conservative
+                        pgrx::warning!("Detected unknown JOIN type involving relation {target_rti} - disabling OR optimization");
+                        return true;
+                    }
+                }
+            }
+        }
+
+        pgrx::warning!(
+            "Only INNER JOINs detected for relation {target_rti} - enabling OR optimization"
+        );
+        false
+    }
+
+    /// Conservative OR decomposition for OUTER JOINs.
+    /// Always rejects cross-table OR conditions to preserve outer join semantics.
+    unsafe fn decompose_cross_table_or_conditions_conservative(
+        quals: &Qual,
+        target_rti: pg_sys::Index,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> OrDecompositionResult {
+        match quals {
+            // Core OR decomposition logic - conservative approach
+            Qual::Or(clauses) => {
+                let mut target_relation_predicates = Vec::new();
+                let mut cross_table_predicates = 0;
+                let total_clauses = clauses.len();
+
+                for clause in clauses {
+                    let clause_analysis =
+                        Self::analyze_or_clause_for_target_relation(clause, target_rti, root);
+
+                    match clause_analysis {
+                        OrClauseAnalysis::TargetRelationSearchPredicate(search_qual)
+                        | OrClauseAnalysis::TargetRelationNonSearchPredicate(search_qual) => {
+                            target_relation_predicates.push(search_qual);
+                        }
+                        OrClauseAnalysis::CrossTablePredicate => {
+                            cross_table_predicates += 1;
+                        }
+                        OrClauseAnalysis::UnsafePredicate => {
+                            // Unsafe predicates prevent decomposition in conservative mode
+                            cross_table_predicates += 1;
+                        }
+                    }
+                }
+
+                // Conservative approach: reject any OR with cross-table predicates in outer joins
+                if cross_table_predicates > 0 {
+                    OrDecompositionResult::NotExtractable(format!(
+                        "OUTER JOIN detected: rejecting OR decomposition to preserve join semantics ({cross_table_predicates} cross-table, {} target-relation predicates)", 
+                        target_relation_predicates.len()
+                    ))
+                } else if target_relation_predicates.is_empty() {
+                    OrDecompositionResult::NotExtractable(format!(
+                        "OR condition: no extractable predicates for target relation (checked {total_clauses} clauses)"
+                    ))
+                } else {
+                    // Only target relation predicates - safe to extract
+                    let target_predicates_count = target_relation_predicates.len();
+                    let extracted_qual = if target_predicates_count == 1 {
+                        target_relation_predicates.into_iter().next().unwrap()
+                    } else {
+                        Qual::Or(target_relation_predicates)
+                    };
+
+                    OrDecompositionResult::FullyExtractable(
+                        extracted_qual,
+                        format!("OUTER JOIN: extracted {target_predicates_count} target-only predicates"),
+                    )
+                }
+            }
+
+            // Single predicates - check scope conservatively
+            _ => {
+                let scope = Self::analyze_predicate_scope(quals, target_rti, root);
+                match scope {
+                    PredicateScope::TargetRelationOnly => {
+                        if Self::is_search_predicate(quals) {
+                            OrDecompositionResult::SearchOnlyExtractable(
+                                quals.clone(),
+                                "OUTER JOIN: single search predicate for target relation"
+                                    .to_string(),
+                            )
+                        } else {
+                            OrDecompositionResult::FullyExtractable(
+                                quals.clone(),
+                                "OUTER JOIN: single predicate for target relation".to_string(),
+                            )
+                        }
+                    }
+                    PredicateScope::CrossTable => OrDecompositionResult::NotExtractable(
+                        "OUTER JOIN: rejecting cross-table predicate".to_string(),
+                    ),
+                    PredicateScope::Unsafe => OrDecompositionResult::NotExtractable(
+                        "OUTER JOIN: rejecting unsafe predicate".to_string(),
+                    ),
+                }
             }
         }
     }
@@ -940,15 +1101,17 @@ impl PdbScan {
             &mut external_relations,
         );
 
-        if target_var_count == 0 && external_relations.is_empty() {
+        let result = if target_var_count == 0 && external_relations.is_empty() {
             NodeScopeInfo::NoVariables
         } else if external_relations.is_empty() {
             NodeScopeInfo::TargetRelationOnly
         } else if target_var_count == 0 {
-            NodeScopeInfo::ExternalRelations(external_relations.into_iter().collect())
+            NodeScopeInfo::ExternalRelations(external_relations.iter().cloned().collect())
         } else {
             NodeScopeInfo::Mixed(target_var_count, external_relations.len())
-        }
+        };
+
+        result
     }
 
     /// Recursively analyzes variables in a PostgreSQL node tree.
@@ -1367,7 +1530,68 @@ impl PdbScan {
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> OrDecompositionResult {
+        let qual_type = match quals {
+            Qual::OpExpr { .. } => "OpExpr",
+            Qual::And(_) => "And",
+            Qual::Or(_) => "Or",
+            Qual::ExternalVar => "ExternalVar",
+            Qual::ExternalExpr => "ExternalExpr",
+            _ => "Other",
+        };
+        pgrx::warning!(
+            "OR decomposition analyzing {} for target_rti {}",
+            qual_type,
+            target_rti
+        );
+
         match quals {
+            // Handle AND clauses that might contain OR clauses
+            Qual::And(clauses) => {
+                // Look for OR clauses within the AND
+                let mut or_clauses = Vec::new();
+                let mut non_or_clauses = Vec::new();
+
+                for clause in clauses {
+                    match clause {
+                        Qual::Or(_) => or_clauses.push(clause),
+                        _ => non_or_clauses.push(clause),
+                    }
+                }
+
+                // If we found exactly one OR clause, decompose it
+                if or_clauses.len() == 1 {
+                    return Self::decompose_cross_table_or_conditions(
+                        or_clauses[0],
+                        target_rti,
+                        root,
+                    );
+                }
+
+                // If we have multiple OR clauses or no OR clauses, fall through to default handling
+                let scope_info = Self::analyze_predicate_scope(quals, target_rti, root);
+                match scope_info {
+                    PredicateScope::TargetRelationOnly => {
+                        if Self::is_search_predicate(quals) {
+                            OrDecompositionResult::SearchOnlyExtractable(
+                                quals.clone(),
+                                "AND clause with search predicates for target relation".to_string(),
+                            )
+                        } else {
+                            OrDecompositionResult::FullyExtractable(
+                                quals.clone(),
+                                "AND clause for target relation".to_string(),
+                            )
+                        }
+                    }
+                    PredicateScope::CrossTable => OrDecompositionResult::NotExtractable(
+                        "AND clause spans multiple relations".to_string(),
+                    ),
+                    PredicateScope::Unsafe => OrDecompositionResult::NotExtractable(
+                        "AND clause contains unsafe references".to_string(),
+                    ),
+                }
+            }
+
             // Core OR decomposition logic
             Qual::Or(clauses) => {
                 let mut target_relation_predicates = Vec::new();
@@ -1402,39 +1626,91 @@ impl PdbScan {
                     OrDecompositionResult::NotExtractable(format!(
                         "OR condition: no extractable predicates for target relation (checked {total_clauses} clauses)"
                     ))
+                } else if cross_table_predicates > 0 {
+                    // For INNER JOINs: Enable OR decomposition with cross-table predicates
+                    // This allows extraction of relevant search predicates for BM25 scoring
+                    // while PostgreSQL still evaluates the full OR condition at join level.
+                    //
+                    // This is safe for inner joins because:
+                    // 1. We're only extracting predicates that reference the target relation
+                    // 2. PostgreSQL will still evaluate the complete OR condition for correctness
+                    // 3. Inner joins don't have semantic requirements about preserving null-extended rows
+
+                    if target_relation_predicates.is_empty() {
+                        OrDecompositionResult::NotExtractable(format!(
+                             "INNER JOIN: OR condition has {cross_table_predicates} cross-table predicates but no extractable target-relation predicates"
+                         ))
+                    } else {
+                        let target_predicates_count = target_relation_predicates.len();
+                        let search_only_count = target_predicates_count - non_search_predicates;
+
+                        if search_only_count > 0 {
+                            // Extract only search predicates from mixed conditions
+                            let search_predicates: Vec<Qual> = target_relation_predicates
+                                .into_iter()
+                                .filter(|pred| Self::is_search_predicate(pred))
+                                .collect();
+
+                            let extracted_qual = if search_predicates.len() == 1 {
+                                search_predicates.into_iter().next().unwrap()
+                            } else {
+                                Qual::Or(search_predicates)
+                            };
+
+                            OrDecompositionResult::SearchOnlyExtractable(
+                                extracted_qual,
+                                format!(
+                                    "INNER JOIN: extracted {search_only_count} search predicates (ignoring {non_search_predicates} non-search) from OR with {cross_table_predicates} cross-table predicates"
+                                )
+                            )
+                        } else {
+                            // No search predicates found
+                            OrDecompositionResult::NotExtractable(
+                                format!("INNER JOIN: no search predicates found among {target_predicates_count} target relation predicates")
+                            )
+                        }
+                    }
                 } else {
                     let target_predicates_count = target_relation_predicates.len();
-                    let extracted_qual = if target_predicates_count == 1 {
-                        target_relation_predicates.into_iter().next().unwrap()
-                    } else {
-                        // Multiple predicates for target relation - combine with OR
-                        Qual::Or(target_relation_predicates)
-                    };
-
                     let search_only_count = target_predicates_count - non_search_predicates;
 
-                    if cross_table_predicates == 0 && non_search_predicates == 0 {
-                        // All clauses are search predicates for target relation
+                    if non_search_predicates == 0 {
+                        // All predicates are search predicates for target relation only
+                        let extracted_qual = if target_predicates_count == 1 {
+                            target_relation_predicates.into_iter().next().unwrap()
+                        } else {
+                            // Multiple predicates for target relation - combine with OR
+                            Qual::Or(target_relation_predicates)
+                        };
+
                         OrDecompositionResult::FullyExtractable(
-                            extracted_qual,
-                            format!("OR condition: extracted all {target_predicates_count} search predicates for target relation")
-                        )
-                    } else if non_search_predicates == 0 {
-                        // Only search predicates, but some cross-table clauses exist
+                                extracted_qual,
+                                format!("OR condition: extracted all {target_predicates_count} search predicates for target relation (no cross-table predicates)")
+                            )
+                    } else if search_only_count > 0 {
+                        // Mix of search and non-search predicates - extract only search predicates
+                        let search_predicates: Vec<Qual> = target_relation_predicates
+                            .into_iter()
+                            .filter(|pred| Self::is_search_predicate(pred))
+                            .collect();
+
+                        let extracted_qual = if search_predicates.len() == 1 {
+                            search_predicates.into_iter().next().unwrap()
+                        } else {
+                            Qual::Or(search_predicates)
+                        };
+
                         OrDecompositionResult::SearchOnlyExtractable(
-                            extracted_qual,
-                            format!(
-                                "OR condition: extracted {search_only_count} search predicates, {cross_table_predicates} cross-table clauses remain for join evaluation"
+                                extracted_qual,
+                                format!(
+                                    "OR condition: extracted {search_only_count} search predicates (ignoring {non_search_predicates} non-search) for target relation only"
+                                )
                             )
-                        )
                     } else {
-                        // Mix of search and non-search predicates
-                        OrDecompositionResult::PartiallyExtractable(
-                            extracted_qual,
-                            format!(
-                                "OR condition: extracted {target_predicates_count} predicates ({search_only_count} search, {non_search_predicates} non-search), {cross_table_predicates} cross-table clauses remain"
+                        // No search predicates found
+                        OrDecompositionResult::NotExtractable(
+                                format!("OR condition: no search predicates found among {target_predicates_count} target relation predicates")
                             )
-                        )
                     }
                 }
             }
@@ -1592,8 +1868,18 @@ impl PdbScan {
             Qual::HeapExpr { expr_node, .. } => {
                 let scope_info = Self::analyze_node_variable_scope(*expr_node, target_rti, root);
                 match scope_info {
-                    NodeScopeInfo::TargetRelationOnly => PredicateScope::TargetRelationOnly,
-                    _ => PredicateScope::CrossTable,
+                    NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
+                        PredicateScope::TargetRelationOnly
+                    }
+                    NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
+                    NodeScopeInfo::Mixed(target_vars, _) => {
+                        // For Mixed scope, if target relation is referenced, allow extraction
+                        if target_vars > 0 {
+                            PredicateScope::TargetRelationOnly
+                        } else {
+                            PredicateScope::CrossTable
+                        }
+                    }
                 }
             }
             Qual::ScoreExpr { value, .. } => {
@@ -1602,7 +1888,15 @@ impl PdbScan {
                     NodeScopeInfo::TargetRelationOnly | NodeScopeInfo::NoVariables => {
                         PredicateScope::TargetRelationOnly
                     }
-                    _ => PredicateScope::CrossTable,
+                    NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
+                    NodeScopeInfo::Mixed(target_vars, _) => {
+                        // For Mixed scope, if target relation is referenced, allow extraction
+                        if target_vars > 0 {
+                            PredicateScope::TargetRelationOnly
+                        } else {
+                            PredicateScope::CrossTable
+                        }
+                    }
                 }
             }
             Qual::Expr { node, .. } => {
@@ -1663,9 +1957,37 @@ impl PdbScan {
                 }
             }
             Qual::Or(clauses) => {
-                // For OR predicates, be more conservative - if any clause is unsafe, mark as unsafe
-                // If all clauses are target-only, mark as target-only
-                // Otherwise, mark as cross-table
+                // CRITICAL: OR predicates with cross-table AND clauses are inherently unsafe
+                // for decomposition. For example:
+                // WHERE (a.bio @@@ 'British' AND b.is_published = true)
+                //    OR (a.country = 'USA' AND b.content @@@ 'horror')
+                //
+                // This means: (British authors with published books) OR (USA authors with horror books)
+                // Decomposing this would incorrectly become: (British OR USA authors) AND (horror books)
+                //
+                // Check if any OR clause is an AND clause containing cross-table predicates
+                for clause in clauses {
+                    if let Qual::And(and_clauses) = clause {
+                        let mut has_target_predicate = false;
+                        let mut has_external_predicate = false;
+
+                        for and_clause in and_clauses {
+                            match Self::analyze_predicate_scope(and_clause, target_rti, root) {
+                                PredicateScope::TargetRelationOnly => has_target_predicate = true,
+                                PredicateScope::CrossTable => has_external_predicate = true,
+                                PredicateScope::Unsafe => return PredicateScope::Unsafe,
+                            }
+                        }
+
+                        // If this AND clause has both target and external predicates,
+                        // then the OR is unsafe for decomposition
+                        if has_target_predicate && has_external_predicate {
+                            return PredicateScope::Unsafe;
+                        }
+                    }
+                }
+
+                // Standard OR analysis if no dangerous AND patterns detected
                 let mut all_target_only = true;
                 let mut has_cross_table = false;
 

@@ -84,6 +84,14 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file2', 'doc1', 'Invoice Receipt', '/invoices/2023_receipt.pdf', 512),
 ('file3', 'doc2', 'Receipt', '/receipts/2023.pdf', 256),
 ('file4', 'doc3', 'Contract Document', '/contracts/2023.pdf', 2048);
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:91: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Insert sample data for pages
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page1', 'file1', 1, 'Page 1 of Invoice PDF with Socienty General details'),
@@ -92,6 +100,18 @@ INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page4', 'file3', 1, 'Page 1 of Receipt with Socienty General information'),
 ('page5', 'file3', 2, 'Page 2 of Receipt with transaction ID'),
 ('page6', 'file4', 1, 'Page 1 of Contract Document with terms and conditions');
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:100: WARNING:  OR decomposition (full): Single predicate for target relation
 -- Add data for CTE testing
 INSERT INTO documents (id, title, content, parents) VALUES
 ('doc_cte1', 'CTE Test Doc 1', 'This document tests common table expressions', 'Reports'),
@@ -100,6 +120,10 @@ INSERT INTO files (id, documentId, title, file_path, file_size) VALUES
 ('file_cte1', 'doc_cte1', 'CTE Test File 1', '/reports/cte1.pdf', 500),
 ('file_cte2', 'doc_cte1', 'CTE Test File 2', '/reports/cte2.pdf', 600),
 ('file_cte3', 'doc_cte2', 'CTE Test File 3', '/reports/cte3.pdf', 700);
+psql:common/mixedff_queries_setup.sql:110: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:110: WARNING:  OR decomposition (full): Single predicate for target relation
+psql:common/mixedff_queries_setup.sql:110: WARNING:  OR decomposition analyzing Other for target_rti 1
+psql:common/mixedff_queries_setup.sql:110: WARNING:  OR decomposition (full): Single predicate for target relation
 INSERT INTO pages (id, fileId, page_number, content) VALUES
 ('page_cte1', 'file_cte1', 1, 'Page 1 with searchable content for CTE testing'),
 ('page_cte2', 'file_cte1', 2, 'Page 2 with more content for testing'),
@@ -119,6 +143,12 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 2
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 4
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
@@ -159,6 +189,12 @@ WHERE d.parents @@@ 'Factures'
   AND f.title @@@ 'Receipt'
   AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 2
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 4
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   id  | parents  |  title  |     file_path      | fileid | page_number 
 ------+----------+---------+--------------------+--------+-------------
  doc2 | Factures | Receipt | /receipts/2023.pdf | file3  |           1
@@ -176,6 +212,10 @@ EXPLAIN (COSTS OFF) SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
@@ -211,6 +251,10 @@ SELECT d.id, d.title, d.parents,
 FROM documents d
 WHERE d.parents @@@ 'Factures'
 ORDER BY d.id;
+WARNING:  OR decomposition analyzing And for target_rti 1
+WARNING:  OR decomposition (search-only): AND clause with search predicates for target relation
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
   id  |    title     | parents  | file_title  
 ------+--------------+----------+-------------
  doc1 | Invoice 2023 | Factures | Invoice PDF

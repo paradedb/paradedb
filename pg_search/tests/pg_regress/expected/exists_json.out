@@ -13,6 +13,8 @@ INSERT INTO exists_json (description, data) VALUES ('CTO', '{"first_name": "Jim"
 CREATE INDEX idx_exists_json_data ON exists_json USING bm25 (id, description, data)
 WITH (key_field = 'id', json_fields = '{"data": {"fast": true}}');
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -21,6 +23,8 @@ SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.first_name');
 (3 rows)
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR description @@@ 'CEO';
+WARNING:  OR decomposition analyzing Or for target_rti 1
+WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}
@@ -30,6 +34,8 @@ SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data.last_name') OR desc
 (4 rows)
 
 SELECT * FROM exists_json WHERE id @@@ paradedb.exists('data');
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  id |    description    |                     data                      
 ----+-------------------+-----------------------------------------------
   1 | Marketing manager | {"last_name": "Smith", "first_name": "John"}

@@ -57,6 +57,8 @@ SELECT paradedb.score(id) AS score, name
 FROM test_stopwords
 WHERE name @@@ '("something" "else")'
 ORDER BY name;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
    score    |           name            
 ------------+---------------------------
  0.60353506 | something else
@@ -69,6 +71,8 @@ SELECT paradedb.score(id) AS score, name
 FROM test_stopwords
 WHERE name @@@ 'and'
 ORDER BY name;
+WARNING:  OR decomposition analyzing OpExpr for target_rti 1
+WARNING:  OR decomposition (search-only): Single search predicate for target relation
  score | name 
 -------+------
 (0 rows)

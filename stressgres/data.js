@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752245045477,
+  "lastUpdate": 1752245072091,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -2694,6 +2694,66 @@ window.BENCHMARK_DATA = {
             "value": 164.95703125,
             "unit": "median mem",
             "extra": "avg mem: 156.53082691755122, max mem: 173.48046875, count: 59164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b7d4bc24bfd70b39d516d876904a317cd3a2f5f4",
+          "message": "chore: Avoid impersonating Phil (#2822)\n\n## What\n\nUse the same github token for the stressgres job as for the benchmarks\njob.\n\n## Why\n\nTo avoid impersonating Phil: using the release token results in comments\nfrom him on `perf` PRs, commits, and gh-pages pushes.",
+          "timestamp": "2025-07-11T07:27:20-07:00",
+          "tree_id": "da11aeca2a89a309d5985def5237c0cb6b676df0",
+          "url": "https://github.com/paradedb/paradedb/commit/b7d4bc24bfd70b39d516d876904a317cd3a2f5f4"
+        },
+        "date": 1752245071205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.435231651229767, max cpu: 48.04805, count: 59174"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.6064031632347, max mem: 178.47265625, count: 59174"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23974,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21800.552624463446, max block_count: 27859.0, count: 59174"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 72,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 74.86713759421367, max segment_count: 188.0, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.4395275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.522206851802565, max cpu: 32.844578, count: 59174"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.11647885103676, max mem: 173.6953125, count: 59174"
           }
         ]
       }

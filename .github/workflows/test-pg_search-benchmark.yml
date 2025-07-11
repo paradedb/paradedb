@@ -43,7 +43,11 @@ permissions:
 jobs:
   benchmark-pg_search:
     name: Benchmark ${{ matrix.dataset }} on pg_search
-    runs-on: runs-on=${{ github.run_id }}/runner=2cpu-linux-x64
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works
+      - runs-on=${{ github.run_id }}
+      - family=m7i.metal-24xl
+      - image=ubuntu24-full-x64
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     strategy:
       matrix:

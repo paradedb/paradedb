@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752242364417,
+  "lastUpdate": 1752242371455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -3012,6 +3012,64 @@ window.BENCHMARK_DATA = {
             "value": 54,
             "unit": "median segment_count",
             "extra": "avg segment_count: 56.20635296105432, max segment_count: 88.0, count: 59185"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752242370604,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.104477,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.93511785434141, max cpu: 43.11377, count: 59169"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 228.02301702802566, max mem: 232.203125, count: 59169"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.408911545629426, max cpu: 33.185184, count: 59169"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.09258358473187, max mem: 166.28125, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23344,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21770.78546198178, max block_count: 24854.0, count: 59169"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 53,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.497405736111816, max segment_count: 87.0, count: 59169"
           }
         ]
       }

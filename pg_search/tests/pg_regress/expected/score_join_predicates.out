@@ -163,7 +163,7 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
 WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(OpExpr { lhs: 0x7fc45182ffd0, opno: 59572, val: 0x7fc451831f78 })
+WARNING:  quals: Some(OpExpr { lhs: 0x7fa4de8255d0, opno: 63386, val: 0x7fa4de827578 })
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
        1 | J.K. Rowling |            0 | 0.44333255

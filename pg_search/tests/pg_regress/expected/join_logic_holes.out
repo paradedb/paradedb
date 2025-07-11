@@ -228,8 +228,10 @@ JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'British' AND a.birth_year < 1900)
    OR (b.content @@@ 'magic' AND b.publication_year > 2000)
 ORDER BY author_score DESC, book_score DESC;
-WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
-WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
+WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa4ef060460, expr_desc: "OpExpr with operator OID 97", search_query_input: Boolean { must: [WithIndex { oid: 63814, query: ParseWithField { field: FieldName("bio"), query_string: "British", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
+WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa4e0028e40, expr_desc: "OpExpr with operator OID 521", search_query_input: Boolean { must: [WithIndex { oid: 63815, query: ParseWithField { field: FieldName("content"), query_string: "magic", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
  test_name | author_name | book_title | author_score | book_score 
 -----------+-------------+------------+--------------+------------
 (0 rows)

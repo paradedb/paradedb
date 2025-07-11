@@ -69,7 +69,7 @@ WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
 WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
 WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
-WARNING:  quals: Some(OpExpr { lhs: 0x7fc461814d28, opno: 59572, val: 0x7fc46181ba68 })
+WARNING:  quals: Some(OpExpr { lhs: 0x7fa4d8811928, opno: 63386, val: 0x7fa4d8818668 })
  id | id 
 ----+----
   1 |  1

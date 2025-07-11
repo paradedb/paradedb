@@ -91,9 +91,9 @@ WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search 
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
 WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fc4718b8e80, opno: 59572, val: 0x7fc4718c2da0 }, HeapExpr { expr_node: 0x7fc4780515e0, expr_desc: "OpExpr with operator OID 1756", search_query_input: All }]))
+WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fa4de817880, opno: 63386, val: 0x7fa4de8195a0 }, HeapExpr { expr_node: 0x7fa4c80095e0, expr_desc: "OpExpr with operator OID 1756", search_query_input: All }]))
 WARNING:  OR decomposition (partial): OR condition: extracted 2 predicates (1 search, 1 non-search), 0 cross-table clauses remain
-WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fc4718c5a40, opno: 59572, val: 0x7fc4718c80c8 }, HeapExpr { expr_node: 0x7fc4780516d0, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
+WARNING:  quals: Some(Or([OpExpr { lhs: 0x7fa4de81c240, opno: 63386, val: 0x7fa4de81e8c8 }, HeapExpr { expr_node: 0x7fa4c80096d0, expr_desc: "OpExpr with operator OID 521", search_query_input: All }]))
                test_name                | product_name |                  review_content                  | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------+---------------+--------------
  Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming |      1.257669 |    0.8754688
@@ -207,11 +207,12 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
-WARNING:  OR decomposition (rejected): OR condition: no extractable predicates for target relation (checked 2 clauses)
+WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation
+WARNING:  quals: Some(And([HeapExpr { expr_node: 0x7fa4df029d38, expr_desc: "Boolean field_6 = true", search_query_input: Boolean { must: [WithIndex { oid: 63503, query: ParseWithField { field: FieldName("description"), query_string: "smartphone", lenient: None, conjunction_mode: None } }], should: [], must_not: [] } }]))
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
- Test 4a: Nested boolean logic | Smartphone   |              
- Test 4a: Nested boolean logic | Smartphone   |              
+ Test 4a: Nested boolean logic | Smartphone   |      1.257669
+ Test 4a: Nested boolean logic | Smartphone   |      1.257669
 (2 rows)
 
 -- Test Case 4b: Mixed indexed and non-indexed conditions across tables

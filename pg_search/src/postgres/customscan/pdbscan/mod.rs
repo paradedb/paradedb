@@ -1017,6 +1017,42 @@ impl PdbScan {
                     external_relations,
                 );
             }
+            pg_sys::NodeTag::T_Const => {
+                // Constants have no variables
+            }
+            pg_sys::NodeTag::T_Param => {
+                // Parameters have no variables
+            }
+            pg_sys::NodeTag::T_Aggref => {
+                let aggref = node as *mut pg_sys::Aggref;
+                let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+                for arg in args.iter_ptr() {
+                    Self::analyze_node_variables_recursive(
+                        arg,
+                        target_rti,
+                        target_var_count,
+                        external_relations,
+                    );
+                }
+            }
+            pg_sys::NodeTag::T_NullTest => {
+                let nulltest = node as *mut pg_sys::NullTest;
+                Self::analyze_node_variables_recursive(
+                    (*nulltest).arg as *mut pg_sys::Node,
+                    target_rti,
+                    target_var_count,
+                    external_relations,
+                );
+            }
+            pg_sys::NodeTag::T_BooleanTest => {
+                let booltest = node as *mut pg_sys::BooleanTest;
+                Self::analyze_node_variables_recursive(
+                    (*booltest).arg as *mut pg_sys::Node,
+                    target_rti,
+                    target_var_count,
+                    external_relations,
+                );
+            }
             // Add more node types as needed
             _ => {
                 // For other node types, we don't traverse further
@@ -1543,7 +1579,14 @@ impl PdbScan {
                         PredicateScope::TargetRelationOnly
                     }
                     NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
-                    NodeScopeInfo::Mixed(_, _) => PredicateScope::Unsafe,
+                    NodeScopeInfo::Mixed(target_vars, _) => {
+                        // For Mixed scope, if target relation is referenced, allow extraction
+                        if target_vars > 0 {
+                            PredicateScope::TargetRelationOnly
+                        } else {
+                            PredicateScope::CrossTable
+                        }
+                    }
                 }
             }
             Qual::HeapExpr { expr_node, .. } => {
@@ -1569,7 +1612,14 @@ impl PdbScan {
                         PredicateScope::TargetRelationOnly
                     }
                     NodeScopeInfo::ExternalRelations(_) => PredicateScope::CrossTable,
-                    NodeScopeInfo::Mixed(_, _) => PredicateScope::Unsafe,
+                    NodeScopeInfo::Mixed(target_vars, _) => {
+                        // For Mixed scope, if target relation is referenced, allow extraction
+                        if target_vars > 0 {
+                            PredicateScope::TargetRelationOnly
+                        } else {
+                            PredicateScope::CrossTable
+                        }
+                    }
                 }
             }
             // Explicitly unsafe patterns

@@ -90,8 +90,6 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
                test_name                | product_name |                     review_content                     | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
  Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |               |             
@@ -208,7 +206,6 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
-WARNING:  Rejecting join quals: contains external variables
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |              

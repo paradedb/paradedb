@@ -282,9 +282,6 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
  count | count 
 -------+-------
     13 |    13

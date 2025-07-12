@@ -666,7 +666,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  Rejecting join quals: contains external variables
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -715,7 +714,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  Rejecting join quals: contains external variables
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

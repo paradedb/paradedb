@@ -107,8 +107,6 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
           test_name          |   author_name   |     book_title      | author_score | book_score 
 -----------------------------+-----------------+---------------------+--------------+------------
  Test 2: LEFT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |              |           
@@ -156,8 +154,6 @@ JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'author' AND b.rating > 4.0) 
    OR (b.content @@@ 'magic' AND r.score >= 4)
 ORDER BY author_score DESC, book_score DESC, review_score DESC;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
         test_name         | author_name  |     book_title     |                review_content                | author_score | book_score | review_score 
 --------------------------+--------------+--------------------+----------------------------------------------+--------------+------------+--------------
  Test 4: Three-table Join | J.K. Rowling | Harry Potter Magic | Amazing magical story with great characters  |              |  1.5135247 |             
@@ -177,8 +173,6 @@ FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'British' OR b.content @@@ 'story'
 ORDER BY b.id;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
           test_name           |   author_name   |     book_title      | author_score | book_score 
 ------------------------------+-----------------+---------------------+--------------+------------
  Test 5: RIGHT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |              |           
@@ -205,9 +199,6 @@ LEFT JOIN categories c ON b.category_id = c.id
 WHERE a.bio @@@ 'author' 
    OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
 ORDER BY a.id;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
           test_name           | author_name  |     book_title     | category_name | author_score | book_score | category_score 
 ------------------------------+--------------+--------------------+---------------+--------------+------------+----------------
  Test 6: NULL-generating Join | J.K. Rowling | Harry Potter Magic | Fantasy       |              |            |               
@@ -228,8 +219,6 @@ JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'British' AND a.birth_year < 1900)
    OR (b.content @@@ 'magic' AND b.publication_year > 2000)
 ORDER BY author_score DESC, book_score DESC;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
  test_name | author_name | book_title | author_score | book_score 
 -----------+-------------+------------+--------------+------------
 (0 rows)
@@ -275,8 +264,6 @@ WHERE a.bio @@@ 'author'
    OR b.content @@@ 'magic' 
    OR r.content @@@ 'story'
 ORDER BY author_score DESC, book_score DESC, review_score DESC;
-WARNING:  Rejecting join quals: contains external variables
-WARNING:  Rejecting join quals: contains external variables
        test_name        |  author_name  |     book_title     |                      review_content                       | author_score | book_score | review_score 
 ------------------------+---------------+--------------------+-----------------------------------------------------------+--------------+------------+--------------
  Test 9: Cross-table OR | J.K. Rowling  | Harry Potter Magic | Amazing magical story with great characters               |    0.8195878 |            |             
@@ -302,7 +289,6 @@ WHERE (
     (a.country = 'USA' AND (b.rating > 4.0 OR b.publication_year > 1980))
 )
 ORDER BY author_score DESC, book_score DESC;
-WARNING:  Rejecting join quals: contains external variables
            test_name           | author_name  |     book_title     | author_score | book_score 
 -------------------------------+--------------+--------------------+--------------+------------
  Test 10: Nested Boolean Logic | J.K. Rowling | Harry Potter Magic |    1.2978076 |           

@@ -54,10 +54,6 @@ SELECT 'Core Test: Basic cross-table OR - a.content @@@ X OR b.content @@@ Y' as
  Core Test: Basic cross-table OR - a.content @@@ X OR b.content @@@ Y
 (1 row)
 
-                              test_name                               
-----------------------------------------------------------------------
- Core Test: Basic cross-table OR - a.content @@@ X OR b.content @@@ Y
-(1 row)
 -- This is the fundamental pattern we want to support:
 -- PostgreSQL cannot push this to baserestrictinfo due to cross-table nature
 -- But we can decompose it: extract a.content @@@ 'smartphone' for table_a, 
@@ -71,24 +67,26 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing Or for target_rti 2
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-           a_content            |       b_content        |  a_score  |  b_score  
---------------------------------+------------------------+-----------+-----------
- smartphone technology advanced | high performance specs | 1.2039728 | 1.1608026
-(1 row)
+           a_content            |          b_content           |  a_score  |  b_score  
+--------------------------------+------------------------------+-----------+-----------
+ smartphone technology advanced | high performance specs       | 1.2039728 | 1.1608026
+ smartphone technology advanced | storytelling narrative       | 1.2039728 |         0
+ smartphone technology advanced | advanced features smartphone | 1.2039728 |         0
+ smartphone technology advanced | gaming experience immersive  | 1.2039728 |         0
+ laptop computer powerful       | high performance specs       |         0 | 1.1608026
+ book fiction story             | high performance specs       |         0 | 1.1608026
+ game console modern            | high performance specs       |         0 | 1.1608026
+(7 rows)
+
 -- =============================================================================
 -- MULTI-RELATION TEST: Three-table OR decomposition
 -- =============================================================================
 SELECT 'Multi-Relation Test: Three-table OR - a @@@ X OR b @@@ Y OR c @@@ Z' as test_name;
-ERROR:  syntax error at or near "WARNING" at character 1
                               test_name                              
 ---------------------------------------------------------------------
  Multi-Relation Test: Three-table OR - a @@@ X OR b @@@ Y OR c @@@ Z
 (1 row)
+
 -- Test OR decomposition across three relations
 -- Should extract: a.content @@@ 'laptop' for table_a, 
 -- b.content @@@ 'gaming' for table_b, c.content @@@ 'innovation' for table_c
@@ -104,26 +102,56 @@ CROSS JOIN table_b b
 CROSS JOIN table_c c
 WHERE (a.content @@@ 'laptop' OR b.content @@@ 'gaming' OR c.content @@@ 'innovation')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing Or for target_rti 2
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing Or for target_rti 4
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-        a_content         |          b_content          |       c_content       |  a_score  |  b_score  |  c_score  
---------------------------+-----------------------------+-----------------------+-----------+-----------+-----------
- laptop computer powerful | gaming experience immersive | technology innovation | 1.2039728 | 1.1608026 | 1.2039728
-(1 row)
+           a_content            |          b_content           |       c_content        |  a_score  |  b_score  |  c_score  
+--------------------------------+------------------------------+------------------------+-----------+-----------+-----------
+ laptop computer powerful       | gaming experience immersive  | technology innovation  | 1.2039728 | 1.1608026 | 1.2039728
+ laptop computer powerful       | gaming experience immersive  | performance benchmarks | 1.2039728 | 1.1608026 |         0
+ laptop computer powerful       | gaming experience immersive  | narrative structure    | 1.2039728 | 1.1608026 |         0
+ laptop computer powerful       | gaming experience immersive  | entertainment value    | 1.2039728 | 1.1608026 |         0
+ laptop computer powerful       | advanced features smartphone | technology innovation  | 1.2039728 |         0 | 1.2039728
+ laptop computer powerful       | storytelling narrative       | technology innovation  | 1.2039728 |         0 | 1.2039728
+ laptop computer powerful       | high performance specs       | technology innovation  | 1.2039728 |         0 | 1.2039728
+ laptop computer powerful       | storytelling narrative       | entertainment value    | 1.2039728 |         0 |         0
+ laptop computer powerful       | advanced features smartphone | performance benchmarks | 1.2039728 |         0 |         0
+ laptop computer powerful       | advanced features smartphone | narrative structure    | 1.2039728 |         0 |         0
+ laptop computer powerful       | advanced features smartphone | entertainment value    | 1.2039728 |         0 |         0
+ laptop computer powerful       | high performance specs       | entertainment value    | 1.2039728 |         0 |         0
+ laptop computer powerful       | storytelling narrative       | performance benchmarks | 1.2039728 |         0 |         0
+ laptop computer powerful       | storytelling narrative       | narrative structure    | 1.2039728 |         0 |         0
+ laptop computer powerful       | high performance specs       | performance benchmarks | 1.2039728 |         0 |         0
+ laptop computer powerful       | high performance specs       | narrative structure    | 1.2039728 |         0 |         0
+ smartphone technology advanced | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
+ game console modern            | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
+ book fiction story             | gaming experience immersive  | technology innovation  |         0 | 1.1608026 | 1.2039728
+ game console modern            | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
+ smartphone technology advanced | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
+ smartphone technology advanced | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
+ smartphone technology advanced | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
+ book fiction story             | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
+ book fiction story             | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
+ book fiction story             | gaming experience immersive  | entertainment value    |         0 | 1.1608026 |         0
+ game console modern            | gaming experience immersive  | performance benchmarks |         0 | 1.1608026 |         0
+ game console modern            | gaming experience immersive  | narrative structure    |         0 | 1.1608026 |         0
+ smartphone technology advanced | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
+ smartphone technology advanced | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
+ game console modern            | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
+ game console modern            | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
+ book fiction story             | advanced features smartphone | technology innovation  |         0 |         0 | 1.2039728
+ book fiction story             | high performance specs       | technology innovation  |         0 |         0 | 1.2039728
+ book fiction story             | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
+ smartphone technology advanced | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
+ game console modern            | storytelling narrative       | technology innovation  |         0 |         0 | 1.2039728
+(37 rows)
+
 -- =============================================================================
 -- MULTIPLE CONDITIONS PER RELATION TEST
 -- =============================================================================
 SELECT 'Multiple Conditions Test: Multiple search terms per relation in OR' as test_name;
-ERROR:  syntax error at or near "WARNING" at character 1
                              test_name                              
 --------------------------------------------------------------------
  Multiple Conditions Test: Multiple search terms per relation in OR
 (1 row)
+
 -- Test multiple search conditions for the same relation within OR
 -- Should extract: (a.content @@@ 'smartphone' OR a.category @@@ 'electronics') for table_a,
 -- b.content @@@ 'performance' for table_b
@@ -137,26 +165,32 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.category @@@ 'electronics' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 2 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing Or for target_rti 2
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-           a_content            | a_category  |       b_content        |  a_score   |  b_score  
---------------------------------+-------------+------------------------+------------+-----------
- smartphone technology advanced | electronics | high performance specs |  1.5606477 | 1.1608026
- laptop computer powerful       | electronics | high performance specs | 0.35667497 | 1.1608026
- game console modern            | electronics | high performance specs | 0.35667497 | 1.1608026
-(3 rows)
+           a_content            | a_category  |          b_content           |  a_score   |  b_score  
+--------------------------------+-------------+------------------------------+------------+-----------
+ smartphone technology advanced | electronics | high performance specs       |  1.5606477 | 1.1608026
+ smartphone technology advanced | electronics | storytelling narrative       |  1.5606477 |         0
+ smartphone technology advanced | electronics | gaming experience immersive  |  1.5606477 |         0
+ smartphone technology advanced | electronics | advanced features smartphone |  1.5606477 |         0
+ game console modern            | electronics | high performance specs       | 0.35667497 | 1.1608026
+ laptop computer powerful       | electronics | high performance specs       | 0.35667497 | 1.1608026
+ game console modern            | electronics | gaming experience immersive  | 0.35667497 |         0
+ laptop computer powerful       | electronics | advanced features smartphone | 0.35667497 |         0
+ laptop computer powerful       | electronics | storytelling narrative       | 0.35667497 |         0
+ laptop computer powerful       | electronics | gaming experience immersive  | 0.35667497 |         0
+ game console modern            | electronics | advanced features smartphone | 0.35667497 |         0
+ game console modern            | electronics | storytelling narrative       | 0.35667497 |         0
+ book fiction story             | literature  | high performance specs       |          0 | 1.1608026
+(13 rows)
+
 -- =============================================================================
 -- MIXED SEARCH AND NON-SEARCH TEST
 -- =============================================================================
 SELECT 'Mixed Conditions Test: Search and non-search predicates in OR' as test_name;
-ERROR:  syntax error at or near "WARNING" at character 1
                            test_name                           
 ---------------------------------------------------------------
  Mixed Conditions Test: Search and non-search predicates in OR
 (1 row)
+
 -- Test OR with both search and non-search conditions
 -- Should extract: a.content @@@ 'laptop' for table_a (search),
 -- and handle a.value > 150 and b.priority = 1 appropriately
@@ -171,7 +205,6 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
            a_content            | a_value |          b_content           | b_priority | a_score | b_score 
 --------------------------------+---------+------------------------------+------------+---------+---------
  smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
@@ -185,15 +218,16 @@ ERROR:  syntax error at or near "test_name" at character 1
  game console modern            |     150 | advanced features smartphone |          1 |         |        
  game console modern            |     150 | gaming experience immersive  |          1 |         |        
 (10 rows)
+
 -- =============================================================================
 -- NESTED AND/OR TEST
 -- =============================================================================
 SELECT 'Nested Logic Test: Complex AND/OR combinations' as test_name;
-ERROR:  syntax error at or near "a_content" at character 1
                    test_name                    
 ------------------------------------------------
  Nested Logic Test: Complex AND/OR combinations
 (1 row)
+
 -- Test complex nested boolean logic
 -- Should handle: (a.content @@@ 'smartphone' AND a.value > 50) OR (b.content @@@ 'gaming' AND b.priority = 1)
 SELECT 
@@ -208,7 +242,6 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
            a_content            | a_value |          b_content           | b_priority | a_score | b_score 
 --------------------------------+---------+------------------------------+------------+---------+---------
  smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
@@ -219,15 +252,16 @@ ERROR:  syntax error at or near "test_name" at character 1
  book fiction story             |      50 | gaming experience immersive  |          1 |         |        
  game console modern            |     150 | gaming experience immersive  |          1 |         |        
 (7 rows)
+
 -- =============================================================================
 -- UNSAFE CONDITIONS TEST (should be rejected)
 -- =============================================================================
 SELECT 'Unsafe Conditions Test: Conditions that should be rejected' as test_name;
-ERROR:  syntax error at or near "a_content" at character 1
                          test_name                          
 ------------------------------------------------------------
  Unsafe Conditions Test: Conditions that should be rejected
 (1 row)
+
 -- Test conditions that cannot be safely decomposed
 -- This should be rejected because the comparison spans tables
 SELECT 
@@ -239,7 +273,6 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
            a_content            |          b_content           | a_score | b_score 
 --------------------------------+------------------------------+---------+---------
  smartphone technology advanced | advanced features smartphone |         |        
@@ -247,15 +280,16 @@ ERROR:  syntax error at or near "test_name" at character 1
  smartphone technology advanced | storytelling narrative       |         |        
  smartphone technology advanced | gaming experience immersive  |         |        
 (4 rows)
+
 -- =============================================================================
 -- JOIN-BASED TESTS (more realistic scenarios)
 -- =============================================================================
 SELECT 'Join-Based Test: OR decomposition with actual joins' as test_name;
-ERROR:  syntax error at or near "a_content" at character 1
                       test_name                      
 -----------------------------------------------------
  Join-Based Test: OR decomposition with actual joins
 (1 row)
+
 -- Test OR decomposition in more realistic join scenarios
 -- This is more likely to trigger joininfo conditions
 SELECT 
@@ -267,23 +301,20 @@ FROM table_a a
 JOIN table_b b ON a.value = b.priority * 100  -- Join condition
 WHERE (a.content @@@ 'electronics' OR b.description @@@ 'capabilities')
 ORDER BY a_score DESC, b_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
-WARNING:  OR decomposition analyzing Or for target_rti 1
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
-WARNING:  OR decomposition analyzing Or for target_rti 2
-WARNING:  OR decomposition (full): OR condition: extracted all 1 search predicates for target relation (no cross-table predicates)
- a_content | b_content | a_score | b_score 
------------+-----------+---------+---------
-(0 rows)
+           a_content            |          b_content           | a_score | b_score  
+--------------------------------+------------------------------+---------+----------
+ smartphone technology advanced | advanced features smartphone |       0 | 1.261305
+(1 row)
+
 -- =============================================================================
 -- COMPLEX REAL-WORLD SCENARIO
 -- =============================================================================
 SELECT 'Real-World Test: Complex multi-table search with various conditions' as test_name;
-ERROR:  syntax error at or near "WARNING" at character 1
                               test_name                              
 ---------------------------------------------------------------------
  Real-World Test: Complex multi-table search with various conditions
 (1 row)
+
 -- Complex scenario combining multiple search patterns
 SELECT 
     a.content as a_content,
@@ -299,7 +330,6 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
            a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
 --------------------------------+------------------------------+------------------------+---------+---------+---------
  smartphone technology advanced | advanced features smartphone |                        |         |         |        
@@ -315,15 +345,16 @@ ERROR:  syntax error at or near "test_name" at character 1
  game console modern            | high performance specs       | performance benchmarks |         |         |        
  game console modern            | gaming experience immersive  |                        |         |         |        
 (12 rows)
+
 -- =============================================================================
 -- VERIFICATION TESTS: Compare with single-table queries
 -- =============================================================================
 SELECT 'Verification: Single-table queries for comparison' as test_name;
-ERROR:  syntax error at or near "a_content" at character 1
                      test_name                     
 ---------------------------------------------------
  Verification: Single-table queries for comparison
 (1 row)
+
 -- Verify that our decomposition produces equivalent scoring to direct queries
 SELECT 'Single table A - smartphone' as query_type, 
        a.content, paradedb.score(a.id) as score
@@ -335,25 +366,21 @@ SELECT 'Single table B - performance' as query_type,
 FROM table_b b
 WHERE b.content @@@ 'performance'
 ORDER BY score DESC;
-ERROR:  syntax error at or near "test_name" at character 1
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
-WARNING:  OR decomposition analyzing OpExpr for target_rti 1
-WARNING:  OR decomposition (search-only): Single search predicate for target relation
           query_type          |            content             |   score   
 ------------------------------+--------------------------------+-----------
  Single table A - smartphone  | smartphone technology advanced | 1.2039728
  Single table B - performance | high performance specs         | 1.1608026
 (2 rows)
+
 -- =============================================================================
 -- SUMMARY
 -- =============================================================================
 SELECT 'Summary: OR decomposition tests completed' as summary;
-ERROR:  syntax error at or near "WARNING" at character 1
                   summary                  
 -------------------------------------------
  Summary: OR decomposition tests completed
 (1 row)
+
 -- Expected behavior:
 -- 1. Basic cross-table OR should extract search predicates for each relation
 -- 2. Multi-relation OR should handle 3+ tables correctly  
@@ -365,6 +392,5 @@ ERROR:  syntax error at or near "WARNING" at character 1
 -- 8. Results should be semantically equivalent to single-table queries
 -- Cleanup
 DROP TABLE IF EXISTS table_c;
-ERROR:  syntax error at or near "summary" at character 1
 DROP TABLE IF EXISTS table_b;
 DROP TABLE IF EXISTS table_a; 

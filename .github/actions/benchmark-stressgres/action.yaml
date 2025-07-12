@@ -115,7 +115,8 @@ runs:
       working-directory: stressgres/
       run: |
         # Replace any slashes in the ref with dashes
-        safe_ref="${{ inputs.ref//\//- }}"
+        ref="${{ inputs.ref }}"
+        safe_ref="${ref//\//-}"
         out="stressgres-$(basename "${{ inputs.test_file }}" .toml)-${safe_ref}.png"
         cargo run --release -- graph "stressgres-$(basename "${{ inputs.test_file }}" .toml).log" "$out"
 

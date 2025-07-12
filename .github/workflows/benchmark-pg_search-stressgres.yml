@@ -40,9 +40,10 @@ jobs:
     runs-on:
       # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
       - runs-on=${{ github.run_id }}
-      - family=m7i.metal-24xl # 96 vCPUs, 384 GiBs Memory
+      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
       - image=ubuntu24-full-x64
       - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+      - disk=
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     env:
       pg_version: 17

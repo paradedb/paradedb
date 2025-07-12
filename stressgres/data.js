@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752342425219,
+  "lastUpdate": 1752342427902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -2494,6 +2494,126 @@ window.BENCHMARK_DATA = {
             "value": 76.5625,
             "unit": "median mem",
             "extra": "avg mem: 73.28466773501077, max mem: 81.25390625, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342425491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.599052274181254, max cpu: 24.13273, count: 58448"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 92.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.62189367311542, max mem: 99.8828125, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6959462125000995, max cpu: 9.552238, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 78.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 76.64777765866668, max mem: 86.25390625, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.740741,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.636089999030311, max cpu: 24.13273, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 93.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.67168178605341, max mem: 101.54296875, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.807029735909681, max cpu: 9.425626, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 88.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 85.89446067444567, max mem: 95.125, count: 58448"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.733728,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.255982618569151, max cpu: 19.452888, count: 116896"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 93.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.6378409748302, max mem: 110.4375, count: 116896"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 6940,
+            "unit": "median block_count",
+            "extra": "avg block_count: 6765.769333424582, max block_count: 7526.0, count: 58448"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 118,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.88721598686011, max segment_count: 433.0, count: 58448"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.7267356,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.360414301123459, max cpu: 14.479639, count: 58448"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.3835484640193, max mem: 105.78125, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 14.035088,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.829943891488863, max cpu: 28.444445, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 78.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 76.63928533429288, max mem: 88.796875, count: 58448"
           }
         ]
       }

@@ -1,0 +1,143 @@
+name: Benchmark - Stressgres
+description: Run a given Stressgres job file against pg_search and publish metrics
+
+inputs:
+  test_file:
+    description: "The .toml Stressgres scenario to run (e.g. single-server.toml)"
+    required: true
+  duration:
+    description: "Duration of the Stressgres run, in milliseconds"
+    required: false
+    default: "600000" # 10 minutes in milliseconds
+  ref:
+    description: "Git ref or short SHA to report in benchmarks"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Stressgres Job
+      shell: bash
+      working-directory: stressgres/
+      run: |
+        sudo chmod a+rwx /var/run/postgresql/
+        cargo run --release -- headless \
+          ./.github/stressgres/${{ inputs.test_file }}/.toml \
+          --log-file stressgres-${{ inputs.test_file }}.log \
+          --runtime ${{ inputs.duration }}
+
+    - name: Generate CSV
+      shell: bash
+      working-directory: stressgres/
+      run: cargo run --release -- csv stressgres-${{ inputs.test_file }}.log output.csv
+
+      # This is where we can configure how the different runs are aggregated
+      # into multiple JSON files for plotting in our continuous benchmarks.
+      #
+      # TPS values are pulled out separately as they're "bigger-is-better" whereas
+      # everything else is "smaller-is-better"
+    - name: Generate Continuous Benchmarking Metrics
+      shell: python {0}
+      run: |
+        import csv, json, os
+        tps, other = [], []
+        with open(f"stressgres/output.csv") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                m = {
+                  "name": f"{row['job_title']} - {row['server_name']} - {row['metric_name']}",
+                  "unit": f"median {row['metric_name']}",
+                  "value": float(row['median']),
+                  "extra": f"avg {row['metric_name']}: {row['avg']}, max {row['metric_name']}: {row['max']}, count: {row['count']}"
+                }
+                if row["metric_name"] == "tps":
+                    tps.append(m)
+                else:
+                    other.append(m)
+        tps.sort(key=lambda x: x["name"])
+        other.sort(key=lambda x: x["name"])
+        with open(f"stressgres/pg_search_tps.json", "w")  as o: json.dump(tps, o)
+        with open(f"stressgres/pg_search_other.json", "w") as o: json.dump(other, o)
+
+    - name: Publish TPS Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "pg_search ${{ inputs.test_file }}.toml Performance - TPS"
+        ref: ${{ inputs.ref }}
+        tool: customBiggerIsBetter
+        output-file-path: stressgres/pg_search_tps.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        gh-repository: github.com/paradedb/paradedb
+        auto-push: ${{ github.event_name != 'pull_request' }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: stressgres
+        alert-threshold: "110%"
+        comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}
+
+    - name: Publish Other Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "pg_search ${{ inputs.test_file }}.toml Performance - Other Metrics"
+        ref: ${{ inputs.ref }}
+        tool: customSmallerIsBetter
+        output-file-path: stressgres/pg_search_other.json
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        gh-repository: github.com/paradedb/paradedb
+        auto-push: ${{ github.event_name != 'pull_request' }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: stressgres
+        alert-threshold: "110%"
+        comment-on-alert: true
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}
+
+    - name: Create Stressgres Graph
+      shell: bash
+      working-directory: stressgres/
+      run: cargo run --release -- graph stressgres-${{ inputs.test_file }}.log stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+
+    - name: Upload Stressgres Graph Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: stressgres-graph-${{ inputs.test_file }}
+        path: stressgres/stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+
+    - name: Upload Stressgres Logs Artifact
+      id: artifact-logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: stressgres-logs-${{ inputs.test_file }}
+        path: stressgres/stressgres-${{ inputs.test_file }}.log
+
+    - name: Upload Stressgres Results to Slack (push only)
+      if: github.event_name != 'pull_request'
+      uses: slackapi/slack-github-action@v2
+      with:
+        method: files.uploadV2
+        token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+        payload: |
+          channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          initial_comment: |
+            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}.toml" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
+          file: stressgres/stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+          filename: stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+
+    - name: Print Postgres Logs
+      shell: bash
+      run: |
+        for f in `ls /tmp/stressgres/*.log`; do
+          echo $f
+          cat $f
+        done
+
+    - name: Notify Slack on Failure (push only)
+      if: failure() && github.event_name == 'push'
+      run: |
+        GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
+        MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+        curl -X POST -H 'Content-type: application/json' \
+        --data "{\"text\": \"${MESSAGE}\"}" \
+        ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

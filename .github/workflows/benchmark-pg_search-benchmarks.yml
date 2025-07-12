@@ -1,10 +1,10 @@
-# workflows/test-pg_search-benchmark.yml
+# workflows/benchmark-pg_search-benchmarks.yml
 #
-# Test pg_search Benchmark
+# Benchmark pg_search - Benchmarks
 # Benchmark pg_search performance on a nightly basis. This workflow can also be triggered
 # manually to benchmark other systems on one-off basis, to compare against pg_search.
 
-name: Test pg_search Benchmark
+name: Benchmark pg_search - Benchmarks
 
 # We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:
@@ -13,7 +13,7 @@ on:
       - main
     paths:
       - "benchmarks/**"
-      - ".github/workflows/test-pg_search-benchmark.yml"
+      - ".github/workflows/benchmark-pg_search-benchmarks.yml"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
@@ -43,7 +43,12 @@ permissions:
 jobs:
   benchmark-pg_search:
     name: Benchmark ${{ matrix.dataset }} on pg_search
-    runs-on: depot-ubuntu-24.04-32
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=m7i.metal-24xl # 96 vCPUs, 384 GiBs Memory
+      - image=ubuntu24-full-x64
+      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     strategy:
       matrix:

@@ -90,6 +90,7 @@ runs:
 
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
       run: rm -rf ./benchmark-data-repository
 
     - name: Publish Other Metrics

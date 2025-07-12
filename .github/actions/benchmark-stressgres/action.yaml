@@ -12,6 +12,18 @@ inputs:
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
+  github_token:
+    description: "GitHub token to authenticate with"
+    required: true
+  slack_oauth_token:
+    description: "Slack OAuth token to authenticate with"
+    required: true
+  slack_channel:
+    description: "Slack channel to post results to"
+    required: true
+  slack_webhook_url:
+    description: "Slack webhook URL to post results to"
+    required: true
 
 runs:
   using: "composite"
@@ -66,7 +78,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
         output-file-path: stressgres/pg_search_tps.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github_token }}
         gh-repository: github.com/paradedb/paradedb
         auto-push: ${{ github.event_name != 'pull_request' }}
         gh-pages-branch: gh-pages
@@ -83,7 +95,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: stressgres/pg_search_other.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github_token }}
         gh-repository: github.com/paradedb/paradedb
         auto-push: ${{ github.event_name != 'pull_request' }}
         gh-pages-branch: gh-pages
@@ -116,9 +128,9 @@ runs:
       uses: slackapi/slack-github-action@v2
       with:
         method: files.uploadV2
-        token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+        token: ${{ inputs.slack_oauth_token }}
         payload: |
-          channel_id: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          channel_id: ${{ inputs.slack_channel }}
           initial_comment: |
             *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}.toml" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
           file: stressgres/stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
@@ -134,10 +146,11 @@ runs:
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'
+      shell: bash
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
         MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
         curl -X POST -H 'Content-type: application/json' \
         --data "{\"text\": \"${MESSAGE}\"}" \
-        ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+        ${{ inputs.slack_webhook_url }}

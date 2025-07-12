@@ -45,22 +45,19 @@
         const allEntries = Object.values(rawData).flat();
         const uniqueIds = [...new Set(allEntries.map(e => e.commit.id))];
         const hashInfo = {};
-        const fetchPrInfo = async () => {
-          for (const fullId of uniqueIds) {
-            const short = fullId.slice(0,7);
-            try {
-              const resp = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
-              const d = await resp.json();
-              if (d.items && d.items.length) {
-                const pr = d.items[0];
-                hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
-              } else hashInfo[short] = { label: short, url: null };
-            } catch {
-              hashInfo[short] = { label: short, url: null };
-            }
+        for (const fullId of uniqueIds) {
+          const short = fullId.slice(0,7);
+          try {
+            const resp = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
+            const d = await resp.json();
+            if (d.items && d.items.length) {
+              const pr = d.items[0];
+              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+            } else hashInfo[short] = { label: short, url: null };
+          } catch {
+            hashInfo[short] = { label: short, url: null };
           }
-        };
-        await fetchPrInfo();
+        }
 
         // Group entries by filename
         const fileGroups = {};
@@ -92,9 +89,8 @@
           Object.entries(metricGroups).forEach(([metric, benchData]) => {
             // Prepare time runs
             const runKeys = [...new Set(benchData.map(d=>`${d.commitTs}|${d.runTs}|${d.hash}`))];
-            const runs = runKeys.map(k=>{
-              const [c,r,h]=k.split('|'); return {commitTs:+c,runTs:+r,hash:h};
-            }).sort((a,b)=>a.commitTs-b.commitTs||a.runTs-b.runTs);
+            const runs = runKeys.map(k=>{ const [c,r,h]=k.split('|'); return {commitTs:+c,runTs:+r,hash:h}; })
+                             .sort((a,b)=>a.commitTs-b.commitTs||a.runTs-b.runTs);
             const fullLabels = runs.map(r=>hashInfo[r.hash]?.label||r.hash);
             const labels = fullLabels.map(l=>l.length>25?l.slice(0,25)+'…':l);
             const runUrls = runs.map(r=>hashInfo[r.hash]?.url);
@@ -142,29 +138,46 @@
 
               // Render chart
               const yLabel = benchData[0]?.unit||'';
-              const chart = new Chart(canvas.getContext('2d'),{
-                type:'line', data:{labels, datasets:group.data},
-                options:{
-                  responsive:true,
-                  scales:{ x:{ticks:{maxRotation:33,minRotation:33}}, y:{beginAtZero:true,title:{display:true,text:yLabel}} },
-                  plugins:{
-                    tooltip:{mode:'index',intersect:false,callbacks:{
-                      title:items=>fullLabels[items[0].dataIndex],
-                      label:ctx=>{
-                        const ds=ctx.dataset, idx=ctx.dataIndex;
-                        const raw=ds.original[idx];
-                        if(ctx.chart.normalized&&ds.original[0]){
-                          const delta=(raw-ds.original[0])/ds.original[0]*100;
-                          const sign=delta>=0?'+':'';
-                          return `${ds.label}: ${sign}${delta.toFixed(0)}%`;
-                        }
-                        return `${ds.label}: ${ctx.parsed.y}`;
-                      }
-                    }},
-                    zoom:{zoom:{drag:{enabled:true}}}
+              const showLegend = group.data.length > 1;
+              const chartOptions = {
+                responsive:true,
+                scales:{ x:{ticks:{maxRotation:33,minRotation:33}}, y:{beginAtZero:true,title:{display:true,text:yLabel}} },
+                plugins:{
+                  legend:{
+                    display: showLegend,
+                    onClick:(e, legendItem, legend)=>{
+                      const ci = legend.chart;
+                      const index = legendItem.datasetIndex;
+                      const meta = ci.getDatasetMeta(index);
+                      meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
+                      ci.update();
+                    }
                   },
-                  onClick:(_, elems)=>{ if(elems.length){ const idx=elems[0].index; const url=runUrls[idx]; if(url)window.open(url); }}
-                }
+                  title:{
+                    display: !showLegend,
+                    text: group.data[0].label,
+                    font:{ size: 16 }
+                  },
+                  tooltip:{mode:'index',intersect:false,callbacks:{
+                    title:items=>fullLabels[items[0].dataIndex],
+                    label:ctx=>{
+                      const ds=ctx.dataset, idx=ctx.dataIndex;
+                      const raw=ds.original[idx];
+                      if(ctx.chart.normalized && ds.original[0]){
+                        const delta=(raw-ds.original[0])/ds.original[0]*100;
+                        const sign=delta>=0?'+':'';
+                        return `${ds.label}: ${sign}${delta.toFixed(0)}%`;
+                      }
+                      return `${ds.label}: ${ctx.parsed.y}`;
+                    }
+                  }},
+                  zoom:{zoom:{drag:{enabled:true}}}
+                },
+                onClick:(_, elems)=>{ if(elems.length){ const idx=elems[0].index; const url=runUrls[idx]; if(url)window.open(url); }}
+              };
+
+              const chart = new Chart(canvas.getContext('2d'),{
+                type:'line', data:{labels, datasets:group.data}, options:chartOptions
               });
               chart.normalized=false;
 

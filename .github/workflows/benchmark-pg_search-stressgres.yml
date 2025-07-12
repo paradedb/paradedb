@@ -135,19 +135,19 @@ jobs:
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
-        uses: ./.github/actions/stressgres-benchmark
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
 
       - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/stressgres-benchmark
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
 
       - name: Benchmark wide-table.toml
-        uses: ./.github/actions/stressgres-benchmark
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

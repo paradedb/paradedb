@@ -30,7 +30,7 @@
     async function initCharts() {
       try {
         // Load data.js
-        const res = await fetch('https://paradedb.github.io/paradedb/stressgres/data.js');
+        const res = await fetch('data.js');
         const scriptText = await res.text(); eval(scriptText);
         Chart.register(ChartZoom);
 

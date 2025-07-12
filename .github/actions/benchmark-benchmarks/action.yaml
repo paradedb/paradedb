@@ -38,9 +38,13 @@ runs:
         fi
         cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json
 
-    - name: Cleanup Git Checkout
+    - name: Reset Local gh-pages to Match Remote
       shell: bash
-      run: git checkout .
+      run: |
+        git fetch origin gh-pages:gh-pages
+        git checkout gh-pages
+        git reset --hard origin/gh-pages
+        git checkout -
 
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1

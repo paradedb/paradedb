@@ -40,7 +40,6 @@
           return;
         }
 
-        // Resolve commit hashes to PR info
         const allEntries = Object.values(rawData).flat();
         const uniqueIds = Array.from(new Set(allEntries.map(e => e.commit.id)));
         const hashInfo = {};
@@ -60,7 +59,6 @@
           }
         }
 
-        // Group entries by filename
         const fileGroups = {};
         Object.entries(rawData).forEach(([category, entries]) => {
           const parts = category.split(' ');
@@ -68,7 +66,6 @@
           fileGroups[filename] = (fileGroups[filename] || []).concat(entries);
         });
 
-        // For each file group, build charts
         Object.entries(fileGroups).forEach(([filename, entries]) => {
           const section = document.createElement('section');
           section.className = 'bg-white p-6 rounded-xl shadow-lg';
@@ -77,7 +74,6 @@
           heading.textContent = filename;
           section.appendChild(heading);
 
-          // Prepare runs sorted
           const runsMap = {};
           entries.forEach(e => {
             const commitTs = new Date(e.commit.timestamp).getTime();
@@ -90,7 +86,6 @@
           const labels = fullLabels.map(l => l.length>25?l.slice(0,25)+'…':l);
           const runUrls = runs.map(r => hashInfo[r.hash]?.url);
 
-          // Group benches by dynamic prefix
           const benchData = {};
           entries.forEach(e => {
             const commitTs = new Date(e.commit.timestamp).getTime();
@@ -104,14 +99,12 @@
             });
           });
 
-          // Sort prefixes alphabetically
           const prefixes = Object.keys(benchData).sort();
 
           prefixes.forEach(prefix => {
             const group = benchData[prefix];
             const yLabel = Object.values(group)[0]?.unit || '';
 
-            // Container and controls
             const wrapper = document.createElement('div');
             wrapper.className = 'chart-container';
             const toggles = document.createElement('div'); toggles.className = 'toggle-switch';
@@ -127,13 +120,11 @@
             btnRow.appendChild(resetBtn); wrapper.appendChild(btnRow);
             section.appendChild(wrapper);
 
-            // Build datasets
             const datasets = Object.entries(group).map(([name, info]) => {
               const original = runs.map(r => info.values[`${r.commitTs}|${r.runTs}|${r.hash}`] ?? null);
               return { label: name, data: original.slice(), original, fill:false, tension:0.4, borderWidth:2 };
             });
 
-            // Create chart
             const chart = new Chart(canvas.getContext('2d'),{
               type:'line',
               data:{ labels, datasets },
@@ -146,39 +137,59 @@
                       title: items => fullLabels[items[0].dataIndex],
                       label: ctx => {
                         const idx = ctx.dataIndex;
-                        const orig = ctx.dataset.original[idx];
-                        if (orig == null) return '';
+                        const original = ctx.dataset.original[idx];
+                        if (original == null) return '';
                         const normOn = toggles.querySelector('.norm-toggle').checked;
                         if (normOn) {
-                          const first = datasets[0].original[0];
-                          const delta = first ? ((orig - first) / first * 100) : 0;
-                          const sign = delta >= 0 ? '+' : '';
-                          return sign + Math.round(delta) + '%';
+                          const first = ctx.dataset.original[0];
+                          if (!first) return '';
+                          const percent = (original / first) * 100;
+                          const delta = percent - 100;
+                          const roundedDelta = Math.round(delta);
+                          return roundedDelta > 0 ? `+${roundedDelta}%` : roundedDelta < 0 ? `${roundedDelta}%` : '0%';
                         } else {
-                          return orig.toString();
+                          return original.toString();
                         }
                       }
                     }
                   },
-                  zoom:{ zoom:{ drag:{enabled:true}} }
+                  zoom:{ zoom:{ drag:{enabled:true} } }
                 },
                 onClick:(evt,el)=>{ if(el.length){ const url=runUrls[el[0].index]; if(url) window.open(url,'_blank'); }}
               }
             });
 
-            // Handlers
             toggles.querySelector('.norm-toggle').addEventListener('change',e=>{
-              chart.resetZoom();
-              const first = datasets[0].original[0];
+              const normOn = e.target.checked;
               chart.data.datasets.forEach(ds=>{
-                ds.data = e.target.checked && first
+                const first = ds.original[0];
+                ds.data = normOn && first
                   ? ds.original.map(v=>v!=null?v/first:null)
                   : ds.original.slice();
               });
+              if(normOn) {
+                const vals = chart.data.datasets.flatMap(ds => ds.data.filter(v=>v!=null));
+                const min = Math.min(...vals);
+                const max = Math.max(...vals);
+                const range = Math.max(1-min, max-1);
+                chart.options.scales.y.min = 1 - range;
+                chart.options.scales.y.max = 1 + range;
+                chart.options.scales.y.beginAtZero = false;
+              } else {
+                const yZeroOn = toggles.querySelector('.yzero-toggle').checked;
+                chart.options.scales.y.beginAtZero = yZeroOn;
+                chart.options.scales.y.min = yZeroOn ? 0 : undefined;
+                chart.options.scales.y.max = undefined;
+              }
+              chart.resetZoom();
               chart.update();
             });
+
             toggles.querySelector('.yzero-toggle').addEventListener('change',e=>{
-              chart.options.scales.y.beginAtZero=e.target.checked; chart.resetZoom(); chart.update();
+              if(!toggles.querySelector('.norm-toggle').checked) {
+                chart.options.scales.y.beginAtZero = e.target.checked;
+              }
+              chart.resetZoom(); chart.update();
             });
             resetBtn.addEventListener('click',()=>chart.resetZoom());
             canvas.addEventListener('mousedown',()=>{chart.options.plugins.tooltip.enabled=false;chart.update('none');});

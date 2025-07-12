@@ -94,11 +94,10 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
-          key: ${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}
+          prefix-key: "rust-cache"
+          key: pg${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev

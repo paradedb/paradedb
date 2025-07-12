@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752342376644,
+  "lastUpdate": 1752342415641,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -1088,6 +1088,72 @@ window.BENCHMARK_DATA = {
             "value": 11.26868584326516,
             "unit": "median tps",
             "extra": "avg tps: 16.916883202126595, max tps: 1662.6541280376691, count: 58492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342414568,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 428.1719141313963,
+            "unit": "median tps",
+            "extra": "avg tps: 433.5517910347915, max tps: 626.412175197602, count: 58448"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2753.300112257466,
+            "unit": "median tps",
+            "extra": "avg tps: 2642.8120667740077, max tps: 3105.2536060620073, count: 58448"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 428.97223478653507,
+            "unit": "median tps",
+            "extra": "avg tps: 435.76052667775485, max tps: 633.68219787507, count: 58448"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 431.077223057264,
+            "unit": "median tps",
+            "extra": "avg tps: 433.6366969040952, max tps: 557.2192574752496, count: 58448"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 294.4416836799739,
+            "unit": "median tps",
+            "extra": "avg tps: 297.27528689756497, max tps: 315.0423057468355, count: 116896"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 265.9758986548301,
+            "unit": "median tps",
+            "extra": "avg tps: 260.4471228031426, max tps: 274.0890555788231, count: 58448"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 13.437805261168323,
+            "unit": "median tps",
+            "extra": "avg tps: 20.971075768606436, max tps: 1729.7387056711211, count: 58448"
           }
         ]
       }

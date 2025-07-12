@@ -1,0 +1,19 @@
+---
+title: Guarantees
+---
+
+### Strong Consistency
+
+All reads and writes go through Postgres’ transaction engine, ensuring serializability and consistency across indexes and base tables. Search results are always consistent with the current transactional state—no eventual consistency, lag, or stale reads.
+
+### ACID
+
+Search indexes participate fully in Postgres transactions. Inserts, updates, and deletes to indexed columns are atomic and durable. If a transaction is rolled back, associated index changes are also rolled back.
+
+### SQL Syntax
+
+ParadeDB extends standard SQL with additional functions and operators for search and analytics, but remains fully compatible with core SQL syntax. You can use search indexes in any query context—`SELECT`, `JOIN`, `CTE`, `VIEW`, `MATERIALIZED VIEW`—just like any native Postgres index.
+
+### Postgres WAL Compatible
+
+All index changes are logged via Postgres' Write-Ahead Log (WAL), ensuring crash safety and support for physical and logical replication. ParadeDB indexes replicate and recover like any other Postgres relation, requiring no special setup or coordination.

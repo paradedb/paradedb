@@ -10,7 +10,7 @@ index, along with custom query execution methods, to Postgres.
 ![ParadeDB BYOC Topology](/images/architecture_indexam.png)
 
 In Postgres, indexes allow the underlying Postgres table (which Postgres calls a *heap table*) to be represented using alternative data structures optimized for different types
-of queries. For instance, the built-in Postgres B-tree index is used for point lookups and range scans.
+of queries.
 
 ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytics.
 
@@ -21,7 +21,7 @@ When a table row is inserted or updated, Postgres automatically notifies the ind
 ### Parallel Custom Scan
 
 In Postgres, custom scans allow extensions to define new execution nodes that can run custom logic — such as filters or aggregations — natively within the query executor.
-ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index.
+ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index and executed in parallel.
 
 ## Underlying Data Structures
 
@@ -35,6 +35,8 @@ This structure allows ParadeDB to efficiently retrieve all documents matching a 
 Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format. Columnar formats are standard
 for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets.
 
+In the ParadeDB these structures are referred to as *fast fields*.
+
 ### LSM Tree
 
 To support real-time updates, the BM25 index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
@@ -44,45 +46,4 @@ An LSM tree is a write-optimized data structure commonly used in systems like Ro
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
 In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
-is actually a collection of segments arranged in an LSM tree.
-
-## Guarantees
-
-ParadeDB inherits the strong guarantees of the underlying Postgres engine.
-
-### Strong Consistency
-
-All reads and writes go through Postgres’ transaction engine, ensuring serializability and consistency across indexes and base tables. Search results are always consistent with the current transactional state—no eventual consistency, lag, or stale reads.
-
-### ACID
-
-Search indexes participate fully in Postgres transactions. Inserts, updates, and deletes to indexed columns are atomic and durable. If a transaction is rolled back, associated index changes are also rolled back.
-
-### SQL Syntax
-
-ParadeDB extends standard SQL with additional functions and operators for search and analytics, but remains fully compatible with core SQL syntax. You can use search indexes in any query context—`SELECT`, `JOIN`, `CTE`, `VIEW`, `MATERIALIZED VIEW`—just like any native Postgres index.
-
-### Postgres WAL Compatible
-
-All index changes are logged via Postgres' Write-Ahead Log (WAL), ensuring crash safety and support for physical and logical replication. ParadeDB indexes replicate and recover like any other Postgres relation, requiring no special setup or coordination.
-
-## Tradeoffs
-
-### Why Postgres Needs a New Index
-
-Postgres' existing indexes have key limitations for modern search use cases:
-
-- Filtered/boolean query support is limited and inefficient
-- Not optimized for high-ingest workloads
-- No support for query parallelization
-- Lacks built-in BM25 scoring
-
-In addition, PostgreSQL has limited support for efficient aggregations. Clauses like COUNT, GROUP BY, and ORDER BY are not optimized:
-
-- Postgres must materialize the full result set and perform aggregation in memory, which becomes a bottleneck at scale
-- There is no support for aggregation pushdown into Postgres' built-in indexes
-- Batch reads are inefficient because Postgres does not provide a way to read index data in a columnar or vectorized format
-
-### Optimized for OLTP and OLAP
-
-###
+is actually a collection of many inverted/columnar indexes.

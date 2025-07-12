@@ -20,8 +20,15 @@
               {
                 "group": "Documentation",
                 "pages": [
-                  "welcome/introduction",
-                  "welcome/architecture",
+                  {
+                    "group": "Introduction",
+                    "pages": [
+                      "welcome/introduction",
+                      "welcome/architecture",
+                      "welcome/guarantees",
+                      "welcome/tradeoffs"
+                    ]
+                  },
                   {
                     "group": "Getting Started",
                     "pages": [

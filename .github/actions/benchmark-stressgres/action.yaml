@@ -34,14 +34,14 @@ runs:
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         cargo run --release -- headless \
-          ./.github/stressgres/${{ inputs.test_file }}/.toml \
-          --log-file stressgres-${{ inputs.test_file }}.log \
+          ./.github/stressgres/${{ inputs.test_file }} \
+          --log-file stressgres-$(basename "${{ inputs.test_file }}" .toml).log \
           --runtime ${{ inputs.duration }}
 
     - name: Generate CSV
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- csv stressgres-${{ inputs.test_file }}.log output.csv
+      run: cargo run --release -- csv stressgres-$(basename "${{ inputs.test_file }}" .toml).log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -74,7 +74,7 @@ runs:
     - name: Publish TPS Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
-        name: "pg_search ${{ inputs.test_file }}.toml Performance - TPS"
+        name: "pg_search ${{ inputs.test_file }} Performance - TPS"
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
         output-file-path: stressgres/pg_search_tps.json
@@ -91,7 +91,7 @@ runs:
     - name: Publish Other Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
-        name: "pg_search ${{ inputs.test_file }}.toml Performance - Other Metrics"
+        name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: stressgres/pg_search_other.json
@@ -108,20 +108,20 @@ runs:
     - name: Create Stressgres Graph
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- graph stressgres-${{ inputs.test_file }}.log stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+      run: cargo run --release -- graph stressgres-$(basename "${{ inputs.test_file }}" .toml).log stressgres-$(basename "${{ inputs.test_file }}" .toml)-${{ inputs.ref }}.png
 
     - name: Upload Stressgres Graph Artifact
       uses: actions/upload-artifact@v4
       with:
         name: stressgres-graph-${{ inputs.test_file }}
-        path: stressgres/stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+        path: stressgres/stressgres-$(basename "${{ inputs.test_file }}" .toml)-${{ inputs.ref }}.png
 
     - name: Upload Stressgres Logs Artifact
       id: artifact-logs
       uses: actions/upload-artifact@v4
       with:
         name: stressgres-logs-${{ inputs.test_file }}
-        path: stressgres/stressgres-${{ inputs.test_file }}.log
+        path: stressgres/stressgres-$(basename "${{ inputs.test_file }}" .toml).log
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
@@ -132,9 +132,9 @@ runs:
         payload: |
           channel_id: ${{ inputs.slack_channel }}
           initial_comment: |
-            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}.toml" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
-          file: stressgres/stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
-          filename: stressgres-${{ inputs.test_file }}-${{ inputs.ref }}.png
+            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
+          file: stressgres/stressgres-$(basename "${{ inputs.test_file }}" .toml)-${{ inputs.ref }}.png
+          filename: stressgres-$(basename "${{ inputs.test_file }}" .toml)-${{ inputs.ref }}.png
 
     - name: Print Postgres Logs
       shell: bash
@@ -150,7 +150,7 @@ runs:
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-        MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ matrix.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+        MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
         curl -X POST -H 'Content-type: application/json' \
         --data "{\"text\": \"${MESSAGE}\"}" \
         ${{ inputs.slack_webhook_url }}

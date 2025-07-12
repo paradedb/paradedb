@@ -151,7 +151,7 @@
             toggleRow.className = 'toggle-switch';
             toggleRow.innerHTML = `
               <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
-              <label><input type="checkbox" class="yzero-toggle"/><span>Y Axis from Zero</span></label>
+              <label><input type="checkbox" checked class="yzero-toggle"/><span>Y Axis from Zero</span></label>
             `;
             chartWrapper.appendChild(toggleRow);
             const canvas = document.createElement('canvas');
@@ -218,6 +218,7 @@
               chart.update();
             });
             // Y axis zero toggle
+            chart.options.scales.y.beginAtZero = true;
             toggleRow.querySelector('.yzero-toggle').addEventListener('change', e => {
               chart.options.scales.y.beginAtZero = e.target.checked;
               chart.resetZoom();

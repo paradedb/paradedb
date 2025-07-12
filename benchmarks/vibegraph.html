@@ -21,7 +21,7 @@
   <div class="max-w-7xl mx-auto">
     <header class="mb-10">
       <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
-      <p class="text-gray-600 mt-2">Each bench is on its own graph.</p>
+      <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
     </header>
     <div id="charts" class="space-y-12"></div>
   </div>
@@ -29,7 +29,6 @@
   <script>
     async function initCharts() {
       try {
-        // Load new data.js
         const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
         const scriptText = await res.text(); eval(scriptText);
         Chart.register(ChartZoom);
@@ -41,33 +40,27 @@
           return;
         }
 
-        // Collect all unique commit IDs
+        // Resolve commit hashes to PR info
         const allEntries = Object.values(rawData).flat();
         const uniqueIds = Array.from(new Set(allEntries.map(e => e.commit.id)));
         const hashInfo = {};
-        // Resolve PR info
-        const fetchPrInfo = async () => {
-          for (const fullId of uniqueIds) {
-            const short = fullId.slice(0,7);
-            try {
-              const searchRes = await fetch(
-                `https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`
-              );
-              const data = await searchRes.json();
-              if (data.items && data.items.length) {
-                const pr = data.items[0];
-                hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
-              } else {
-                hashInfo[short] = { label: short, url: null };
-              }
-            } catch {
+        for (const fullId of uniqueIds) {
+          const short = fullId.slice(0,7);
+          try {
+            const searchRes = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
+            const data = await searchRes.json();
+            if (data.items && data.items.length) {
+              const pr = data.items[0];
+              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+            } else {
               hashInfo[short] = { label: short, url: null };
             }
+          } catch {
+            hashInfo[short] = { label: short, url: null };
           }
-        };
-        await fetchPrInfo();
+        }
 
-        // Group by config file basename
+        // Group entries by filename
         const fileGroups = {};
         Object.entries(rawData).forEach(([category, entries]) => {
           const parts = category.split(' ');
@@ -75,138 +68,121 @@
           fileGroups[filename] = (fileGroups[filename] || []).concat(entries);
         });
 
-        // For each file group, one graph per bench name
+        // For each file group, build charts
         Object.entries(fileGroups).forEach(([filename, entries]) => {
           const section = document.createElement('section');
           section.className = 'bg-white p-6 rounded-xl shadow-lg';
-          const fileHeading = document.createElement('h2');
-          fileHeading.className = 'text-2xl font-semibold mb-4';
-          fileHeading.textContent = filename;
-          section.appendChild(fileHeading);
+          const heading = document.createElement('h2');
+          heading.className = 'text-2xl font-semibold mb-2';
+          heading.textContent = filename;
+          section.appendChild(heading);
 
-          // Collect all runs sorted
+          // Prepare runs sorted
           const runsMap = {};
-          entries.forEach(entry => {
-            const commitTs = new Date(entry.commit.timestamp).getTime();
-            const runTs = entry.date;
-            const hash = entry.commit.id.slice(0,7);
-            entry.benches.forEach(b => {
-              runsMap[`${commitTs}|${runTs}|${hash}`] = { commitTs, runTs, hash };
-            });
+          entries.forEach(e => {
+            const commitTs = new Date(e.commit.timestamp).getTime();
+            const runTs = e.date;
+            const hash = e.commit.id.slice(0,7);
+            runsMap[`${commitTs}|${runTs}|${hash}`] = { commitTs, runTs, hash };
           });
-          const runs = Object.values(runsMap)
-            .sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
-
+          const runs = Object.values(runsMap).sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
           const fullLabels = runs.map(r => hashInfo[r.hash]?.label || r.hash);
-          const labels = fullLabels.map(l => l.length > 25 ? l.slice(0,25) + '…' : l);
+          const labels = fullLabels.map(l => l.length>25?l.slice(0,25)+'…':l);
           const runUrls = runs.map(r => hashInfo[r.hash]?.url);
 
-          // Group data by bench name
-          const benchGroups = {};
-          entries.forEach(entry => {
-            const commitTs = new Date(entry.commit.timestamp).getTime();
-            const runTs = entry.date;
-            const hash = entry.commit.id.slice(0,7);
-            entry.benches.forEach(b => {
-              benchGroups[b.name] = benchGroups[b.name] || [];
-              benchGroups[b.name].push({ commitTs, runTs, hash, value: b.value, unit: b.unit });
+          // Group benches by dynamic prefix
+          const benchData = {};
+          entries.forEach(e => {
+            const commitTs = new Date(e.commit.timestamp).getTime();
+            const runTs = e.date;
+            const key = `${commitTs}|${runTs}|${e.commit.id.slice(0,7)}`;
+            e.benches.forEach(b => {
+              const prefix = b.name.includes(' -') ? b.name.split(' -')[0] : b.name;
+              benchData[prefix] = benchData[prefix] || {};
+              benchData[prefix][b.name] = benchData[prefix][b.name] || { unit: b.unit, values: {} };
+              benchData[prefix][b.name].values[key] = b.value;
             });
           });
 
-          Object.entries(benchGroups).forEach(([benchName, benchData]) => {
-            const yLabel = benchData[0]?.unit || '';
-            // Build data series aligned to runs
-            const dataArr = runs.map(r => {
-              const found = benchData.find(d => d.commitTs===r.commitTs && d.runTs===r.runTs && d.hash===r.hash);
-              return found ? found.value : null;
+          // Sort prefixes alphabetically
+          const prefixes = Object.keys(benchData).sort();
+
+          prefixes.forEach(prefix => {
+            const group = benchData[prefix];
+            const yLabel = Object.values(group)[0]?.unit || '';
+
+            // Container and controls
+            const wrapper = document.createElement('div');
+            wrapper.className = 'chart-container';
+            const toggles = document.createElement('div'); toggles.className = 'toggle-switch';
+            toggles.innerHTML = `
+              <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
+              <label><input type="checkbox" class="yzero-toggle" checked/><span>Y Axis from Zero</span></label>
+            `;
+            wrapper.appendChild(toggles);
+            const canvas = document.createElement('canvas');
+            wrapper.appendChild(canvas);
+            const btnRow = document.createElement('div'); btnRow.className='flex justify-start mt-2';
+            const resetBtn = document.createElement('button'); resetBtn.textContent='Zoom Out'; resetBtn.className='reset-btn';
+            btnRow.appendChild(resetBtn); wrapper.appendChild(btnRow);
+            section.appendChild(wrapper);
+
+            // Build datasets
+            const datasets = Object.entries(group).map(([name, info]) => {
+              const original = runs.map(r => info.values[`${r.commitTs}|${r.runTs}|${r.hash}`] ?? null);
+              return { label: name, data: original.slice(), original, fill:false, tension:0.4, borderWidth:2 };
             });
 
-            // Graph heading
-            const graphHeading = document.createElement('h3');
-            graphHeading.className = 'text-xl font-semibold mt-6 mb-2';
-            graphHeading.textContent = benchName;
-            section.appendChild(graphHeading);
-
-            // Controls & canvas
-            const chartWrapper = document.createElement('div');
-            chartWrapper.className = 'mb-8 chart-container';
-            const toggleRow = document.createElement('div');
-            toggleRow.className = 'toggle-switch';
-            toggleRow.innerHTML = `
-              <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
-              <label><input type="checkbox" class="yzero-toggle"/><span>Y Axis from Zero</span></label>
-            `;
-            chartWrapper.appendChild(toggleRow);
-            const canvas = document.createElement('canvas');
-            chartWrapper.appendChild(canvas);
-            const btnRow = document.createElement('div');
-            btnRow.className = 'flex justify-start mt-2';
-            const resetBtn = document.createElement('button');
-            resetBtn.textContent = 'Zoom Out';
-            resetBtn.className = 'reset-btn';
-            btnRow.appendChild(resetBtn);
-            chartWrapper.appendChild(btnRow);
-            section.appendChild(chartWrapper);
-
-            // Initialize chart
-            const chart = new Chart(canvas.getContext('2d'), {
-              type: 'line',
-              data: { labels, datasets: [{ label: benchName, data: dataArr, original: dataArr.slice(), fill: false, tension: 0.4, borderWidth: 2 }] },
-              options: {
-                responsive: true,
-                scales: {
-                  x: { ticks: { maxRotation: 33, minRotation: 33 } },
-                  y: { title: { display: true, text: yLabel }, beginAtZero: false }
-                },
-                plugins: {
-                  tooltip: {
-                    mode: 'index', intersect: false,
-                    callbacks: {
+            // Create chart
+            const chart = new Chart(canvas.getContext('2d'),{
+              type:'line',
+              data:{ labels, datasets },
+              options:{
+                responsive:true,
+                scales:{ x:{ ticks:{maxRotation:33,minRotation:33} }, y:{ title:{display:true,text:yLabel}, beginAtZero:true } },
+                plugins:{
+                  tooltip:{ mode:'index', intersect:false,
+                    callbacks:{
                       title: items => fullLabels[items[0].dataIndex],
                       label: ctx => {
-                        const ds = ctx.dataset;
-                        const raw = ds.original[ctx.dataIndex];
-                        if (ctx.chart.normalized && ds.original[0]) {
-                          const delta = ((raw - ds.original[0]) / ds.original[0]) * 100;
-                          return `${delta>=0?'+':''}${delta.toFixed(0)}%`;
+                        const idx = ctx.dataIndex;
+                        const orig = ctx.dataset.original[idx];
+                        if (orig == null) return '';
+                        const normOn = toggles.querySelector('.norm-toggle').checked;
+                        if (normOn) {
+                          const first = datasets[0].original[0];
+                          const delta = first ? ((orig - first) / first * 100) : 0;
+                          const sign = delta >= 0 ? '+' : '';
+                          return sign + Math.round(delta) + '%';
+                        } else {
+                          return orig.toString();
                         }
-                        return `${raw}`;
                       }
                     }
                   },
-                  zoom: { zoom: { drag: { enabled: true } } }
+                  zoom:{ zoom:{ drag:{enabled:true}} }
                 },
-                onClick: (evt, elements) => {
-                  if (elements.length) {
-                    const url = runUrls[elements[0].index];
-                    if (url) window.open(url, '_blank');
-                  }
-                }
+                onClick:(evt,el)=>{ if(el.length){ const url=runUrls[el[0].index]; if(url) window.open(url,'_blank'); }}
               }
             });
-            chart.normalized = false;
 
-            // Normalize toggle
-            toggleRow.querySelector('.norm-toggle').addEventListener('change', e => {
+            // Handlers
+            toggles.querySelector('.norm-toggle').addEventListener('change',e=>{
               chart.resetZoom();
-              chart.normalized = e.target.checked;
-              chart.data.datasets.forEach(ds => {
-                ds.data = chart.normalized && ds.original[0]
-                  ? ds.original.map(v => v != null ? v / ds.original[0] : null)
+              const first = datasets[0].original[0];
+              chart.data.datasets.forEach(ds=>{
+                ds.data = e.target.checked && first
+                  ? ds.original.map(v=>v!=null?v/first:null)
                   : ds.original.slice();
               });
               chart.update();
             });
-            // Y axis zero toggle
-            toggleRow.querySelector('.yzero-toggle').addEventListener('change', e => {
-              chart.options.scales.y.beginAtZero = e.target.checked;
-              chart.resetZoom(); chart.update();
+            toggles.querySelector('.yzero-toggle').addEventListener('change',e=>{
+              chart.options.scales.y.beginAtZero=e.target.checked; chart.resetZoom(); chart.update();
             });
-            // Zoom out button
-            resetBtn.addEventListener('click', () => chart.resetZoom());
-            // Hide tooltip during drag
-            canvas.addEventListener('mousedown', () => { chart.options.plugins.tooltip.enabled = false; chart.update('none'); });
-            canvas.addEventListener('mouseup', () => { chart.options.plugins.tooltip.enabled = true; chart.update('none'); });
+            resetBtn.addEventListener('click',()=>chart.resetZoom());
+            canvas.addEventListener('mousedown',()=>{chart.options.plugins.tooltip.enabled=false;chart.update('none');});
+            canvas.addEventListener('mouseup',()=>{chart.options.plugins.tooltip.enabled=true;chart.update('none');});
           });
 
           container.appendChild(section);

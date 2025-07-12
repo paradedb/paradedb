@@ -28,10 +28,17 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Extract Stressgres Job Name Into Variable
-      id: jobname
+    - name: Sanitize Inputs Into Variables
+      id: sanitize-inputs
       shell: bash
-      run: echo "jobname=$(basename ${{ inputs.test_file }} .toml)" >> $GITHUB_OUTPUT
+      run: |
+        # Strip .toml from the test file name
+        echo "jobname=$(basename ${{ inputs.test_file }} .toml)" >> $GITHUB_OUTPUT
+
+        # Strip slashes from the ref
+        ref="${{ inputs.ref }}"
+        safe_ref="${ref//\//-}"
+        echo "safe_ref=$safe_ref" >> $GITHUB_OUTPUT
 
     - name: Run Stressgres Job
       shell: bash
@@ -40,13 +47,13 @@ runs:
         sudo chmod a+rwx /var/run/postgresql/
         cargo run --release -- headless \
           ../paradedb/.github/stressgres/${{ inputs.test_file }} \
-          --log-file stressgres-${{ steps.jobname.outputs.jobname }}.log \
+          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log \
           --runtime ${{ inputs.duration }}
 
     - name: Generate CSV
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- csv stressgres-${{ steps.jobname.outputs.jobname }}.log output.csv
+      run: cargo run --release -- csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -118,25 +125,20 @@ runs:
     - name: Create Stressgres Graph
       shell: bash
       working-directory: stressgres/
-      run: |
-        # Replace any slashes in the ref with dashes
-        ref="${{ inputs.ref }}"
-        safe_ref="${ref//\//-}"
-        out="stressgres-${{ steps.jobname.outputs.jobname }}-${safe_ref}.png"
-        cargo run --release -- graph "stressgres-${{ steps.jobname.outputs.jobname }}.log" "$out"
+      run: cargo run --release -- graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
 
     - name: Upload Stressgres Graph Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: stressgres-graph-${{ inputs.test_file }}
-        path: stressgres/stressgres-${{ steps.jobname.outputs.jobname }}-${{ inputs.ref }}.png
+        name: stressgres-graph-${{ steps.sanitize-inputs.outputs.jobname }}
+        path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
 
     - name: Upload Stressgres Logs Artifact
       id: artifact-logs
       uses: actions/upload-artifact@v4
       with:
-        name: stressgres-logs-${{ inputs.test_file }}
-        path: stressgres/stressgres-${{ steps.jobname.outputs.jobname }}.log
+        name: stressgres-logs-${{ steps.sanitize-inputs.outputs.jobname }}
+        path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
@@ -148,8 +150,8 @@ runs:
           channel_id: ${{ inputs.slack_channel }}
           initial_comment: |
             *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
-          file: stressgres/stressgres-${{ steps.jobname.outputs.jobname }}-${{ inputs.ref }}.png
-          filename: stressgres-${{ steps.jobname.outputs.jobname }}-${{ inputs.ref }}.png
+          file: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
+          filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
 
     - name: Print Postgres Logs
       shell: bash

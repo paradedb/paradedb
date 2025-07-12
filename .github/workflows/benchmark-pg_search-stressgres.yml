@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "A specific commit hash or tag to benchmark.  Uses `main` if not specified."
+        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
         default: ""
 
@@ -95,7 +95,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
-          key: pg${{ env.pg_version }}-${{ steps.pgrx.outputs.version }}-${{ hashFiles('**/Cargo.lock') }}
+          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
 
@@ -134,19 +134,19 @@ jobs:
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: ./paradedb/.github/actions/benchmark-stressgres
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
 
       - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: ./paradedb/.github/actions/benchmark-stressgres
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
 
       - name: Benchmark wide-table.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: ./paradedb/.github/actions/benchmark-stressgres
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

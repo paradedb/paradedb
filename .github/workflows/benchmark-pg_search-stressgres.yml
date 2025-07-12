@@ -76,7 +76,7 @@ jobs:
           cp -rv paradedb-temp/.github/stressgres paradedb/.github/
           rm -rf paradedb-temp
 
-          echo "Copied stressgres jobs:"
+          echo "Files copied to paradedb/.github/stressgres/:"
           ls -la paradedb/.github/stressgres/
 
       - name: Install Rust

@@ -34,7 +34,7 @@ runs:
       run: |
         sudo chmod a+rwx /var/run/postgresql/
         cargo run --release -- headless \
-          ./paradedb/.github/stressgres/${{ inputs.test_file }} \
+          /home/runner/work/paradedb/paradedb/paradedb/.github/stressgres/${{ inputs.test_file }} \
           --log-file stressgres-$(basename "${{ inputs.test_file }}" .toml).log \
           --runtime ${{ inputs.duration }}
 

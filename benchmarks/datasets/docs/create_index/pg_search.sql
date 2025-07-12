@@ -1,5 +1,6 @@
 CREATE INDEX pages_index ON pages
-USING bm25 ("id",
+USING bm25 (
+    "id",
     "content",
     "title",
     "parents",
@@ -26,7 +27,8 @@ WITH (
 );
 
 CREATE INDEX files_index ON files
-USING bm25 ("id",
+USING bm25 (
+    "id",
     "content",
     "documentId",
     "title",
@@ -53,7 +55,8 @@ WITH (
 );
 
 CREATE INDEX documents_index ON documents
-USING bm25 ("id",
+USING bm25 (
+    "id",
     "content",
     "title",
     "parents",

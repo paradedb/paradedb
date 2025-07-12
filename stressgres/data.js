@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752252316406,
+  "lastUpdate": 1752342376644,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -3416,6 +3416,42 @@ window.BENCHMARK_DATA = {
             "value": 7.234799631696866,
             "unit": "median tps",
             "extra": "avg tps: 6.602329185498556, max tps: 8.082235874900915, count: 59168"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342375589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.31250667819115,
+            "unit": "median tps",
+            "extra": "avg tps: 7.252239851214647, max tps: 10.740409928196165, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 7.222759889430297,
+            "unit": "median tps",
+            "extra": "avg tps: 6.570432854609154, max tps: 8.001534935709477, count: 59175"
           }
         ]
       }

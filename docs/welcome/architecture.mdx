@@ -7,23 +7,28 @@ index, along with custom query execution methods, to Postgres.
 
 ## Custom Index
 
-![ParadeDB BYOC Topology](/images/architecture_indexam.png)
+![Custom Index Architecture](/images/architecture_indexam.png)
 
-In Postgres, indexes allow the underlying Postgres table (which Postgres calls a *heap table*) to be represented using alternative data structures optimized for different types
-of queries.
+In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
 
-ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytics.
+ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytical queries.
 
-### Index Updates
+### Real-Time Updates
 
-When a table row is inserted or updated, Postgres automatically notifies the index. These changes are recorded as part of the current transaction, ensuring that index updates are real-time and transactional.
+When a table row is inserted or updated, the BM25 index is immediately notified. These changes are recorded as part of the current transaction, ensuring that index updates are real-time.
 
-### Parallel Custom Scan
+### Query Optimizations
 
-In Postgres, custom scans allow extensions to define new execution nodes that can run custom logic — such as filters or aggregations — natively within the query executor.
+Postgres allows extensions to define new execution nodes that can run custom logic — such as filters or aggregations — as part of query execution.
+These nodes are called [custom scans](https://www.postgresql.org/docs/current/custom-scan.html).
+
 ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index and executed in parallel.
 
-## Underlying Data Structures
+## Data Model
+
+![Data Model](/images/architecture_lsm.png)
+
+The BM25 index is laid out as an [LSM tree](#lsm-tree), where each segment in the tree consists of both an inverted index and columnar index.
 
 ### Inverted Index
 
@@ -41,9 +46,15 @@ In the ParadeDB these structures are referred to as *fast fields*.
 
 To support real-time updates, the BM25 index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
 
-An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer called a memtable, which is fast to update. Once the memtable fills up, it is flushed to disk as a sorted, immutable segment file (often called an SSTable).
+An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer, which is fast to update. Once the buffer fills up or the current statement finishes, it is flushed to disk as an immutable "segment" file.
 
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
 In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
 is actually a collection of many inverted/columnar indexes.
+
+## Dependencies
+
+The two main dependencies of `pg_search` are [`pgrx`](https://github.com/pgcentralfoundation/pgrx/tree/develop), the
+library for writing Postgres extensions in Rust, and [Tantivy](https://github.com/quickwit-oss/tantivy), a Rust-based search library
+inspired by [Lucene](https://github.com/apache/lucene).

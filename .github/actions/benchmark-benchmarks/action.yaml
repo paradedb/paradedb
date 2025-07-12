@@ -39,6 +39,7 @@ runs:
         cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json
 
     - name: Cleanup Git Checkout
+      shell: bash
       run: git checkout .
 
     - name: Publish Benchmark Metrics
@@ -70,6 +71,7 @@ runs:
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'
+      shell: bash
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"

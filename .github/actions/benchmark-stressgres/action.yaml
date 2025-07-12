@@ -113,7 +113,11 @@ runs:
     - name: Create Stressgres Graph
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- graph stressgres-$(basename "${{ inputs.test_file }}" .toml).log stressgres-$(basename "${{ inputs.test_file }}" .toml)-${{ inputs.ref }}.png
+      run: |
+        # Replace any slashes in the ref with dashes
+        safe_ref="${{ inputs.ref//\//- }}"
+        out="stressgres-$(basename "${{ inputs.test_file }}" .toml)-${safe_ref}.png"
+        cargo run --release -- graph "stressgres-$(basename "${{ inputs.test_file }}" .toml).log" "$out"
 
     - name: Upload Stressgres Graph Artifact
       uses: actions/upload-artifact@v4

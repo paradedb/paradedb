@@ -51,7 +51,7 @@ jobs:
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark'
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarks'
         with:
           labels: |
             benchmark

@@ -42,7 +42,7 @@ permissions:
 jobs:
   test-pg_search-stressgres:
     name: Run Stressgres ${{ matrix.test_file }} on pg_search
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: ubicloud-standard-8
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     strategy:
       matrix:

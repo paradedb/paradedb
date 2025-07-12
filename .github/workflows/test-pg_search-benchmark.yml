@@ -47,7 +47,7 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
     strategy:
       matrix:
-        dataset: ["single", "join"]
+        dataset: ["logs", "docs"]
     env:
       pg_version: 17
 
@@ -142,9 +142,9 @@ jobs:
       - name: Run Benchmark
         working-directory: benchmarks/
         run: |
-          if [ "${{ matrix.dataset }}" = "single" ]; then
+          if [ "${{ matrix.dataset }}" = "logs" ]; then
             NUM_ROWS=100000000
-          elif [ "${{ matrix.dataset }}" = "join" ]; then
+          elif [ "${{ matrix.dataset }}" = "docs" ]; then
             NUM_ROWS=25000000
           else
             echo "Unknown dataset!"

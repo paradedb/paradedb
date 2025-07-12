@@ -1,10 +1,9 @@
-# workflows/test-pg_search-benchmark.yml
+# workflows/benchmark-pg_search-benchmarks.yml
 #
-# Test pg_search Benchmark
-# Benchmark pg_search performance on a nightly basis. This workflow can also be triggered
-# manually to benchmark other systems on one-off basis, to compare against pg_search.
+# Benchmark pg_search - Benchmarks
+# Run our benchmarks suite against pg_search.
 
-name: Test pg_search Benchmark
+name: Benchmark pg_search - Benchmarks
 
 # We run benchmarks on `main`, and on `benchmark`-labeled PRs.
 on:
@@ -13,7 +12,7 @@ on:
       - main
     paths:
       - "benchmarks/**"
-      - ".github/workflows/test-pg_search-benchmark.yml"
+      - ".github/workflows/benchmark-pg_search-benchmarks.yml"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:
@@ -23,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "A specific commit hash or tag to benchmark.  Uses `main` if not specified."
+        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
         required: false
         default: ""
 
@@ -32,38 +31,36 @@ permissions:
   deployments: write
   pull-requests: write
 
-#concurrency:
-#  # If this is a manual backfill run, use the commit SHA.
-#  # Otherwise (push/PR) fall back to the branch name.
-#  group: ${{ format('query-benchmarks-{0}',
-#    (github.event_name == 'workflow_dispatch' && inputs.commit) || github.ref) }}
-#  # Keep auto-cancellation for normal CI, switch it off for backfills.
-#  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+# We don't specify a concurrency group here, as we want all jobs to complete.
 
 jobs:
-  benchmark-pg_search:
-    name: Benchmark ${{ matrix.dataset }} on pg_search
-    runs-on: depot-ubuntu-24.04-32
+  benchmark-pg_search-benchmarks:
+    name: Run Benchmark Jobs
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=m7i.metal-24xl # 96 vCPUs, 384 GiBs Memory
+      - image=ubuntu24-full-x64
+      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark')
-    strategy:
-      matrix:
-        dataset: ["single", "join"]
     env:
       pg_version: 17
 
     steps:
-      - name: Maybe remove label
+      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # removes the label once the job has started, so it can be applied again if needed.
+      - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
         if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark'
         with:
           labels: benchmark
 
-      - name: Determine ref to benchmark
+      - name: Determine Ref to Benchmark
         id: determine-ref
         run: |
           # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
           REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
-          echo "::set-output name=ref::$REF"
+          echo "ref=$REF" >> $GITHUB_OUTPUT
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v4
@@ -74,12 +71,11 @@ jobs:
       # old commits potentially created before new queries were added.
       - name: Fetch the Latest Benchmark Queries
         run: |
-          ls -la
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
           cp -rv paradedb-temp/benchmarks .
-          rm -rf paradedb-temp
+          rm -rf paradedb-temp/
 
-          echo "Copied benchmark files:"
+          echo "Copied benchmark files to benchmarks/:"
           ls -la benchmarks/
 
       - name: Install Rust
@@ -133,62 +129,7 @@ jobs:
 
       - name: Install pg_search
         working-directory: pg_search/
-        run: |
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
-
-      - name: Run Benchmark
-        working-directory: benchmarks/
-        run: |
-          if [ "${{ matrix.dataset }}" = "single" ]; then
-            NUM_ROWS=100000000
-          elif [ "${{ matrix.dataset }}" = "join" ]; then
-            NUM_ROWS=25000000
-          else
-            echo "Unknown dataset!"
-            exit 1
-          fi
-          cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ matrix.dataset }} --runs 10 --output json
-
-      - name: Cleanup git checkout
-        run: |
-          git checkout .
-
-      # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
-      # benchmark-action publish actions running in other jobs
-      - name: Sleep
-        run: |
-          LOW=1
-          HIGH=66
-          sleep $(( $LOW + RANDOM % ( $HIGH - $LOW + 1 ) ))
-
-      - name: Check and Publish Continuous Benchmarking Metrics
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          name: "pg_search '${{ matrix.dataset }}' Query Performance"
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          tool: "customSmallerIsBetter"
-          output-file-path: "benchmarks/results.json"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: ${{ github.event_name != 'pull_request' }}
-          gh-pages-branch: gh-pages
-          benchmark-data-dir-path: benchmarks
-          alert-threshold: "110%"
-          # NB: We comment and alert rather than failing, as we have both Github and Slack messages
-          # to notify us.
-          comment-on-alert: true
-          alert-comment-cc-users: "@${{ github.actor }}"
-          comment-always: ${{ github.event_name == 'pull_request' }}
-
-      - name: Notify Slack on Failure
-        if: failure() && github.event_name == 'push'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`test-pg_search-benchmark\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' \
-          --data "{\"text\": \"${MESSAGE}\"}" \
-          ${SLACK_WEBHOOK_URL}
+        run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
       - name: Derive Short Commit
         id: commit_info
@@ -196,16 +137,22 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
-      - name: Report Benchmark Results to Slack
-        if: github.event_name != 'pull_request'
-        uses: slackapi/slack-github-action@v2
+      - name: Benchmark "single" Dataset
+        uses: ./.github/actions/benchmark-benchmarks
         with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          payload: |
-            channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-            text: |
-              *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}>*: Community "${{ matrix.dataset}}" Query Results available:
-              <https://paradedb.github.io/paradedb/benchmarks/>
-          errors: true
-          retries: 5
+          dataset: single
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+
+      - name: Benchmark "join" Dataset
+        uses: ./.github/actions/benchmark-benchmarks
+        with:
+          dataset: join
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

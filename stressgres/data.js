@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752342415641,
+  "lastUpdate": 1752342419517,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -4162,6 +4162,66 @@ window.BENCHMARK_DATA = {
             "value": 54,
             "unit": "median segment_count",
             "extra": "avg segment_count: 55.796106003245, max segment_count: 87.0, count: 59168"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83a8e0184e8af077e9e49d992c59e62de685c026",
+          "message": "ci: Fix Rust Cache (#2831)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\nAs part of #2830, I realized it was:\n- not working\n- the lint-rust somehow cached on its own\n- we were doing unnecessary runs on push to main.\n\n## Why\nBroken things are worse than working things\n\n## How\nUse shared-key so all the workflows can share the same cache, push on\nPRs as well, and make it depend on the state of Cargo.lock\n\n## Tests\nCI",
+          "timestamp": "2025-07-12T13:30:19-04:00",
+          "tree_id": "484b8fac7e837840010d361fdca95a410c0f6d68",
+          "url": "https://github.com/paradedb/paradedb/commit/83a8e0184e8af077e9e49d992c59e62de685c026"
+        },
+        "date": 1752342418413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.002375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.653063293893776, max cpu: 43.243244, count: 59175"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.9667576969793, max mem: 233.37890625, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.529411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.2986226085486, max cpu: 33.432835, count: 59175"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.75339366814532, max mem: 161.80078125, count: 59175"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23624,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21977.42781580059, max block_count: 25163.0, count: 59175"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 54,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 55.978977608787496, max segment_count: 88.0, count: 59175"
           }
         ]
       }

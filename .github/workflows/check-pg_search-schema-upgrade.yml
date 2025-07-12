@@ -50,16 +50,13 @@ jobs:
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      # Caches from base branches are available to PRs, but not across unrelated branches,
-      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          prefix-key: "rust-cache"
+          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

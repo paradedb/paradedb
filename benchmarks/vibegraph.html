@@ -118,12 +118,18 @@
             const btnRow = document.createElement('div'); btnRow.className='flex justify-start mt-2';
             const resetBtn = document.createElement('button'); resetBtn.textContent='Zoom Out'; resetBtn.className='reset-btn';
             btnRow.appendChild(resetBtn); wrapper.appendChild(btnRow);
+            // whitespace below button
+            const space = document.createElement('div'); space.style.marginBottom='1rem'; wrapper.appendChild(space);
+
             section.appendChild(wrapper);
 
             const datasets = Object.entries(group).map(([name, info]) => {
               const original = runs.map(r => info.values[`${r.commitTs}|${r.runTs}|${r.hash}`] ?? null);
               return { label: name, data: original.slice(), original, fill:false, tension:0.4, borderWidth:2 };
             });
+
+            // Determine shortest series name for title
+            const shortestName = datasets.map(d=>d.label).sort((a,b)=>a.length-b.length)[0];
 
             const chart = new Chart(canvas.getContext('2d'),{
               type:'line',
@@ -132,6 +138,7 @@
                 responsive:true,
                 scales:{ x:{ ticks:{maxRotation:33,minRotation:33} }, y:{ title:{display:true,text:yLabel}, beginAtZero:true } },
                 plugins:{
+                  title:{ display:true, text: shortestName, font:{ size:20 } },
                   tooltip:{ mode:'index', intersect:false,
                     callbacks:{
                       title: items => fullLabels[items[0].dataIndex],

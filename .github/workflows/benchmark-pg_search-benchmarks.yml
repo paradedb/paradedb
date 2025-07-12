@@ -149,20 +149,20 @@ jobs:
           cp -r tmp/.github/actions/* .github/actions/
           rm -rf tmp
 
-      - name: Benchmark "single" Dataset
+      - name: Benchmark "logs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
         with:
-          dataset: single
+          dataset: logs
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
-      - name: Benchmark "join" Dataset
+      - name: Benchmark "docs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
         with:
-          dataset: join
+          dataset: docs
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}

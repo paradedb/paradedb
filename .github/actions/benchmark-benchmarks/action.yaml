@@ -1,0 +1,76 @@
+name: Benchmark - Benchmarks
+description: Run a given benchmark dataset against pg_search and publish metrics
+
+inputs:
+  dataset:
+    description: "The benchmark dataset to run (e.g. single, join)"
+    required: true
+  ref:
+    description: "Git ref or short SHA to report in benchmarks"
+    required: true
+  github_token:
+    description: "GitHub token to authenticate with"
+    required: true
+  slack_oauth_token:
+    description: "Slack OAuth token to authenticate with"
+    required: true
+  slack_channel:
+    description: "Slack channel to post results to"
+    required: true
+  slack_webhook_url:
+    description: "Slack webhook URL to post results to"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run Benchmarks
+      working-directory: benchmarks/
+      shell: bash
+      run: |
+        if [ "${{ inputs.dataset }}" = "single" ]; then
+          NUM_ROWS=100000000
+        elif [ "${{ inputs.dataset }}" = "join" ]; then
+          NUM_ROWS=25000000
+        else
+          echo "Unknown dataset!"
+          exit 1
+        fi
+        cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json
+
+    - name: Cleanup Git Checkout
+      run: git checkout .
+
+    - name: Publish Benchmark Metrics
+      uses: benchmark-action/github-action-benchmark@v1
+      with:
+        name: "pg_search '${{ inputs.dataset }}' Query Performance"
+        ref: ${{ inputs.ref }}
+        tool: customSmallerIsBetter
+        output-file-path: benchmarks/results.json
+        github-token: ${{ inputs.github_token }}
+        auto-push: ${{ github.event_name != 'pull_request' }}
+        gh-pages-branch: gh-pages
+        benchmark-data-dir-path: benchmarks
+        alert-threshold: "110%"
+        comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
+        alert-comment-cc-users: "@${{ github.actor }}"
+        comment-always: ${{ github.event_name == 'pull_request' }}
+
+    - name: Upload Benchmark Results to Slack (push only)
+      if: github.event_name != 'pull_request'
+      uses: slackapi/slack-github-action@v2
+      with:
+        method: chat.postMessage
+        token: ${{ inputs.slack_oauth_token }}
+        payload: |
+          channel: ${{ inputs.slack_channel }}
+          text: |
+            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community \`${{ inputs.dataset }}\` Query Results available: <https://paradedb.github.io/paradedb/benchmarks/>
+
+    - name: Notify Slack on Failure (push only)
+      if: failure() && github.event_name == 'push'
+      run: |
+        GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+        curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ inputs.slack_webhook_url }}

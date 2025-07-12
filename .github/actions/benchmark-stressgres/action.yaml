@@ -88,6 +88,10 @@ runs:
         alert-comment-cc-users: "@${{ github.actor }}"
         comment-always: ${{ github.event_name == 'pull_request' }}
 
+    # Necessary to avoid "destination path is not empty" error
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      run: rm -rf ./benchmark-data-repository
+
     - name: Publish Other Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -150,7 +154,5 @@ runs:
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-        MESSAGE="<!here> \`test-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
-        curl -X POST -H 'Content-type: application/json' \
-        --data "{\"text\": \"${MESSAGE}\"}" \
-        ${{ inputs.slack_webhook_url }}
+        MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+        curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ inputs.slack_webhook_url }}

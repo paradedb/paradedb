@@ -1,7 +1,8 @@
 # workflows/benchmark-pg_search-stressgres.yml
 #
 # Benchmark pg_search - Stressgres
-# Run our Stressgres stress testing tool against pg_search on the testing suites specificed in .github/stressgres.
+# Run our Stressgres stress testing tool against pg_search on the
+# testing suites specificed in .github/stressgres.
 
 name: Benchmark pg_search - Stressgres
 

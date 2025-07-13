@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752441624243,
+  "lastUpdate": 1752441626160,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1312,6 +1312,66 @@ window.BENCHMARK_DATA = {
             "value": 5.713253241624696,
             "unit": "median tps",
             "extra": "avg tps: 5.115628346933139, max tps: 6.426405477077364, count: 57645"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "committer": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "philippemnoel@gmail.com"
+          },
+          "id": "6603901ab5f5342e3de4b0bfc99065823a606d92",
+          "message": "Fix mintlify check workflow",
+          "timestamp": "2025-07-06T17:07:57Z",
+          "url": "https://github.com/paradedb/paradedb/commit/6603901ab5f5342e3de4b0bfc99065823a606d92"
+        },
+        "date": 1752441625288,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.423161388961258, max cpu: 42.60355, count: 57645"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 226.6519946981525, max mem: 237.48828125, count: 57645"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.30869997676292, max cpu: 33.168808, count: 57645"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.87639674950125, max mem: 164.92578125, count: 57645"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21660,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20000.568444791395, max block_count: 21686.0, count: 57645"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.59701621996705, max segment_count: 97.0, count: 57645"
           }
         ]
       }

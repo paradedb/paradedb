@@ -81,6 +81,11 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
+    # Necessary to avoid "destination path is not empty" error
+    - name: Cleanup Previous Benchmark Publish Working Directory
+      shell: bash
+      run: rm -rf ./benchmark-data-repository
+
     - name: Publish TPS Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:

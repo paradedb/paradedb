@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752430864010,
+  "lastUpdate": 1752430866125,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -2866,6 +2866,126 @@ window.BENCHMARK_DATA = {
             "value": 94.0703125,
             "unit": "median mem",
             "extra": "avg mem: 92.39075646477312, max mem: 101.93359375, count: 55029"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T11:04:27-07:00",
+          "tree_id": "e032e104cda1d3cdc1d428eff8c4885e410482d9",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752430865277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.017957564244312, max cpu: 22.966507, count: 55120"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 105.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 101.20490974238027, max mem: 107.53515625, count: 55120"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6088542608689185, max cpu: 9.275363, count: 55120"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 97.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 91.907307493877, max mem: 97.56640625, count: 55120"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.17782,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.466004443777896, max cpu: 23.166023, count: 55120"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 108.375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.24500351505806, max mem: 110.17578125, count: 55120"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.474859556002361, max cpu: 9.230769, count: 55120"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 106.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 102.09759027179336, max mem: 108.0859375, count: 55120"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.063714533455865, max cpu: 23.529411, count: 110240"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 109.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 109.57026831373594, max mem: 127.3828125, count: 110240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9551,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8969.068196661829, max block_count: 9551.0, count: 55120"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 119,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 118.71567489114659, max segment_count: 343.0, count: 55120"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.998687199984452, max cpu: 18.373205, count: 55120"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 114.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.1551876162237, max mem: 123.46484375, count: 55120"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 22.944551,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.13413960633507, max cpu: 32.36994, count: 55120"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 106.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 98.99734046171989, max mem: 107.78125, count: 55120"
           }
         ]
       }

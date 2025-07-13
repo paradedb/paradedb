@@ -28,195 +28,149 @@
 
   <script>
     async function initCharts() {
+      const container = document.getElementById('charts');
       try {
         const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
         const scriptText = await res.text(); eval(scriptText);
         Chart.register(ChartZoom);
 
         const rawData = window.BENCHMARK_DATA?.entries || {};
-        const container = document.getElementById('charts');
         if (!Object.keys(rawData).length) {
           container.innerHTML = '<p class="text-red-500">No data.</p>';
           return;
         }
 
+        // Resolve SHAs to labels
         const allEntries = Object.values(rawData).flat();
-        const uniqueIds = Array.from(new Set(allEntries.map(e => e.commit.id)));
-        const hashInfo = {};
-        for (const fullId of uniqueIds) {
-          const short = fullId.slice(0,7);
-          try {
-            const searchRes = await fetch(`https://api.github.com/search/issues?q=${short}+repo:paradedb/paradedb+type:pr`);
-            const data = await searchRes.json();
-            if (data.items && data.items.length) {
-              const pr = data.items[0];
-              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
-            } else {
-              hashInfo[short] = { label: short, url: null };
+        const uniqueShorts = Array.from(new Set(allEntries.map(e => e.commit.id.slice(0,7))));
+        const releaseMap = {};
+        try {
+          const refsResp = await fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags');
+          const refs = await refsResp.json();
+          await Promise.all(refs.map(async ref => {
+            const tag = ref.ref.replace('refs/tags/', '');
+            let sha = ref.object.sha;
+            if (ref.object.type === 'tag') {
+              const tagObj = await (await fetch(ref.object.url)).json(); sha = tagObj.object.sha;
             }
-          } catch {
-            hashInfo[short] = { label: short, url: null };
-          }
-        }
+            releaseMap[sha.slice(0,7)] = { label: tag, url: `https://github.com/paradedb/paradedb/releases/tag/${tag}` };
+          }));
+        } catch {}
+        const hashInfo = {};
+        await Promise.all(uniqueShorts.map(async short => {
+          if (releaseMap[short]) { hashInfo[short] = releaseMap[short]; return; }
+          try {
+            const prResp = await fetch(
+              `https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`,
+              { headers: { Accept: 'application/vnd.github.groot-preview+json' } }
+            );
+            const prs = await prResp.json();
+            if (Array.isArray(prs) && prs.length) {
+              const pr = prs[0];
+              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+              return;
+            }
+          } catch {}
+          hashInfo[short] = { label: short, url: null };
+        }));
 
+        // Group by file
         const fileGroups = {};
-        Object.entries(rawData).forEach(([category, entries]) => {
-          const parts = category.split(' ');
-          const filename = parts[1] || category;
-          fileGroups[filename] = (fileGroups[filename] || []).concat(entries);
+        Object.entries(rawData).forEach(([cat, ents]) => {
+          const fn = cat.split(' ')[1] || cat;
+          fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
         });
 
-        Object.entries(fileGroups).forEach(([filename, entries]) => {
-          const section = document.createElement('section');
-          section.className = 'bg-white p-6 rounded-xl shadow-lg';
-          const heading = document.createElement('h2');
-          heading.className = 'text-2xl font-semibold mb-2';
-          heading.textContent = filename;
-          section.appendChild(heading);
+        for (const [fn, entries] of Object.entries(fileGroups)) {
+          const section = document.createElement('section'); section.className = 'bg-white p-6 rounded-xl shadow-lg';
+          const titleEl = document.createElement('h2'); titleEl.className = 'text-2xl font-semibold mb-4'; titleEl.textContent = fn;
+          section.appendChild(titleEl);
 
-          const runsMap = {};
-          entries.forEach(e => {
-            const commitTs = new Date(e.commit.timestamp).getTime();
-            const runTs = e.date;
-            const hash = e.commit.id.slice(0,7);
-            runsMap[`${commitTs}|${runTs}|${hash}`] = { commitTs, runTs, hash };
-          });
-          const runs = Object.values(runsMap).sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
-          const fullLabels = runs.map(r => hashInfo[r.hash]?.label || r.hash);
-          const labels = fullLabels.map(l => l.length>25?l.slice(0,25)+'…':l);
-          const runUrls = runs.map(r => hashInfo[r.hash]?.url);
+          // Flatten & sort benches
+          const benches = entries.flatMap(ent => ent.benches.map(b => ({
+            name: b.name, unit: b.unit,
+            timestamp: new Date(ent.commit.timestamp).getTime(), run: ent.date,
+            short: ent.commit.id.slice(0,7), value: b.value
+          }))).sort((a,b) => a.name.localeCompare(b.name));
 
-          const benchData = {};
-          entries.forEach(e => {
-            const commitTs = new Date(e.commit.timestamp).getTime();
-            const runTs = e.date;
-            const key = `${commitTs}|${runTs}|${e.commit.id.slice(0,7)}`;
-            e.benches.forEach(b => {
-              const prefix = b.name.includes(' -') ? b.name.split(' -')[0] : b.name;
-              benchData[prefix] = benchData[prefix] || {};
-              benchData[prefix][b.name] = benchData[prefix][b.name] || { unit: b.unit, values: {} };
-              benchData[prefix][b.name].values[key] = b.value;
-            });
+          // Group by prefix
+          const prefixGroups = {};
+          benches.forEach(b => {
+            const sep = b.name.indexOf(' - ');
+            const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
+            prefixGroups[prefix] = prefixGroups[prefix] || [];
+            prefixGroups[prefix].push(b);
           });
 
-          const prefixes = Object.keys(benchData).sort();
+          // Render charts
+          Object.entries(prefixGroups).forEach(([prefix, group]) => {
+            const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
+            const runs = runKeys.map(k => { const [ts,r,sh] = k.split('|'); return { timestamp:+ts, run:+r, short:sh }; })
+                                .sort((a,b)=>a.timestamp-b.timestamp||a.run-b.run);
+            const labels = runs.map(r=>{ const lbl=hashInfo[r.short].label; return lbl.length>25?`${lbl.slice(0,25)}…`:lbl; });
+            const runUrls = runs.map(r=>hashInfo[r.short].url);
 
-          prefixes.forEach(prefix => {
-            const group = benchData[prefix];
-            const yLabel = Object.values(group)[0]?.unit || '';
-
-            const wrapper = document.createElement('div');
-            wrapper.className = 'chart-container';
-            const toggles = document.createElement('div'); toggles.className = 'toggle-switch';
-            toggles.innerHTML = `
-              <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
-              <label><input type="checkbox" class="yzero-toggle" checked/><span>Y Axis from Zero</span></label>
-            `;
-            wrapper.appendChild(toggles);
-            const canvas = document.createElement('canvas');
-            wrapper.appendChild(canvas);
-            const btnRow = document.createElement('div'); btnRow.className='flex justify-start mt-2';
-            const resetBtn = document.createElement('button'); resetBtn.textContent='Zoom Out'; resetBtn.className='reset-btn';
-            btnRow.appendChild(resetBtn); wrapper.appendChild(btnRow);
-            const space = document.createElement('div'); space.style.marginBottom='1rem'; wrapper.appendChild(space);
-
-            section.appendChild(wrapper);
-
-            const datasets = Object.entries(group).map(([name, info]) => {
-              const original = runs.map(r => info.values[`${r.commitTs}|${r.runTs}|${r.hash}`] ?? null);
-              return { label: name, data: original.slice(), original, fill:false, tension:0.4, borderWidth:2 };
+            const seriesMap = {};
+            group.forEach(d => {
+              seriesMap[d.name] = seriesMap[d.name]||Array(runs.length).fill(null);
+              const idx = runs.findIndex(r=>r.timestamp===d.timestamp&&r.run===d.run&&r.short===d.short);
+              seriesMap[d.name][idx] = d.value;
             });
+            const sortedNames = Object.keys(seriesMap);
+            const datasets = sortedNames.map(name=>({ label:name,data:seriesMap[name],original:seriesMap[name].slice(),fill:false,tension:0.4,borderWidth:2 }));
 
-            const shortestName = datasets.map(d=>d.label).sort((a,b)=>a.length-b.length)[0];
-            const showLegend = datasets.length > 1;
+            const titleName = sortedNames.reduce((m,c)=>c.length<m.length?c:m,sortedNames[0]);
+
+            let defaultNorm = false;
+            datasets.some(ds=>ds.original.some((v,i,arr)=>i>0&&arr[i-1]!=null&&Math.abs((v-arr[i-1])/arr[i-1])>=0.10)&&(defaultNorm=true));
+
+            const wrap = document.createElement('div'); wrap.className='chart-container mb-8';
+            wrap.innerHTML = `
+              <div class="toggle-switch">
+                <label><input type="checkbox" class="norm-toggle" ${defaultNorm?'checked':''}/><span>Normalize to First Value</span></label>
+                <label><input type="checkbox" class="yzero-toggle" ${defaultNorm?'':'checked'}/><span>Y Axis from Zero</span></label>
+              </div>`;
+            const canvas = document.createElement('canvas'); wrap.appendChild(canvas);
+            const resetBtn = document.createElement('button'); resetBtn.className='reset-btn'; resetBtn.textContent='Zoom Out';
+            const btnDiv = document.createElement('div'); btnDiv.className='flex justify-start mt-2'; btnDiv.appendChild(resetBtn);
+            wrap.appendChild(btnDiv);
+            section.appendChild(wrap);
 
             const chart = new Chart(canvas.getContext('2d'),{
-              type:'line',
-              data:{ labels, datasets },
-              options:{
+              type:'line',data:{labels,datasets},options:{
                 responsive:true,
-                scales:{ x:{ ticks:{maxRotation:33,minRotation:33} }, y:{ title:{display:true,text:yLabel}, beginAtZero:true } },
-                plugins:{
-                  legend: {
-                    display: showLegend,
-                    onClick: (e, legendItem, legend) => {
-                      const ci = legend.chart;
-                      const index = legendItem.datasetIndex;
-                      const meta = ci.getDatasetMeta(index);
-                      meta.hidden = meta.hidden === null ? !ci.data.datasets[index].hidden : null;
-                      ci.update();
-                    }
-                  },
-                  title:{ display:true, text: shortestName, font:{ size:20 } },
-                  tooltip:{ mode:'index', intersect:false,
-                    callbacks:{
-                      title: items => fullLabels[items[0].dataIndex],
-                      label: ctx => {
-                        const idx = ctx.dataIndex;
-                        const original = ctx.dataset.original[idx];
-                        if (original == null) return '';
-                        const normOn = toggles.querySelector('.norm-toggle').checked;
-                        if (normOn) {
-                          const first = ctx.dataset.original[0];
-                          if (!first) return '';
-                          const percent = (original / first) * 100;
-                          const delta = percent - 100;
-                          const roundedDelta = Math.round(delta);
-                          return roundedDelta > 0 ? `+${roundedDelta}%` : roundedDelta < 0 ? `${roundedDelta}%` : '0%';
-                        } else {
-                          return original.toString();
-                        }
-                      }
-                    }
-                  },
-                  zoom:{ zoom:{ drag:{enabled:true} } }
-                },
-                onClick:(evt,el)=>{ if(el.length){ const url=runUrls[el[0].index]; if(url) window.open(url,'_blank'); }}
+                scales:{ x:{ticks:{maxRotation:33,minRotation:33}}, y:{beginAtZero:!defaultNorm,title:{display:true,text:group[0].unit}}},
+                plugins:{ legend:{display:true}, title:{display:true,text:titleName}, tooltip:{mode:'index',intersect:false,callbacks:{label:ctx=>{
+                  const v=ctx.raw,lines=[`${ctx.dataset.label}: ${v!=null?v.toFixed(3):'–'}`];
+                  const arr=ctx.dataset.original,i=ctx.dataIndex;
+                  if(chart.normalized){ const pct=(v*100)-100; lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from first`);
+                  } else if(i>0&&arr[i-1]!=null){ const pct=((v-arr[i-1])/arr[i-1])*100; lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from prev`);}return lines;}}}, zoom:{zoom:{drag:{enabled:true}}}
+                }, onClick:(_,items)=>{ if(items.length) window.open(runUrls[items[0].index]); }
               }
             });
-
-            toggles.querySelector('.norm-toggle').addEventListener('change',e=>{
-              const normOn = e.target.checked;
-              chart.data.datasets.forEach(ds=>{
-                const first = ds.original[0];
-                ds.data = normOn && first
-                  ? ds.original.map(v=>v!=null?v/first:null)
-                  : ds.original.slice();
-              });
-              if(normOn) {
-                const vals = chart.data.datasets.flatMap(ds => ds.data.filter(v=>v!=null));
-                const min = Math.min(...vals);
-                const max = Math.max(...vals);
-                const range = Math.max(1-min, max-1);
-                chart.options.scales.y.min = 1 - range;
-                chart.options.scales.y.max = 1 + range;
-                chart.options.scales.y.beginAtZero = false;
-              } else {
-                const yZeroOn = toggles.querySelector('.yzero-toggle').checked;
-                chart.options.scales.y.beginAtZero = yZeroOn;
-                chart.options.scales.y.min = yZeroOn ? 0 : undefined;
-                chart.options.scales.y.max = undefined;
-              }
-              chart.resetZoom();
+            chart.normalized = defaultNorm;
+            if(defaultNorm){
+              chart.data.datasets.forEach(ds=>ds.data=ds.original.map(v=>v!=null?v/ds.original[0]:null));
               chart.update();
-            });
+            }
 
-            toggles.querySelector('.yzero-toggle').addEventListener('change',e=>{
-              if(!toggles.querySelector('.norm-toggle').checked) {
-                chart.options.scales.y.beginAtZero = e.target.checked;
-              }
-              chart.resetZoom(); chart.update();
+            wrap.querySelector('.norm-toggle').addEventListener('change',e=>{
+              const norm=e.target.checked;
+              chart.data.datasets.forEach(ds=>ds.data=norm?ds.original.map(v=>v!=null?v/ds.original[0]:null):ds.original.slice());
+              chart.normalized=norm;
+              chart.resetZoom();chart.update();
+            });
+            wrap.querySelector('.yzero-toggle').addEventListener('change',e=>{
+              chart.options.scales.y.beginAtZero=e.target.checked;
+              chart.resetZoom();chart.update();
             });
             resetBtn.addEventListener('click',()=>chart.resetZoom());
-            canvas.addEventListener('mousedown',()=>{chart.options.plugins.tooltip.enabled=false;chart.update('none');});
-            canvas.addEventListener('mouseup',()=>{chart.options.plugins.tooltip.enabled=true;chart.update('none');});
           });
-
           container.appendChild(section);
-        });
-      } catch (err) {
+        }
+      } catch(err) {
         console.error(err);
-        document.getElementById('charts').innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
+        container.innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
       }
     }
     document.addEventListener('DOMContentLoaded', initCharts);

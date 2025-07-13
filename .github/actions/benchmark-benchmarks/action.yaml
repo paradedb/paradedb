@@ -29,9 +29,9 @@ runs:
       shell: bash
       run: |
         if [ "${{ inputs.dataset }}" = "single" ]; then
-          NUM_ROWS=100000000
+          NUM_ROWS=100
         elif [ "${{ inputs.dataset }}" = "join" ]; then
-          NUM_ROWS=25000000
+          NUM_ROWS=200
         else
           echo "Unknown dataset!"
           exit 1

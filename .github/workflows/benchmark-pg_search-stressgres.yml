@@ -142,7 +142,7 @@ jobs:
       - name: Fetch Benchmark Actions from main
         run: |
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
-          cp -r tmp/.github/actions/* .github/actions/
+          cp -r tmp/.github/ .github/
           rm -rf tmp
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.

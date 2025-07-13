@@ -147,7 +147,7 @@ jobs:
       - name: Fetch Benchmark Actions from main
         run: |
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
-          cp -r tmp/.github/actions/* .github/actions/
+          cp -r tmp/.github/actions .github/
           rm -rf tmp
 
       - name: Benchmark "logs" Dataset

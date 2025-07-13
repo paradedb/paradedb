@@ -51,8 +51,9 @@ runs:
         tool: customSmallerIsBetter
         output-file-path: benchmarks/results.json
         github-token: ${{ inputs.github_token }}
-        auto-push: ${{ github.event_name != 'pull_request' }}
+        gh-repository: github.com/paradedb/paradedb
         gh-pages-branch: gh-pages
+        auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: benchmarks
         alert-threshold: "110%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us

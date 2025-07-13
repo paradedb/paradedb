@@ -3,7 +3,7 @@ description: Run a given benchmark dataset against pg_search and publish metrics
 
 inputs:
   dataset:
-    description: "The benchmark dataset to run (e.g. single, join)"
+    description: "The benchmark dataset to run (e.g. logs, docs)"
     required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
@@ -28,9 +28,9 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        if [ "${{ inputs.dataset }}" = "single" ]; then
+        if [ "${{ inputs.dataset }}" = "logs" ]; then
           NUM_ROWS=100000000
-        elif [ "${{ inputs.dataset }}" = "join" ]; then
+        elif [ "${{ inputs.dataset }}" = "docs" ]; then
           NUM_ROWS=25000000
         else
           echo "Unknown dataset!"

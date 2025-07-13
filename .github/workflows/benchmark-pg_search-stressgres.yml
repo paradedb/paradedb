@@ -120,7 +120,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install cargo-pgrx
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+        run: cargo install -j $(nproc) cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize cargo-pgrx environment
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`

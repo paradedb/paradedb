@@ -141,7 +141,7 @@ jobs:
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: paradedb/pg_search/.github/actions/benckmark-stressgres@main
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -151,7 +151,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark bulk-updates.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: paradedb/pg_search/.github/actions/benckmark-stressgres@main
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -161,7 +161,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark wide-table.toml
-        uses: ./.github/actions/benchmark-stressgres
+        uses: paradedb/pg_search/.github/actions/benckmark-stressgres@main
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

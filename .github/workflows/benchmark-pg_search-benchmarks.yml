@@ -144,7 +144,7 @@ jobs:
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
       - name: Benchmark "single" Dataset
-        uses: ./.github/actions/benchmark-benchmarks
+        uses: paradedb/pg_search/.github/actions/benckmark-benchmarks@main
         with:
           dataset: single
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -154,7 +154,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark "join" Dataset
-        uses: ./.github/actions/benchmark-benchmarks
+        uses: paradedb/pg_search/.github/actions/benckmark-benchmarks@main
         with:
           dataset: join
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

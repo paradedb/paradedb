@@ -10,8 +10,7 @@ index, along with custom query execution methods, to Postgres.
 ![Custom Index Architecture](/images/architecture_indexam.png)
 
 In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
-
-ParadeDB introduces a custom index called the BM25 index that's designed full text search and analytical queries.
+ParadeDB introduces a custom index called the _BM25 index_ that's designed for full text search and analytical queries.
 
 ### Real-Time Updates
 
@@ -22,7 +21,8 @@ When a table row is inserted or updated, the BM25 index is immediately notified.
 Postgres allows extensions to define new execution nodes that can run custom logic — such as filters or aggregations — as part of query execution.
 These nodes are called [custom scans](https://www.postgresql.org/docs/current/custom-scan.html).
 
-ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index and executed in parallel.
+ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index. It also supports Postgres parallel workers, allowing query performance to scale
+with the underlying hardware.
 
 ## Data Model
 
@@ -33,14 +33,14 @@ The BM25 index is laid out as an [LSM tree](#lsm-tree), where each segment in th
 ### Inverted Index
 
 An inverted index is a structure that maps each term (i.e., tokenized word) to a list of documents that contain that term (called a "postings list") along with metadata like term frequency and document frequency.
-This structure allows ParadeDB to efficiently retrieve all documents matching a particular search term or phrase without scanning the entire table.
+[This structure](https://github.com/quickwit-oss/tantivy/blob/main/ARCHITECTURE.md#the-inverted-search-index) allows ParadeDB to efficiently retrieve all documents matching a particular search term or phrase without scanning the entire table.
 
 ### Columnar Index
 
 Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format. Columnar formats are standard
 for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets.
 
-In the ParadeDB these structures are referred to as *fast fields*.
+In the ParadeDB these structures are referred to as [fast fields](/documentation/indexing/fast_fields).
 
 ### LSM Tree
 
@@ -48,10 +48,16 @@ To support real-time updates, the BM25 index uses a [Log-Structured Merge (LSM) 
 
 An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer, which is fast to update. Once the buffer fills up or the current statement finishes, it is flushed to disk as an immutable "segment" file.
 
-These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
+These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called merging or compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
 In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
 is actually a collection of many inverted/columnar indexes.
+
+## Design Philosophy
+
+- **Keep it Boring**. Use robust extension points in Postgres vs. hacking around the internals. Adopt battle-tested tools, like industry standard file formats and query engine libraries, instead of cutting-edge but less-proven alternatives.
+- **Behave Exactly Like Postgres**. This extends from user-facing aspects, like the SQL query syntax and ORM compatibility, all the way down to low-level integrations with Postgres' storage system and query planner.
+- **Works Out of the Box**. Users should be able to get satisfying search results and performance with minimal tuning or configuration.
 
 ## Dependencies
 

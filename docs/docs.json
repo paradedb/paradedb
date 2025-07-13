@@ -21,12 +21,13 @@
                 "group": "Documentation",
                 "pages": [
                   {
-                    "group": "Introduction",
+                    "group": "Why ParadeDB?",
                     "pages": [
                       "welcome/introduction",
                       "welcome/architecture",
                       "welcome/guarantees",
-                      "welcome/tradeoffs"
+                      "welcome/limitations",
+                      "welcome/roadmap"
                     ]
                   },
                   {

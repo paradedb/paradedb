@@ -1,14 +1,45 @@
 ---
-title: Limitations
+title: Limitations & Tradeoffs
 ---
+
+### High Ingest Workloads
+
+ParadeDB is designed for real-time, high-ingest workloads. The BM25 index uses a [write-optimized, log-structured architecture](/welcome/architecture#data-model) that minimizes contention and allows bulk writes to proceed with low latency.
+
+As with any index, adding a BM25 index introduces additional overhead during `INSERT`/`UPDATE` operations. Every change to a row must also be reflected in the index, which involves serializing the indexed columns, tokenizing text, updating internal data structures, and potentially triggering compactions.
+
+We’re continuously making improvements to reduce write amplification and optimize background maintenance. See our [roadmap](/welcome/roadmap) for ongoing efforts and
+our [performance guide](/documentation/configuration/parallel) for tuning Postgres' memory and parallelism settings.
+
+### Aggregate Performance
+
+ParadeDB’s [custom scan](/welcome/architecture#query-optimizations) is optimized not only for fast text search, but also for `COUNT` and "top N" queries.
+These queries are accelerated by ParadeDB’s [columnar index](/welcome/architecture#columnar-index).
+
+Additionally, ParadeDB provides a set of [user-defined functions (UDFs)](/documentation/aggregates/tantivy) that allow developers to execute advanced aggregates.
+We are currently working on a new custom scan node that can translate native SQL aggregation syntax into ParadeDB's internal exeuction model.
+Please see the [roadmap](/welcome/roadmap) for more details.
+
+### Distributed Workloads
+
+ParadeDB is designed to scale vertically on a single Postgres node, and many production deployments comfortably operate in the 1–10TB range. The largest single ParadeDB database we’ve seen in production is 10TB.
+
+For datasets that significantly exceed this scale, ParadeDB supports partitioned tables and can be deployed in sharded Postgres configurations. If you're working with very large datasets, please
+[reach out to us](mailto:support@paradedb.com). We'd be happy to provide guidance and share our roadmap for future distributed query support.
 
 ### Covering Index
 
-### Write Amplification
+The BM25 index in ParadeDB is a covering index, which means it stores all indexed columns inside a single index per table. This
+decision is intentional -- by colocating all the relevant data, ParadeDB optimizes for fast reads and boolean conditions.
 
-### Durability (in ParadeDB Community)
+However, this design comes with some tradeoffs:
+
+- All columns must be defined up front at index creation time. Adding or removing columns requires a `REINDEX`.
+- Write amplification is higher since every write must index the values of all columns into the index structure.
 
 ### DDL Replication
 
-### Availability of Physical Replicas
+A commonly known limitation of Postgres logical replication is that DDL (Data Definition Language) statements are not replicated. This includes operations like `CREATE TABLE` or `CREATE INDEX`.
 
+If ParadeDB is running as a logical replica of a primary Postgres, DDL statements from the primary must be executed manually on the replica.
+We recommend version-controlling your schema changes and applying them in a coordinated, repeatable way — either through a migration tool or deployment automation — to keep source and target databases in sync.

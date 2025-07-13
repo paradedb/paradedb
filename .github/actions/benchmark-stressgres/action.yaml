@@ -51,7 +51,6 @@ runs:
 
     - name: Generate CSV
       shell: bash
-      working-directory: stressgres/
       run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
@@ -123,7 +122,6 @@ runs:
 
     - name: Create Stressgres Graph
       shell: bash
-      working-directory: stressgres/
       run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)

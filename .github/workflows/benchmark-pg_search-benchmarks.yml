@@ -143,8 +143,14 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
+      - name: Fetch Benchmark Actions from main
+        run: |
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
+          cp -r tmp/.github/actions/* .github/actions/
+          rm -rf tmp
+
       - name: Benchmark "single" Dataset
-        uses: paradedb/paradedb/.github/actions/benchmark-benchmarks@main
+        uses: ./.github/actions/benchmark-benchmarks
         with:
           dataset: single
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -154,7 +160,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark "join" Dataset
-        uses: paradedb/paradedb/.github/actions/benchmark-benchmarks@main
+        uses: ./.github/actions/benchmark-benchmarks
         with:
           dataset: join
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

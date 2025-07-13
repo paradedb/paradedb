@@ -42,10 +42,9 @@ runs:
 
     - name: Run Stressgres Job
       shell: bash
-      working-directory: stressgres/
       run: |
         sudo chmod a+rwx /var/run/postgresql/
-        cargo run --release -- headless \
+        stressgres headless \
           ../paradedb/.github/stressgres/${{ inputs.test_file }} \
           --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log \
           --runtime ${{ inputs.duration }}

@@ -69,7 +69,6 @@ jobs:
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v4
         with:
-          path: paradedb
           ref: ${{ steps.determine-ref.outputs.ref }}
 
       # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
@@ -77,18 +76,18 @@ jobs:
       - name: Fetch the Latest Stressgres Jobs
         run: |
           git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/.github/stressgres paradedb/.github/
+          cp -rv paradedb-temp/.github/stressgres .github/
           rm -rf paradedb-temp
 
-          echo "Files copied to paradedb/.github/stressgres/:"
-          ls -la paradedb/.github/stressgres/
+          echo "Files copied to .github/stressgres/:"
+          ls -la .github/stressgres/
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Extract pgrx Version
         id: pgrx
-        working-directory: paradedb/pg_search/
+        working-directory: pg_search/
         run: |
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
@@ -103,7 +102,6 @@ jobs:
           cache-targets: true
           cache-all-crates: true
           cache-on-failure: true
-          cache-directories: paradedb/pg_search/target/
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
@@ -134,13 +132,20 @@ jobs:
           path: stressgres
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
+      - name: Install the stressgres CLI tool
+        with:
+          path: stressgres
+        run: cargo install --path .
+
+      - name: Remove stressgres repo
+        run: rm -rf stressgres
+
       - name: Compile & install pg_search extension
-        working-directory: paradedb/pg_search/
-        run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
-        uses: ./paradedb/.github/actions/benchmark-stressgres
+        uses: .github/actions/benchmark-stressgres
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -150,7 +155,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark bulk-updates.toml
-        uses: ./paradedb/.github/actions/benchmark-stressgres
+        uses: .github/actions/benchmark-stressgres
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -160,7 +165,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark wide-table.toml
-        uses: ./paradedb/.github/actions/benchmark-stressgres
+        uses: .github/actions/benchmark-stressgres
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752436716317,
+  "lastUpdate": 1752437063913,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -366,6 +366,42 @@ window.BENCHMARK_DATA = {
             "value": 98.3125,
             "unit": "median mem",
             "extra": "avg mem: 96.87702226091183, max mem: 99.7421875, count: 55032"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752437063065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.873195104936607,
+            "unit": "median tps",
+            "extra": "avg tps: 5.885268152593949, max tps: 8.818356240768676, count: 57641"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.637502093474087,
+            "unit": "median tps",
+            "extra": "avg tps: 5.051487970588481, max tps: 6.35907044369686, count: 57641"
           }
         ]
       }

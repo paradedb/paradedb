@@ -103,6 +103,7 @@ jobs:
           cache-targets: true
           cache-all-crates: true
           cache-on-failure: true
+          cache-directories: paradedb/pg_search/target/
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
@@ -137,6 +138,12 @@ jobs:
         working-directory: paradedb/pg_search/
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
+      - name: Capture runner URLs
+        id: urlcapture
+        run: |
+          echo "runtime_url=$ACTIONS_RUNTIME_URL" >> "$GITHUB_OUTPUT"
+          echo "artifact_url=$ACTIONS_ARTIFACT_URL" >> "$GITHUB_OUTPUT"
+
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
         uses: ./paradedb/.github/actions/benchmark-stressgres
@@ -144,8 +151,8 @@ jobs:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ env.ACTIONS_RUNTIME_URL }}
-          actions_artifact_url: ${{ env.ACTIONS_ARTIFACT_URL }}
+          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
+          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
@@ -156,8 +163,8 @@ jobs:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ env.ACTIONS_RUNTIME_URL }}
-          actions_artifact_url: ${{ env.ACTIONS_ARTIFACT_URL }}
+          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
+          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
@@ -168,8 +175,8 @@ jobs:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ env.ACTIONS_RUNTIME_URL }}
-          actions_artifact_url: ${{ env.ACTIONS_ARTIFACT_URL }}
+          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
+          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

@@ -52,7 +52,7 @@ runs:
     - name: Generate CSV
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
+      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -124,7 +124,7 @@ runs:
     - name: Create Stressgres Graph
       shell: bash
       working-directory: stressgres/
-      run: cargo run --release -- graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
+      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'

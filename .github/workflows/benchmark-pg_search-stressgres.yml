@@ -102,6 +102,7 @@ jobs:
           shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev

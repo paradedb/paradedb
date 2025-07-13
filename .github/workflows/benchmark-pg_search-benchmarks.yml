@@ -105,6 +105,7 @@ jobs:
           shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
+          cache-on-failure: true
 
       - name: Install pgrx & pg_search
         working-directory: pg_search/

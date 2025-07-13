@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752430142640,
+  "lastUpdate": 1752430778138,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -3920,6 +3920,42 @@ window.BENCHMARK_DATA = {
             "value": 7.222759889430297,
             "unit": "median tps",
             "extra": "avg tps: 6.570432854609154, max tps: 8.001534935709477, count: 59175"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2addc521e247940cb23e898f558c98948de1ed0b",
+          "message": "ci: fix where the custom actions are to be found (#2840)\n\nwe need to fetch the latest action definitions from `main`",
+          "timestamp": "2025-07-13T13:48:21-04:00",
+          "tree_id": "6b28230c866716f60c79b559b861b0764291f6dd",
+          "url": "https://github.com/paradedb/paradedb/commit/2addc521e247940cb23e898f558c98948de1ed0b"
+        },
+        "date": 1752430777297,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.89946466462661,
+            "unit": "median tps",
+            "extra": "avg tps: 5.901045821640845, max tps: 8.852044702575846, count: 57668"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.688420016582444,
+            "unit": "median tps",
+            "extra": "avg tps: 5.097515608199591, max tps: 6.429369723207545, count: 57668"
           }
         ]
       }

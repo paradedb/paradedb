@@ -139,9 +139,15 @@ jobs:
       - name: Remove stressgres repo
         run: rm -rf stressgres
 
+      - name: Fetch Benchmark Actions from main
+        run: |
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
+          cp -r tmp/.github/actions/* .github/actions/
+          rm -rf tmp
+
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
-        uses: paradedb/paradedb/.github/actions/benchmark-stressgres@main
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -151,7 +157,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark bulk-updates.toml
-        uses: paradedb/paradedb/.github/actions/benchmark-stressgres@main
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -161,7 +167,7 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
 
       - name: Benchmark wide-table.toml
-        uses: paradedb/paradedb/.github/actions/benchmark-stressgres@main
+        uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

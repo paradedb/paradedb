@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752433287708,
+  "lastUpdate": 1752433289700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -5582,6 +5582,64 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.67566067836582, max segment_count: 95.0, count: 57668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433288842,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.4035821219179, max cpu: 42.814667, count: 57358"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.36290607075298, max mem: 232.14453125, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.3512345665248, max cpu: 33.23442, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.08871140196223, max mem: 161.375, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22492,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20887.61063844625, max block_count: 23819.0, count: 57358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.95378151260505, max segment_count: 98.0, count: 57358"
           }
         ]
       }

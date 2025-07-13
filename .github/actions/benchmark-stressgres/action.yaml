@@ -15,12 +15,6 @@ inputs:
   github_token:
     description: "GitHub token to authenticate with"
     required: true
-  actions_runtime_url:
-    description: "Runtime URL provided by the runner"
-    required: true
-  actions_artifact_url:
-    description: "Artifact URL provided by the runner"
-    required: true
   slack_oauth_token:
     description: "Slack OAuth token to authenticate with"
     required: true
@@ -132,32 +126,6 @@ runs:
       shell: bash
       working-directory: stressgres/
       run: cargo run --release -- graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
-
-    # The environment variables must be explicitly set when using within a composite action
-    - name: Upload Stressgres Graph Artifact
-      id: artifact-graph
-      uses: actions/upload-artifact@v4
-      env:
-        ACTIONS_RUNTIME_TOKEN: ${{ inputs.github_token }}
-        ACTIONS_RUNTIME_URL: ${{ inputs.actions_runtime_url }}
-        ACTIONS_ARTIFACT_URL: ${{ inputs.actions_artifact_url }}
-      with:
-        name: stressgres-graph-${{ steps.sanitize-inputs.outputs.jobname }}
-        path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
-        overwrite: true
-
-    # The environment variables must be explicitly set when using within a composite action
-    - name: Upload Stressgres Logs Artifact
-      id: artifact-logs
-      uses: actions/upload-artifact@v4
-      env:
-        ACTIONS_RUNTIME_TOKEN: ${{ inputs.github_token }}
-        ACTIONS_RUNTIME_URL: ${{ inputs.actions_runtime_url }}
-        ACTIONS_ARTIFACT_URL: ${{ inputs.actions_artifact_url }}
-      with:
-        name: stressgres-logs-${{ steps.sanitize-inputs.outputs.jobname }}
-        path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log
-        overwrite: true
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'

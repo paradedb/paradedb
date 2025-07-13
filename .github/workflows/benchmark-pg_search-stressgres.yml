@@ -49,15 +49,6 @@ jobs:
       pg_version: 17
 
     steps:
-      - name: Capture runner URLs
-        id: urlcapture
-        run: |
-          echo "runtime_url=$ACTIONS_RUNTIME_URL" >> "$GITHUB_OUTPUT"
-          echo "artifact_url=$ACTIONS_ARTIFACT_URL" >> "$GITHUB_OUTPUT"
-          echo "runtime_url=$ACTIONS_RUNTIME_URL"
-          echo "artifact_url=$ACTIONS_ARTIFACT_URL"
-          exit 1
-
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
@@ -154,8 +145,6 @@ jobs:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
-          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
@@ -166,8 +155,6 @@ jobs:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
-          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
@@ -178,8 +165,6 @@ jobs:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          actions_runtime_url: ${{ steps.urlcapture.runtime_url }}
-          actions_artifact_url: ${{ steps.urlcapture.artifact_url }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752441004897,
+  "lastUpdate": 1752441066240,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -192,6 +192,70 @@ window.BENCHMARK_DATA = {
             "value": 4.3696814096749925,
             "unit": "median tps",
             "extra": "avg tps: 8.5874659065905, max tps: 1163.9817487661794, count: 55130"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752441065373,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 287.4410162524614,
+            "unit": "median tps",
+            "extra": "avg tps: 290.79458171237866, max tps: 532.1087582874854, count: 54617"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2309.093793540984,
+            "unit": "median tps",
+            "extra": "avg tps: 2307.4051934213358, max tps: 2514.506580333097, count: 54617"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 287.910233299443,
+            "unit": "median tps",
+            "extra": "avg tps: 291.8019135736587, max tps: 537.4094673147708, count: 54617"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 257.8723536897191,
+            "unit": "median tps",
+            "extra": "avg tps: 259.8010282477663, max tps: 447.463310357733, count: 54617"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 139.78571655359298,
+            "unit": "median tps",
+            "extra": "avg tps: 139.88588374700302, max tps: 159.86662399337084, count: 109234"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 152.4945316017401,
+            "unit": "median tps",
+            "extra": "avg tps: 150.75898831967797, max tps: 153.2469948209186, count: 54617"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.815295851075635,
+            "unit": "median tps",
+            "extra": "avg tps: 9.03018688698432, max tps: 1067.3486312854827, count: 54617"
           }
         ]
       }

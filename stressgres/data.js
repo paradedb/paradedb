@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752432658258,
+  "lastUpdate": 1752433287708,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search wide-table.toml Performance - TPS": [
@@ -4784,6 +4784,40 @@ window.BENCHMARK_DATA = {
             "value": 5.688420016582444,
             "unit": "median tps",
             "extra": "avg tps: 5.097515608199591, max tps: 6.429369723207545, count: 57668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4fd1b2b6b6664d03946be0f4836732f0f40df0cc",
+          "message": "chore: Rename datasets and add string paging queries (#2834)\n\n## What\n\nAdd a high-cardinality paging/top-n query to the benchmarks, and rename\ndatasets to match their content. Additionally, improve the generation\nscript for the `docs` dataset to avoid joins and allow for deterministic\nrelative-position queries.\n\n## Why\n\nWe don't currently have a high-cardinality string paging/top-n query in\nthe benchmark. We have top-n on a string column, but only for\nlow-cardinality values (`top_n-string.sql`). The top-n case represented\nan important gap that a user encountered, which #2828 addresses.\n\nThe names of the `benchmark` datasets don't currently describe their\nshape / schema, and for the `join` dataset in particular, that would\ndiscourage using it for other types of queries. We rename it to `docs`\nhere, and then use the `pages` table as the dataset for top-n.\n\n## Tests\n\nTested locally that the new query demonstrates a speedup for #2828.",
+          "timestamp": "2025-07-13T18:04:27Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4fd1b2b6b6664d03946be0f4836732f0f40df0cc"
+        },
+        "date": 1752433286840,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.947348160954292,
+            "unit": "median tps",
+            "extra": "avg tps: 5.950753613079033, max tps: 8.98653538469761, count: 57358"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.632567406225607,
+            "unit": "median tps",
+            "extra": "avg tps: 5.048109637487355, max tps: 6.343914995799277, count: 57358"
           }
         ]
       }

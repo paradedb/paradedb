@@ -129,11 +129,12 @@ runs:
 
     # The environment variables must be explicitly set when using within a composite action
     - name: Upload Stressgres Graph Artifact
+      id: artifact-graph
       uses: actions/upload-artifact@v4
-      env:
-        ACTIONS_RUNTIME_TOKEN: ${{ inputs.github_token }}
-        ACTIONS_RUNTIME_URL: ${{ env.ACTIONS_RUNTIME_URL }}
-        ACTIONS_ARTIFACT_URL: ${{ env.ACTIONS_ARTIFACT_URL }}
+      #      env:
+      #        ACTIONS_RUNTIME_TOKEN: ${{ inputs.github_token }}
+      #        ACTIONS_RUNTIME_URL: ${{ env.ACTIONS_RUNTIME_URL }}
+      #        ACTIONS_ARTIFACT_URL: ${{ env.ACTIONS_ARTIFACT_URL }}
       with:
         name: stressgres-graph-${{ steps.sanitize-inputs.outputs.jobname }}
         path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png

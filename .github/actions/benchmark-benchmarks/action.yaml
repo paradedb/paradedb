@@ -38,13 +38,10 @@ runs:
         fi
         cargo run -- --url postgresql://localhost:288${{ env.pg_version }}/postgres --rows ${NUM_ROWS} --type pg_search --dataset ${{ inputs.dataset }} --runs 10 --output json
 
-    - name: Reset Local gh-pages to Match Remote
+    # Necessary to avoid "destination path is not empty" error
+    - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
-      run: |
-        git fetch origin gh-pages:gh-pages
-        git checkout gh-pages
-        git reset --hard origin/gh-pages
-        git checkout -
+      run: rm -rf ./benchmark-data-repository
 
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1

@@ -90,7 +90,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust-cache"
+          prefix-key: "v1-stressgres-rust-cache"
           shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
@@ -120,7 +120,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install cargo-pgrx
-        run: cargo install -j $(nproc) cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
       - name: Initialize cargo-pgrx environment
         run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`

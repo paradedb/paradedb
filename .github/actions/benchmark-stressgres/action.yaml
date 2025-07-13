@@ -86,6 +86,12 @@ runs:
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
+    # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
+    # benchmark-action publish actions running in other jobs
+    - name: Sleep before publish
+      shell: bash
+      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
+
     - name: Publish TPS Metrics
       uses: benchmark-action/github-action-benchmark@v1
       with:
@@ -107,6 +113,12 @@ runs:
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
       run: rm -rf ./benchmark-data-repository
+
+    # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
+    # benchmark-action publish actions running in other jobs
+    - name: Sleep before publish
+      shell: bash
+      run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Other Metrics
       uses: benchmark-action/github-action-benchmark@v1

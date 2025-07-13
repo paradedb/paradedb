@@ -49,6 +49,15 @@ jobs:
       pg_version: 17
 
     steps:
+      - name: Capture runner URLs
+        id: urlcapture
+        run: |
+          echo "runtime_url=$ACTIONS_RUNTIME_URL" >> "$GITHUB_OUTPUT"
+          echo "artifact_url=$ACTIONS_ARTIFACT_URL" >> "$GITHUB_OUTPUT"
+          echo "runtime_url=$ACTIONS_RUNTIME_URL"
+          echo "artifact_url=$ACTIONS_ARTIFACT_URL"
+          exit 1
+
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
@@ -137,12 +146,6 @@ jobs:
       - name: Compile & install pg_search extension
         working-directory: paradedb/pg_search/
         run: cargo pgrx install --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
-
-      - name: Capture runner URLs
-        id: urlcapture
-        run: |
-          echo "runtime_url=$ACTIONS_RUNTIME_URL" >> "$GITHUB_OUTPUT"
-          echo "artifact_url=$ACTIONS_ARTIFACT_URL" >> "$GITHUB_OUTPUT"
 
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml

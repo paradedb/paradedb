@@ -109,7 +109,7 @@ jobs:
       - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+          cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
           cargo pgrx init --pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config
           cargo pgrx install --sudo --release --pg-config="/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config"
 

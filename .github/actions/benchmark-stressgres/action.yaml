@@ -8,7 +8,7 @@ inputs:
   duration:
     description: "Duration of the Stressgres run, in milliseconds"
     required: false
-    default: "600000" # 10 minutes in milliseconds
+    default: "6" # 10 minutes in milliseconds
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -137,6 +137,7 @@ runs:
       with:
         name: stressgres-graph-${{ steps.sanitize-inputs.outputs.jobname }}
         path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
+        overwrite: true
 
     # The environment variables must be explicitly set when using within a composite action
     - name: Upload Stressgres Logs Artifact
@@ -149,6 +150,7 @@ runs:
       with:
         name: stressgres-logs-${{ steps.sanitize-inputs.outputs.jobname }}
         path: stressgres/stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log
+        overwrite: true
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'

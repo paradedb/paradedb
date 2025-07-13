@@ -11,7 +11,7 @@ There are three settings that control how many parallel workers ultimately get a
 
 First, `max_worker_processes` is a global limit for the number of workers.
 Next, `max_parallel_workers` is a subset of `max_worker_processes`, and sets the limit for workers used in
-parallel queries. Finally, `max_parallel_workers_per_gather` limits how many workers a *single query* can receive.
+parallel queries. Finally, `max_parallel_workers_per_gather` limits how many workers a _single query_ can receive.
 
 ```init postgresql.conf
 max_worker_processes = 72
@@ -23,9 +23,14 @@ In the above example, the maximum number of workers that a single query can rece
 is set to `64`, which means that `16` queries can execute simultaneously with `4` workers each. Finally, `max_worker_processes` is
 set to `72` to give headroom for other workers like autovacuum and replication.
 
+In practice, we recommend experimenting with different settings, as the best configuration depends on the underlying hardware,
+query patterns, and volume of data.
+
 <Note>
-If all `max_parallel_workers` are in use, Postgres will still execute additional queries, but those queries will run without parallelism.
-This means that queries do not fail — they just may run slower due to lack of parallelism.
+  If all `max_parallel_workers` are in use, Postgres will still execute
+  additional queries, but those queries will run without parallelism. This means
+  that queries do not fail — they just may run slower due to lack of
+  parallelism.
 </Note>
 
 ## Shared Buffers

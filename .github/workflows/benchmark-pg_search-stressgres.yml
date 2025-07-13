@@ -133,7 +133,7 @@ jobs:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
       - name: Install the stressgres CLI tool
-        run: cargo install --path stressgres/
+        run: cd stressgres && cargo install --path .
 
       - name: Remove stressgres repo
         run: rm -rf stressgres

@@ -1,0 +1,171 @@
+# workflows/benchmark-pg_search-stressgres.yml
+#
+# Benchmark pg_search - Stressgres
+# Run our Stressgres stress testing tool against pg_search on the
+# testing suites specificed in .github/stressgres.
+
+name: Benchmark pg_search - Stressgres
+
+# We run benchmarks on `main`, and on `benchmark`-labeled PRs.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/stressgres/**"
+      - ".github/workflows/benchmark-pg_search-stressgres.yml"
+      - "**/*.rs"
+      - "**/*.toml"
+  pull_request:
+    types: [labeled, synchronize]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: write
+  deployments: write
+  pull-requests: write
+
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
+jobs:
+  benchmark-pg_search-stressgres:
+    name: Run Stressgres Benchmark Jobs
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - image=ubuntu24-full-x64
+      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres')
+    env:
+      pg_version: 17
+
+    steps:
+      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # removes the label once the job has started, so it can be applied again if needed.
+      - name: Maybe Remove Label
+        uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres'
+        with:
+          labels: |
+            benchmark
+            benchmark-stressgres
+
+      - name: Determine Ref to Benchmark
+        id: determine-ref
+        run: |
+          # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
+          REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
+          echo "ref=$REF" >> $GITHUB_OUTPUT
+
+      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
+
+      # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
+      # old commits potentially created before new queries were added.
+      - name: Fetch the Latest Stressgres Jobs
+        run: |
+          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
+          cp -rv paradedb-temp/.github/stressgres .github/
+          rm -rf paradedb-temp
+
+          echo "Files copied to .github/stressgres/:"
+          ls -la .github/stressgres/
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install required system tools
+        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
+
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-stressgres-rust-cache"
+          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Install cargo-pgrx
+        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+
+      - name: Initialize cargo-pgrx environment
+        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
+
+      - name: Compile & install pg_search extension
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+
+      - name: Checkout Stressgres Repo
+        uses: actions/checkout@v4
+        with:
+          repository: paradedb/stressgres
+          path: stressgres
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+
+      - name: Install the stressgres CLI tool
+        run: cd stressgres && CARGO_TARGET_DIR=../target/ cargo install --path .
+
+      - name: Remove stressgres repo
+        run: rm -rf stressgres
+
+      # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
+      - name: Benchmark single-server.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: single-server.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+
+      - name: Benchmark bulk-updates.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: bulk-updates.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+
+      - name: Benchmark wide-table.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: wide-table.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

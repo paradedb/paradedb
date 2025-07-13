@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752441068247,
+  "lastUpdate": 1752441070087,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -256,6 +256,70 @@ window.BENCHMARK_DATA = {
             "value": 4.815295851075635,
             "unit": "median tps",
             "extra": "avg tps: 9.03018688698432, max tps: 1067.3486312854827, count: 54617"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "e350be5d171ddb28a700c02d8adc32a1a9f4b084",
+          "message": "feat: custom fsm (#2765)\n\nA custom FSM implementation that allows us to internally track\nfree/reusable blocks without generating full read+write cycles on every\npage that is returned to the FSM.\n\nThere's a new UDF called `paradedb.fsm_info()` that returns a table of\nFSM block numbers in use and the free block numbers they contain.\n\n## Why\n\nTo reduce I/O during segment merging and garbage collection, with an aim of reducing WAL traffic for enterprise.",
+          "timestamp": "2025-07-09T15:42:21Z",
+          "url": "https://github.com/paradedb/paradedb/commit/e350be5d171ddb28a700c02d8adc32a1a9f4b084"
+        },
+        "date": 1752441066775,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 318.8854337388586,
+            "unit": "median tps",
+            "extra": "avg tps: 318.32041794923697, max tps: 515.6490259342258, count: 55224"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2234.454466260472,
+            "unit": "median tps",
+            "extra": "avg tps: 2234.9747233696885, max tps: 2473.4211331042775, count: 55224"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 288.76413822570146,
+            "unit": "median tps",
+            "extra": "avg tps: 289.73811805418615, max tps: 535.3061366046683, count: 55224"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 255.28983754468982,
+            "unit": "median tps",
+            "extra": "avg tps: 257.15995840263514, max tps: 448.30273704511563, count: 55224"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 145.41953728256377,
+            "unit": "median tps",
+            "extra": "avg tps: 154.36036451251746, max tps: 166.76116958026768, count: 110448"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 128.80537515210105,
+            "unit": "median tps",
+            "extra": "avg tps: 128.6905406449407, max tps: 135.49748103407882, count: 55224"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.275111938382058,
+            "unit": "median tps",
+            "extra": "avg tps: 8.695642606860186, max tps: 1225.4661673300523, count: 55224"
           }
         ]
       }

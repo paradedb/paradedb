@@ -68,28 +68,6 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR condition with Inner - processing 0 target clauses for relation 1
-WARNING:  No safe conditions found for relation 1 in OR
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
-WARNING:  Skipping advanced OR decomposition: cross-table dependency detected
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 1 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
  id | id 
 ----+----
   1 |  1

@@ -205,40 +205,18 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 2 clauses for relation 1, 1 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 2 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
-           a_content            | a_value |          b_content           | b_priority | a_score | b_score 
---------------------------------+---------+------------------------------+------------+---------+---------
- smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
- smartphone technology advanced |     100 | gaming experience immersive  |          1 |         |        
- laptop computer powerful       |     200 | advanced features smartphone |          1 |         |        
- laptop computer powerful       |     200 | high performance specs       |          2 |         |        
- laptop computer powerful       |     200 | storytelling narrative       |          3 |         |        
- laptop computer powerful       |     200 | gaming experience immersive  |          1 |         |        
- book fiction story             |      50 | advanced features smartphone |          1 |         |        
- book fiction story             |      50 | gaming experience immersive  |          1 |         |        
- game console modern            |     150 | advanced features smartphone |          1 |         |        
- game console modern            |     150 | gaming experience immersive  |          1 |         |        
+           a_content            | a_value |          b_content           | b_priority |  a_score  | b_score 
+--------------------------------+---------+------------------------------+------------+-----------+---------
+ laptop computer powerful       |     200 | advanced features smartphone |          1 | 1.2039728 |       0
+ laptop computer powerful       |     200 | high performance specs       |          2 | 1.2039728 |       0
+ laptop computer powerful       |     200 | storytelling narrative       |          3 | 1.2039728 |       0
+ laptop computer powerful       |     200 | gaming experience immersive  |          1 | 1.2039728 |       0
+ game console modern            |     150 | advanced features smartphone |          1 |         0 |       0
+ smartphone technology advanced |     100 | advanced features smartphone |          1 |         0 |       0
+ game console modern            |     150 | gaming experience immersive  |          1 |         0 |       0
+ smartphone technology advanced |     100 | gaming experience immersive  |          1 |         0 |       0
+ book fiction story             |      50 | advanced features smartphone |          1 |         0 |       0
+ book fiction story             |      50 | gaming experience immersive  |          1 |         0 |       0
 (10 rows)
 
 -- =============================================================================
@@ -264,37 +242,15 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 1 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 1 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
-           a_content            | a_value |          b_content           | b_priority | a_score | b_score 
---------------------------------+---------+------------------------------+------------+---------+---------
- smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
- smartphone technology advanced |     100 | high performance specs       |          2 |         |        
- smartphone technology advanced |     100 | storytelling narrative       |          3 |         |        
- smartphone technology advanced |     100 | gaming experience immersive  |          1 |         |        
- laptop computer powerful       |     200 | gaming experience immersive  |          1 |         |        
- book fiction story             |      50 | gaming experience immersive  |          1 |         |        
- game console modern            |     150 | gaming experience immersive  |          1 |         |        
+           a_content            | a_value |          b_content           | b_priority |  a_score  |  b_score  
+--------------------------------+---------+------------------------------+------------+-----------+-----------
+ smartphone technology advanced |     100 | gaming experience immersive  |          1 | 1.2039728 | 1.1608026
+ smartphone technology advanced |     100 | high performance specs       |          2 | 1.2039728 |         0
+ smartphone technology advanced |     100 | storytelling narrative       |          3 | 1.2039728 |         0
+ smartphone technology advanced |     100 | advanced features smartphone |          1 | 1.2039728 |         0
+ laptop computer powerful       |     200 | gaming experience immersive  |          1 |         0 | 1.1608026
+ book fiction story             |      50 | gaming experience immersive  |          1 |         0 | 1.1608026
+ game console modern            |     150 | gaming experience immersive  |          1 |         0 | 1.1608026
 (7 rows)
 
 -- =============================================================================
@@ -317,34 +273,12 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 1 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
-WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR condition with Inner - processing 0 target clauses for relation 2
-WARNING:  No safe conditions found for relation 2 in OR
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
-WARNING:  Skipping advanced OR decomposition: cross-table dependency detected
-           a_content            |          b_content           | a_score | b_score 
---------------------------------+------------------------------+---------+---------
- smartphone technology advanced | advanced features smartphone |         |        
- smartphone technology advanced | high performance specs       |         |        
- smartphone technology advanced | storytelling narrative       |         |        
- smartphone technology advanced | gaming experience immersive  |         |        
+           a_content            |          b_content           |  a_score  | b_score 
+--------------------------------+------------------------------+-----------+---------
+ smartphone technology advanced | advanced features smartphone | 1.2039728 |       0
+ smartphone technology advanced | high performance specs       | 1.2039728 |       0
+ smartphone technology advanced | storytelling narrative       | 1.2039728 |       0
+ smartphone technology advanced | gaming experience immersive  | 1.2039728 |       0
 (4 rows)
 
 -- =============================================================================
@@ -396,50 +330,20 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 1
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 1, 4 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
-WARNING:  analyze_join_condition_type: found 4 join conditions for target_rti 2
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 2, 4 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
-WARNING:  analyze_join_condition_type: found 3 join conditions for target_rti 4
-WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
-WARNING:  analyze_single_join_condition: processing BoolExpr
-WARNING:  analyze_boolexpr_join_condition: boolop = 1
-WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
-WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
-WARNING:  analyze_join_condition_type: returning Complex
-WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 4, 4 external clauses
-WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
-           a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
---------------------------------+------------------------------+------------------------+---------+---------+---------
- smartphone technology advanced | advanced features smartphone |                        |         |         |        
- smartphone technology advanced | gaming experience immersive  |                        |         |         |        
- laptop computer powerful       | advanced features smartphone |                        |         |         |        
- laptop computer powerful       | high performance specs       | narrative structure    |         |         |        
- laptop computer powerful       | high performance specs       | performance benchmarks |         |         |        
- laptop computer powerful       | storytelling narrative       | entertainment value    |         |         |        
- laptop computer powerful       | storytelling narrative       | technology innovation  |         |         |        
- laptop computer powerful       | gaming experience immersive  |                        |         |         |        
- game console modern            | advanced features smartphone |                        |         |         |        
- game console modern            | high performance specs       | narrative structure    |         |         |        
- game console modern            | high performance specs       | performance benchmarks |         |         |        
- game console modern            | gaming experience immersive  |                        |         |         |        
+           a_content            |          b_content           |       c_content        |  a_score   |  b_score  |  c_score  
+--------------------------------+------------------------------+------------------------+------------+-----------+-----------
+ smartphone technology advanced | gaming experience immersive  |                        |  1.5606477 |         0 |          
+ smartphone technology advanced | advanced features smartphone |                        |  1.5606477 |         0 |          
+ game console modern            | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
+ laptop computer powerful       | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
+ game console modern            | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
+ laptop computer powerful       | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
+ game console modern            | gaming experience immersive  |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | advanced features smartphone |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | gaming experience immersive  |                        | 0.35667497 |         0 |          
+ game console modern            | advanced features smartphone |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | storytelling narrative       | technology innovation  | 0.35667497 |         0 | 2.3040886
+ laptop computer powerful       | storytelling narrative       | entertainment value    | 0.35667497 |         0 |         0
 (12 rows)
 
 -- =============================================================================

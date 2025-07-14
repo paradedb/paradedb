@@ -666,14 +666,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 4
-WARNING:  analyze_single_join_condition: clause type = T_OpExpr
-WARNING:  analyze_single_join_condition: processing OpExpr
-WARNING:  Analyzing OpExpr: operator OID = 531, is_equality = false
-WARNING:  OpExpr is non-equi
-WARNING:  analyze_join_condition_type: analyzed join condition, type = NonEqui
-WARNING:  analyze_join_condition_type: has non-equi conditions, returning NonEqui
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -722,14 +714,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 4
-WARNING:  analyze_single_join_condition: clause type = T_OpExpr
-WARNING:  analyze_single_join_condition: processing OpExpr
-WARNING:  Analyzing OpExpr: operator OID = 531, is_equality = false
-WARNING:  OpExpr is non-equi
-WARNING:  analyze_join_condition_type: analyzed join condition, type = NonEqui
-WARNING:  analyze_join_condition_type: has non-equi conditions, returning NonEqui
-WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

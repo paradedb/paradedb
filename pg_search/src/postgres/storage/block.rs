@@ -194,6 +194,11 @@ impl SegmentMetaEntry {
         self.xmax == pg_sys::FrozenTransactionId
     }
 
+    pub fn is_orphaned_delete(&self) -> bool {
+        self.segment_id == SegmentId::from_bytes([0; 16])
+            && self.xmax == pg_sys::FrozenTransactionId
+    }
+
     /// Fake an `Opstamp` that's always zero
     pub fn opstamp(&self) -> Opstamp {
         0

@@ -31,7 +31,6 @@ use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
-use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 pub struct InsertState {
@@ -432,9 +431,8 @@ pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMe
     bman.fsm().extend(
         &mut bman,
         freeable_entries.iter().flat_map(move |entry| {
-            let is_orphaned_delete = entry.segment_id == SegmentId::from_bytes([0; 16])
-                && entry.xmax == pg_sys::FrozenTransactionId;
-            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if is_orphaned_delete {
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()
+            {
                 let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
                 Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
             } else {

@@ -6,7 +6,7 @@ title: Limitations & Tradeoffs
 
 ParadeDB is designed for real-time, high-ingest workloads. The BM25 index uses a [write-optimized, log-structured architecture](/welcome/architecture#data-model) that minimizes contention and allows bulk writes to proceed with low latency.
 
-As with any index, adding a BM25 index introduces additional overhead during `INSERT`/`UPDATE` operations. Every change to a row must also be reflected in the index, which involves serializing the indexed columns, tokenizing text, updating internal data structures, and potentially triggering compactions.
+As with any Postgres index, adding a BM25 index introduces additional overhead during `INSERT`/`UPDATE` operations. Every change to a row must also be reflected in the index, which involves serializing the indexed columns, tokenizing text, updating internal data structures, and potentially triggering compactions.
 
 We’re continuously making improvements to reduce write amplification and optimize background maintenance. See our [roadmap](/welcome/roadmap) for ongoing efforts and
 our [performance guide](/documentation/configuration/parallel) for tuning Postgres' memory and parallelism settings.

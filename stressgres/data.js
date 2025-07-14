@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752442360599,
+  "lastUpdate": 1752507919409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -448,6 +448,72 @@ window.BENCHMARK_DATA = {
             "value": 2.8368780156117754,
             "unit": "median tps",
             "extra": "avg tps: 6.900378916766535, max tps: 1112.3792234258165, count: 55093"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96e41e25c3fd2126f54aa5cb66d4deffb482047",
+          "message": "perf: Lazily load fast fields dictionaries. (#2842)\n\n## What\n\nLazily load fast field dictionaries from buffers: see\nhttps://github.com/paradedb/tantivy/pull/55\n\n## Why\n\nA customer reported slower-than-expected paging on a string/uuid column.\n85% of the time for that query was being spent in _opening_ a fast\nfields string/bytes column, with a large fraction of that time spent\nfully consuming the column's `Dictionary`.\n\n## Tests\n\nSee the attached benchmark results:\n* [`docs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014379545)\n    * No regressions.\n    * 2x faster for `top_n-score`\n    * 1.4x faster for `highlighting` \n* [`logs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014350211)\n    * No regressions.\n    * 4.5x faster for `paging-string-max`\n    * 1.7x faster for `paging-string-median`\n    * 1.6x faster for `paging-string-min`\n\nThe `paging-string-*` benchmarks were added in #2834 to highlight this\nparticular issue.",
+          "timestamp": "2025-07-14T08:28:09-07:00",
+          "tree_id": "d144335dcb7c7f138a112c01e5b9ff5e0168fe37",
+          "url": "https://github.com/paradedb/paradedb/commit/b96e41e25c3fd2126f54aa5cb66d4deffb482047"
+        },
+        "date": 1752507918468,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 320.34033261446194,
+            "unit": "median tps",
+            "extra": "avg tps: 320.0366677774066, max tps: 505.1612771787176, count: 54984"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2186.9465033112137,
+            "unit": "median tps",
+            "extra": "avg tps: 2193.2580398231044, max tps: 2565.4430057568543, count: 54984"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 320.6164037390294,
+            "unit": "median tps",
+            "extra": "avg tps: 321.20580390459014, max tps: 534.9963127705213, count: 54984"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 289.3068538659048,
+            "unit": "median tps",
+            "extra": "avg tps: 289.06498789477143, max tps: 434.09221334069554, count: 54984"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 149.44506617730954,
+            "unit": "median tps",
+            "extra": "avg tps: 149.26738588429603, max tps: 159.83780103582333, count: 109968"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 134.36034939221275,
+            "unit": "median tps",
+            "extra": "avg tps: 134.31913067408195, max tps: 144.850989381662, count: 54984"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 5.864855221310597,
+            "unit": "median tps",
+            "extra": "avg tps: 9.952981181211312, max tps: 1062.695868132195, count: 54984"
           }
         ]
       }

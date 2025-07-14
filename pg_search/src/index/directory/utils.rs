@@ -295,8 +295,6 @@ pub unsafe fn save_new_metas(
             .map(|old_entry| SegmentMetaEntry {
                 segment_id: SegmentId::from_bytes([0; 16]), // all zeros
                 xmax: pg_sys::FrozenTransactionId,          // immediately recyclable
-                delete: Some(old_entry.delete.unwrap()),
-                max_doc: old_entry.delete.unwrap().num_deleted_docs,
                 ..old_entry
             })
             .collect::<Vec<_>>();

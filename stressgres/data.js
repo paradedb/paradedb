@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752507919409,
+  "lastUpdate": 1752507921301,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1342,6 +1342,126 @@ window.BENCHMARK_DATA = {
             "value": 96.546875,
             "unit": "median mem",
             "extra": "avg mem: 95.33485474277585, max mem: 97.671875, count: 55093"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96e41e25c3fd2126f54aa5cb66d4deffb482047",
+          "message": "perf: Lazily load fast fields dictionaries. (#2842)\n\n## What\n\nLazily load fast field dictionaries from buffers: see\nhttps://github.com/paradedb/tantivy/pull/55\n\n## Why\n\nA customer reported slower-than-expected paging on a string/uuid column.\n85% of the time for that query was being spent in _opening_ a fast\nfields string/bytes column, with a large fraction of that time spent\nfully consuming the column's `Dictionary`.\n\n## Tests\n\nSee the attached benchmark results:\n* [`docs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014379545)\n    * No regressions.\n    * 2x faster for `top_n-score`\n    * 1.4x faster for `highlighting` \n* [`logs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014350211)\n    * No regressions.\n    * 4.5x faster for `paging-string-max`\n    * 1.7x faster for `paging-string-median`\n    * 1.6x faster for `paging-string-min`\n\nThe `paging-string-*` benchmarks were added in #2834 to highlight this\nparticular issue.",
+          "timestamp": "2025-07-14T08:28:09-07:00",
+          "tree_id": "d144335dcb7c7f138a112c01e5b9ff5e0168fe37",
+          "url": "https://github.com/paradedb/paradedb/commit/b96e41e25c3fd2126f54aa5cb66d4deffb482047"
+        },
+        "date": 1752507920354,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.979654476088491, max cpu: 23.506365, count: 54984"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 96.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.47897108420177, max mem: 101.33984375, count: 54984"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607765417650276, max cpu: 9.239654, count: 54984"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 85.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 84.5554340950322, max mem: 88.55859375, count: 54984"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.9990201618881835, max cpu: 23.529411, count: 54984"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 96.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 95.5972280004183, max mem: 102.02734375, count: 54984"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.378226419366776, max cpu: 4.7197638, count: 54984"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 96.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.96765280581624, max mem: 101.30859375, count: 54984"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.966471162119436, max cpu: 27.988338, count: 109968"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 100.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.13206341844901, max mem: 112.375, count: 109968"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8203,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8138.0711297832095, max block_count: 8596.0, count: 54984"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 120,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 118.94698457733159, max segment_count: 303.0, count: 54984"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.44646407151505, max cpu: 23.121387, count: 54984"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 102.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.9646891595737, max mem: 110.18359375, count: 54984"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.426102,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.738145131213006, max cpu: 32.24568, count: 54984"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 95.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 93.75278319602066, max mem: 99.36328125, count: 54984"
           }
         ]
       }

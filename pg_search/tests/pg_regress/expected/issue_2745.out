@@ -28,6 +28,14 @@ SET paradedb.enable_custom_scan = on;
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
  contact_name 
 --------------
  Alice
@@ -37,6 +45,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT contact_name FROM contacts_companies
 WHERE contact_name SIMILAR TO 'Alice'
 AND NOT EXISTS (SELECT 1 FROM contact_list WHERE contact_id = contact_list.id);
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
                                  QUERY PLAN                                 
 ----------------------------------------------------------------------------
  Hash Right Anti Join
@@ -64,6 +80,14 @@ WHERE contact_id = ANY(ARRAY[17969,17970,17971,17973])
 AND NOT EXISTS (
     SELECT 1 FROM contact_list cl WHERE contact_id = cl.id
 );
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_410 table_2.col_1) }"
  contact_id 
 ------------
       17969

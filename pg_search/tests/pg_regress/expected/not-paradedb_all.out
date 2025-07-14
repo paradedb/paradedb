@@ -68,6 +68,14 @@ FROM notpdball a,
 WHERE a.id = b.id AND NOT a.id @@@ paradedb.all()
    OR b.id @@@ paradedb.all()
 ORDER BY a.id, b.id;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_96 table_2.col_1) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_96 table_2.col_1) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
  id | id 
 ----+----
   1 |  1

@@ -90,6 +90,14 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_1.col_5 op_1756 <const_type_1700>) OR (table_2.col_4 op_521 4)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_1.col_5 op_1756 <const_type_1700>) OR (table_2.col_4 op_521 4)) }"
                test_name                | product_name |                     review_content                     | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
  Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming       |      1.257669 |    0.8754688
@@ -160,6 +168,14 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')    -- Safe condition on products
    OR (c.description @@@ 'electronic')    -- External condition on categories
 ORDER BY product_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
               test_name              | product_name | category_name | product_score | category_score 
 -------------------------------------+--------------+---------------+---------------+----------------
  Test 3a: OR with external variables | Smartphone   | Electronics   |      1.257669 |      1.1374958
@@ -206,6 +222,18 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND table_1.col_6) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND table_1.col_6) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND table_1.col_6) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4))) }"
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |      1.257669
@@ -302,6 +330,18 @@ WHERE (
     (p.in_stock = true AND c.is_active = true)                -- Unknown conditions
 )
 ORDER BY product_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_5 op_1756 <const_type_1700>)) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4)) OR (table_1.col_6 AND table_2.col_4)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_5 op_1756 <const_type_1700>)) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4)) OR (table_1.col_6 AND table_2.col_4)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_5 op_1756 <const_type_1700>)) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_4.col_4 op_521 4)) OR (table_1.col_6 AND table_2.col_4)) }"
              test_name              | product_name | category_name |                     review_content                     | product_score | category_score | review_score 
 ------------------------------------+--------------+---------------+--------------------------------------------------------+---------------+----------------+--------------
  Test 6a: Multiple diagnostic types | Smartphone   | Electronics   | Amazing smartphone with great camera quality           |               |                |             

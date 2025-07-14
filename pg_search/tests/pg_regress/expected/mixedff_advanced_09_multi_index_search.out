@@ -818,23 +818,26 @@ ORDER BY
     END DESC,
     paradedb.score(p.id),
     p.price;
-                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, (paradedb.score(p.id)), p.price
-   ->  Hash Right Join
-         Hash Cond: (reviews.product_id = p.id)
+   ->  Nested Loop Left Join
+         Join Filter: (p.id = reviews.product_id)
+         ->  Seq Scan on products p
+               Filter: (is_available AND (price >= '200'::double precision) AND (price <= '600'::double precision) AND (id @@@ '{"with_index":{"oid":402919,"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
          ->  HashAggregate
                Group Key: reviews.product_id
                ->  Seq Scan on reviews
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on products p
-                     Table: products
-                     Index: products_idx
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(14 rows)
+(9 rows)
 
 SELECT 
     p.name,
@@ -861,6 +864,14 @@ ORDER BY
     END DESC,
     paradedb.score(p.id),
     p.price;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
     name    | price |  review_status  
 ------------+-------+-----------------
  Product 19 |   240 | Great reviews

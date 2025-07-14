@@ -67,6 +67,14 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
            a_content            |          b_content           |  a_score  |  b_score  
 --------------------------------+------------------------------+-----------+-----------
  smartphone technology advanced | high performance specs       | 1.2039728 | 1.1608026
@@ -102,6 +110,18 @@ CROSS JOIN table_b b
 CROSS JOIN table_c c
 WHERE (a.content @@@ 'laptop' OR b.content @@@ 'gaming' OR c.content @@@ 'innovation')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
            a_content            |          b_content           |       c_content        |  a_score  |  b_score  |  c_score  
 --------------------------------+------------------------------+------------------------+-----------+-----------+-----------
  laptop computer powerful       | gaming experience immersive  | technology innovation  | 1.2039728 | 1.1608026 | 1.2039728
@@ -165,6 +185,14 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.category @@@ 'electronics' OR b.content @@@ 'performance')
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
            a_content            | a_category  |          b_content           |  a_score   |  b_score  
 --------------------------------+-------------+------------------------------+------------+-----------
  smartphone technology advanced | electronics | high performance specs       |  1.5606477 | 1.1608026
@@ -205,6 +233,14 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_521 150) OR (table_2.col_4 op_96 1)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_521 150) OR (table_2.col_4 op_96 1)) }"
            a_content            | a_value |          b_content           | b_priority |  a_score  | b_score 
 --------------------------------+---------+------------------------------+------------+-----------+---------
  laptop computer powerful       |     200 | advanced features smartphone |          1 | 1.2039728 |       0
@@ -242,6 +278,14 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_4 op_521 50)) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_4 op_96 1))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_4 op_521 50)) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_4 op_96 1))) }"
            a_content            | a_value |          b_content           | b_priority |  a_score  |  b_score  
 --------------------------------+---------+------------------------------+------------+-----------+-----------
  smartphone technology advanced |     100 | gaming experience immersive  |          1 | 1.2039728 | 1.1608026
@@ -273,6 +317,14 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_96 table_2.col_4)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_96 table_2.col_4)) }"
            a_content            |          b_content           |  a_score  | b_score 
 --------------------------------+------------------------------+-----------+---------
  smartphone technology advanced | advanced features smartphone | 1.2039728 |       0
@@ -301,6 +353,14 @@ FROM table_a a
 JOIN table_b b ON a.value = b.priority * 100  -- Join condition
 WHERE (a.content @@@ 'electronics' OR b.description @@@ 'capabilities')
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
            a_content            |          b_content           | a_score | b_score  
 --------------------------------+------------------------------+---------+----------
  smartphone technology advanced | advanced features smartphone |       0 | 1.261305
@@ -330,20 +390,32 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-           a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
---------------------------------+------------------------------+------------------------+---------+---------+---------
- smartphone technology advanced | advanced features smartphone |                        |         |         |        
- smartphone technology advanced | gaming experience immersive  |                        |         |         |        
- laptop computer powerful       | advanced features smartphone |                        |         |         |        
- laptop computer powerful       | high performance specs       | narrative structure    |         |         |        
- laptop computer powerful       | high performance specs       | performance benchmarks |         |         |        
- laptop computer powerful       | storytelling narrative       | entertainment value    |         |         |        
- laptop computer powerful       | storytelling narrative       | technology innovation  |         |         |        
- laptop computer powerful       | gaming experience immersive  |                        |         |         |        
- game console modern            | advanced features smartphone |                        |         |         |        
- game console modern            | high performance specs       | narrative structure    |         |         |        
- game console modern            | high performance specs       | performance benchmarks |         |         |        
- game console modern            | gaming experience immersive  |                        |         |         |        
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+           a_content            |          b_content           |       c_content        |  a_score   |  b_score  |  c_score  
+--------------------------------+------------------------------+------------------------+------------+-----------+-----------
+ smartphone technology advanced | gaming experience immersive  |                        |  1.5606477 |         0 |          
+ smartphone technology advanced | advanced features smartphone |                        |  1.5606477 |         0 |          
+ game console modern            | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
+ laptop computer powerful       | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
+ game console modern            | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
+ laptop computer powerful       | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
+ game console modern            | gaming experience immersive  |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | advanced features smartphone |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | gaming experience immersive  |                        | 0.35667497 |         0 |          
+ game console modern            | advanced features smartphone |                        | 0.35667497 |         0 |          
+ laptop computer powerful       | storytelling narrative       | technology innovation  | 0.35667497 |         0 | 2.3040886
+ laptop computer powerful       | storytelling narrative       | entertainment value    | 0.35667497 |         0 |         0
 (12 rows)
 
 -- =============================================================================

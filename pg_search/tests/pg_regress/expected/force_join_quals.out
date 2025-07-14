@@ -70,6 +70,20 @@ JOIN right_table r ON r.id = b.right_id
 WHERE (l.content @@@ 'smartphone' AND r.content @@@ 'advanced')  -- Search conditions across tables
    OR (l.value > 100 AND r.priority = 1)                        -- Non-search conditions across tables
 ORDER BY left_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_521 100)) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_4.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_4 op_521 100) AND (table_4.col_4 op_96 1))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_4 op_96 1)) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_4.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_4 op_521 100) AND (table_4.col_4 op_96 1))) }"
      left_content      |   right_content   | relationship_type | left_score | right_score 
 -----------------------+-------------------+-------------------+------------+-------------
  smartphone technology | advanced features | primary           |  1.2039728 |   1.1374958
@@ -97,9 +111,27 @@ LEFT JOIN bridge_table b ON l.id = b.left_id
 LEFT JOIN right_table r ON r.id = b.right_id
 WHERE (l.content @@@ 'laptop' AND COALESCE(r.content @@@ 'performance', false))  -- Complex condition with COALESCE
 ORDER BY left_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }, RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }, RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: <node_type_38> }"
   left_content   |  right_content   | left_score | right_score 
 -----------------+------------------+------------+-------------
- laptop computer | high performance |  1.2039728 |            
+ laptop computer | high performance |            |            
 (1 row)
 
 -- =============================================================================
@@ -152,9 +184,30 @@ WHERE l.content @@@ 'smartphone'
 GROUP BY l.id, l.content
 HAVING COUNT(r.id) > 0  -- HAVING conditions often trigger joininfo
 ORDER BY left_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_1.col_1 op_96 table_2.col_1) }, RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }, RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }, RestrictInfo { clause: (table_4.col_1 op_96 table_2.col_2) }"
      left_content      | right_count | left_score 
 -----------------------+-------------+------------
- smartphone technology |           2 |  1.2039728
+ smartphone technology |           2 |           
 (1 row)
 
 -- =============================================================================
@@ -177,9 +230,23 @@ FROM left_table l1
 JOIN left_table l2 ON l1.category = l2.category AND l1.id != l2.id
 WHERE (l1.content @@@ 'smartphone' AND l2.content @@@ 'laptop')  -- Search across self-joined tables
 ORDER BY left1_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_1.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_518 table_2.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_2.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_518 table_2.col_1) }"
      left1_content     |  left2_content  | left1_score | left2_score 
 -----------------------+-----------------+-------------+-------------
- smartphone technology | laptop computer |   1.2039728 |   1.2039728
+ smartphone technology | laptop computer |             |            
 (1 row)
 
 -- =============================================================================
@@ -204,6 +271,18 @@ WHERE l.content @@@ 'electronics'
     WHERE b.left_id = l.id AND r.priority = 1
   )
 ORDER BY left_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_2.col_1 op_96 table_1.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_2.col_1 op_96 table_1.col_1) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: "RestrictInfo { clause: (table_2.col_1 op_96 table_1.col_1) }"
  left_content | left_score 
 --------------+------------
 (0 rows)
@@ -233,6 +312,24 @@ WHERE (
     (l.value > 100 AND r.priority = 1 AND b.strength > 5)              -- Complex condition spanning all tables
 )
 ORDER BY left_score DESC;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_1.col_4 op_521 100)) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_4.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_4 op_521 100) AND (table_4.col_4 op_96 1) AND (table_2.col_4 op_521 5))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_4.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_4 op_521 100) AND (table_4.col_4 op_96 1) AND (table_2.col_4 op_521 5))) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_4 op_96 1)) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_4.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_4 op_521 100) AND (table_4.col_4 op_96 1) AND (table_2.col_4 op_521 5))) }"
      left_content      |   right_content   | left_score | right_score 
 -----------------------+-------------------+------------+-------------
  smartphone technology | advanced features |  1.2039728 |   1.2039728

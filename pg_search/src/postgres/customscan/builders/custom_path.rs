@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::operator::{anyelement_query_input_opoid, anyelement_text_opoid};
 use crate::api::Cardinality;
 use crate::api::FieldName;
 use crate::api::HashSet;
@@ -267,21 +268,338 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
             if baseri.is_empty() && joinri.is_empty() {
                 // both lists are empty, so return an empty list
                 (PgList::new(), RestrictInfoType::None)
-            } else if !baseri.is_empty() {
-                // the baserestrictinfo has entries, so we prefer that first
+            } else if joinri.is_empty() {
+                // joininfo is empty, so return baserestrictinfo
                 (baseri, RestrictInfoType::BaseRelation)
-            } else if !Self::restrict_info_is_pushed_down(&joinri) {
-                // if not all the entries are pushed down, we don't want to use this joininfo
-                (PgList::new(), RestrictInfoType::None)
             } else {
-                // only the joininfo has entries, so that's what we'll use
-                (joinri, RestrictInfoType::Join)
+                // joininfo is not empty, so we need to filter it
+                let (pushed_down_joinri, unpushed_joinri) =
+                    Self::partition_restrict_info_by_pushdown(&joinri);
+
+                // Check that none of the unpushed entries contain our @@@ operator
+                if Self::contains_our_operator(&unpushed_joinri) {
+                    pgrx::warning!(
+                        ">>> 111 joininfo contains unpushed entries with @@@ operator: {:?}",
+                        Self::restrict_info_to_string(&unpushed_joinri, self.args.root)
+                    );
+                    (PgList::new(), RestrictInfoType::None)
+                } else {
+                    // Use the pushed down entries from joininfo
+                    if pushed_down_joinri.is_empty() {
+                        pgrx::warning!(
+                            ">>> 222 pushed_down_joinri is empty and unpushed_joinri does not contain @@@ operator: {:?}",
+                            Self::restrict_info_to_string(&unpushed_joinri, self.args.root)
+                        );
+                        (PgList::new(), RestrictInfoType::None)
+                    } else {
+                        if baseri.is_empty() {
+                            pgrx::warning!(
+                                ">>> 333 baseri is empty and pushed_down_joinri is not empty: {:?}",
+                                Self::restrict_info_to_string(&pushed_down_joinri, self.args.root)
+                            );
+                            (pushed_down_joinri, RestrictInfoType::Join)
+                        } else {
+                            pgrx::warning!(
+                                ">>> 444 baseri is not empty: {:?} and pushed_down_joinri is not empty: {:?}",
+                                Self::restrict_info_to_string(&baseri, self.args.root),
+                                Self::restrict_info_to_string(&pushed_down_joinri, self.args.root)
+                            );
+                            (pushed_down_joinri, RestrictInfoType::Join)
+                        }
+                    }
+                }
             }
         }
     }
 
-    fn restrict_info_is_pushed_down(restrict_info: &PgList<pg_sys::RestrictInfo>) -> bool {
-        unsafe { restrict_info.iter_ptr().all(|ri| (*ri).is_pushed_down) }
+    /// Partition a restrict info list into pushed down and unpushed entries
+    fn partition_restrict_info_by_pushdown(
+        restrict_info: &PgList<pg_sys::RestrictInfo>,
+    ) -> (PgList<pg_sys::RestrictInfo>, PgList<pg_sys::RestrictInfo>) {
+        unsafe {
+            let mut pushed_down = PgList::new();
+            let mut unpushed = PgList::new();
+
+            for ri in restrict_info.iter_ptr() {
+                if (*ri).is_pushed_down {
+                    pushed_down.push(ri);
+                } else {
+                    unpushed.push(ri);
+                }
+            }
+
+            (pushed_down, unpushed)
+        }
+    }
+
+    /// Check if any RestrictInfo in the list contains our @@@ operator
+    fn contains_our_operator(restrict_info: &PgList<pg_sys::RestrictInfo>) -> bool {
+        unsafe {
+            let text_opoid = anyelement_text_opoid();
+            let query_input_opoid = anyelement_query_input_opoid();
+
+            restrict_info.iter_ptr().any(|ri| {
+                Self::clause_contains_operator((*ri).clause, text_opoid)
+                    || Self::clause_contains_operator((*ri).clause, query_input_opoid)
+            })
+        }
+    }
+
+    /// Check if a clause (expression node) contains the specified operator
+    fn clause_contains_operator(clause: *mut pg_sys::Expr, target_opoid: pg_sys::Oid) -> bool {
+        unsafe {
+            if clause.is_null() {
+                return false;
+            }
+
+            let node = clause.cast::<pg_sys::Node>();
+            match (*node).type_ {
+                pg_sys::NodeTag::T_OpExpr => {
+                    let opexpr = node.cast::<pg_sys::OpExpr>();
+                    (*opexpr).opno == target_opoid
+                }
+                pg_sys::NodeTag::T_BoolExpr => {
+                    let boolexpr = node.cast::<pg_sys::BoolExpr>();
+                    let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+                    for arg in args.iter_ptr() {
+                        if Self::clause_contains_operator(arg.cast(), target_opoid) {
+                            return true;
+                        }
+                    }
+                    false
+                }
+                pg_sys::NodeTag::T_FuncExpr => {
+                    let funcexpr = node.cast::<pg_sys::FuncExpr>();
+                    let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+                    for arg in args.iter_ptr() {
+                        if Self::clause_contains_operator(arg.cast(), target_opoid) {
+                            return true;
+                        }
+                    }
+                    false
+                }
+                _ => false,
+            }
+        }
+    }
+
+    fn restrict_info_to_string(
+        restrict_info: &PgList<pg_sys::RestrictInfo>,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> String {
+        restrict_info
+            .iter_ptr()
+            .map(|ri| Self::ri_tostring(ri, root))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    fn ri_tostring(ri: *mut pg_sys::RestrictInfo, root: *mut pg_sys::PlannerInfo) -> String {
+        unsafe {
+            pgrx::warning!("ri_tostring: Starting");
+
+            let ri = if let Some(ri) = ri.as_ref() {
+                ri
+            } else {
+                pgrx::warning!("ri_tostring: RestrictInfo is null");
+                return "<null restrictinfo>".to_string();
+            };
+
+            let clause_str = if !ri.clause.is_null() {
+                pgrx::warning!("ri_tostring: Processing clause");
+
+                // Use our custom expression deparsing instead of PostgreSQL's deparse_expression
+                let expr_str = Self::custom_deparse_expression(ri.clause.cast(), root);
+                format!("RestrictInfo {{ clause: {} }}", expr_str)
+            } else {
+                pgrx::warning!("ri_tostring: clause is null");
+                "RestrictInfo { clause: <null clause> }".to_string()
+            };
+
+            pgrx::warning!("ri_tostring: Returning result");
+            clause_str
+        }
+    }
+
+    /// Custom expression deparsing that handles common PostgreSQL node types
+    /// without requiring complex deparse context setup
+    fn custom_deparse_expression(
+        node: *mut pg_sys::Node,
+        root: *mut pg_sys::PlannerInfo,
+    ) -> String {
+        unsafe {
+            if node.is_null() {
+                return "<null>".to_string();
+            }
+
+            match (*node).type_ {
+                pg_sys::NodeTag::T_Var => {
+                    let var = node.cast::<pg_sys::Var>();
+                    Self::deparse_var(var, root)
+                }
+                pg_sys::NodeTag::T_Const => {
+                    let const_node = node.cast::<pg_sys::Const>();
+                    Self::deparse_const(const_node)
+                }
+                pg_sys::NodeTag::T_OpExpr => {
+                    let opexpr = node.cast::<pg_sys::OpExpr>();
+                    Self::deparse_opexpr(opexpr, root)
+                }
+                pg_sys::NodeTag::T_FuncExpr => {
+                    let funcexpr = node.cast::<pg_sys::FuncExpr>();
+                    Self::deparse_funcexpr(funcexpr, root)
+                }
+                pg_sys::NodeTag::T_BoolExpr => {
+                    let boolexpr = node.cast::<pg_sys::BoolExpr>();
+                    Self::deparse_boolexpr(boolexpr, root)
+                }
+                pg_sys::NodeTag::T_RelabelType => {
+                    let relabel = node.cast::<pg_sys::RelabelType>();
+                    // For RelabelType, just deparse the underlying argument
+                    Self::custom_deparse_expression((*relabel).arg.cast(), root)
+                }
+                _ => {
+                    // For unknown node types, fall back to a simple representation
+                    format!("<node_type_{}>", (*node).type_ as i32)
+                }
+            }
+        }
+    }
+
+    /// Deparse a Var node to a string representation - simplified version
+    fn deparse_var(var: *mut pg_sys::Var, _root: *mut pg_sys::PlannerInfo) -> String {
+        unsafe {
+            let varno = (*var).varno;
+            let varattno = (*var).varattno;
+
+            // Simple representation without accessing system catalogs
+            format!("table_{}.col_{}", varno, varattno)
+        }
+    }
+
+    /// Deparse a Const node to a string representation
+    fn deparse_const(const_node: *mut pg_sys::Const) -> String {
+        unsafe {
+            if (*const_node).constisnull {
+                return "NULL".to_string();
+            }
+
+            match (*const_node).consttype {
+                pg_sys::BOOLOID => {
+                    let value = pg_sys::DatumGetBool((*const_node).constvalue);
+                    if value { "true" } else { "false" }.to_string()
+                }
+                pg_sys::INT4OID => {
+                    let value = pg_sys::DatumGetInt32((*const_node).constvalue);
+                    value.to_string()
+                }
+                pg_sys::INT8OID => {
+                    let value = pg_sys::DatumGetInt64((*const_node).constvalue);
+                    value.to_string()
+                }
+                pg_sys::FLOAT4OID => {
+                    let value = pg_sys::DatumGetFloat4((*const_node).constvalue);
+                    value.to_string()
+                }
+                pg_sys::FLOAT8OID => {
+                    let value = pg_sys::DatumGetFloat8((*const_node).constvalue);
+                    value.to_string()
+                }
+                pg_sys::TEXTOID | pg_sys::VARCHAROID => {
+                    // For text types, we need to extract the string value
+                    let varlena =
+                        pg_sys::DatumGetPointer((*const_node).constvalue) as *mut pg_sys::varlena;
+                    if !varlena.is_null() {
+                        let text_slice = pgrx::varlena_to_byte_slice(varlena);
+                        match std::str::from_utf8(text_slice) {
+                            Ok(s) => format!("'{}'", s.replace("'", "''")), // Escape single quotes
+                            Err(_) => "<invalid utf8>".to_string(),
+                        }
+                    } else {
+                        "<null text>".to_string()
+                    }
+                }
+                _ => {
+                    // For other types, just show the type OID
+                    format!("<const_type_{}>", (*const_node).consttype)
+                }
+            }
+        }
+    }
+
+    /// Deparse an OpExpr node to a string representation
+    fn deparse_opexpr(opexpr: *mut pg_sys::OpExpr, root: *mut pg_sys::PlannerInfo) -> String {
+        unsafe {
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+            let op_oid = (*opexpr).opno;
+
+            match args.len() {
+                1 => {
+                    // Unary operator
+                    let arg = Self::custom_deparse_expression(args.get_ptr(0).unwrap(), root);
+                    format!("(op_{} {})", op_oid, arg)
+                }
+                2 => {
+                    // Binary operator
+                    let left = Self::custom_deparse_expression(args.get_ptr(0).unwrap(), root);
+                    let right = Self::custom_deparse_expression(args.get_ptr(1).unwrap(), root);
+                    format!("({} op_{} {})", left, op_oid, right)
+                }
+                _ => {
+                    // Multiple arguments - this is unusual for OpExpr
+                    let arg_strs: Vec<String> = args
+                        .iter_ptr()
+                        .map(|arg| Self::custom_deparse_expression(arg, root))
+                        .collect();
+                    format!("op_{}({})", op_oid, arg_strs.join(", "))
+                }
+            }
+        }
+    }
+
+    /// Deparse a FuncExpr node to a string representation
+    fn deparse_funcexpr(funcexpr: *mut pg_sys::FuncExpr, root: *mut pg_sys::PlannerInfo) -> String {
+        unsafe {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            let func_oid = (*funcexpr).funcid;
+
+            let arg_strs: Vec<String> = args
+                .iter_ptr()
+                .map(|arg| Self::custom_deparse_expression(arg, root))
+                .collect();
+
+            format!("func_{}({})", func_oid, arg_strs.join(", "))
+        }
+    }
+
+    /// Deparse a BoolExpr node to a string representation
+    fn deparse_boolexpr(boolexpr: *mut pg_sys::BoolExpr, root: *mut pg_sys::PlannerInfo) -> String {
+        unsafe {
+            let args = PgList::<pg_sys::Node>::from_pg((*boolexpr).args);
+            let arg_strs: Vec<String> = args
+                .iter_ptr()
+                .map(|arg| Self::custom_deparse_expression(arg, root))
+                .collect();
+
+            match (*boolexpr).boolop {
+                pg_sys::BoolExprType::AND_EXPR => {
+                    format!("({})", arg_strs.join(" AND "))
+                }
+                pg_sys::BoolExprType::OR_EXPR => {
+                    format!("({})", arg_strs.join(" OR "))
+                }
+                pg_sys::BoolExprType::NOT_EXPR => {
+                    if arg_strs.len() == 1 {
+                        format!("(NOT {})", arg_strs[0])
+                    } else {
+                        format!("(NOT ({}))", arg_strs.join(", "))
+                    }
+                }
+                _ => {
+                    format!("UNKNOWN_BOOL_OP({})", arg_strs.join(", "))
+                }
+            }
+        }
     }
 
     #[allow(dead_code)]

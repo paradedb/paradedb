@@ -75,6 +75,14 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_4.col_1 op_401354 <const_type_401235>) OR (table_5.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_4.col_1 op_401354 <const_type_401235>) OR (table_5.col_1 op_401354 <const_type_401235>)) }"
  book_id |   author_snippet    | author_positions | author_score | book_score |                                     review                                      |                                               review_snippet                                                |             review_positions             | review_score 
 ---------+---------------------+------------------+--------------+------------+---------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+--------------
        1 |                     |                  |            0 | 0.20262644 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
@@ -102,15 +110,27 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
- book_id | book_snippet | book_positions |   author_snippet    | author_positions | review_snippet | review_positions | book_score | author_score | review_score 
----------+--------------+----------------+---------------------+------------------+----------------+------------------+------------+--------------+--------------
-       1 |              |                |                     |                  |                |                  |            |            0 |             
-       1 |              |                |                     |                  |                |                  |            |            0 |             
-       2 |              |                |                     |                  |                |                  |            |            0 |             
-       2 |              |                |                     |                  |                |                  |            |            0 |             
-       3 |              |                | J.K. <b>Rowling</b> | {"{5,12}"}       |                |                  |            |    1.3042113 |             
-       3 |              |                | J.K. <b>Rowling</b> | {"{5,12}"}       |                |                  |            |    1.3042113 |             
-       4 |              |                |                     |                  |                |                  |            |            0 |             
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+WARNING:  ri_tostring: Starting
+WARNING:  ri_tostring: Processing clause
+WARNING:  ri_tostring: Returning result
+WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>) OR (table_4.col_1 op_401354 <const_type_401235>)) }"
+ book_id |                                                                       book_snippet                                                                       |            book_positions             |   author_snippet    | author_positions |                                               review_snippet                                                |             review_positions             | book_score | author_score | review_score 
+---------+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------+---------------------+------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+------------+--------------+--------------
+       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          | 0.20262644 |            0 |     0.494645
+       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | <b>test</b> review of the function function function                                                        | {"{0,4}"}                                | 0.20262644 |            0 |  0.085374445
+       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} | 0.16421193 |            0 |    0.7406344
+       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  | 0.16421193 |            0 |   0.75704324
+       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | Yet another <b>test</b> review of the function function function                                            | {"{12,16}"}                              | 0.20443876 |    1.3042113 |   0.07823789
+       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            | 0.20443876 |    1.3042113 |    0.5505729
+       4 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{0,4}","{1317,1321}","{2167,2171}"} |                     |                  |                                                                                                             |                                          | 0.10757824 |            0 |             
 (7 rows)
 
 \i common/snippet_position_advanced_cleanup.sql

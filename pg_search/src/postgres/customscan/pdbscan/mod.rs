@@ -16,11 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
-mod condition_safety;
 mod exec_methods;
-mod join_analysis;
 mod opexpr;
-mod or_decomposer;
 pub mod parallel;
 mod privdat;
 mod projections;
@@ -282,11 +279,10 @@ impl PdbScan {
 
     /// Validates and filters join quals to ensure they are safe to push down to base relations.
     ///
-    /// This function implements enhanced safety checks to prevent incorrect query results:
-    /// 1. Analyzes join context to determine if OR decomposition is safe
-    /// 2. Uses condition safety classifier for detailed analysis
-    /// 3. Decomposes OR conditions across multiple relations when safe
-    /// 4. Provides detailed diagnostic messages for rejected conditions
+    /// This function implements critical safety checks to prevent incorrect query results:
+    /// 1. Rejects conditions with ExternalVar/ExternalExpr (variables from other tables)
+    /// 2. Decomposes complex boolean expressions safely
+    /// 3. Only pushes down conditions that reference the target table
     ///
     /// Returns None if no safe conditions can be pushed down, otherwise returns the filtered quals.
     unsafe fn validate_and_filter_join_quals(
@@ -294,65 +290,23 @@ impl PdbScan {
         target_rti: pg_sys::Index,
         root: *mut pg_sys::PlannerInfo,
     ) -> Option<Qual> {
-        use condition_safety::{
-            extract_safe_conditions_for_relation, log_condition_safety_result,
-            ConditionSafetyClassifier,
-        };
-        use join_analysis::analyze_join_context;
-        use or_decomposer::extract_or_conditions_for_relation;
-
-        // 1. Analyze join context to determine safety
-        let join_context = analyze_join_context(root, target_rti);
-
-        // 2. Set up condition safety classifier
-        let mut classifier = ConditionSafetyClassifier::new();
-        classifier.set_join_context(join_context.clone());
-
-        // TODO: Get actual BM25 relations from the context
-        // For now, assume target relation has BM25 index
-        classifier.set_bm25_relations(vec![target_rti]);
-
-        // 3. Classify condition safety
-        let safety = classifier.classify_condition_safety(quals, target_rti);
-
-        // 4. Log the results for diagnostics
-        log_condition_safety_result(&safety, quals);
-
-        // 5. Extract safe conditions for the target relation
-        let safe_conditions = extract_safe_conditions_for_relation(&safety, target_rti);
-
-        // 6. For OR conditions, try advanced decomposition if basic extraction fails
-        if safe_conditions.is_none() {
-            if let Qual::Or(_) = quals {
-                if join_context.is_safe_for_or_decomposition() {
-                    pgrx::warning!(
-                        "Attempting advanced OR decomposition for target relation {}",
-                        target_rti
-                    );
-
-                    // Try to extract OR conditions specific to this relation
-                    let or_conditions = extract_or_conditions_for_relation(
-                        quals,
-                        target_rti,
-                        &join_context,
-                        true, // Assume has BM25 index
-                    );
-
-                    if let Some(conditions) = or_conditions {
-                        pgrx::warning!("Advanced OR decomposition successful: {:?}", conditions);
-                        return Some(conditions);
-                    }
-                } else {
-                    pgrx::warning!(
-                        "OR decomposition rejected: {:?} join type incompatible with cross-table OR",
-                        join_context.join_type
-                    );
-                }
-            }
+        // CRITICAL: Never push down conditions with external variables
+        if quals.contains_external_var() {
+            pgrx::warning!("Rejecting join quals: contains external variables");
+            return None;
         }
 
-        // 7. Return the safe conditions (if any)
-        safe_conditions
+        // Decompose the condition and only keep parts that are safe to push down
+        match Self::decompose_condition_for_pushdown(quals, target_rti, root) {
+            Some(safe_qual) => {
+                pgrx::warning!("Validated join quals: {:?}", safe_qual);
+                Some(safe_qual)
+            }
+            None => {
+                pgrx::warning!("Rejecting join quals: no safe conditions found");
+                None
+            }
+        }
     }
 
     /// Decomposes a condition into parts that are safe to push down to the target relation.

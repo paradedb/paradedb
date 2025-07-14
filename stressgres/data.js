@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752509170345,
+  "lastUpdate": 1752509172338,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2890,6 +2890,66 @@ window.BENCHMARK_DATA = {
             "value": 164.4921875,
             "unit": "median mem",
             "extra": "avg mem: 155.0147005640164, max mem: 170.80859375, count: 57290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b96e41e25c3fd2126f54aa5cb66d4deffb482047",
+          "message": "perf: Lazily load fast fields dictionaries. (#2842)\n\n## What\n\nLazily load fast field dictionaries from buffers: see\nhttps://github.com/paradedb/tantivy/pull/55\n\n## Why\n\nA customer reported slower-than-expected paging on a string/uuid column.\n85% of the time for that query was being spent in _opening_ a fast\nfields string/bytes column, with a large fraction of that time spent\nfully consuming the column's `Dictionary`.\n\n## Tests\n\nSee the attached benchmark results:\n* [`docs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014379545)\n    * No regressions.\n    * 2x faster for `top_n-score`\n    * 1.4x faster for `highlighting` \n* [`logs`\ndataset](https://github.com/paradedb/paradedb/pull/2842#pullrequestreview-3014350211)\n    * No regressions.\n    * 4.5x faster for `paging-string-max`\n    * 1.7x faster for `paging-string-median`\n    * 1.6x faster for `paging-string-min`\n\nThe `paging-string-*` benchmarks were added in #2834 to highlight this\nparticular issue.",
+          "timestamp": "2025-07-14T08:28:09-07:00",
+          "tree_id": "d144335dcb7c7f138a112c01e5b9ff5e0168fe37",
+          "url": "https://github.com/paradedb/paradedb/commit/b96e41e25c3fd2126f54aa5cb66d4deffb482047"
+        },
+        "date": 1752509171375,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.53277628126518, max cpu: 47.244095, count: 57172"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 177.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.90110147340482, max mem: 181.08984375, count: 57172"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19214,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17846.88237249003, max block_count: 23111.0, count: 57172"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.50839571818372, max segment_count: 159.0, count: 57172"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.27677413196564, max cpu: 28.543112, count: 57172"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.42495916926117, max mem: 171.2109375, count: 57172"
           }
         ]
       }

@@ -152,6 +152,19 @@ WHERE l.content @@@ 'smartphone'
 GROUP BY l.id, l.content
 HAVING COUNT(r.id) > 0  -- HAVING conditions often trigger joininfo
 ORDER BY left_score DESC;
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 4
+WARNING:  analyze_single_join_condition: clause type = T_OpExpr
+WARNING:  analyze_single_join_condition: processing OpExpr
+WARNING:  Analyzing OpExpr: operator OID = 96, is_equality = true
+WARNING:  OpExpr is an equi-join condition
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Equi
+WARNING:  analyze_single_join_condition: clause type = T_OpExpr
+WARNING:  analyze_single_join_condition: processing OpExpr
+WARNING:  Analyzing OpExpr: operator OID = 96, is_equality = true
+WARNING:  OpExpr is an equi-join condition
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Equi
+WARNING:  analyze_join_condition_type: has equi conditions, returning Equi
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
      left_content      | right_count | left_score 
 -----------------------+-------------+------------
  smartphone technology |           2 |  1.2039728

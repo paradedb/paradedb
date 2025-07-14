@@ -282,6 +282,36 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR condition with LeftOuter - processing 0 target clauses for relation 1
+WARNING:  No safe conditions found for relation 1 in OR
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 2 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR condition with LeftOuter - processing 0 target clauses for relation 1
+WARNING:  No safe conditions found for relation 1 in OR
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
  count | count 
 -------+-------
     13 |    13

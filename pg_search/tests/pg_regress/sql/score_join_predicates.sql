@@ -219,6 +219,20 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
 
+-- Test LEFT JOIN behavior (should optimize right side only)
+EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF) 
+SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+FROM books b
+LEFT JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+
+-- Test RIGHT JOIN behavior (should optimize left side only)
+EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF)
+SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
+FROM books b
+RIGHT JOIN authors a ON b.author_id = a.id
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+
 -- Cleanup
 DROP TABLE IF EXISTS books;
 DROP TABLE IF EXISTS authors; 

@@ -102,6 +102,26 @@ WHERE b.content @@@ 'test'
     OR r.review @@@ 'test'
     OR r.review @@@ 'snippet'
 ORDER BY b.id, r.id;
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 3 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 4
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 2 clauses for relation 4, 2 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
  book_id | book_snippet | book_positions |   author_snippet    | author_positions | review_snippet | review_positions | book_score | author_score | review_score 
 ---------+--------------+----------------+---------------------+------------------+----------------+------------------+------------+--------------+--------------
        1 |              |                |                     |                  |                |                  |            |            0 |             

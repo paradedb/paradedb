@@ -90,6 +90,28 @@ JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
 ORDER BY product_score DESC;
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 2 clauses for relation 1, 2 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 2 clauses for relation 2, 2 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
                test_name                | product_name |                     review_content                     | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
  Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |               |             
@@ -206,6 +228,17 @@ WHERE (
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
 ORDER BY product_score DESC;
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 1 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |              

@@ -205,6 +205,28 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 2 clauses for relation 1, 1 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 2 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
            a_content            | a_value |          b_content           | b_priority | a_score | b_score 
 --------------------------------+---------+------------------------------+------------+---------+---------
  smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
@@ -242,6 +264,28 @@ CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 1 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 2, 1 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
            a_content            | a_value |          b_content           | b_priority | a_score | b_score 
 --------------------------------+---------+------------------------------+------------+---------+---------
  smartphone technology advanced |     100 | advanced features smartphone |          1 |         |        
@@ -273,6 +317,28 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
 ORDER BY a_score DESC, b_score DESC;
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type Inner and condition type Complex - cannot decompose safely: 1 clauses for relation 1, 1 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: non-equi join condition - condition rejected
+WARNING:  Skipping advanced OR decomposition: non-equi join condition detected
+WARNING:  analyze_join_condition_type: found 1 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR condition with Inner - processing 0 target clauses for relation 2
+WARNING:  No safe conditions found for relation 2 in OR
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  Skipping advanced OR decomposition: cross-table dependency detected
            a_content            |          b_content           | a_score | b_score 
 --------------------------------+------------------------------+---------+---------
  smartphone technology advanced | advanced features smartphone |         |        
@@ -330,6 +396,36 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
+WARNING:  analyze_join_condition_type: found 2 join conditions for target_rti 1
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 1, 4 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  analyze_join_condition_type: found 4 join conditions for target_rti 2
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 2, 4 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
+WARNING:  analyze_join_condition_type: found 3 join conditions for target_rti 4
+WARNING:  analyze_single_join_condition: clause type = T_BoolExpr
+WARNING:  analyze_single_join_condition: processing BoolExpr
+WARNING:  analyze_boolexpr_join_condition: boolop = 1
+WARNING:  analyze_boolexpr_join_condition: OR_EXPR, returning Complex
+WARNING:  analyze_join_condition_type: analyzed join condition, type = Complex
+WARNING:  analyze_join_condition_type: returning Complex
+WARNING:  Cross-table OR with join type LeftOuter and condition type Complex - cannot decompose safely: 2 clauses for relation 4, 4 external clauses
+WARNING:  Cross-table OR decomposition rejected: join condition type Complex is not an equi-join (only equi-joins are safe)
+WARNING:  Condition classified as UNSAFE: cross-table dependency - condition rejected
            a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
 --------------------------------+------------------------------+------------------------+---------+---------+---------
  smartphone technology advanced | advanced features smartphone |                        |         |         |        

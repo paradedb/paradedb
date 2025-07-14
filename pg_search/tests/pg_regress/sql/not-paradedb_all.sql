@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS notpdball;
 CALL paradedb.create_bm25_test_table(
         schema_name => 'public',

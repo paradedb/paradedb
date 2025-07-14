@@ -24,7 +24,7 @@ SELECT
     (random() * 4 + 1)::int
 FROM generate_series(1, 9000000) as id;
 
-CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', target_segment_count = 16, layer_sizes = '1kb, 10kb, 100kb, 1mb, 10mb', background_layer_sizes = '0');
+CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', target_segment_count = 16, layer_sizes = '1kb, 10kb', background_layer_sizes = '100kb, 1mb, 10mb');
 CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool LANGUAGE plpgsql AS $$
 DECLARE
     current_txid bigint;
@@ -120,3 +120,10 @@ sql = """
 DELETE FROM test WHERE id > 9000001;
 """
 
+[[jobs]]
+refresh_ms = 1000
+title = "Vacuum"
+log_tps = true
+sql = """
+VACUUM test;
+"""

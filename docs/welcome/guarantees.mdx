@@ -13,7 +13,7 @@ Durability — the "D" in ACID — means that once a transaction is committed, i
 ### Concurrency
 
 ParadeDB is designed to support concurrent reads and writes in the same way that Postgres does — by adhering to Postgres' [multi-version
-concurrency control (MVCC)](https://www.postgresql.org/docs/7.1/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the BM25
+concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the BM25
 index under concurrent load.
 
 Both read and write throughput under concurrent load can be improved by tuning Postgres' settings. For instance, read throughput can be improved

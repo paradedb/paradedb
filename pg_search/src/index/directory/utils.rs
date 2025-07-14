@@ -162,7 +162,7 @@ pub unsafe fn save_new_metas(
 
             if meta_entry.delete.is_some() {
                 // remember the old delete_entry for future action
-                orphaned_deletes_files.push((meta_entry.xmax, meta_entry.delete.unwrap()));
+                orphaned_deletes_files.push(meta_entry);
             }
 
             // replace (or set new) the delete_entry
@@ -292,12 +292,12 @@ pub unsafe fn save_new_metas(
         // properly delete the blocks associated with the orphaned file
         let fake_entries = orphaned_deletes_files
             .into_iter()
-            .map(|(_, delete_entry)| SegmentMetaEntry {
+            .map(|old_entry| SegmentMetaEntry {
                 segment_id: SegmentId::from_bytes([0; 16]), // all zeros
-                max_doc: delete_entry.num_deleted_docs,
-                xmax: pg_sys::FrozenTransactionId, // immediately recyclable
-                delete: Some(delete_entry), // the file whose bytes we need to ensure get garbage collected in the future
-                ..Default::default()
+                xmax: pg_sys::FrozenTransactionId,          // immediately recyclable
+                delete: Some(old_entry.delete.unwrap()),
+                max_doc: old_entry.delete.unwrap().num_deleted_docs,
+                ..old_entry
             })
             .collect::<Vec<_>>();
         linked_list.add_items(&fake_entries, None);

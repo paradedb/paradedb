@@ -31,6 +31,7 @@ use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{check_for_interrupts, pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
+use tantivy::index::SegmentId;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 pub struct InsertState {
@@ -430,13 +431,18 @@ pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMe
     let mut bman = BufferManager::new(indexrel);
     bman.fsm().extend(
         &mut bman,
-        freeable_entries
-            .iter()
-            .flat_map(move |entry| {
-                entry.file_entries().map(move |(file_entry, _)| {
+        freeable_entries.iter().flat_map(move |entry| {
+            let is_fake_entry = entry.segment_id == SegmentId::from_bytes([0; 16])
+                && entry.xmax == pg_sys::FrozenTransactionId;
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if is_fake_entry {
+                let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
+                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
+            } else {
+                Box::new(entry.file_entries().flat_map(move |(file_entry, _)| {
                     LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                })
-            })
-            .flatten(),
+                }))
+            };
+            iter
+        }),
     );
 }

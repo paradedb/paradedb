@@ -51,7 +51,7 @@ An LSM tree is a write-optimized data structure commonly used in systems like Ro
 These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called merging or compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
 
 In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
-is actually a collection of many inverted/columnar indexes.
+is actually a collection of many inverted/columnar indexes, each of which allows for very dense intersection queries to rapidly filter matches.
 
 ## Design Philosophy
 

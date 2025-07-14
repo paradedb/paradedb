@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752523326392,
+  "lastUpdate": 1752523328771,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1528,6 +1528,126 @@ window.BENCHMARK_DATA = {
             "value": 95.70703125,
             "unit": "median mem",
             "extra": "avg mem: 93.75278319602066, max mem: 99.36328125, count: 54984"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8",
+          "message": "fix: orphaned delete entries get GCed too early (#2845)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWhen running a new stressgres suite (coming in a future PR), I hit a\nmysterious bug where it looked like vacuum could cause corruption of\nsome pages.\n\nTurns out it's caused by scenarios where:\n\n1. A `DeleteEntry` already exists for a `SegmentMetaEntry`, and a new\none is created\n2. A new, \"fake\" `SegmentMetaEntry` gets created for the purpose of\nstoring the old `DeleteEntry`, so its blocks can get garbage collected\n3. Because this \"fake\" entry is invisible to all readers besides the\ngarbage collector, it doesn't get pinned and can get garbage collected\ntoo early (i.e. while a reader is still pinning the old `DeleteEntry`)\n\nThe solution is to copy all of the contents of the old\n`SegmentMetaEntry` to the fake one, so that the \"pintest blockno\" of the\nfake entry is that same as that of the entry with the new `DeleteEntry`.\nThat way, the `DeleteEntry` doesn't get garbage collected until the pin\nis released.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-14T15:46:29-04:00",
+          "tree_id": "3dc55f49de121cf04534f48e3584a2a3ae333407",
+          "url": "https://github.com/paradedb/paradedb/commit/ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8"
+        },
+        "date": 1752523327858,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 7.470817,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.274012821663131, max cpu: 23.622047, count: 55164"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 111.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 106.07697643617215, max mem: 115.23046875, count: 55164"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.666822819955045, max cpu: 9.266409, count: 55164"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 99.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 93.34382994627384, max mem: 100.97265625, count: 55164"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.281864593742709, max cpu: 23.622047, count: 55164"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 110.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.44843805233032, max mem: 112.62890625, count: 55164"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.578298620432221, max cpu: 9.195402, count: 55164"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 110.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.26415969597473, max mem: 110.34765625, count: 55164"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.703995005384538, max cpu: 24.0, count: 110328"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 111.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 110.46807520104824, max mem: 124.49609375, count: 110328"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9829,
+            "unit": "median block_count",
+            "extra": "avg block_count: 9131.244326009717, max block_count: 9829.0, count: 55164"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 120,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 119.26651439344501, max segment_count: 341.0, count: 55164"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.107539509745548, max cpu: 18.916256, count: 55164"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 115.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 110.78700110409416, max mem: 120.984375, count: 55164"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.390804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 16.420937973394224, max cpu: 32.36994, count: 55164"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 109.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 102.61008927640762, max mem: 110.92578125, count: 55164"
           }
         ]
       }

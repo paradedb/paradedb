@@ -21,7 +21,7 @@ When a table row is inserted or updated, the BM25 index is immediately notified.
 Postgres allows extensions to define new execution nodes that can run custom logic — such as filters or aggregations — as part of query execution.
 These nodes are called [custom scans](https://www.postgresql.org/docs/current/custom-scan.html).
 
-ParadeDB's custom scan allows filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index. It also supports Postgres parallel workers, allowing query performance to scale
+ParadeDB's custom scans allow filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index. They also support Postgres parallel workers, allowing query performance to scale
 with the underlying hardware.
 
 ## Data Model

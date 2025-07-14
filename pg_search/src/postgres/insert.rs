@@ -432,9 +432,9 @@ pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMe
     bman.fsm().extend(
         &mut bman,
         freeable_entries.iter().flat_map(move |entry| {
-            let is_fake_entry = entry.segment_id == SegmentId::from_bytes([0; 16])
+            let is_orphaned_delete = entry.segment_id == SegmentId::from_bytes([0; 16])
                 && entry.xmax == pg_sys::FrozenTransactionId;
-            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if is_fake_entry {
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if is_orphaned_delete {
                 let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
                 Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
             } else {

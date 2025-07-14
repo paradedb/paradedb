@@ -194,6 +194,11 @@ impl SegmentMetaEntry {
         self.xmax == pg_sys::FrozenTransactionId
     }
 
+    /// In `save_new_metas`, if a new `DeleteEntry` is created and there was already a `DeleteEntry`,
+    /// we create a "fake" `SegmentMetaEntry` that stores the old `DeleteEntry` so it can be garbage collected
+    /// later.
+    ///
+    /// This function returns true if the `SegmentMetaEntry` is a "fake" `DeleteEntry`
     pub fn is_orphaned_delete(&self) -> bool {
         self.segment_id == SegmentId::from_bytes([0; 16])
             && self.xmax == pg_sys::FrozenTransactionId

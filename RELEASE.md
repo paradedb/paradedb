@@ -28,15 +28,15 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 
 ## Release Preparation
 
-Before triggering the workflow, create a **Release Prepation PR** against `main`:
+Before triggering the workflow, create a **Release Preparation PR** against the branch you're releasing from (`main`, or a stable branch like `0.16.x`):
 
 - Update the `Cargo.toml` version:
   - `a.b.c-rc.d` for **beta** releases
   - `a.b.0` for **minor** releases
 - Run `cargo check` to refresh the `Cargo.lock` file with the new version
 - Add a `pg_search--<previous-version>--<upcoming-version>` upgrade script
-- (Minor only) Update the version references in the upgrade docs and in `docs/docs.json`
-- (Minor and patch only) Write a changelog entry and add it to `docs/docs.json`
+- Update the version references in the upgrade docs and in `docs/docs.json`
+- Write a changelog entry and add it to `docs/docs.json`
 
 Here is an [example release preparation PR](https://github.com/paradedb/paradedb/pull/2770) for your reference.
 
@@ -55,11 +55,11 @@ To publish a minor or beta release for the current ongoing latest `main`:
 
 To publish a patch for an older release:
 
-1. **Branch off** the target tag (e.g. `git checkout -b patch/<version>.x <release-tag>`)
-2. Cherry-pick the fixes you need into your patch branch
-3. Complete the Release Preparation PR work in your patch branch
+1. **Branch off** the target tag (e.g. `git checkout -b 0.16.x <release-tag>`), if a stable branch does not already exist
+2. Cherry-pick the fixes you need into the stable branch
+3. Complete the Release Preparation PR work in the stable branch
 4. Go to [Actions → Publish GitHub Release](https://github.com/paradedb/paradedb/actions/workflows/publish-github-release.yml)
-5. Click **Run workflow**, select your patch branch as the release branch, and set your inputs
+5. Click **Run workflow**, select the stable branch as the release branch, and set your inputs
 
 ## Post-Release Steps
 

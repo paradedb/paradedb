@@ -11,7 +11,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - staging
+      - 0.*.x
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"

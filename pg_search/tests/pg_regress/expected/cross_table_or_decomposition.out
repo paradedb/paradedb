@@ -330,20 +330,20 @@ WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
 ORDER BY a_score DESC, b_score DESC, c_score DESC;
-           a_content            |          b_content           |       c_content        |  a_score   |  b_score  |  c_score  
---------------------------------+------------------------------+------------------------+------------+-----------+-----------
- smartphone technology advanced | gaming experience immersive  |                        |  1.5606477 |         0 |          
- smartphone technology advanced | advanced features smartphone |                        |  1.5606477 |         0 |          
- game console modern            | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
- laptop computer powerful       | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
- game console modern            | high performance specs       | narrative structure    | 0.35667497 | 2.4221077 |         0
- laptop computer powerful       | high performance specs       | performance benchmarks | 0.35667497 | 2.4221077 |         0
- game console modern            | gaming experience immersive  |                        | 0.35667497 |         0 |          
- laptop computer powerful       | advanced features smartphone |                        | 0.35667497 |         0 |          
- laptop computer powerful       | gaming experience immersive  |                        | 0.35667497 |         0 |          
- game console modern            | advanced features smartphone |                        | 0.35667497 |         0 |          
- laptop computer powerful       | storytelling narrative       | technology innovation  | 0.35667497 |         0 | 2.3040886
- laptop computer powerful       | storytelling narrative       | entertainment value    | 0.35667497 |         0 |         0
+           a_content            |          b_content           |       c_content        | a_score | b_score | c_score 
+--------------------------------+------------------------------+------------------------+---------+---------+---------
+ smartphone technology advanced | advanced features smartphone |                        |         |         |        
+ smartphone technology advanced | gaming experience immersive  |                        |         |         |        
+ laptop computer powerful       | advanced features smartphone |                        |         |         |        
+ laptop computer powerful       | high performance specs       | narrative structure    |         |         |        
+ laptop computer powerful       | high performance specs       | performance benchmarks |         |         |        
+ laptop computer powerful       | storytelling narrative       | entertainment value    |         |         |        
+ laptop computer powerful       | storytelling narrative       | technology innovation  |         |         |        
+ laptop computer powerful       | gaming experience immersive  |                        |         |         |        
+ game console modern            | advanced features smartphone |                        |         |         |        
+ game console modern            | high performance specs       | narrative structure    |         |         |        
+ game console modern            | high performance specs       | performance benchmarks |         |         |        
+ game console modern            | gaming experience immersive  |                        |         |         |        
 (12 rows)
 
 -- =============================================================================

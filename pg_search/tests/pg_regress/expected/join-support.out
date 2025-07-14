@@ -96,8 +96,8 @@ WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY author_score DESC, book_score DESC;
  author_name |    book_title     | author_score | book_score 
 -------------+-------------------+--------------+------------
- Jane Doe    | The Mystery House |    1.1374958 |          0
- Alice Brown | Love in Paris     |            0 |  1.4398423
+ Jane Doe    | The Mystery House |              |           
+ Alice Brown | Love in Paris     |              |           
 (2 rows)
 
 -- Test 3: RIGHT JOIN with equi-join condition
@@ -118,9 +118,9 @@ WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'algorithms')
 ORDER BY author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
- Bob Johnson | Programming Guide   |    0.6548752 |  1.4398423
- John Smith  | Future Technologies |    0.6548752 |          0
- John Smith  | Space Adventure     |    0.6548752 |          0
+ John Smith  | Future Technologies |              |           
+ Bob Johnson | Programming Guide   |              |           
+ John Smith  | Space Adventure     |              |           
 (3 rows)
 
 -- Test 4: Three-table equi-join (simulated with CROSS JOIN for simplicity)

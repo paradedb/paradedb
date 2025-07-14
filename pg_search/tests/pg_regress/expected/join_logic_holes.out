@@ -109,12 +109,12 @@ WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id;
           test_name          |   author_name   |     book_title      | author_score | book_score 
 -----------------------------+-----------------+---------------------+--------------+------------
- Test 2: LEFT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |    0.8195878 | 0.07281293
- Test 2: LEFT JOIN Semantics | J.K. Rowling    | Magic Detective     |    0.8195878 | 0.06918573
- Test 2: LEFT JOIN Semantics | Stephen King    | The Shining Terror  |    0.8195878 | 0.07684152
- Test 2: LEFT JOIN Semantics | Agatha Christie | Murder Mystery Case |            0 | 0.07281293
- Test 2: LEFT JOIN Semantics | George Orwell   | Dystopian Future    |            0 | 0.07684152
- Test 2: LEFT JOIN Semantics | Jane Austen     | Pride Romance       |            0 | 0.07684152
+ Test 2: LEFT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |              |           
+ Test 2: LEFT JOIN Semantics | J.K. Rowling    | Magic Detective     |              |           
+ Test 2: LEFT JOIN Semantics | Stephen King    | The Shining Terror  |              |           
+ Test 2: LEFT JOIN Semantics | Agatha Christie | Murder Mystery Case |              |           
+ Test 2: LEFT JOIN Semantics | George Orwell   | Dystopian Future    |              |           
+ Test 2: LEFT JOIN Semantics | Jane Austen     | Pride Romance       |              |           
 (6 rows)
 
 -- Test Case 3: Complex Boolean Logic Across Tables
@@ -175,12 +175,12 @@ WHERE a.bio @@@ 'British' OR b.content @@@ 'story'
 ORDER BY b.id;
           test_name           |   author_name   |     book_title      | author_score | book_score 
 ------------------------------+-----------------+---------------------+--------------+------------
- Test 5: RIGHT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |    1.2978076 | 0.07281293
- Test 5: RIGHT JOIN Semantics | Stephen King    | The Shining Terror  |            0 | 0.07684152
- Test 5: RIGHT JOIN Semantics | Agatha Christie | Murder Mystery Case |            0 | 0.07281293
- Test 5: RIGHT JOIN Semantics | George Orwell   | Dystopian Future    |            0 | 0.07684152
- Test 5: RIGHT JOIN Semantics | Jane Austen     | Pride Romance       |            0 | 0.07684152
- Test 5: RIGHT JOIN Semantics | J.K. Rowling    | Magic Detective     |    1.2978076 | 0.06918573
+ Test 5: RIGHT JOIN Semantics | J.K. Rowling    | Harry Potter Magic  |              |           
+ Test 5: RIGHT JOIN Semantics | Stephen King    | The Shining Terror  |              |           
+ Test 5: RIGHT JOIN Semantics | Agatha Christie | Murder Mystery Case |              |           
+ Test 5: RIGHT JOIN Semantics | George Orwell   | Dystopian Future    |              |           
+ Test 5: RIGHT JOIN Semantics | Jane Austen     | Pride Romance       |              |           
+ Test 5: RIGHT JOIN Semantics | J.K. Rowling    | Magic Detective     |              |           
 (6 rows)
 
 -- Test Case 6: Conditions with NULL-generating Joins
@@ -201,9 +201,9 @@ WHERE a.bio @@@ 'author'
 ORDER BY a.id;
           test_name           | author_name  |     book_title     | category_name | author_score | book_score | category_score 
 ------------------------------+--------------+--------------------+---------------+--------------+------------+----------------
- Test 6: NULL-generating Join | J.K. Rowling | Harry Potter Magic | Fantasy       |    0.8195878 | 0.07281293 |      1.3862944
- Test 6: NULL-generating Join | J.K. Rowling | Magic Detective    | Mystery       |    0.8195878 | 0.06918573 |              0
- Test 6: NULL-generating Join | Stephen King | The Shining Terror | Horror        |    0.8195878 | 0.07684152 |              0
+ Test 6: NULL-generating Join | J.K. Rowling | Harry Potter Magic | Fantasy       |              |            |               
+ Test 6: NULL-generating Join | J.K. Rowling | Magic Detective    | Mystery       |              |            |               
+ Test 6: NULL-generating Join | Stephen King | The Shining Terror | Horror        |              |            |               
 (3 rows)
 
 -- Test Case 7: Mixed Indexed and Non-indexed Conditions in Joins
@@ -266,11 +266,11 @@ WHERE a.bio @@@ 'author'
 ORDER BY author_score DESC, book_score DESC, review_score DESC;
        test_name        |  author_name  |     book_title     |                      review_content                       | author_score | book_score | review_score 
 ------------------------+---------------+--------------------+-----------------------------------------------------------+--------------+------------+--------------
- Test 9: Cross-table OR | J.K. Rowling  | Harry Potter Magic | Amazing magical story with great characters               |    0.8195878 |  1.5135247 |   0.44677252
- Test 9: Cross-table OR | Stephen King  | The Shining Terror | Terrifying horror story that kept me awake                |    0.8195878 |          0 |   0.41868672
- Test 9: Cross-table OR | J.K. Rowling  | Magic Detective    | Interesting combination of mystery and magic              |    0.8195878 |          0 |            0
- Test 9: Cross-table OR | George Orwell | Dystopian Future   | Thought-provoking story about surveillance                |            0 |          0 |    0.4788973
- Test 9: Cross-table OR | Jane Austen   | Pride Romance      | Beautiful romantic story with great character development |            0 |          0 |   0.41868672
+ Test 9: Cross-table OR | J.K. Rowling  | Harry Potter Magic | Amazing magical story with great characters               |    0.8195878 |            |             
+ Test 9: Cross-table OR | Stephen King  | The Shining Terror | Terrifying horror story that kept me awake                |    0.8195878 |            |             
+ Test 9: Cross-table OR | J.K. Rowling  | Magic Detective    | Interesting combination of mystery and magic              |    0.8195878 |            |             
+ Test 9: Cross-table OR | George Orwell | Dystopian Future   | Thought-provoking story about surveillance                |            0 |            |             
+ Test 9: Cross-table OR | Jane Austen   | Pride Romance      | Beautiful romantic story with great character development |            0 |            |             
 (5 rows)
 
 -- Test Case 10: Nested Boolean Logic

@@ -270,11 +270,18 @@ impl<P: Into<*mut pg_sys::List> + Default> CustomPathBuilder<P> {
             } else if !baseri.is_empty() {
                 // the baserestrictinfo has entries, so we prefer that first
                 (baseri, RestrictInfoType::BaseRelation)
+            } else if !Self::restrict_info_is_pushed_down(&joinri) {
+                // if not all the entries are pushed down, we don't want to use this joininfo
+                (PgList::new(), RestrictInfoType::None)
             } else {
                 // only the joininfo has entries, so that's what we'll use
                 (joinri, RestrictInfoType::Join)
             }
         }
+    }
+
+    fn restrict_info_is_pushed_down(restrict_info: &PgList<pg_sys::RestrictInfo>) -> bool {
+        unsafe { restrict_info.iter_ptr().all(|ri| (*ri).is_pushed_down) }
     }
 
     #[allow(dead_code)]

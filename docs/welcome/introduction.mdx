@@ -23,7 +23,8 @@ ParadeDB may be a good fit for your stack if:
 - Expensive aggregates (`COUNT`s, `GROUP BY`s) and "top N" queries (i.e. `ORDER BY`s) frequently hit query timeouts.
 - You have tried `tsvector` and the `GIN` index for text search, but lack of fuzzy matching,
   BM25 relevance scoring, advanced query types, etc. leads to low-quality results.
-- Your application requires real-time results over data that's frequently updated.
+- Your application requires real-time results over data that's frequently updated, and the sync process with
+  tools like Elasticsearch is time-consuming/error-prone
 
 ## ParadeDB vs. Alternatives
 
@@ -37,7 +38,7 @@ There are many search and analytical databases to choose from. ParadeDB differen
 
 ## Production Readiness
 
-As a company, ParadeDB is just over two years old. ParadeDB launched in the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has been validated in
+As a company, ParadeDB is over two years old. ParadeDB launched in the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has been validated in
 production since December 2023.
 
 [ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 100,000 times in the past 12 months.
@@ -45,7 +46,7 @@ ParadeDB Enterprise, the durable and production-hardened edition
 of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
 examples include:
 
-- **Alibaba**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available]().
+- **Alibaba**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://paradedb.com/blog/case_study_alibaba).
 - **Bilt Rewards**<sup>1</sup>, a rent payments technology company that processed over $36B in payments in 2024.
 - **Modern Treasury**<sup>1</sup>, a financial technology company that automates the full cycle of money movement.
 - **UnifyGTM**<sup>1</sup>, one of the fastest-growing startups in AI sales automation.

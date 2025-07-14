@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752523964713,
+  "lastUpdate": 1752523966633,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2428,6 +2428,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.57635118780041, max segment_count: 96.0, count: 57838"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8",
+          "message": "fix: orphaned delete entries get GCed too early (#2845)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWhen running a new stressgres suite (coming in a future PR), I hit a\nmysterious bug where it looked like vacuum could cause corruption of\nsome pages.\n\nTurns out it's caused by scenarios where:\n\n1. A `DeleteEntry` already exists for a `SegmentMetaEntry`, and a new\none is created\n2. A new, \"fake\" `SegmentMetaEntry` gets created for the purpose of\nstoring the old `DeleteEntry`, so its blocks can get garbage collected\n3. Because this \"fake\" entry is invisible to all readers besides the\ngarbage collector, it doesn't get pinned and can get garbage collected\ntoo early (i.e. while a reader is still pinning the old `DeleteEntry`)\n\nThe solution is to copy all of the contents of the old\n`SegmentMetaEntry` to the fake one, so that the \"pintest blockno\" of the\nfake entry is that same as that of the entry with the new `DeleteEntry`.\nThat way, the `DeleteEntry` doesn't get garbage collected until the pin\nis released.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-14T15:46:29-04:00",
+          "tree_id": "3dc55f49de121cf04534f48e3584a2a3ae333407",
+          "url": "https://github.com/paradedb/paradedb/commit/ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8"
+        },
+        "date": 1752523965734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.666938319763997, max cpu: 42.687748, count: 57841"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.44932119949516, max mem: 236.4765625, count: 57841"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.09615333318723, max cpu: 33.07087, count: 57841"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.57799472638354, max mem: 163.609375, count: 57841"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21877,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20393.73112498055, max block_count: 23329.0, count: 57841"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 66,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 67.84244739890389, max segment_count: 95.0, count: 57841"
           }
         ]
       }

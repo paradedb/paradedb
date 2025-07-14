@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752509172338,
+  "lastUpdate": 1752523326392,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -514,6 +514,72 @@ window.BENCHMARK_DATA = {
             "value": 5.864855221310597,
             "unit": "median tps",
             "extra": "avg tps: 9.952981181211312, max tps: 1062.695868132195, count: 54984"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8",
+          "message": "fix: orphaned delete entries get GCed too early (#2845)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWhen running a new stressgres suite (coming in a future PR), I hit a\nmysterious bug where it looked like vacuum could cause corruption of\nsome pages.\n\nTurns out it's caused by scenarios where:\n\n1. A `DeleteEntry` already exists for a `SegmentMetaEntry`, and a new\none is created\n2. A new, \"fake\" `SegmentMetaEntry` gets created for the purpose of\nstoring the old `DeleteEntry`, so its blocks can get garbage collected\n3. Because this \"fake\" entry is invisible to all readers besides the\ngarbage collector, it doesn't get pinned and can get garbage collected\ntoo early (i.e. while a reader is still pinning the old `DeleteEntry`)\n\nThe solution is to copy all of the contents of the old\n`SegmentMetaEntry` to the fake one, so that the \"pintest blockno\" of the\nfake entry is that same as that of the entry with the new `DeleteEntry`.\nThat way, the `DeleteEntry` doesn't get garbage collected until the pin\nis released.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-14T15:46:29-04:00",
+          "tree_id": "3dc55f49de121cf04534f48e3584a2a3ae333407",
+          "url": "https://github.com/paradedb/paradedb/commit/ee6395b4b4d4ca6f44e2c89b74afd2308d4415a8"
+        },
+        "date": 1752523325508,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 301.9666978664777,
+            "unit": "median tps",
+            "extra": "avg tps: 302.06048906291755, max tps: 531.7082304256362, count: 55164"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2313.7055097403972,
+            "unit": "median tps",
+            "extra": "avg tps: 2304.1777467335255, max tps: 2665.074111076118, count: 55164"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 303.562357343436,
+            "unit": "median tps",
+            "extra": "avg tps: 304.21293647018865, max tps: 504.7387284589783, count: 55164"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 247.90344007713242,
+            "unit": "median tps",
+            "extra": "avg tps: 248.78827685846798, max tps: 416.59428340992423, count: 55164"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 155.6409323961807,
+            "unit": "median tps",
+            "extra": "avg tps: 155.7193212636969, max tps: 160.05364832848377, count: 110328"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 139.16054140037977,
+            "unit": "median tps",
+            "extra": "avg tps: 138.58103916617492, max tps: 140.3050881236465, count: 55164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.961278230928719,
+            "unit": "median tps",
+            "extra": "avg tps: 9.438792350180849, max tps: 1254.4832093694843, count: 55164"
           }
         ]
       }

@@ -45,7 +45,6 @@ use crate::postgres::customscan::builders::custom_state::{
 };
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::condition_safety::{ConditionSafety, UnsafetyReason};
 use crate::postgres::customscan::pdbscan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -323,59 +322,31 @@ impl PdbScan {
         let safe_conditions = extract_safe_conditions_for_relation(&safety, target_rti);
 
         // 6. For OR conditions, try advanced decomposition if basic extraction fails
-        // But only if the condition safety classifier didn't reject due to semantic violation
         if safe_conditions.is_none() {
             if let Qual::Or(_) = quals {
-                // Check if the condition was rejected due to semantic violation (cross-table OR)
-                match safety {
-                    ConditionSafety::Unsafe(UnsafetyReason::SemanticViolation) => {
-                        pgrx::warning!(
-                            "Skipping advanced OR decomposition: cross-table OR would change semantics"
-                        );
-                        return None;
-                    }
-                    ConditionSafety::Unsafe(UnsafetyReason::CrossTableDependency) => {
-                        pgrx::warning!(
-                            "Skipping advanced OR decomposition: cross-table dependency detected"
-                        );
-                        return None;
-                    }
-                    ConditionSafety::Unsafe(UnsafetyReason::NonEquiJoinCondition) => {
-                        pgrx::warning!(
-                            "Skipping advanced OR decomposition: non-equi join condition detected"
-                        );
-                        return None;
-                    }
-                    _ => {
-                        // Only try advanced decomposition for other failure reasons
-                        if join_context.is_safe_for_or_decomposition() {
-                            pgrx::warning!(
-                                "Attempting advanced OR decomposition for target relation {}",
-                                target_rti
-                            );
+                if join_context.is_safe_for_or_decomposition() {
+                    pgrx::warning!(
+                        "Attempting advanced OR decomposition for target relation {}",
+                        target_rti
+                    );
 
-                            // Try to extract OR conditions specific to this relation
-                            let or_conditions = extract_or_conditions_for_relation(
-                                quals,
-                                target_rti,
-                                &join_context,
-                                true, // Assume has BM25 index
-                            );
+                    // Try to extract OR conditions specific to this relation
+                    let or_conditions = extract_or_conditions_for_relation(
+                        quals,
+                        target_rti,
+                        &join_context,
+                        true, // Assume has BM25 index
+                    );
 
-                            if let Some(conditions) = or_conditions {
-                                pgrx::warning!(
-                                    "Advanced OR decomposition successful: {:?}",
-                                    conditions
-                                );
-                                return Some(conditions);
-                            }
-                        } else {
-                            pgrx::warning!(
-                                "OR decomposition rejected: {:?} join type incompatible with cross-table OR",
-                                join_context.join_type
-                            );
-                        }
+                    if let Some(conditions) = or_conditions {
+                        pgrx::warning!("Advanced OR decomposition successful: {:?}", conditions);
+                        return Some(conditions);
                     }
+                } else {
+                    pgrx::warning!(
+                        "OR decomposition rejected: {:?} join type incompatible with cross-table OR",
+                        join_context.join_type
+                    );
                 }
             }
         }

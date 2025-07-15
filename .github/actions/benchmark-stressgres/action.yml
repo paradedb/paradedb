@@ -156,7 +156,7 @@ runs:
             ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
             ${{ inputs.pr_title }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
             <https://paradedb.github.io/paradedb/stressgres/>
-          file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}}.png
+          file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
 
     - name: Print Postgres Logs

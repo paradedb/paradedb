@@ -126,8 +126,13 @@ impl PgSearchRelation {
     /// This relation will be closed when we're the last of our reference-counted clones to be dropped.
     pub fn open(oid: pg_sys::Oid) -> Self {
         unsafe {
-            // SAFETY: RelationIdGetRelation() always returns a valid RelationData pointer
+            // SAFETY: RelationIdGetRelation() should return a valid RelationData pointer
+            // unless no pg_class row could be found (suggesting the relation was just dropped)
             let relation = pg_sys::RelationIdGetRelation(oid);
+            if relation.is_null() {
+                panic!("relation not found, suggesting it was just dropped");
+            }
+
             Self(Some(Rc::new((
                 NonNull::new_unchecked(relation),
                 true,
@@ -135,6 +140,27 @@ impl PgSearchRelation {
                 Default::default(),
                 BM25IndexOptions::from_relation(relation),
             ))))
+        }
+    }
+
+    /// Open a relation with the specified [`pg_sys::Oid`]
+    ///
+    /// Like `open`, but fallible
+    pub fn try_open(oid: pg_sys::Oid) -> Option<Self> {
+        // SAFETY: See `open`
+        unsafe {
+            let relation = pg_sys::RelationIdGetRelation(oid);
+            if relation.is_null() {
+                None
+            } else {
+                Some(Self(Some(Rc::new((
+                    NonNull::new_unchecked(relation),
+                    true,
+                    None,
+                    Default::default(),
+                    BM25IndexOptions::from_relation(relation),
+                )))))
+            }
         }
     }
 

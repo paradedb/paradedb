@@ -146,7 +146,11 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         pgrx::debug1!("adjusted foreground_layer_sizes: {foreground_layer_sizes:?}");
 
         let mut background_layer_sizes = index_options.background_layer_sizes();
-        background_layer_sizes.retain(|&layer_size| layer_size < target_byte_size);
+        let max_foreground_layer_size = foreground_layer_sizes.iter().max().unwrap_or(&0);
+        // additionally, ensure the background layer sizes are greater than the foreground ones
+        background_layer_sizes.retain(|&layer_size| {
+            layer_size < target_byte_size && layer_size > *max_foreground_layer_size
+        });
         pgrx::debug1!("adjusted background_layer_sizes {background_layer_sizes:?}");
 
         Self {
@@ -255,20 +259,23 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
         };
 
-        pgrx::log!(
+        pgrx::debug1!(
             "{}: starting background merge",
             BackgroundWorker::get_name()
         );
 
         let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
-
-        pgrx::log!("{}: args: {:?}", BackgroundWorker::get_name(), args);
-
-        let index = PgSearchRelation::open(args.index_oid());
+        let index = PgSearchRelation::try_open(args.index_oid());
+        if index.is_none() {
+            pgrx::debug1!(
+                "{}: index not found, suggesting it was just dropped",
+                BackgroundWorker::get_name()
+            );
+            return;
+        }
+        let index = index.unwrap();
         let metadata = MetaPage::open(&index);
         let layer_sizes = IndexLayerSizes::from(&index);
-
-        pgrx::log!("{}: {:?}", BackgroundWorker::get_name(), args.merge_style());
 
         if args.merge_style() == MergeStyle::Vacuum {
             pgrx::debug1!(
@@ -283,7 +290,7 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
         }
 
-        pgrx::log!(
+        pgrx::debug1!(
             "{}: merging background layers",
             BackgroundWorker::get_name()
         );
@@ -292,9 +299,6 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(background_layers);
         let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
-
-        pgrx::log!("{}: got merge lock", BackgroundWorker::get_name());
-
         unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
     });
 }
@@ -360,7 +364,7 @@ unsafe fn merge_index(
                 break;
             }
 
-            pgrx::log!("merging candidate with {} segments", candidate.0.len());
+            pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
             if merge_result.is_err() {

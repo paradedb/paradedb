@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752619794308,
+  "lastUpdate": 1752619796099,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4024,6 +4024,66 @@ window.BENCHMARK_DATA = {
             "value": 164.13671875,
             "unit": "median mem",
             "extra": "avg mem: 153.75233415589358, max mem: 173.49609375, count: 57164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7bdeebed6249725c87b87c276d2e09dfaffd152",
+          "message": "ci: publish stressgres benchmark graphs (#2852)\n\nThis will publish every stressgres benchmark graph to the new\n`paradedb/benchmark-data` repo.\n\nIt also ensures that when one of our \"[benchmark]\" labels are applied,\nthat it does *not* pull the benchmarks from main, but instead from the\nPR branch itself.",
+          "timestamp": "2025-07-15T18:13:26-04:00",
+          "tree_id": "f18bf519521a03613c5b12c861092f24314476ad",
+          "url": "https://github.com/paradedb/paradedb/commit/c7bdeebed6249725c87b87c276d2e09dfaffd152"
+        },
+        "date": 1752619795165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.626298320818297, max cpu: 67.267265, count: 56424"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.75,
+            "unit": "median mem",
+            "extra": "avg mem: 168.88672027306643, max mem: 176.5859375, count: 56424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19612,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17942.553328370905, max block_count: 22538.0, count: 56424"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 83.916950233943, max segment_count: 180.0, count: 56424"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.230637444066675, max cpu: 37.029896, count: 56424"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.04628335792393, max mem: 173.91796875, count: 56424"
           }
         ]
       }

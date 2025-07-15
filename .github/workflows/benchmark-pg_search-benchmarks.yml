@@ -72,7 +72,7 @@ jobs:
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites, and actions
-        if: ${{ !(github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarks') }}
+        if: github.event_name != 'pull_request' || (github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks')
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

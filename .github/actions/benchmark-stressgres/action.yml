@@ -145,7 +145,7 @@ runs:
       run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
-      if: github.event_name != 'pull_request'
+      if: true || github.event_name != 'pull_request'
       uses: slackapi/slack-github-action@v2
       with:
         method: files.uploadV2

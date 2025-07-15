@@ -36,18 +36,21 @@ runs:
         path: ${{ inputs.repo-path }}
 
     - name: Configure Git user
+      shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
         git config user.name "ParadeDB push file action"
         git config user.email "developers@paradedb.com"
 
     - name: Stage changes
+      shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
         cp ../${{ inputs.file-name }} ./
         git add "${{ inputs.file-name }}"
 
     - name: Commit changes if needed
+      shell: bash
       id: commit
       working-directory: "${{ inputs.repo-path }}"
       run: |
@@ -59,10 +62,12 @@ runs:
         fi
 
     - name: Push changes
+      shell: bash
       if: steps.commit.outputs.no_changes == 'false'
       working-directory: "${{ inputs.repo-path }}"
       run: |
         git push origin HEAD:${{ inputs.branch }}
 
     - name: Cleanup
+      shell: bash
       run: rm -rf "${{ inputs.repo-path }}"

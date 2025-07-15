@@ -248,8 +248,14 @@ impl PdbScan {
 
             let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
 
-            // If we have found something to push down in the join, or if we have found something to
-            // push down in the base relation, then we can use the join quals
+            // If we have found something to push down in the join, then we can use the join quals
+            // Note: these Join quals won't help in filtering down the data (as they contain
+            // external vars, e.g. `b.category_name @@@ "technology"` in
+            // `a.name @@@ "abc" OR b.category_name @@@ "technology"`), and we cannot evalute
+            // boolean expressions that contain external vars. That's why, when handling the Join
+            // quals, we'd endup scanning the whole tantivy index.
+            // However, the Join quals help with scoring and snippet generation, as the documents
+            // that match partially the Join quals will be scored and snippets generated.
             if state.uses_our_operator {
                 (quals, RestrictInfoType::Join, joinri)
             } else {

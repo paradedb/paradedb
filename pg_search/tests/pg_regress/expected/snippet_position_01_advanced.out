@@ -136,6 +136,212 @@ ORDER BY b.id, a.id;
        4 |         3 |                |                  |            0 |          0
 (4 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 1
+   ->  Sort
+         Sort Key: b.id, a.id
+         ->  Parallel Hash Join
+               Hash Cond: (b.author_id = a.id)
+               ->  Parallel Custom Scan (ParadeDB Scan) on books b
+                     Table: books
+                     Index: books_id_author_id_content_titles_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+               ->  Parallel Hash
+                     ->  Parallel Custom Scan (ParadeDB Scan) on authors a
+                           Table: authors
+                           Index: authors_id_name_age_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 1
+   ->  Sort
+         Sort Key: b.id, a.id
+         ->  Parallel Hash Join
+               Hash Cond: (b.author_id = a.id)
+               ->  Parallel Custom Scan (ParadeDB Scan) on books b
+                     Table: books
+                     Index: books_id_author_id_content_titles_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
+               ->  Parallel Hash
+                     ->  Parallel Custom Scan (ParadeDB Scan) on authors a
+                           Table: authors
+                           Index: authors_id_name_age_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}
+(19 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id | author_snippet | author_positions | author_score | book_score 
+---------+-----------+----------------+------------------+--------------+------------
+       1 |         2 |                |                  |            0 | 0.45681813
+       1 |         6 |                |                  |            0 | 0.35745716
+       2 |         2 |                |                  |            0 | 0.36441684
+       4 |         3 |                |                  |            0 | 0.20612015
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 1
+   ->  Sort
+         Sort Key: b.id, a.id
+         ->  Parallel Hash Join
+               Hash Cond: (b.author_id = a.id)
+               ->  Parallel Custom Scan (ParadeDB Scan) on books b
+                     Table: books
+                     Index: books_id_author_id_content_titles_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}]}}
+               ->  Parallel Hash
+                     ->  Parallel Custom Scan (ParadeDB Scan) on authors a
+                           Table: authors
+                           Index: authors_id_name_age_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Gather Merge
+   Workers Planned: 1
+   ->  Sort
+         Sort Key: b.id, a.id
+         ->  Parallel Hash Join
+               Hash Cond: (a.id = b.author_id)
+               ->  Parallel Custom Scan (ParadeDB Scan) on authors a
+                     Table: authors
+                     Index: authors_id_name_age_idx
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}
+               ->  Parallel Hash
+                     ->  Parallel Custom Scan (ParadeDB Scan) on books b
+                           Table: books
+                           Index: books_id_author_id_content_titles_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}]}}
+(19 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id | author_snippet | author_positions | author_score | book_score 
+---------+-----------+----------------+------------------+--------------+------------
+(0 rows)
+
 WITH book_snippets AS (
     SELECT
         b.id as book_id,
@@ -145,7 +351,7 @@ WITH book_snippets AS (
         paradedb.score(b.id) as book_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
-    WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+    WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
 )
 SELECT
     bs.*,
@@ -157,15 +363,10 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
- book_id |   author_snippet    | author_positions | author_score | book_score |                                     review                                      |                                               review_snippet                                                |             review_positions             | review_score 
----------+---------------------+------------------+--------------+------------+---------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+--------------
-       1 |                     |                  |            0 | 0.45681813 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
-       1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
-       1 |                     |                  |            0 | 0.35745716 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
-       2 |                     |                  |            0 | 0.36441684 | Another test review of the snippet snippet function with repeated snippet words | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} |    0.7406344
-       2 |                     |                  |            0 | 0.36441684 | test review of the snippet snippet function with repeated snippet words         | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  |   0.75704324
-       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617 | test review of the snippet function with multiple test words                    | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            |    0.5505729
-(6 rows)
+ book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |       review_positions        | review_score 
+---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------------+--------------
+       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {"{0,4}","{19,26}","{50,54}"} |    0.5505729
+(1 row)
 
 SELECT
     b.id as book_id,

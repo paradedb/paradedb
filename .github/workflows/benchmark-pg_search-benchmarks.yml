@@ -82,7 +82,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const { owner, repo } = context.repo;
-            const sha = ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }};
+            const sha = ${{ steps.commit_info.outputs.short_commit }};
             const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
               owner,
               repo,

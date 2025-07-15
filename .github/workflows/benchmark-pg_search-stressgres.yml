@@ -73,6 +73,8 @@ jobs:
 
       - name: Fetch latest benchmark code, suites, and actions
         uses: ./.github/actions/benchmarks-from-main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find PR for this commit
         id: find_pr

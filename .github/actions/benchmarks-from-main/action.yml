@@ -1,6 +1,11 @@
 name: benchmarks-from-main
 description: Fetch latest benchmark code, suites, and actions from `main`
 
+inputs:
+  github-token:
+    description: "GitHub token to authenticate with"
+    required: true
+
 # We manually fetch the benchmark queries *and* our custom actions from `main` to make sure all are available
 # when backfilling old commits potentially created before new queries were added.
 
@@ -12,7 +17,7 @@ runs:
       with:
         repository: ${{ github.repository }}
         path: bench-temp
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ inputs.github_token }}
         fetch-depth: 1
         ref: main
 

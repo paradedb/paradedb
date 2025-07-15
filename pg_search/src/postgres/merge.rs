@@ -17,15 +17,20 @@
 
 use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::SearchIndexMerger;
+use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
+use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::buffer::{Buffer, BufferManager};
+use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
-use pgrx::pg_sys;
+use pgrx::{check_for_interrupts, pg_sys};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
+use tantivy::index::{Index, SegmentMeta};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -171,6 +176,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     let background_layers = layer_sizes.background();
 
     let metadata = MetaPage::open(index);
+    let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
     let needs_background_merge = !background_layers.is_empty() && {
@@ -183,7 +189,15 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
     // first merge down the foreground layers
     if !foreground_layers.is_empty() && style == MergeStyle::Insert {
         let foreground_merge_policy = LayeredMergePolicy::new(foreground_layers);
-        unsafe { foreground_merge_policy.merge_index(index, merge_lock, false) };
+        unsafe {
+            merge_index(
+                index,
+                foreground_merge_policy,
+                merge_lock,
+                cleanup_lock,
+                false,
+            )
+        };
     } else {
         // we no longer need to hold the [`MergeLock`] as we're not merging in the foreground
         drop(merge_lock);
@@ -256,8 +270,9 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 
             let foreground_layers = layer_sizes.foreground();
             let merge_policy = LayeredMergePolicy::new(foreground_layers);
+            let cleanup_lock = metadata.cleanup_lock_shared();
             let merge_lock = unsafe { metadata.acquire_merge_lock() };
-            unsafe { merge_policy.merge_index(&index, merge_lock, true) };
+            unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
         }
 
         pgrx::debug1!(
@@ -267,9 +282,155 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 
         let background_layers = layer_sizes.background();
         let merge_policy = LayeredMergePolicy::new(background_layers);
+        let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
-        unsafe { merge_policy.merge_index(&index, merge_lock, true) };
+        unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
     });
+}
+
+pub unsafe fn merge_index(
+    indexrel: &PgSearchRelation,
+    mut merge_policy: LayeredMergePolicy,
+    merge_lock: MergeLock,
+    cleanup_lock: Buffer,
+    gc_after_merge: bool,
+) {
+    // keep track of how many segments we had before we started merging
+    // used to terminate this merge early if we predict we'll end up below the target segment count
+    let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
+        .expect("should be able to open index")
+        .searchable_segment_ids()
+        .expect("should be able to get searchable segment ids")
+        .len() as i32;
+    let index_options = indexrel.options();
+    let target_segment_count = index_options.target_segment_count() as i32;
+
+    // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
+    // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
+    // before it decides to find the segments it should vacuum.  The reason is that it needs to see
+    // the final merged segment, not the original segments that will be deleted
+    let metadata = MetaPage::open(indexrel);
+    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
+        .expect("should be able to open merger");
+
+    // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
+    // simulating the process, allowing concurrent merges to consider segments we're not, only retaining
+    // the segments it decides can be merged into one or more candidates
+    merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+    let merge_candidates = merge_policy.simulate();
+    // before we start merging, tell the merger to release pins on the segments it won't be merging
+    let mut merger = merger
+        .adjust_pins(merge_policy.mergeable_segments())
+        .expect("should be table to adjust merger pins");
+
+    let mut need_gc = !gc_after_merge;
+    let ncandidates = merge_candidates.len();
+    if ncandidates > 0 {
+        // record all the segments the SearchIndexMerger can see, as those are the ones that
+        // could be merged
+        let merge_entry = merge_lock
+            .merge_list()
+            .add_segment_ids(merge_policy.mergeable_segments())
+            .expect("should be able to write current merge segment_id list");
+        drop(merge_lock);
+
+        // we are NOT under the MergeLock at this point, which allows concurrent backends to also merge
+        //
+        // we defer raising a panic in the face of a merge error as we need to remove the created
+        // `merge_entry` whether the merge worked or not
+
+        let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
+
+        for candidate in merge_candidates {
+            segment_count -= candidate.0.len() as i32 - 1;
+            if segment_count < target_segment_count {
+                pgrx::debug1!("ending merge early: segment count {segment_count} would be less than target segment count {target_segment_count}");
+                break;
+            }
+
+            pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
+
+            merge_result = merger.merge_segments(&candidate.0);
+            if merge_result.is_err() {
+                break;
+            }
+            if gc_after_merge {
+                garbage_collect_index(indexrel);
+                need_gc = false;
+            }
+        }
+
+        // re-acquire the MergeLock to remove the entry we made above
+        let merge_lock = metadata.acquire_merge_lock();
+        merge_lock
+            .merge_list()
+            .remove_entry(merge_entry)
+            .expect("should be able to remove MergeEntry");
+        drop(merge_lock);
+
+        // we can garbage collect and return blocks back to the FSM without being under the MergeLock
+        if need_gc {
+            garbage_collect_index(indexrel);
+        }
+
+        // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
+        check_for_interrupts!();
+
+        if let Err(e) = merge_result {
+            panic!("failed to merge: {e:?}");
+        }
+    } else {
+        drop(merge_lock);
+    }
+    drop(cleanup_lock);
+}
+
+///
+/// Garbage collect the segments, removing any which are no longer visible in transactions
+/// occurring in this process.
+///
+/// If physical replicas might still be executing transactions on some segments, then they are
+/// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
+/// in use, at which point they can be freed by `free_garbage`.
+///
+pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
+    // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
+    // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
+    // transactions either.
+    //
+    // SEGMENT_METAS must be updated atomically so that a consistent list is visible for consumers:
+    // SEGMENT_METAS_GARBAGE need not be because it is only ever consumed on the physical
+    // replication primary.
+    let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
+    let mut segment_metas = segment_metas_linked_list.atomically();
+    let entries = segment_metas.garbage_collect();
+
+    // Replication is not enabled: immediately free the entries. It doesn't matter when we
+    // commit the segment metas list in this case.
+    segment_metas.commit();
+    free_entries(indexrel, entries);
+}
+
+/// Chase down all the files in a segment and return them to the FSM
+pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
+    let mut bman = BufferManager::new(indexrel);
+    bman.fsm().extend(
+        &mut bman,
+        freeable_entries.iter().flat_map(move |entry| {
+            // if the entry is a "fake" `DeleteEntry`, we need to free the blocks for the old `DeleteEntry` only
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()
+            {
+                let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
+                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
+            // otherwise, we need to free the blocks for all the files in the `SegmentMetaEntry`
+            } else {
+                Box::new(entry.file_entries().flat_map(move |(file_entry, _)| {
+                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
+                }))
+            };
+            iter
+        }),
+    );
 }
 
 #[cfg(any(test, feature = "pg_test"))]

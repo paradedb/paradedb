@@ -21,10 +21,6 @@ use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::SegmentMetaEntry;
-use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
@@ -213,51 +209,4 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             }
         }
     }
-}
-
-///
-/// Garbage collect the segments, removing any which are no longer visible in transactions
-/// occurring in this process.
-///
-/// If physical replicas might still be executing transactions on some segments, then they are
-/// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
-/// in use, at which point they can be freed by `free_garbage`.
-///
-pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
-    // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
-    // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
-    // transactions either.
-    //
-    // SEGMENT_METAS must be updated atomically so that a consistent list is visible for consumers:
-    // SEGMENT_METAS_GARBAGE need not be because it is only ever consumed on the physical
-    // replication primary.
-    let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
-    let mut segment_metas = segment_metas_linked_list.atomically();
-    let entries = segment_metas.garbage_collect();
-
-    // Replication is not enabled: immediately free the entries. It doesn't matter when we
-    // commit the segment metas list in this case.
-    segment_metas.commit();
-    free_entries(indexrel, entries);
-}
-
-pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
-    let mut bman = BufferManager::new(indexrel);
-    bman.fsm().extend(
-        &mut bman,
-        freeable_entries.iter().flat_map(move |entry| {
-            // if the entry is a "fake" `DeleteEntry`, we need to free the blocks for the old `DeleteEntry` only
-            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()
-            {
-                let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
-                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
-            // otherwise, we need to free the blocks for all the files in the `SegmentMetaEntry`
-            } else {
-                Box::new(entry.file_entries().flat_map(move |(file_entry, _)| {
-                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                }))
-            };
-            iter
-        }),
-    );
 }

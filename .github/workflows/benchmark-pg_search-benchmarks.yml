@@ -99,7 +99,7 @@ jobs:
       - name: Running for ${{ steps.find_pr.outputs.result }}"
         shell: bash
         run: |
-          echo ${{ steps.find_pr.outputs.result }}"
+          echo ${{ steps.find_pr.outputs.result }}
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

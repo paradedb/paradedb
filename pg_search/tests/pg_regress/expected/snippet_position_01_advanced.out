@@ -58,40 +58,6 @@ CREATE INDEX ON reviews USING bm25 (
     book_id,
     review
 ) WITH (key_field = 'id');
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    b.id as book_id,
-    a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
-FROM books b
-JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
-ORDER BY b.id, a.id;
-                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: b.id, a.id
-   ->  Hash Join
-         Hash Cond: (b.author_id = a.id)
-         Join Filter: ((b.id @@@ '{"with_index":{"oid":480871,"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (a.id @@@ '{"with_index":{"oid":480870,"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  Custom Scan (ParadeDB Scan) on books b
-               Table: books
-               Index: books_id_author_id_content_titles_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}},"all"]}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on authors a
-                     Table: authors
-                     Index: authors_id_name_age_idx
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}
-(18 rows)
-
 SELECT
     b.id as book_id,
     a.id as author_id,
@@ -112,40 +78,6 @@ ORDER BY b.id, a.id;
        3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617
        4 |         3 |                     |                  |            0 | 0.20612015
 (6 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    b.id as book_id,
-    a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
-FROM books b
-JOIN authors a ON b.author_id = a.id
-WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
-ORDER BY b.id, a.id;
-                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: b.id, a.id
-   ->  Hash Join
-         Hash Cond: (b.author_id = a.id)
-         Join Filter: ((b.id @@@ '{"with_index":{"oid":480871,"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (NOT (a.id @@@ '{"with_index":{"oid":480870,"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)))
-         ->  Custom Scan (ParadeDB Scan) on books b
-               Table: books
-               Index: books_id_author_id_content_titles_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}},"all"]}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on authors a
-                     Table: authors
-                     Index: authors_id_name_age_idx
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"boolean":{"should":["all",{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(18 rows)
 
 SELECT
     b.id as book_id,
@@ -168,40 +100,6 @@ ORDER BY b.id, a.id;
        4 |         3 |                     |                  |            0 | 0.20612015
 (6 rows)
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    b.id as book_id,
-    a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
-FROM books b
-JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
-ORDER BY b.id, a.id;
-                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: b.id, a.id
-   ->  Hash Join
-         Hash Cond: (b.author_id = a.id)
-         Join Filter: ((NOT (b.id @@@ '{"with_index":{"oid":480871,"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) OR (a.id @@@ '{"with_index":{"oid":480870,"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-         ->  Custom Scan (ParadeDB Scan) on books b
-               Table: books
-               Index: books_id_author_id_content_titles_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}]}},"all"]}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on authors a
-                     Table: authors
-                     Index: authors_id_name_age_idx
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}
-(18 rows)
-
 SELECT
     b.id as book_id,
     a.id as author_id,
@@ -218,40 +116,6 @@ ORDER BY b.id, a.id;
        1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
        3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
 (2 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    b.id as book_id,
-    a.id as author_id,
-    paradedb.snippet(a.name) as author_snippet,
-    paradedb.snippet_positions(a.name) as author_positions,
-    paradedb.score(a.id) as author_score,
-    paradedb.score(b.id) as book_score
-FROM books b
-JOIN authors a ON b.author_id = a.id
-WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
-ORDER BY b.id, a.id;
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: b.id, a.id
-   ->  Hash Join
-         Hash Cond: (b.author_id = a.id)
-         Join Filter: ((NOT (b.id @@@ '{"with_index":{"oid":480871,"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)) OR (NOT (a.id @@@ '{"with_index":{"oid":480870,"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)))
-         ->  Custom Scan (ParadeDB Scan) on books b
-               Table: books
-               Index: books_id_author_id_content_titles_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}]}},"all"]}}
-         ->  Hash
-               ->  Custom Scan (ParadeDB Scan) on authors a
-                     Table: authors
-                     Index: authors_id_name_age_idx
-                     Exec Method: NormalScanExecState
-                     Scores: true
-                     Tantivy Query: {"boolean":{"should":["all",{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(18 rows)
 
 SELECT
     b.id as book_id,

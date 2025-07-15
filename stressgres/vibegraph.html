@@ -29,7 +29,6 @@
   <script>
     async function initCharts() {
       try {
-        // Load data.js
         const res = await fetch('https://paradedb.github.io/paradedb/stressgres/data.js');
         const scriptText = await res.text(); eval(scriptText);
         Chart.register(ChartZoom);
@@ -42,12 +41,7 @@
           return;
         }
 
-        // Collect unique commit shorts
-        const uniqueShorts = Array.from(
-          new Set(allEntries.map(e => e.commit.id.slice(0,7)))
-        );
-
-        // Build release map by fetching all tag refs once
+        const uniqueFull = Array.from(new Set(allEntries.map(e => e.commit.id)));
         const releaseMap = {};
         try {
           const [relResp, tagRefsResp] = await Promise.all([
@@ -62,187 +56,138 @@
               const tagObj = await (await fetch(ref.object.url)).json();
               commitSha = tagObj.object.sha;
             }
-            const short = commitSha.slice(0,7);
-            releaseMap[short] = {
-              label: tag,
-              url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`
-            };
+            releaseMap[commitSha] = { label: tag, url: `https://github.com/paradedb/paradedb/releases/tag/${tag}` };
           }
-        } catch (err) {
-          console.warn('Failed to build release map', err);
-        }
+        } catch {}
 
-        // Resolve commit shorts to labels (release or PR)
         const hashInfo = {};
-        await Promise.all(
-          uniqueShorts.map(async short => {
-            if (releaseMap[short]) {
-              hashInfo[short] = releaseMap[short];
-            } else {
-              try {
-                const prResp = await fetch(
-                  `https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`,
-                  { headers: { Accept: 'application/vnd.github.groot-preview+json' } }
-                );
-                const prs = await prResp.json();
-                if (Array.isArray(prs) && prs.length) {
-                  const pr = prs[0];
-                  hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
-                  return;
-                }
-              } catch {}
-              hashInfo[short] = { label: short, url: null };
-            }
-          })
-        );
+        await Promise.all(uniqueFull.map(async full => {
+          if (releaseMap[full]) hashInfo[full] = releaseMap[full];
+          else {
+            try {
+              const prResp = await fetch(
+                `https://api.github.com/repos/paradedb/paradedb/commits/${full}/pulls`,
+                { headers: { Accept: 'application/vnd.github.groot-preview+json' } }
+              );
+              const prs = await prResp.json();
+              if (Array.isArray(prs) && prs.length) {
+                const pr = prs[0];
+                hashInfo[full] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+                return;
+              }
+            } catch {}
+            hashInfo[full] = { label: full.slice(0,7), url: null };
+          }
+        }));
 
-        // Group entries by filename
         const fileGroups = {};
         Object.entries(rawData).forEach(([cat, ents]) => {
           const filename = cat.split(' ')[1] || cat;
           fileGroups[filename] = (fileGroups[filename] || []).concat(ents);
         });
 
-        fileGroups && Object.entries(fileGroups).forEach(([filename, entries]) => {
+        Object.entries(fileGroups).forEach(([filename, entries]) => {
           const section = document.createElement('section');
           section.className = 'bg-white p-6 rounded-xl shadow-lg';
           const fh = document.createElement('h2'); fh.className = 'text-2xl font-semibold mb-4'; fh.textContent = filename;
           section.appendChild(fh);
 
-          // Group by metric
           const metricGroups = {};
           entries.forEach(ent => {
-            const commitTs = new Date(ent.commit.timestamp).getTime();
+            const cTs = new Date(ent.commit.timestamp).getTime();
             ent.benches.forEach(b => {
               const metric = b.name.split(' - ').pop();
               metricGroups[metric] = metricGroups[metric] || [];
-              metricGroups[metric].push({
-                name: b.name,
-                unit: b.unit,
-                commitTs,
-                runTs: ent.date,
-                short: ent.commit.id.slice(0,7),
-                value: b.value
-              });
+              metricGroups[metric].push({ name: b.name, unit: b.unit, commitTs: cTs, runTs: new Date(ent.date).getTime(), full: ent.commit.id, value: b.value });
             });
           });
 
           Object.entries(metricGroups).forEach(([metric, benchData]) => {
-            const runKeys = [...new Set(benchData.map(d => `${d.commitTs}|${d.runTs}|${d.short}`))];
-            const runs = runKeys.map(k => {
-              const [c, r, h] = k.split('|');
-              return { commitTs: +c, runTs: +r, short: h };
-            }).sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
+            const runKeys = [...new Set(benchData.map(d => `${d.commitTs}|${d.runTs}|${d.full}`))];
+            const runs = runKeys.map(k => { const [c, r, f] = k.split('|'); return { commitTs: +c, runTs: +r, full: f }; })
+                              .sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);
 
-            const fullLabels = runs.map(r => hashInfo[r.short]?.label || r.short);
-            const labels = fullLabels.map(l => l.length>25 ? l.slice(0,25)+'…' : l);
-            const runUrls = runs.map(r => hashInfo[r.short]?.url);
+            const fullLabels = runs.map(r => hashInfo[r.full]?.label || r.full.slice(0,7));
+            const labels = fullLabels.map(l => l.length > 20 ? `${l.slice(0,20)}…` : l);
+            const imageUrls = runs.map(r => `https://raw.githubusercontent.com/paradedb/benchmark-data/refs/heads/main/stressgres-${filename.replace('.toml','')}-${r.full}.png`);
 
             const seriesMap = {};
             benchData.forEach(d => {
               seriesMap[d.name] = seriesMap[d.name] || [];
-              const idx = runs.findIndex(r => r.commitTs===d.commitTs && r.runTs===d.runTs && r.short===d.short);
+              const idx = runs.findIndex(r => r.commitTs===d.commitTs && r.runTs===d.runTs && r.full===d.full);
               seriesMap[d.name][idx] = d.value;
             });
 
-            const datasets = Object.entries(seriesMap).map(([nm,data]) => ({
-              label: nm,
-              data,
-              original: data.slice(),
-              fill: false,
-              tension: 0.4,
-              borderWidth: 2
-            }));
+            const datasets = Object.entries(seriesMap).map(([nm,data]) => ({ label: nm, data, original: data.slice(), fill: false, tension: 0.4, borderWidth: 2 }));
 
-            // Outlier detection
             const maxVals = datasets.map(ds => Math.max(...ds.original.filter(v=>v!=null)));
             const mean = maxVals.reduce((s,v)=>s+v,0)/maxVals.length;
             const std = Math.sqrt(maxVals.map(v=>(v-mean)**2).reduce((s,v)=>s+v,0)/maxVals.length);
             const normal = datasets.filter((_,i)=>maxVals[i]<=mean+2*std);
             const outliers = datasets.filter((_,i)=>maxVals[i]>mean+2*std);
-            const groups = outliers.length
-              ? [{ title: 'Normal series', data: normal }, { title: 'Outliers', data: outliers }]
-              : [{ title: metric, data: datasets }];
+            const groups = outliers.length ? [{ title: 'Normal series', data: normal }, { title: 'Outliers', data: outliers }] : [{ title: metric, data: datasets }];
 
             groups.forEach(group => {
-              const gh = document.createElement('h3');
-              gh.className = 'text-xl font-semibold mt-6 mb-2';
+              const gh = document.createElement('h3'); gh.className='text-xl font-semibold mt-6 mb-2';
               gh.textContent = group.title===metric ? metric : `${metric} (${group.title})`;
               section.appendChild(gh);
 
-              const cw = document.createElement('div'); cw.className = 'mb-8 chart-container';
-              cw.innerHTML = `
-                <div class="toggle-switch">
-                  <label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label>
-                  <label><input type="checkbox" checked class="yzero-toggle"/><span>Y Axis from Zero</span></label>
-                </div>`;
+              const cw = document.createElement('div'); cw.className='mb-8 chart-container';
+              cw.innerHTML = `<div class="toggle-switch"><label><input type="checkbox" class="norm-toggle"/><span>Normalize to First Value</span></label></div>`;
               const canvas = document.createElement('canvas'); cw.appendChild(canvas);
               const resetBtn = document.createElement('button'); resetBtn.className='reset-btn'; resetBtn.textContent='Zoom Out';
-              const btnWrap = document.createElement('div'); btnWrap.className='flex justify-start mt-2'; btnWrap.appendChild(resetBtn);
-              cw.appendChild(btnWrap);
+              cw.appendChild(Object.assign(document.createElement('div'), { className: 'flex justify-start mt-2' })).appendChild(resetBtn);
+
+              const linksEl = document.createElement('div');
+              linksEl.className = 'mt-2';
+              // Comma-separated PR# or release tag links
+              const linkHtml = runs.map((r, i) => {
+                // Extract only the PR# or tag name (before any colon)
+                const label = hashInfo[r.full].label.split(':')[0];
+                return `<a href="${imageUrls[i]}" class="text-blue-600 underline" target="_blank">${label}</a>`;
+              }).join(', ');
+              linksEl.innerHTML = linkHtml;
+              cw.appendChild(linksEl);
               section.appendChild(cw);
 
-              const showLegend = group.data.length>1;
               const chart = new Chart(canvas.getContext('2d'), {
                 type: 'line',
                 data: { labels, datasets: group.data },
                 options: {
                   responsive: true,
-                  scales: { x: { ticks: { maxRotation:33, minRotation:33 } }, y: { beginAtZero: true, title: { display: true, text: benchData[0]?.unit || '' } } },
+                  scales: { x: { ticks: { maxRotation:33, minRotation:33 } }, y: { beginAtZero: true, title: { display:true, text:benchData[0]?.unit||'' } } },
                   plugins: {
-                    legend: { display: showLegend, onClick: (e, li, legend) => {
-                      const ci = legend.chart, meta = ci.getDatasetMeta(li.datasetIndex);
-                      meta.hidden = meta.hidden===null ? !ci.data.datasets[li.datasetIndex].hidden : null;
-                      ci.update();
-                    }},
-                    title: { display: !showLegend, text: group.data[0].label, font: { size: 16 } },
-                    tooltip: { mode:'index', intersect:false, callbacks: {
-                      title: items => fullLabels[items[0].dataIndex],
-                      label: ctx => {
-                        const ds = ctx.dataset, idx = ctx.dataIndex;
-                        const raw = ds.original[idx];
-                        if (ctx.chart.normalized && ds.original[0]) {
-                          const delta = (raw - ds.original[0]) / ds.original[0] * 100;
-                          return `${ds.label}: ${delta>=0?'+':''}${delta.toFixed(0)}%`;
+                    legend: { display:group.data.length>1, onClick:(e, li, legend)=>{const ci=legend.chart, meta=ci.getDatasetMeta(li.datasetIndex); meta.hidden=meta.hidden===null?!ci.data.datasets[li.datasetIndex].hidden:null; ci.update();}},
+                    tooltip: {
+                      mode:'index', intersect:false,
+                      callbacks: {
+                        title: items => fullLabels[items[0].dataIndex],
+                        label: ctx => {
+                          const ds = ctx.dataset, idx = ctx.dataIndex, raw = ds.original[idx];
+                          const lines = [`${ds.label}: ${raw!=null? raw.toFixed(2):'–'}`];
+                          if (!ctx.chart.normalized && idx>0 && ds.original[idx-1]!=null) {
+                            const pct = ((raw - ds.original[idx-1])/ds.original[idx-1])*100;
+                            lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from prev`);
+                          }
+                          return lines;
                         }
-                        const lines = [`${ds.label}: ${raw!=null?raw.toFixed(2):'–'}`];
-                        if (!ctx.chart.normalized && idx>0 && ds.original[idx-1]!=null) {
-                          const pct = ((raw - ds.original[idx-1])/ds.original[idx-1])*100;
-                          lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from prev`);
-                        }
-                        return lines;
                       }
-                    }},
-                    zoom: { zoom: { drag: { enabled: true } } }
-                  },
-                  onClick: (_, elems) => { if (elems.length) window.open(runUrls[elems[0].index]); }
+                    }
+                  }
                 }
               });
-              chart.normalized = false;
 
-              // Toggles
               cw.querySelector('.norm-toggle').addEventListener('change', e => {
-                chart.resetZoom();
-                const norm = e.target.checked;
-                chart.normalized = norm;
-                chart.data.datasets.forEach(ds => {
-                  ds.data = norm && ds.original[0] ? ds.original.map(v => v!=null? v/ds.original[0] : null) : ds.original.slice();
-                });
+                chart.resetZoom(); const norm=e.target.checked;
+                chart.data.datasets.forEach(ds=>{ds.data=norm&&ds.original[0]?ds.original.map(v=>v!=null?v/ds.original[0]:null):ds.original.slice();});
                 chart.update();
               });
-              cw.querySelector('.yzero-toggle').addEventListener('change', e => {
-                chart.options.scales.y.beginAtZero = e.target.checked;
-                chart.resetZoom(); chart.update();
-              });
-              resetBtn.addEventListener('click', () => chart.resetZoom());
+              resetBtn.addEventListener('click',()=>chart.resetZoom());
             });
           });
           container.appendChild(section);
         });
-      } catch (err) {
-        console.error(err);
-        document.getElementById('charts').innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
-      }
+      } catch(err) { console.error(err); container.innerHTML='<p class="text-red-500">Failed to load benchmark data.</p>'; }
     }
     document.addEventListener('DOMContentLoaded', initCharts);
   </script>

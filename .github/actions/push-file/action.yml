@@ -7,7 +7,7 @@ inputs:
     description: "Remote repository in owner/name format."
     required: true
   token:
-    description: "GitHub token for authentication (e.g., ${{ secrets.GITHUB_TOKEN }})."
+    description: "GitHub token for authentication."
     required: true
   branch:
     description: "Branch to check out and push to."

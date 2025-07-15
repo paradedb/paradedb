@@ -78,7 +78,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone' AND p.price > 500)  -- Mixed: search + non-indexed
   AND (c.name @@@ 'Electronics' AND c.is_active = true)   -- Mixed: search + indexed
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
 
 -- Test Case 1b: Complex OR expression requiring all clauses to be safe
 -- The enhanced system explains why OR expressions are rejected when any clause is unsafe
@@ -92,7 +92,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
-ORDER BY product_score DESC;
+ORDER BY p.id, r.id, product_score DESC;
 
 -- =============================================================================
 -- BENEFIT 2: Intelligent Partial Salvage of AND Expressions
@@ -111,7 +111,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'laptop')        -- Safe: search on target table
   AND (p.price > 1000)                    -- Unsafe: non-indexed field
   AND (c.name @@@ 'Electronics')         -- Unsafe: external table reference
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
 
 -- Test Case 2b: Comparison with simple condition to show salvage benefit
 -- This shows what happens when we can push down the safe part
@@ -121,7 +121,7 @@ SELECT
     paradedb.score(p.id) as product_score
 FROM products p
 WHERE p.description @@@ 'laptop'
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
 
 -- =============================================================================
 -- BENEFIT 3: Conservative OR Handling Prevents Semantic Violations
@@ -141,7 +141,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')    -- Safe condition on products
    OR (c.description @@@ 'electronic')    -- External condition on categories
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
 
 -- Test Case 3b: Safe OR expression (all clauses reference same table)
 -- Shows when OR expressions can be safely pushed down
@@ -152,7 +152,7 @@ SELECT
 FROM products p
 WHERE (p.description @@@ 'smartphone')
    OR (p.name @@@ 'laptop')
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
 
 -- =============================================================================
 -- BENEFIT 4: Enhanced Edge Case Detection
@@ -174,7 +174,7 @@ WHERE (
     OR 
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, r.id, product_score DESC;
 
 -- Test Case 4b: Mixed indexed and non-indexed conditions across tables
 -- Shows how the system handles complex real-world scenarios
@@ -188,7 +188,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' AND p.price > 1000)     -- Mixed on products
   AND (r.content @@@ 'excellent' AND r.is_verified = true) -- Mixed on reviews
-ORDER BY product_score DESC;
+ORDER BY p.id, r.id, product_score DESC;
 
 -- =============================================================================
 -- BENEFIT 5: Consistency in Score Calculation
@@ -208,7 +208,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')
   AND (c.name = 'Electronics')  -- Non-search condition that could cause issues
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
 
 -- Test Case 5b: Equivalent query structure showing consistent results
 -- Shows that our fixes maintain consistent scoring
@@ -218,7 +218,7 @@ SELECT
     paradedb.score(p.id) as product_score
 FROM products p
 WHERE p.description @@@ 'smartphone'
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
 
 -- =============================================================================
 -- BENEFIT 6: Improved Developer Experience with Clear Diagnostics
@@ -247,7 +247,7 @@ WHERE (
     OR
     (p.in_stock = true AND c.is_active = true)                -- Unknown conditions
 )
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, r.id, product_score DESC;
 
 -- Test Case 6b: Query showing partial salvage in action
 -- Demonstrates how AND expressions can have parts salvaged
@@ -261,7 +261,7 @@ WHERE (p.description @@@ 'smartphone')   -- Safe: can be pushed down
   AND (p.price > 500)                    -- Unsafe: non-indexed
   AND (c.is_active = true)               -- Unsafe: external table
   AND (p.name @@@ 'phone')              -- Safe: can be pushed down
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
 
 -- =============================================================================
 -- SUMMARY: Before vs After Comparison

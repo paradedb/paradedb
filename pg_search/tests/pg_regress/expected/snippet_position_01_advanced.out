@@ -54,6 +54,79 @@ CREATE INDEX ON reviews USING bm25 (
     book_id,
     review
 ) WITH (key_field = 'id');
+EXPLAIN (ANALYZE, COSTS, VERBOSE)
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=400000020.21..400000020.22 rows=4 width=80) (actual time=2.948..2.950 rows=4 loops=1)
+   Output: b.id, a.id, (paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150)), (paradedb.snippet_positions(a.name)), (paradedb.score(a.id)), (paradedb.score(b.id))
+   Sort Key: b.id, a.id
+   Sort Method: quicksort  Memory: 25kB
+   ->  Hash Join  (cost=200000020.11..400000020.17 rows=4 width=80) (actual time=2.878..2.911 rows=4 loops=1)
+         Output: b.id, a.id, (paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150)), (paradedb.snippet_positions(a.name)), (paradedb.score(a.id)), (paradedb.score(b.id))
+         Inner Unique: true
+         Hash Cond: (b.author_id = a.id)
+         Join Filter: ((b.id @@@ '{"with_index":{"oid":458855,"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (a.id @@@ '{"with_index":{"oid":458854,"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+         ->  Custom Scan (ParadeDB Scan) on public.books b  (cost=10.00..10.04 rows=4 width=12) (actual time=0.842..0.863 rows=4 loops=1)
+               Output: b.id, b.author_id, paradedb.score(b.id), paradedb.score(b.id)
+               Table: books
+               Index: books_id_author_id_content_titles_idx
+               Segment Count: 1
+               Heap Fetches: 4
+               Virtual Tuples: 0
+               Invisible Tuples: 0
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}},"all"]}}
+               Human Readable Query: (content:(test) OR <ALL>)
+         ->  Hash  (cost=10.05..10.05 rows=5 width=72) (actual time=1.242..1.242 rows=5 loops=1)
+               Output: a.id, (paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150)), (paradedb.snippet_positions(a.name)), (paradedb.score(a.id)), (paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150)), (paradedb.snippet_positions(a.name)), (paradedb.score(a.id))
+               Buckets: 1024  Batches: 1  Memory Usage: 9kB
+               ->  Custom Scan (ParadeDB Scan) on public.authors a  (cost=10.00..10.05 rows=5 width=72) (actual time=1.080..1.203 rows=5 loops=1)
+                     Output: a.id, paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150), paradedb.snippet_positions(a.name), paradedb.score(a.id), paradedb.snippet(a.name, '<b>'::text, '</b>'::text, 150), paradedb.snippet_positions(a.name), paradedb.score(a.id)
+                     Table: authors
+                     Index: authors_id_name_age_idx
+                     Segment Count: 1
+                     Heap Fetches: 5
+                     Virtual Tuples: 0
+                     Invisible Tuples: 0
+                     Exec Method: NormalScanExecState
+                     Scores: true
+                     Tantivy Query: {"boolean":{"should":["all",{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Rowling","lenient":null,"conjunction_mode":null}}}}]}}
+                     Human Readable Query: (<ALL> OR name:(Rowling))
+ Planning Time: 5.769 ms
+ Execution Time: 3.420 ms
+(38 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         2 |                     |                  |            0 | 0.20262644
+       2 |         2 |                     |                  |            0 | 0.16421193
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 | 0.20443876
+       4 |         3 |                     |                  |            0 | 0.10757824
+(4 rows)
+
 WITH book_snippets AS (
     SELECT
         b.id as book_id,

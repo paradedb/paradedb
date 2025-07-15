@@ -71,7 +71,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
  John Smith  | Future Technologies |    1.1374958 |          0
@@ -93,7 +93,7 @@ SELECT
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |    book_title     | author_score | book_score 
 -------------+-------------------+--------------+------------
  Jane Doe    | The Mystery House |    1.1374958 |          0
@@ -115,12 +115,12 @@ SELECT
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'algorithms')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
- Bob Johnson | Programming Guide   |    0.6548752 |  1.4398423
  John Smith  | Future Technologies |    0.6548752 |          0
  John Smith  | Space Adventure     |    0.6548752 |          0
+ Bob Johnson | Programming Guide   |    0.6548752 |  1.4398423
 (3 rows)
 
 -- Test 4: Three-table equi-join (simulated with CROSS JOIN for simplicity)
@@ -141,23 +141,23 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 CROSS JOIN publishers p
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR p.description @@@ 'technology')
-ORDER BY author_score DESC, book_score DESC, publisher_score DESC;
+ORDER BY a.id, b.id, p.id, author_score DESC, book_score DESC, publisher_score DESC;
  author_name |     book_title      |    publisher_name    | author_score | book_score | publisher_score 
 -------------+---------------------+----------------------+--------------+------------+-----------------
- John Smith  | Space Adventure     | TechBooks Publishing |    0.6548752 |   1.313046 |        1.172009
- John Smith  | Space Adventure     | Academic Press       |    0.6548752 |   1.313046 |               0
- John Smith  | Space Adventure     | Romance World        |    0.6548752 |   1.313046 |               0
- John Smith  | Space Adventure     | Mystery House Press  |    0.6548752 |   1.313046 |               0
  John Smith  | Future Technologies | TechBooks Publishing |    0.6548752 |          0 |        1.172009
+ John Smith  | Future Technologies | Mystery House Press  |    0.6548752 |          0 |               0
+ John Smith  | Future Technologies | Romance World        |    0.6548752 |          0 |               0
+ John Smith  | Future Technologies | Academic Press       |    0.6548752 |          0 |               0
+ John Smith  | Space Adventure     | TechBooks Publishing |    0.6548752 |   1.313046 |        1.172009
+ John Smith  | Space Adventure     | Mystery House Press  |    0.6548752 |   1.313046 |               0
+ John Smith  | Space Adventure     | Romance World        |    0.6548752 |   1.313046 |               0
+ John Smith  | Space Adventure     | Academic Press       |    0.6548752 |   1.313046 |               0
+ Jane Doe    | The Mystery House   | TechBooks Publishing |            0 |          0 |        1.172009
  Bob Johnson | Programming Guide   | TechBooks Publishing |    0.6548752 |          0 |        1.172009
  Bob Johnson | Programming Guide   | Mystery House Press  |    0.6548752 |          0 |               0
  Bob Johnson | Programming Guide   | Romance World        |    0.6548752 |          0 |               0
  Bob Johnson | Programming Guide   | Academic Press       |    0.6548752 |          0 |               0
- John Smith  | Future Technologies | Romance World        |    0.6548752 |          0 |               0
- John Smith  | Future Technologies | Mystery House Press  |    0.6548752 |          0 |               0
- John Smith  | Future Technologies | Academic Press       |    0.6548752 |          0 |               0
  Alice Brown | Love in Paris       | TechBooks Publishing |            0 |          0 |        1.172009
- Jane Doe    | The Mystery House   | TechBooks Publishing |            0 |          0 |        1.172009
 (14 rows)
 
 -- Test 5: Multiple equi-join conditions (AND combined)
@@ -175,7 +175,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |    book_title     | author_score | book_score 
 -------------+-------------------+--------------+------------
  Jane Doe    | The Mystery House |              |  1.4398423
@@ -205,20 +205,20 @@ SELECT
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
- Bob Johnson | The Mystery House   |    0.6548752 |  1.4398423
+ John Smith  | Future Technologies |    0.6548752 |          0
  John Smith  | The Mystery House   |    0.6548752 |  1.4398423
+ John Smith  | Programming Guide   |    0.6548752 |          0
  John Smith  | Love in Paris       |    0.6548752 |          0
  John Smith  | Space Adventure     |    0.6548752 |          0
+ Jane Doe    | The Mystery House   |            0 |  1.4398423
  Bob Johnson | Future Technologies |    0.6548752 |          0
- John Smith  | Future Technologies |    0.6548752 |          0
- John Smith  | Programming Guide   |    0.6548752 |          0
+ Bob Johnson | The Mystery House   |    0.6548752 |  1.4398423
+ Bob Johnson | Programming Guide   |    0.6548752 |          0
  Bob Johnson | Love in Paris       |    0.6548752 |          0
  Bob Johnson | Space Adventure     |    0.6548752 |          0
- Bob Johnson | Programming Guide   |    0.6548752 |          0
- Jane Doe    | The Mystery House   |            0 |  1.4398423
  Alice Brown | The Mystery House   |            0 |  1.4398423
 (12 rows)
 
@@ -237,21 +237,21 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
- Bob Johnson | Love in Paris       |    0.6548752 |  1.4398423
- John Smith  | Love in Paris       |    0.6548752 |  1.4398423
+ John Smith  | Future Technologies |    0.6548752 |          0
+ John Smith  | The Mystery House   |    0.6548752 |          0
  John Smith  | Programming Guide   |    0.6548752 |          0
+ John Smith  | Love in Paris       |    0.6548752 |  1.4398423
  John Smith  | Space Adventure     |    0.6548752 |          0
+ Jane Doe    | Love in Paris       |            0 |  1.4398423
  Bob Johnson | Future Technologies |    0.6548752 |          0
  Bob Johnson | The Mystery House   |    0.6548752 |          0
  Bob Johnson | Programming Guide   |    0.6548752 |          0
- John Smith  | Future Technologies |    0.6548752 |          0
- John Smith  | The Mystery House   |    0.6548752 |          0
+ Bob Johnson | Love in Paris       |    0.6548752 |  1.4398423
  Bob Johnson | Space Adventure     |    0.6548752 |          0
  Alice Brown | Love in Paris       |            0 |  1.4398423
- Jane Doe    | Love in Paris       |            0 |  1.4398423
 (12 rows)
 
 -- Test 8: INNER JOIN with complex non-equi condition
@@ -269,7 +269,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |    book_title     | author_score | book_score 
 -------------+-------------------+--------------+------------
  Jane Doe    | The Mystery House |    1.1374958 |          0
@@ -291,7 +291,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'novelist' OR b.content @@@ 'adventure')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |  book_title   | author_score | book_score 
 -------------+---------------+--------------+------------
  Alice Brown | Love in Paris |    1.4599355 |          0
@@ -312,7 +312,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
  John Smith  | Future Technologies |    0.6548752 |           
@@ -343,7 +343,7 @@ SELECT
 FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
 WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
-ORDER BY author1_score DESC, author2_score DESC;
+ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
  author1_name | author2_name | author1_score | author2_score 
 --------------+--------------+---------------+---------------
 (0 rows)
@@ -363,7 +363,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name |     book_title      | author_score | book_score 
 -------------+---------------------+--------------+------------
  John Smith  | Future Technologies |    1.1374958 |          0
@@ -387,7 +387,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE ((a.bio @@@ 'author' AND a.birth_year > 1965) OR (b.content @@@ 'technology' AND b.publication_year > 2019))
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
  author_name | book_title | author_score | book_score 
 -------------+------------+--------------+------------
 (0 rows)

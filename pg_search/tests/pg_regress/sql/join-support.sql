@@ -73,7 +73,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 2: LEFT JOIN with equi-join condition
 SELECT 'Test 2: LEFT JOIN with equi-join condition';
@@ -85,7 +85,7 @@ SELECT
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 3: RIGHT JOIN with equi-join condition
 SELECT 'Test 3: RIGHT JOIN with equi-join condition';
@@ -97,7 +97,7 @@ SELECT
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'algorithms')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 4: Three-table equi-join (simulated with CROSS JOIN for simplicity)
 SELECT 'Test 4: Three-table cross-table OR decomposition';
@@ -112,7 +112,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 CROSS JOIN publishers p
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'science' OR p.description @@@ 'technology')
-ORDER BY author_score DESC, book_score DESC, publisher_score DESC;
+ORDER BY a.id, b.id, p.id, author_score DESC, book_score DESC, publisher_score DESC;
 
 -- Test 5: Multiple equi-join conditions (AND combined)
 SELECT 'Test 5: Multiple equi-join conditions with AND';
@@ -124,7 +124,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- =============================================================================
 -- UNSUPPORTED CASES: Non-equi joins and problematic conditions
@@ -142,7 +142,7 @@ SELECT
 FROM authors a
 CROSS JOIN books b
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 7: INNER JOIN with non-equi condition (<, >, etc.)
 SELECT 'Test 7: INNER JOIN with non-equi condition';
@@ -154,7 +154,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 8: INNER JOIN with complex non-equi condition
 SELECT 'Test 8: INNER JOIN with complex non-equi condition';
@@ -166,7 +166,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 9: INNER JOIN with mixed equi and non-equi conditions
 SELECT 'Test 9: INNER JOIN with mixed equi and non-equi conditions';
@@ -178,7 +178,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'novelist' OR b.content @@@ 'adventure')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 10: INNER JOIN with BETWEEN condition (range, non-equi)
 SELECT 'Test 10: INNER JOIN with BETWEEN condition';
@@ -190,7 +190,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- =============================================================================
 -- EDGE CASES: Complex scenarios
@@ -208,7 +208,7 @@ SELECT
 FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
 WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
-ORDER BY author1_score DESC, author2_score DESC;
+ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
 
 -- Test 12: Multiple OR conditions with mixed search and non-search predicates
 SELECT 'Test 12: Mixed search and non-search predicates in OR';
@@ -220,7 +220,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test 13: Nested OR with AND conditions
 SELECT 'Test 13: Nested OR with AND conditions';
@@ -232,7 +232,7 @@ SELECT
 FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE ((a.bio @@@ 'author' AND a.birth_year > 1965) OR (b.content @@@ 'technology' AND b.publication_year > 2019))
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Clean up
 DROP TABLE IF EXISTS publishers;

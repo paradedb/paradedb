@@ -72,7 +72,7 @@ SELECT
 FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR b.content @@@ 'performance')
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- MULTI-RELATION TEST: Three-table OR decomposition
@@ -93,7 +93,7 @@ FROM table_a a
 CROSS JOIN table_b b
 CROSS JOIN table_c c
 WHERE (a.content @@@ 'laptop' OR b.content @@@ 'gaming' OR c.content @@@ 'innovation')
-ORDER BY a_score DESC, b_score DESC, c_score DESC;
+ORDER BY a.id, b.id, c.id, a_score DESC, b_score DESC, c_score DESC;
 
 -- =============================================================================
 -- MULTIPLE CONDITIONS PER RELATION TEST
@@ -112,7 +112,7 @@ SELECT
 FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.category @@@ 'electronics' OR b.content @@@ 'performance')
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- MIXED SEARCH AND NON-SEARCH TEST
@@ -132,7 +132,7 @@ SELECT
 FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'laptop' OR a.value > 150 OR b.priority = 1)
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- NESTED AND/OR TEST
@@ -152,7 +152,7 @@ FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' AND a.value > 50) 
    OR (b.content @@@ 'gaming' AND b.priority = 1)
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- UNSAFE CONDITIONS TEST (should be rejected)
@@ -169,7 +169,7 @@ SELECT
 FROM table_a a
 CROSS JOIN table_b b
 WHERE (a.content @@@ 'smartphone' OR a.value = b.priority)  -- Mixed safe and unsafe
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- JOIN-BASED TESTS (more realistic scenarios)
@@ -186,7 +186,7 @@ SELECT
 FROM table_a a
 JOIN table_b b ON a.value = b.priority * 100  -- Join condition
 WHERE (a.content @@@ 'electronics' OR b.description @@@ 'capabilities')
-ORDER BY a_score DESC, b_score DESC;
+ORDER BY a.id, b.id, a_score DESC, b_score DESC;
 
 -- =============================================================================
 -- COMPLEX REAL-WORLD SCENARIO
@@ -207,7 +207,7 @@ LEFT JOIN table_c c ON b.priority = c.score / 30
 WHERE (a.content @@@ 'technology' OR a.category @@@ 'electronics')
    OR (b.content @@@ 'performance' OR b.description @@@ 'specifications')
    OR (c.content @@@ 'innovation' OR c.notes @@@ 'cutting')
-ORDER BY a_score DESC, b_score DESC, c_score DESC;
+ORDER BY a.id, b.id, c.id, a_score DESC, b_score DESC, c_score DESC;
 
 -- =============================================================================
 -- VERIFICATION TESTS: Compare with single-table queries
@@ -224,7 +224,7 @@ SELECT 'Single table B - performance' as query_type,
        b.content, paradedb.score(b.id) as score  
 FROM table_b b
 WHERE b.content @@@ 'performance'
-ORDER BY score DESC;
+ORDER BY b.id, score DESC;
 
 -- =============================================================================
 -- SUMMARY

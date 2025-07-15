@@ -72,7 +72,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
 
 -- For comparison, show a working case where predicates can be pushed down
 -- This should work correctly because all predicates for 'a' can be pushed to the authors scan
@@ -81,14 +82,16 @@ SELECT
     a.name as author_name,
     paradedb.score(a.id) as author_score
 FROM authors a
-WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50';
+WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
+ORDER BY a.id;
 
 -- Show another working case with books
 SELECT
     b.id as book_id,
     paradedb.score(b.id) as book_score
 FROM books b
-WHERE b.content @@@ 'test';
+WHERE b.content @@@ 'test'
+ORDER BY b.id;
 
 -- Test case with only join predicate - should show the issue more clearly
 -- This demonstrates scores being null when the scoring predicate is in the join filter
@@ -99,7 +102,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test';
+WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
+ORDER BY b.id, a.id;
 
 -- Test with mixed predicates - some indexed, some not
 -- This should show partial scores based on what can be indexed
@@ -110,7 +114,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70;
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
+ORDER BY b.id, a.id;
 
 SELECT
     b.id as book_id,
@@ -119,7 +124,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY b.id, a.id;
 
 SELECT
     b.id as book_id,
@@ -128,7 +134,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60;
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
+ORDER BY b.id, a.id;
 
 SELECT
     b.id as book_id,
@@ -137,7 +144,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60;
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
+ORDER BY b.id, a.id;
 
 -- Test score comparison - direct vs join query
 -- Show how the same author gets different scores in different query contexts
@@ -148,7 +156,8 @@ SELECT
     a.name as author_name,
     paradedb.score(a.id) as author_score
 FROM authors a 
-WHERE a.name @@@ 'Rowling';
+WHERE a.name @@@ 'Rowling'
+ORDER BY a.id;
 
 -- Join query (currently shows issue)
 SELECT 
@@ -158,7 +167,8 @@ SELECT
     paradedb.score(a.id) as author_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE a.name @@@ 'Rowling';
+WHERE a.name @@@ 'Rowling'
+ORDER BY a.id;
 
 -- Test with different join types to see if the issue persists
 -- LEFT JOIN case
@@ -169,7 +179,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
 
 -- RIGHT JOIN case
 SELECT
@@ -179,7 +190,8 @@ SELECT
     COALESCE(paradedb.score(b.id), 0) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60;
+WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
+ORDER BY a.id;
 
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
@@ -192,7 +204,8 @@ SELECT
     paradedb.score(b.id) as book_score_2     -- Should be same as book_score_1
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
 
 -- Test score with ORDER BY to verify scores make sense for ranking
 -- Even if scores are null/zero, the ordering should still work
@@ -204,7 +217,8 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
-ORDER BY paradedb.score(a.id) DESC, paradedb.score(b.id) DESC;
+ORDER BY paradedb.score(a.id) DESC, paradedb.score(b.id) DESC, b.id, a.id
+GROUP BY b.id, a.id;
 
 -- Test combining scores and snippets to show they should be consistent
 -- Both should reflect the same search context
@@ -217,21 +231,24 @@ SELECT
     paradedb.snippet(b.content) as book_snippet
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
 
 -- Test LEFT JOIN behavior (should optimize right side only)
 EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF) 
 SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY b.id, a.id;
 
 -- Test RIGHT JOIN behavior (should optimize left side only)
 EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF)
 SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
-WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring');
+WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
+ORDER BY a.id;
 
 -- Cleanup
 DROP TABLE IF EXISTS books;

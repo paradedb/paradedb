@@ -71,7 +71,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone' AND p.price > 500)  -- Mixed: search + non-indexed
   AND (c.name @@@ 'Electronics' AND c.is_active = true)   -- Mixed: search + indexed
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
                test_name                | product_name | category_name | product_score | category_score 
 ----------------------------------------+--------------+---------------+---------------+----------------
  Test 1a: Complex AND with mixed safety | Smartphone   | Electronics   |      1.257669 |      1.2039728
@@ -89,12 +89,12 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' OR r.content @@@ 'excellent')  -- Both search terms (potentially safe)
    OR (p.price > 1000 OR r.rating > 4)                          -- Non-indexed terms (unsafe)
-ORDER BY product_score DESC;
+ORDER BY p.id, r.id, product_score DESC;
                test_name                | product_name |                     review_content                     | product_score | review_score 
 ----------------------------------------+--------------+--------------------------------------------------------+---------------+--------------
+ Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |             0 |            0
  Test 1b: OR expression safety analysis | Laptop       | Excellent laptop performance for work and gaming       |      1.257669 |    0.8754688
  Test 1b: OR expression safety analysis | Laptop       | Great laptop but a bit expensive for students          |      1.257669 |            0
- Test 1b: OR expression safety analysis | Smartphone   | Amazing smartphone with great camera quality           |             0 |            0
  Test 1b: OR expression safety analysis | Novel        | Captivating story with excellent character development |             0 |   0.92980814
 (4 rows)
 
@@ -118,7 +118,7 @@ JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'laptop')        -- Safe: search on target table
   AND (p.price > 1000)                    -- Unsafe: non-indexed field
   AND (c.name @@@ 'Electronics')         -- Unsafe: external table reference
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
               test_name               | product_name | product_score 
 --------------------------------------+--------------+---------------
  Test 2a: Salvaging safe parts of AND | Laptop       |      1.257669
@@ -132,7 +132,7 @@ SELECT
     paradedb.score(p.id) as product_score
 FROM products p
 WHERE p.description @@@ 'laptop'
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
               test_name               | product_name | product_score 
 --------------------------------------+--------------+---------------
  Test 2b: Direct query for comparison | Laptop       |      1.257669
@@ -159,7 +159,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')    -- Safe condition on products
    OR (c.description @@@ 'electronic')    -- External condition on categories
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
               test_name              | product_name | category_name | product_score | category_score 
 -------------------------------------+--------------+---------------+---------------+----------------
  Test 3a: OR with external variables | Smartphone   | Electronics   |      1.257669 |      1.1374958
@@ -175,11 +175,11 @@ SELECT
 FROM products p
 WHERE (p.description @@@ 'smartphone')
    OR (p.name @@@ 'laptop')
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
           test_name          | product_name | product_score 
 -----------------------------+--------------+---------------
- Test 3b: Safe OR expression | Laptop       |     1.4877304
  Test 3b: Safe OR expression | Smartphone   |      1.257669
+ Test 3b: Safe OR expression | Laptop       |     1.4877304
 (2 rows)
 
 -- =============================================================================
@@ -205,7 +205,7 @@ WHERE (
     OR 
     (c.name @@@ 'Electronics' AND r.rating > 4)             -- Cross-table OR (unsafe)
 )
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, r.id, product_score DESC;
            test_name           | product_name | product_score 
 -------------------------------+--------------+---------------
  Test 4a: Nested boolean logic | Smartphone   |      1.257669
@@ -224,7 +224,7 @@ FROM products p
 JOIN reviews r ON p.id = r.product_id
 WHERE (p.description @@@ 'laptop' AND p.price > 1000)     -- Mixed on products
   AND (r.content @@@ 'excellent' AND r.is_verified = true) -- Mixed on reviews
-ORDER BY product_score DESC;
+ORDER BY p.id, r.id, product_score DESC;
                 test_name                | product_name |                  review_content                  | product_score | review_score 
 -----------------------------------------+--------------+--------------------------------------------------+---------------+--------------
  Test 4b: Mixed conditions across tables | Laptop       | Excellent laptop performance for work and gaming |      1.257669 |    0.8754688
@@ -251,7 +251,7 @@ FROM products p
 JOIN categories c ON p.category_id = c.id
 WHERE (p.description @@@ 'smartphone')
   AND (c.name = 'Electronics')  -- Non-search condition that could cause issues
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
                test_name               | product_name | category_name | product_score | category_score 
 ---------------------------------------+--------------+---------------+---------------+----------------
  Test 5a: Prevented incorrect pushdown | Smartphone   | Electronics   |      1.257669 |               
@@ -265,7 +265,7 @@ SELECT
     paradedb.score(p.id) as product_score
 FROM products p
 WHERE p.description @@@ 'smartphone'
-ORDER BY product_score DESC;
+ORDER BY p.id, product_score DESC;
                 test_name                 | product_name | product_score 
 ------------------------------------------+--------------+---------------
  Test 5b: Consistent scoring verification | Smartphone   |      1.257669
@@ -301,14 +301,14 @@ WHERE (
     OR
     (p.in_stock = true AND c.is_active = true)                -- Unknown conditions
 )
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, r.id, product_score DESC;
              test_name              | product_name | category_name |                     review_content                     | product_score | category_score | review_score 
 ------------------------------------+--------------+---------------+--------------------------------------------------------+---------------+----------------+--------------
  Test 6a: Multiple diagnostic types | Smartphone   | Electronics   | Amazing smartphone with great camera quality           |               |                |             
- Test 6a: Multiple diagnostic types | Laptop       | Electronics   | Excellent laptop performance for work and gaming       |               |                |             
- Test 6a: Multiple diagnostic types | Novel        | Books         | Captivating story with excellent character development |               |                |             
  Test 6a: Multiple diagnostic types | Smartphone   | Electronics   | Good value smartphone but battery could be better      |               |                |             
+ Test 6a: Multiple diagnostic types | Laptop       | Electronics   | Excellent laptop performance for work and gaming       |               |                |             
  Test 6a: Multiple diagnostic types | Laptop       | Electronics   | Great laptop but a bit expensive for students          |               |                |             
+ Test 6a: Multiple diagnostic types | Novel        | Books         | Captivating story with excellent character development |               |                |             
 (5 rows)
 
 -- Test Case 6b: Query showing partial salvage in action
@@ -323,7 +323,7 @@ WHERE (p.description @@@ 'smartphone')   -- Safe: can be pushed down
   AND (p.price > 500)                    -- Unsafe: non-indexed
   AND (c.is_active = true)               -- Unsafe: external table
   AND (p.name @@@ 'phone')              -- Safe: can be pushed down
-ORDER BY product_score DESC;
+ORDER BY p.id, c.id, product_score DESC;
  test_name | product_name | product_score 
 -----------+--------------+---------------
 (0 rows)

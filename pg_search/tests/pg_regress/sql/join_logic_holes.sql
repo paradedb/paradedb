@@ -101,7 +101,7 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test Case 2: Join Type Semantics - LEFT JOIN
 -- This tests how LEFT JOIN semantics are affected by pushdown
@@ -115,7 +115,7 @@ SELECT
 FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
-ORDER BY a.id;
+ORDER BY a.id, b.id;
 
 -- Test Case 3: Complex Boolean Logic Across Tables
 -- This tests complex OR conditions that span multiple tables
@@ -130,7 +130,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'British' AND b.is_published = true) 
    OR (a.country = 'USA' AND b.content @@@ 'horror')
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test Case 4: Three-table Join with Complex Logic
 -- This tests conditions that span three tables with complex dependencies
@@ -147,7 +147,7 @@ JOIN books b ON a.id = b.author_id
 JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'author' AND b.rating > 4.0) 
    OR (b.content @@@ 'magic' AND r.score >= 4)
-ORDER BY author_score DESC, book_score DESC, review_score DESC;
+ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
 
 -- Test Case 5: RIGHT JOIN with Conditions
 -- This tests RIGHT JOIN where conditions might affect NULL generation
@@ -160,7 +160,7 @@ SELECT
 FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'British' OR b.content @@@ 'story'
-ORDER BY b.id;
+ORDER BY a.id, b.id;
 
 -- Test Case 6: Conditions with NULL-generating Joins
 -- This tests how NULL values are handled in join conditions
@@ -177,7 +177,7 @@ LEFT JOIN books b ON a.id = b.author_id
 LEFT JOIN categories c ON b.category_id = c.id
 WHERE a.bio @@@ 'author' 
    OR (b.content @@@ 'story' AND c.name @@@ 'Fantasy')
-ORDER BY a.id;
+ORDER BY a.id, b.id, c.id;
 
 -- Test Case 7: Mixed Indexed and Non-indexed Conditions in Joins
 -- This tests how mixed conditions are handled across joins
@@ -191,7 +191,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'British' AND a.birth_year < 1900)
    OR (b.content @@@ 'magic' AND b.publication_year > 2000)
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test Case 8: Correlated Subquery-like Conditions
 -- This tests conditions that would be similar to correlated subqueries
@@ -210,7 +210,7 @@ WHERE a.bio @@@ 'author'
     AND r.content @@@ 'story'
   )
 GROUP BY a.id, a.name
-ORDER BY avg_author_score DESC;
+ORDER BY a.id, avg_author_score DESC;
 
 -- Test Case 9: Cross-table OR with Different Join Types
 -- This tests how OR conditions work with different join types
@@ -228,7 +228,7 @@ LEFT JOIN reviews r ON b.id = r.book_id
 WHERE a.bio @@@ 'author' 
    OR b.content @@@ 'magic' 
    OR r.content @@@ 'story'
-ORDER BY author_score DESC, book_score DESC, review_score DESC;
+ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
 
 -- Test Case 10: Nested Boolean Logic
 -- This tests deeply nested boolean expressions across tables
@@ -245,7 +245,7 @@ WHERE (
     OR 
     (a.country = 'USA' AND (b.rating > 4.0 OR b.publication_year > 1980))
 )
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test Case 11: Edge Case - All Variables External
 -- This tests conditions where all variables reference external tables
@@ -261,7 +261,7 @@ JOIN categories c ON b.category_id = c.id
 WHERE a.bio @@@ 'author' 
   AND c.name = 'Fantasy'
   AND b.publication_year > 1990
-ORDER BY author_score DESC, book_score DESC;
+ORDER BY a.id, b.id, author_score DESC, book_score DESC;
 
 -- Test Case 12: Score Consistency Check
 -- This tests whether scores remain consistent across different query forms
@@ -272,7 +272,7 @@ SELECT
     paradedb.score(a.id) as author_score
 FROM authors a
 WHERE a.bio @@@ 'author'
-ORDER BY author_score DESC;
+ORDER BY a.id, author_score DESC;
 
 SELECT 
     'Test 12b: Join Query (should have same scores)' as test_name,
@@ -281,7 +281,7 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author'
-ORDER BY author_score DESC;
+ORDER BY a.id, author_score DESC;
 
 -- Test Case 13: Performance vs Correctness
 -- This tests a case where the current implementation might be fast
@@ -294,7 +294,8 @@ SELECT
 FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
-  AND (a.is_active = true OR b.is_published = true);
+  AND (a.is_active = true OR b.is_published = true)
+ORDER BY a.id, b.id;
 
 -- Cleanup
 DROP TABLE IF EXISTS reviews;

@@ -75,7 +75,7 @@ JOIN bridge_table b ON l.id = b.left_id
 JOIN right_table r ON r.id = b.right_id
 WHERE (l.content @@@ 'smartphone' AND r.content @@@ 'advanced')  -- Search conditions across tables
    OR (l.value > 100 AND r.priority = 1)                        -- Non-search conditions across tables
-ORDER BY left_score DESC;
+ORDER BY l.id, r.id, left_score DESC;
 
 -- =============================================================================
 -- Test Case 2: Outer join with complex conditions
@@ -93,7 +93,7 @@ FROM left_table l
 LEFT JOIN bridge_table b ON l.id = b.left_id
 LEFT JOIN right_table r ON r.id = b.right_id
 WHERE (l.content @@@ 'laptop' AND COALESCE(r.content @@@ 'performance', false))  -- Complex condition with COALESCE
-ORDER BY left_score DESC;
+ORDER BY l.id, r.id, left_score DESC;
 
 -- =============================================================================
 -- Test Case 3: Subquery join with correlated conditions
@@ -114,7 +114,7 @@ JOIN (
     WHERE r.priority <= 2
 ) subq ON l.value > 50
 WHERE l.content @@@ 'electronics'  -- This might end up in joininfo due to subquery
-ORDER BY left_score DESC;
+ORDER BY l.id, subq.id, left_score DESC;
 
 -- =============================================================================
 -- Test Case 4: Multiple table join with aggregate conditions
@@ -133,7 +133,7 @@ LEFT JOIN right_table r ON r.id = b.right_id
 WHERE l.content @@@ 'smartphone'
 GROUP BY l.id, l.content
 HAVING COUNT(r.id) > 0  -- HAVING conditions often trigger joininfo
-ORDER BY left_score DESC;
+ORDER BY l.id, left_score DESC;
 
 -- =============================================================================
 -- Test Case 5: Self-join with complex conditions
@@ -150,7 +150,7 @@ SELECT
 FROM left_table l1
 JOIN left_table l2 ON l1.category = l2.category AND l1.id != l2.id
 WHERE (l1.content @@@ 'smartphone' AND l2.content @@@ 'laptop')  -- Search across self-joined tables
-ORDER BY left1_score DESC;
+ORDER BY l1.id, l2.id, left1_score DESC;
 
 -- =============================================================================
 -- Test Case 6: Anti-join (NOT EXISTS) with search conditions
@@ -169,7 +169,7 @@ WHERE l.content @@@ 'electronics'
     JOIN right_table r ON r.id = b.right_id 
     WHERE b.left_id = l.id AND r.priority = 1
   )
-ORDER BY left_score DESC;
+ORDER BY l.id, left_score DESC;
 
 -- =============================================================================
 -- Test Case 7: Complex boolean logic spanning tables
@@ -191,7 +191,7 @@ WHERE (
     OR 
     (l.value > 100 AND r.priority = 1 AND b.strength > 5)              -- Complex condition spanning all tables
 )
-ORDER BY left_score DESC;
+ORDER BY l.id, r.id, left_score DESC;
 
 -- =============================================================================
 -- SUMMARY: These tests should trigger our hybrid join logic

@@ -70,17 +70,34 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
-      # We manually fetch the benchmark queries from `main` to make sure all are available when backfilling
-      # old commits potentially created before new queries were added.
-      - name: Fetch the Latest Benchmark Queries
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          rm -rf benchmarks
-          cp -rv paradedb-temp/benchmarks .
-          rm -rf paradedb-temp/
+      - name: Fetch latest benchmark code, suites, and actions
+        uses: ./.github/actions/benchmarks-from-main
 
-          echo "Copied benchmark files to benchmarks/:"
-          ls -la benchmarks/
+      - name: Find PR for this commit
+        id: find_pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: sha
+            });
+
+            if (pulls.length) {
+              return `PR #${pulls[0].number}: ${pulls[0].title}`;
+            } else {
+              // fall back to the raw SHA
+              return sha;
+            }
+
+      - name: Running for ${{ steps.find_pr.outputs.result }}"
+        shell: bash
+        run: |
+          echo ${{ steps.find_pr.outputs.result }}"
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -144,12 +161,6 @@ jobs:
           short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
-      - name: Fetch Benchmark Actions from main
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
-          cp -r tmp/.github/actions .github/
-          rm -rf tmp
-
       - name: Benchmark "logs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
         with:
@@ -159,6 +170,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.find_pr.outputs.result }}"
 
       - name: Benchmark "docs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
@@ -169,3 +181,4 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.find_pr.outputs.result }}"

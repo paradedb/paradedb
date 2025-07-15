@@ -24,6 +24,9 @@ inputs:
   slack_webhook_url:
     description: "Slack webhook URL to post results to"
     required: true
+  pr_label:
+    description: "The human readable version of the commit being tested"
+    required: true
 
 runs:
   using: "composite"
@@ -139,7 +142,7 @@ runs:
 
     - name: Create Stressgres Graph
       shell: bash
-      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png"
+      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
@@ -150,9 +153,11 @@ runs:
         payload: |
           channel_id: ${{ inputs.slack_channel }}
           initial_comment: |
-            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community Stressgres "${{ inputs.test_file }}" Results (<${{ steps.artifact-logs.outputs.artifact-url }} | logs>): <https://paradedb.github.io/paradedb/stressgres/>
-          file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
-          filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.sanitize-inputs.outputs.safe_ref }}.png
+            ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
+            ${{ inputs.pr_title }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+            <https://paradedb.github.io/paradedb/stressgres/>
+          file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}}.png
+          filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
 
     - name: Print Postgres Logs
       shell: bash

@@ -20,6 +20,9 @@ inputs:
   slack_webhook_url:
     description: "Slack webhook URL to post results to"
     required: true
+  pr_label:
+    description: "The human readable version of the commit being tested"
+    required: true
 
 runs:
   using: "composite"
@@ -75,7 +78,9 @@ runs:
         payload: |
           channel: ${{ inputs.slack_channel }}
           text: |
-            *<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.ref }}>*: Community \`${{ inputs.dataset }}\` Query Results available: <https://paradedb.github.io/paradedb/benchmarks/>
+            ${{ github.repository }} Benchmark Results
+            ${{ inputs.pr_title }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+            <https://paradedb.github.io/paradedb/benchmarks/>
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'

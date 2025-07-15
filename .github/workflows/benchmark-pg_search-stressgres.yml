@@ -71,16 +71,34 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
-      # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
-      # old commits potentially created before new queries were added.
-      - name: Fetch the Latest Stressgres Jobs
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/.github/stressgres .github/
-          rm -rf paradedb-temp
+      - name: Fetch latest benchmark code, suites, and actions
+        uses: ./.github/actions/benchmarks-from-main
 
-          echo "Files copied to .github/stressgres/:"
-          ls -la .github/stressgres/
+      - name: Find PR for this commit
+        id: find_pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.sha;
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: sha
+            });
+
+            if (pulls.length) {
+              return `PR #${pulls[0].number}: ${pulls[0].title}`;
+            } else {
+              // fall back to the raw SHA
+              return sha;
+            }
+
+      - name: Running for ${{ steps.find_pr.outputs.result }}"
+        shell: bash
+        run: |
+          echo ${{ steps.find_pr.outputs.result }}"
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -139,12 +157,6 @@ jobs:
       - name: Remove stressgres repo
         run: rm -rf stressgres
 
-      - name: Fetch Benchmark Actions from main
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
-          cp -r tmp/.github/actions .github/
-          rm -rf tmp
-
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -155,6 +167,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.find_pr.outputs.result }}"
 
       - name: Benchmark bulk-updates.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -165,6 +178,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.find_pr.outputs.result }}"
 
       - name: Benchmark wide-table.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -175,3 +189,4 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.find_pr.outputs.result }}"

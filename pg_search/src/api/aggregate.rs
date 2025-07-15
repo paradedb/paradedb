@@ -15,11 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::SearchQueryInput;
-use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use std::error::Error;
 
+use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
+
 use crate::aggregate::execute_aggregate;
+use crate::postgres::rel::PgSearchRelation;
+use crate::query::SearchQueryInput;
 
 #[pg_extern]
 pub fn aggregate(
@@ -30,12 +32,13 @@ pub fn aggregate(
     memory_limit: default!(i64, 500000000),
     bucket_limit: default!(i64, 65000),
 ) -> Result<JsonB, Box<dyn Error>> {
+    let relation = unsafe { PgSearchRelation::from_pg(index.as_ptr()) };
     Ok(JsonB(execute_aggregate(
-        index,
+        &relation,
         query,
         agg.0,
         solve_mvcc,
-        memory_limit,
-        bucket_limit,
+        memory_limit.try_into()?,
+        bucket_limit.try_into()?,
     )?))
 }

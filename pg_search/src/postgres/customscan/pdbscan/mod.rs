@@ -177,37 +177,6 @@ impl PdbScan {
         }
     }
 
-    fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {
-        match json_value {
-            serde_json::Value::Object(obj) => {
-                // Check if this is a "with_index" object and remove its "oid" if present
-                if obj.contains_key("with_index") {
-                    if let Some(with_index) = obj.get_mut("with_index") {
-                        if let Some(with_index_obj) = with_index.as_object_mut() {
-                            with_index_obj.remove("oid");
-                        }
-                    }
-                }
-
-                // Remove any field named "postgres_expression"
-                obj.remove("postgres_expression");
-
-                // Recursively process all values in the object
-                for (_, value) in obj.iter_mut() {
-                    Self::cleanup_varibilities_from_tantivy_query(value);
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                // Recursively process all elements in the array
-                for item in arr.iter_mut() {
-                    Self::cleanup_varibilities_from_tantivy_query(item);
-                }
-            }
-            // Base cases: primitive values don't need processing
-            _ => {}
-        }
-    }
-
     unsafe fn extract_all_possible_quals(
         builder: &mut CustomPathBuilder<PdbScan>,
         root: *mut pg_sys::PlannerInfo,
@@ -882,23 +851,7 @@ impl CustomScan for PdbScan {
             }
         }
 
-        let mut json_value = state
-            .custom_state()
-            .query_to_json()
-            .expect("query should serialize to json");
-        // Remove the oid from the with_index object
-        // This helps to reduce the variability of the explain output used in regression tests
-        Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
-        let updated_json_query =
-            serde_json::to_string(&json_value).expect("updated query should serialize to json");
-        explainer.add_text("Tantivy Query", &updated_json_query);
-
-        if explainer.is_verbose() {
-            explainer.add_text(
-                "Human Readable Query",
-                state.custom_state().human_readable_query_string(),
-            );
-        }
+        explainer.add_query(state.custom_state().base_search_query_input());
     }
 
     fn begin_custom_scan(

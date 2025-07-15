@@ -112,7 +112,9 @@ pub unsafe fn get_rte(
 ) -> Option<*mut pg_sys::RangeTblEntry> {
     let index = index as usize;
 
-    assert!(index <= rt_size);
+    if index > rt_size {
+        return None;
+    }
     let ptr_to_nth_rte_ptr = rt.add(index);
     let nth_rte_ptr = *ptr_to_nth_rte_ptr;
     if nth_rte_ptr.is_null() {

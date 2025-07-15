@@ -17,6 +17,7 @@
 
 use crate::postgres::customscan::aggregatescan::privdat::AggregateType;
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys;
@@ -40,13 +41,32 @@ pub struct AggregateScanState {
     pub state: ExecutionState,
     // The aggregate types that we are executing for.
     pub aggregate_types: Vec<AggregateType>,
-    // The index that will be scanned.
-    pub indexrelid: pg_sys::Oid,
     // The query that will be executed.
     pub query: SearchQueryInput,
+    // The index that will be scanned.
+    pub indexrelid: pg_sys::Oid,
+    // The index relation. Opened during `begin_custom_scan`.
+    pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
+    // The execution time RTI (note: potentially different from the planning-time RTI).
+    pub execution_rti: pg_sys::Index,
 }
 
 impl AggregateScanState {
+    pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
+        self.indexrel = Some((
+            lockmode,
+            PgSearchRelation::with_lock(self.indexrelid, lockmode),
+        ));
+    }
+
+    #[inline(always)]
+    pub fn indexrel(&self) -> &PgSearchRelation {
+        self.indexrel
+            .as_ref()
+            .map(|(_, rel)| rel)
+            .expect("PdbScanState: indexrel should be initialized")
+    }
+
     pub fn aggregates_to_json(&self) -> serde_json::Value {
         serde_json::Value::Object(
             self.aggregate_types

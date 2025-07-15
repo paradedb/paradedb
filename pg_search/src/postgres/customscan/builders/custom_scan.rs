@@ -116,8 +116,20 @@ impl<CS: CustomScan> CustomScanBuilder<CS> {
         &mut self.custom_private
     }
 
-    pub fn set_target_list(&mut self, tlist: PgList<pg_sys::TargetEntry>) {
+    ///
+    /// Override the targetlist for the CustomScan.
+    ///
+    pub fn set_targetlist(&mut self, tlist: PgList<pg_sys::TargetEntry>) {
         self.custom_scan_node.scan.plan.targetlist = tlist.into_pg();
+    }
+
+    ///
+    /// Override the RTI of the relation to be scanned.
+    ///
+    /// NOTE: `scanrelid` is a misnomer: it is actually an RTI.
+    ///
+    pub fn set_scanrelid(&mut self, scanrelid: pg_sys::Index) {
+        self.custom_scan_node.scan.scanrelid = scanrelid;
     }
 
     pub fn build(self) -> pg_sys::CustomScan {

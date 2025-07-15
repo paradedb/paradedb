@@ -27,7 +27,7 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
-use pgrx::{check_for_interrupts, pg_sys, PgRelation};
+use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
 use std::error::Error;
 use tantivy::aggregation::agg_req::Aggregations;
@@ -287,17 +287,15 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 }
 
 pub fn execute_aggregate(
-    index: PgRelation,
+    index: &PgSearchRelation,
     query: SearchQueryInput,
     agg: serde_json::Value,
     solve_mvcc: bool,
-    memory_limit: i64,
-    bucket_limit: i64,
+    memory_limit: u64,
+    bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     unsafe {
-        let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-        let reader =
-            SearchIndexReader::open(&index, query.clone(), false, MvccSatisfies::Snapshot)?;
+        let reader = SearchIndexReader::open(index, query.clone(), false, MvccSatisfies::Snapshot)?;
         // TODO: Could potentially directly use the `serde` definitions of the aggregates: e.g.
         // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
         let agg_req = serde_json::from_value(agg)?;
@@ -306,8 +304,8 @@ pub fn execute_aggregate(
             &query,
             &agg_req,
             solve_mvcc,
-            memory_limit.try_into()?,
-            bucket_limit.try_into()?,
+            memory_limit,
+            bucket_limit,
             reader.segment_ids(),
         )?;
 
@@ -369,17 +367,11 @@ pub fn execute_aggregate(
             let merged = {
                 let collector = DistributedAggregationCollector::from_aggs(
                     agg_req.clone(),
-                    AggregationLimitsGuard::new(
-                        Some(memory_limit.try_into()?),
-                        Some(bucket_limit.try_into()?),
-                    ),
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 );
                 collector.merge_fruits(agg_results)?.into_final_result(
                     agg_req,
-                    AggregationLimitsGuard::new(
-                        Some(memory_limit.try_into()?),
-                        Some(bucket_limit.try_into()?),
-                    ),
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 )?
             };
 
@@ -405,10 +397,7 @@ pub fn execute_aggregate(
             if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
                 let result = agg_results.into_final_result(
                     agg_req,
-                    AggregationLimitsGuard::new(
-                        Some(memory_limit.try_into()?),
-                        Some(bucket_limit.try_into()?),
-                    ),
+                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
                 )?;
                 Ok(serde_json::to_value(result)?)
             } else {

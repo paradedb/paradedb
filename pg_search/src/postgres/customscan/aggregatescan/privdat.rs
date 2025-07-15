@@ -50,6 +50,7 @@ impl AggregateType {
 pub struct PrivateData {
     pub aggregate_types: Vec<AggregateType>,
     pub indexrelid: pg_sys::Oid,
+    pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
 }
 

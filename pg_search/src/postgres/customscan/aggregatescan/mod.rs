@@ -22,6 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
@@ -40,7 +41,7 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState}
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
-use crate::postgres::{rel_get_bm25_index, PgSearchRelation};
+use crate::postgres::rel_get_bm25_index;
 use crate::query::SearchQueryInput;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
@@ -64,8 +65,8 @@ impl CustomScan for AggregateScan {
         }
         let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
         if !matches!(ri_type, RestrictInfoType::BaseRelation) {
-            // this relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
-            // for us to do anything
+            // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
+            // for us to do anythingi.
             return None;
         }
 
@@ -78,19 +79,19 @@ impl CustomScan for AggregateScan {
         // Is the target list entirely aggregates?
         let aggregate_types = extract_aggregates(args)?;
 
-        // Does that relation have a bm25 index?
+        // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
-        let rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
-        let rte = unsafe {
+        let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+        let heap_rte = unsafe {
             // NOTE: The docs indicate that `simple_rte_array` is always the same length
             // as `simple_rel_array`.
             range_table::get_rte(
                 args.root().simple_rel_array_size as usize,
                 args.root().simple_rte_array,
-                rti,
+                heap_rti,
             )?
         };
-        let (table, bm25_index) = rel_get_bm25_index(unsafe { (*rte).relid })?;
+        let (table, bm25_index) = rel_get_bm25_index(unsafe { (*heap_rte).relid })?;
         let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
         let index =
             Index::open(directory).expect("aggregate_custom_scan: should be able to open index");
@@ -102,7 +103,7 @@ impl CustomScan for AggregateScan {
         let quals = unsafe {
             extract_quals(
                 args.root,
-                rti,
+                heap_rti,
                 restrict_info.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 ri_type,
@@ -115,6 +116,7 @@ impl CustomScan for AggregateScan {
         Some(builder.build(PrivateData {
             aggregate_types,
             indexrelid: bm25_index.oid(),
+            heap_rti,
             query: SearchQueryInput::from(&quals),
         }))
     }
@@ -140,7 +142,8 @@ impl CustomScan for AggregateScan {
 
             targetlist.push(te);
         }
-        builder.set_target_list(targetlist);
+        builder.set_targetlist(targetlist);
+        builder.set_scanrelid(builder.custom_private().heap_rti);
 
         builder.build()
     }
@@ -151,6 +154,8 @@ impl CustomScan for AggregateScan {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().query = builder.custom_private().query.clone();
+        builder.custom_state().execution_rti =
+            unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.build()
     }
 
@@ -159,7 +164,8 @@ impl CustomScan for AggregateScan {
         ancestors: *mut pg_sys::List,
         explainer: &mut Explainer,
     ) {
-        // TODO: Expand with additional information about the scan.
+        explainer.add_text("Index", state.custom_state().indexrel().name());
+        explainer.add_query(&state.custom_state().query);
     }
 
     fn begin_custom_scan(
@@ -167,6 +173,15 @@ impl CustomScan for AggregateScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
+        unsafe {
+            println!(">>> opening with {}", state.custom_state().execution_rti);
+            let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
+            assert!(!rte.is_null());
+            let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;
+            // TODO: Opening of the index could be deduped between custom scans: see
+            // `PdbScanState::open_relations`.
+            state.custom_state_mut().open_relations(lockmode);
+        }
     }
 
     fn rescan_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
@@ -274,22 +289,14 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 }
 
 fn execute(state: &CustomScanStateWrapper<AggregateScan>) -> std::vec::IntoIter<AggregateRow> {
-    // TODO: Opening of the index could be deduped between custom scans: see
-    // `PdbScanState::open_relations`.
-    let indexrel = PgSearchRelation::with_lock(
-        state.custom_state().indexrelid,
-        pg_sys::AccessShareLock as _,
-    );
-    let relation = unsafe { pgrx::PgRelation::from_pg(indexrel.as_ptr()) };
-
     let result = execute_aggregate(
-        relation,
+        state.custom_state().indexrel(),
         state.custom_state().query.clone(),
         state.custom_state().aggregates_to_json(),
         // TODO: Consider adding a GUC to control whether we solve MVCC.
-        true,      // solve_mvcc
-        500000000, // memory_limit
-        65000,     // bucket_limit
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        65000,                                             // bucket_limit
     )
     .expect("failed to execute aggregate");
 

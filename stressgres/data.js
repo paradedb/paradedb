@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752598342604,
+  "lastUpdate": 1752618538884,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -646,6 +646,72 @@ window.BENCHMARK_DATA = {
             "value": 4.981613165249287,
             "unit": "median tps",
             "extra": "avg tps: 9.659748879884381, max tps: 1248.7730804484593, count: 54712"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7bdeebed6249725c87b87c276d2e09dfaffd152",
+          "message": "ci: publish stressgres benchmark graphs (#2852)\n\nThis will publish every stressgres benchmark graph to the new\n`paradedb/benchmark-data` repo.\n\nIt also ensures that when one of our \"[benchmark]\" labels are applied,\nthat it does *not* pull the benchmarks from main, but instead from the\nPR branch itself.",
+          "timestamp": "2025-07-15T18:13:26-04:00",
+          "tree_id": "f18bf519521a03613c5b12c861092f24314476ad",
+          "url": "https://github.com/paradedb/paradedb/commit/c7bdeebed6249725c87b87c276d2e09dfaffd152"
+        },
+        "date": 1752618537950,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 325.0219765492938,
+            "unit": "median tps",
+            "extra": "avg tps: 324.0733157615584, max tps: 519.9401336408907, count: 55161"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2127.3484985872155,
+            "unit": "median tps",
+            "extra": "avg tps: 2126.8694309698953, max tps: 2568.5770449329925, count: 55161"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 277.81309281998165,
+            "unit": "median tps",
+            "extra": "avg tps: 279.98713002297825, max tps: 484.64899614168775, count: 55161"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 292.6490681643571,
+            "unit": "median tps",
+            "extra": "avg tps: 292.0705978891881, max tps: 448.55441900338474, count: 55161"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 141.08016889491398,
+            "unit": "median tps",
+            "extra": "avg tps: 140.7201466343214, max tps: 159.68848153523228, count: 110322"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 126.12401338176589,
+            "unit": "median tps",
+            "extra": "avg tps: 125.70250727258181, max tps: 145.37493662885853, count: 55161"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.267097069170552,
+            "unit": "median tps",
+            "extra": "avg tps: 8.382422137054183, max tps: 1124.984672083843, count: 55161"
           }
         ]
       }

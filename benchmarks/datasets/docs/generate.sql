@@ -2,6 +2,19 @@
 \echo 'Generating' :rows 'rows in a facts table, and' :rows '/ 8 rows in two dimension tables.'
 
 
+-- NOTE: Generates a UUID-shaped TEXT value from the given integer. This allows for
+-- reproducing the performance characteristics of UUIDs deterministically.
+CREATE OR REPLACE FUNCTION uuid_text(p_integer INTEGER)
+RETURNS TEXT AS $$
+DECLARE
+    int_text TEXT;
+BEGIN
+    int_text := LPAD(p_integer::TEXT, 10, '0');
+    RETURN RPAD(int_text, 32, int_text)::uuid::text;
+END;
+$$ LANGUAGE plpgsql;
+
+
 -- Create tables
 
 DROP TABLE IF EXISTS pages CASCADE;
@@ -123,6 +136,24 @@ CREATE TABLE documents (
 );
 
 
+-- Create a metadata table which queries can use to quickly determine interesting primary keys.
+DROP TABLE IF EXISTS docs_schema_metadata CASCADE;
+CREATE TABLE docs_schema_metadata (
+  "name" TEXT PRIMARY KEY,
+  "value" TEXT
+);
+
+INSERT INTO docs_schema_metadata
+  ("name", "value")
+VALUES
+  -- The id of the minimum row in the pages table when sorted by id.
+  ('pages-row-id-min', uuid_text(1)),
+  -- The id of the middle row in the pages table when sorted by id.
+  ('pages-row-id-median', uuid_text(floor(:rows / 2)::integer)),
+  -- The id of the max row in the pages table when sorted by id.
+  ('pages-row-id-max', uuid_text(:rows));
+
+
 -- Insert data
 
 INSERT INTO documents (
@@ -162,7 +193,7 @@ INSERT INTO documents (
     "fill28"
 )
 SELECT
-    gen_random_uuid()::text AS "id",
+    uuid_text(s.id) AS "id",
     CASE (random() * 10)::INT -- Introduce 'SFR' in roughly 10% of rows
         WHEN 0 THEN 'SFR ' || substring(md5(random()::text), 1, 20)
         WHEN 1 THEN 'PROJECT_ALPHA ' || substring(md5(random()::text), 1, 15)
@@ -200,25 +231,9 @@ SELECT
     md5(random()::text) "fill26",
     md5(random()::text) "fill27",
     md5(random()::text) "fill28"
-FROM generate_series(1, ceil(:rows / 8.0)::integer);
+FROM generate_series(1, ceil(:rows / 8.0)::integer) s(id);
 
 
-WITH document_id_list AS (
-    -- Select all document IDs and assign a unique row number after randomizing their order
-    SELECT "id", row_number() OVER (ORDER BY random()) AS rn
-    FROM documents
-),
-document_id_count AS (
-    -- Get the total count of available document IDs
-    SELECT count(*) AS total_docs FROM document_id_list
-),
-file_generation_series AS (
-    SELECT
-        generate_series(1, ceil(:rows / 8.0)::integer) AS series_idx,
-        gen_random_uuid()::text AS new_file_id,
-        -- This will be a random number between 1 and total_docs (inclusive)
-        floor(random() * (SELECT total_docs FROM document_id_count) + 1)::bigint AS random_doc_rn
-)
 INSERT INTO files (
     "id",
     "documentId",
@@ -258,8 +273,8 @@ INSERT INTO files (
     "fill28"
 )
 SELECT
-    fgs.new_file_id AS "id",
-    dil."id" AS "documentId", -- Join to get the actual document ID based on the random row number
+    uuid_text(s.id) AS "id",
+    uuid_text(ceil(random() * :rows / 8.0)::integer) AS "documentId", -- A random document in the range that we know exists.
     'File Content Section A: ' || md5(random()::text) || E'\nFile Content Section B (metadata): ' || md5(random()::text) || E'\nAssociated ID: ' || (random()*100000)::INT AS "content",
     CASE (random() * 10)::INT -- Introduce 'collab12' in roughly 10% of rows
         WHEN 0 THEN 'collab12 ' || substring(md5(random()::text), 1, 20)
@@ -298,31 +313,9 @@ SELECT
     md5(random()::text) "fill26",
     md5(random()::text) "fill27",
     md5(random()::text) "fill28"
-FROM file_generation_series fgs
-JOIN document_id_list dil ON fgs.random_doc_rn = dil.rn;
+FROM generate_series(1, ceil(:rows / 8.0)::integer) s(id);
 
 
--- TODO: This is a terrible generation script for the `pages` table.
--- Rather than joining, we should probably make the ids in documents and files
--- effectively-monotonic (but still large strings), and then choose randomly in
--- the range that we know is populated.
-
-WITH file_id_list AS (
-    -- Select all file IDs and assign a unique row number after randomizing their order
-    SELECT "id", row_number() OVER (ORDER BY random()) AS rn
-    FROM files
-),
-file_id_count AS (
-    -- Get the total count of available file IDs
-    SELECT count(*) AS total_files FROM file_id_list
-),
-page_generation_series AS (
-    SELECT
-        generate_series(1, :rows) AS series_idx,
-        gen_random_uuid()::text AS new_page_id,
-        -- This will be a random number between 1 and total_files (inclusive)
-        floor(random() * (SELECT total_files FROM file_id_count) + 1)::bigint AS random_file_rn
-)
 INSERT INTO pages (
     "id",
     "fileId",
@@ -362,8 +355,8 @@ INSERT INTO pages (
     "fill28"
 )
 SELECT
-    pgs.new_page_id AS "id",
-    fil."id" AS "fileId", -- Join to get the actual file ID based on the random row number
+    uuid_text(s.id) AS "id",
+    uuid_text(ceil(random() * :rows / 8.0)::integer) AS "fileId", -- A random file in the range that we know exists.
     CASE (random() * 10)::INT -- Introduce 'Single Number Reach' in roughly 10% of rows
         WHEN 0 THEN 'Single Number Reach configuration details: ' || md5(random()::text) || E'\nInstructions for setup: ' || md5(random()::text)
         WHEN 1 THEN 'Page Chapter 1: Introduction - ' || md5(random()::text) || E'\nKey Points: ' || md5(random()::text)
@@ -402,5 +395,4 @@ SELECT
     md5(random()::text) "fill26",
     md5(random()::text) "fill27",
     md5(random()::text) "fill28"
-FROM page_generation_series pgs
-JOIN file_id_list fil ON pgs.random_file_rn = fil.rn;
+FROM generate_series(1, :rows) s(id);

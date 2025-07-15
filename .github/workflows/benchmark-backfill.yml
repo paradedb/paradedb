@@ -10,17 +10,44 @@ on:
         description: >
           Commits to re-run, written as a JSON array.
           Example: ["6d3c1f0", "a1b2c3d", "deadbeef"]
+
+          Using one hash still requires the JSON array syntax, ie ["6d3c1f0"].
         required: true
         type: string
+      reset_data:
+        description: Turn on to reset the data before running the benchmarks
+        type: boolean
+        default: true
 
 # the token must be allowed to start other workflows
 permissions:
   actions: write
-  contents: read
+  contents: write
 
 jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gh-pages
+        if: ${{ inputs.reset_data }}
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Reset data.js files
+        if: ${{ inputs.reset_data }}
+        run: |
+          git config user.name "Benchmark Backfill Job"
+          git config user.email "developers@paradedb.com"
+          files=$(git ls-files stressgres/data.js benchmarks/data.js)
+          if [ -n "$files" ]; then
+            echo "$files" | xargs git rm
+            git commit -m "Reset data.js files"
+            git push
+          fi
+
   dispatch:
     # one job per commit
+    needs: reset
     strategy:
       matrix:
         sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
@@ -37,12 +64,12 @@ jobs:
             const sha   = '${{ matrix.sha }}';
 
             // Workflows you want to queue
-            const targets = ['test-pg_search-benchmark.yml', 'test-pg_search-stressgres.yml'];
+            const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
 
             for (const wf of targets) {
               /*  createWorkflowDispatch must point at a branch or tag, not a
                   bare SHA, so we send `ref:"main"` and hand the commit SHA
-                  through an input named `commit`  */                       // :contentReference[oaicite:0]{index=0}
+                  through an input named `commit`  */
               await github.rest.actions.createWorkflowDispatch({
                 owner,
                 repo,

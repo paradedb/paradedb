@@ -430,13 +430,19 @@ pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMe
     let mut bman = BufferManager::new(indexrel);
     bman.fsm().extend(
         &mut bman,
-        freeable_entries
-            .iter()
-            .flat_map(move |entry| {
-                entry.file_entries().map(move |(file_entry, _)| {
+        freeable_entries.iter().flat_map(move |entry| {
+            // if the entry is a "fake" `DeleteEntry`, we need to free the blocks for the old `DeleteEntry` only
+            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()
+            {
+                let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
+                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
+            // otherwise, we need to free the blocks for all the files in the `SegmentMetaEntry`
+            } else {
+                Box::new(entry.file_entries().flat_map(move |(file_entry, _)| {
                     LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                })
-            })
-            .flatten(),
+                }))
+            };
+            iter
+        }),
     );
 }

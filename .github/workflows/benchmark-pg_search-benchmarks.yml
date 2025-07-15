@@ -1,0 +1,221 @@
+# workflows/benchmark-pg_search-benchmarks.yml
+#
+# Benchmark pg_search - Benchmarks
+# Run our benchmarks suite against pg_search.
+
+name: Benchmark pg_search - Benchmarks
+
+# We run benchmarks on `main`, and on `benchmark`-labeled PRs.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "benchmarks/**"
+      - ".github/workflows/benchmark-pg_search-benchmarks.yml"
+      - "**/*.rs"
+      - "**/*.toml"
+  pull_request:
+    types: [labeled, synchronize]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "A specific commit hash or tag to benchmark. Uses `main` if not specified."
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: write
+  deployments: write
+  pull-requests: write
+
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
+jobs:
+  benchmark-pg_search-benchmarks:
+    name: Run Benchmark Jobs
+    runs-on:
+      # To configure the runners: https://runs-on.com/configuration/job-labels/#how-it-works (runs in us-east-1)
+      - runs-on=${{ github.run_id }}
+      - family=z1d.metal # 48 vCPUs, 384 GiBs Memory, 1.8 TiBs local NVMe
+      - image=ubuntu24-full-x64
+      - extras=s3-cache # See https://runs-on.com/caching/magic-cache/
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarks')
+    env:
+      pg_version: 17
+
+    steps:
+      # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
+      # removes the label once the job has started, so it can be applied again if needed.
+      - name: Maybe Remove Label
+        uses: actions-ecosystem/action-remove-labels@v1
+        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarks'
+        with:
+          labels: |
+            benchmark
+            benchmark-benchmarks
+
+      - name: Determine Ref to Benchmark
+        id: determine-ref
+        run: |
+          # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
+          REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
+          echo "ref=$REF" >> $GITHUB_OUTPUT
+
+      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.determine-ref.outputs.ref }}
+
+      - name: Fetch latest benchmark code, suites, and actions
+        uses: ./.github/actions/benchmarks-from-main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve git ref to PR
+        id: pr_label
+        uses: actions/github-script@v7
+        env:
+          # ← Set this to whatever ref you’re resolving:
+          # • a SHA:            ${{ github.sha }}
+          # • a branch name:    ${{ github.ref_name }}
+          # • a tag:            ${{ github.ref_name }}
+          # • a PR number:      e.g. “123”
+          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { owner, repo } = context.repo;
+            const ref = process.env.TARGET_REF;
+
+            let pr = null;
+
+            // If the ref is purely numeric, treat it as a PR number
+            if (/^\d+$/.test(ref)) {
+              try {
+                const { data } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parseInt(ref, 10)
+                });
+                pr = data;
+              } catch (e) {
+                // not a valid PR number → fall through
+              }
+            }
+
+            // Otherwise, try to find any PR associated with this commit SHA
+            if (!pr) {
+              const res = await github.request(
+                'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
+                {
+                  owner,
+                  repo,
+                  commit_sha: ref,
+                  headers: {
+                    accept: 'application/vnd.github.groot-preview+json'
+                  }
+                }
+              );
+              if (res.data.length) {
+                pr = res.data[0];
+              }
+            }
+
+            // Return “PR #123: Title” or the raw ref
+            return pr
+              ? `PR #${pr.number}: ${pr.title}`
+              : ref;
+
+      - name: Running for ${{ steps.pr_label.outputs.result }}"
+        shell: bash
+        run: |
+          echo ${{ steps.pr_label.outputs.result }}
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: "v1-benchmarks-rust-cache"
+          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+          cache-targets: true
+          cache-all-crates: true
+          cache-on-failure: true
+
+      - name: Extract pgrx Version
+        id: pgrx
+        working-directory: pg_search/
+        run: |
+          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          echo "version=$version" >> $GITHUB_OUTPUT
+
+      - name: Install cargo-pgrx
+        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+
+      - name: Initialize cargo-pgrx environment
+        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
+
+      - name: Compile & install pg_search extension
+        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+
+      - name: Configure PostgreSQL settings
+        working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+          sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
+          sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
+          sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
+          sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
+          sed -i "s/^#max_parallel_maintenance_workers = .*/max_parallel_maintenance_workers = 8/" postgresql.conf
+          sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
+
+      - name: Restart Postgres
+        working-directory: pg_search/
+        run: |
+          cargo pgrx stop pg${{ env.pg_version }}
+          cargo pgrx start pg${{ env.pg_version }}
+
+      - name: Install pg_search
+        working-directory: pg_search/
+        run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
+      - name: Benchmark "logs" Dataset
+        uses: ./.github/actions/benchmark-benchmarks
+        with:
+          dataset: logs
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark "docs" Dataset
+        uses: ./.github/actions/benchmark-benchmarks
+        with:
+          dataset: docs
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}

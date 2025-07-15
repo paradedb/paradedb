@@ -16,3 +16,17 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod micro_benchmarks;
+
+pub fn median<'a>(data: impl Iterator<Item = &'a f64>) -> f64 {
+    let mut sorted = data.copied().collect::<Vec<_>>();
+    sorted.sort_unstable_by(|a, b| a.total_cmp(b));
+    let n = sorted.len();
+    if n == 0 {
+        return f64::NAN;
+    }
+    if n % 2 == 1 {
+        sorted[n / 2]
+    } else {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    }
+}

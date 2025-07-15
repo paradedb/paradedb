@@ -1,4 +1,5 @@
 use clap::Parser;
+use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
@@ -113,17 +114,12 @@ struct JSONBenchmarkResult {
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let avg = if res.runtimes_ms.is_empty() {
-            0.0
-        } else {
-            let sum: f64 = res.runtimes_ms.iter().sum();
-            sum / res.runtimes_ms.len() as f64
-        };
+        let median = median(res.runtimes_ms.iter());
 
         Self {
             name: res.query_type,
-            unit: "avg ms",
-            value: avg,
+            unit: "median ms",
+            value: median,
             extra: res.query,
         }
     }
@@ -158,7 +154,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
     }
 
     let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    std::fs::read_dir(queries_dir)
+    let mut query_paths = std::fs::read_dir(queries_dir)
         .expect("Failed to read queries directory")
         .flat_map(|entry| {
             let entry = entry.expect("Failed to read directory entry");
@@ -166,9 +162,16 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                return vec![];
+                return None;
             }
+            Some(path)
+        })
+        .collect::<Vec<_>>();
+    query_paths.sort_unstable();
 
+    query_paths
+        .into_iter()
+        .flat_map(|path| {
             let queries = queries(&path);
             let query_type = path.file_stem().unwrap().to_string_lossy();
             queries
@@ -184,7 +187,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
                     };
                     (query_type, query)
                 })
-                .collect()
+                .collect::<Vec<_>>()
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");

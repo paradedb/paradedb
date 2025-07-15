@@ -207,7 +207,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
-          pr_label: ${{ steps.pr_label.outputs.result }}"
+          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "docs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
@@ -218,4 +218,4 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
-          pr_label: ${{ steps.pr_label.outputs.result }}"
+          pr_label: ${{ steps.pr_label.outputs.result }}

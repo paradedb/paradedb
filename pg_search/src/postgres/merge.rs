@@ -292,11 +292,15 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(background_layers);
         let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
+
+        pgrx::log!("{}: got merge lock", BackgroundWorker::get_name());
+
         unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
     });
 }
 
-pub unsafe fn merge_index(
+#[inline]
+unsafe fn merge_index(
     indexrel: &PgSearchRelation,
     mut merge_policy: LayeredMergePolicy,
     merge_lock: MergeLock,
@@ -329,7 +333,7 @@ pub unsafe fn merge_index(
     // before we start merging, tell the merger to release pins on the segments it won't be merging
     let mut merger = merger
         .adjust_pins(merge_policy.mergeable_segments())
-        .expect("should be table to adjust merger pins");
+        .expect("should be able to adjust merger pins");
 
     let mut need_gc = !gc_after_merge;
     let ncandidates = merge_candidates.len();
@@ -356,7 +360,7 @@ pub unsafe fn merge_index(
                 break;
             }
 
-            pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
+            pgrx::log!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);
             if merge_result.is_err() {

@@ -255,12 +255,20 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             pg_sys::pgstat_report_activity(pg_sys::BackendState::STATE_RUNNING, MERGING.as_ptr());
         };
 
+        pgrx::log!(
+            "{}: starting background merge",
+            BackgroundWorker::get_name()
+        );
+
         let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
+
+        pgrx::log!("{}: args: {:?}", BackgroundWorker::get_name(), args);
+
         let index = PgSearchRelation::open(args.index_oid());
         let metadata = MetaPage::open(&index);
         let layer_sizes = IndexLayerSizes::from(&index);
 
-        pgrx::debug1!("{}: {:?}", BackgroundWorker::get_name(), args.merge_style());
+        pgrx::log!("{}: {:?}", BackgroundWorker::get_name(), args.merge_style());
 
         if args.merge_style() == MergeStyle::Vacuum {
             pgrx::debug1!(
@@ -275,7 +283,7 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
         }
 
-        pgrx::debug1!(
+        pgrx::log!(
             "{}: merging background layers",
             BackgroundWorker::get_name()
         );

@@ -17,7 +17,7 @@ runs:
       with:
         repository: ${{ github.repository }}
         path: bench-temp
-        token: ${{ inputs.github_token }}
+        token: ${{ inputs.github-token }}
         fetch-depth: 1
         ref: main
 

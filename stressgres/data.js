@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752597729641,
+  "lastUpdate": 1752598340750,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3082,6 +3082,42 @@ window.BENCHMARK_DATA = {
             "value": 130.87823847781894,
             "unit": "median tps",
             "extra": "avg tps: 130.8731015204667, max tps: 142.55683895605753, count: 56467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb3bc1d570c85d60804f6aab2f2d2cf998bd7597",
+          "message": "ci: benchmark workflow cleanups (#2851)\n\nThis is an attempt to cleanup the benchmark workflows a little bit.  \n\n- Centralizes checking out the latest benchmark code/suites/actions into\na composite action.\n- figures out the PR #/title being tested\n- Changes the slack notification messages to be reactive to the\nenvironment to hopefully avoid conflicts with -enterprise",
+          "timestamp": "2025-07-15T12:15:54-04:00",
+          "tree_id": "223c726790d68868f538b7f5aab9cf9904494f44",
+          "url": "https://github.com/paradedb/paradedb/commit/eb3bc1d570c85d60804f6aab2f2d2cf998bd7597"
+        },
+        "date": 1752598339826,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.382677648563025,
+            "unit": "median tps",
+            "extra": "avg tps: 28.290879402955007, max tps: 30.52045789090136, count: 57164"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 137.55425267303485,
+            "unit": "median tps",
+            "extra": "avg tps: 137.65325569812168, max tps: 145.6595574352143, count: 57164"
           }
         ]
       }

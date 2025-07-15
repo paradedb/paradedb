@@ -71,16 +71,71 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
-      # We manually fetch the stressgres queries from `main` to make sure all are available when backfilling
-      # old commits potentially created before new queries were added.
-      - name: Fetch the Latest Stressgres Jobs
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git paradedb-temp
-          cp -rv paradedb-temp/.github/stressgres .github/
-          rm -rf paradedb-temp
+      - name: Fetch latest benchmark code, suites, and actions
+        uses: ./.github/actions/benchmarks-from-main
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-          echo "Files copied to .github/stressgres/:"
-          ls -la .github/stressgres/
+      - name: Resolve git ref to PR
+        id: pr_label
+        uses: actions/github-script@v7
+        env:
+          # ← Set this to whatever ref you’re resolving:
+          # • a SHA:            ${{ github.sha }}
+          # • a branch name:    ${{ github.ref_name }}
+          # • a tag:            ${{ github.ref_name }}
+          # • a PR number:      e.g. “123”
+          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          result-encoding: string
+          script: |
+            const { owner, repo } = context.repo;
+            const ref = process.env.TARGET_REF;
+
+            let pr = null;
+
+            // If the ref is purely numeric, treat it as a PR number
+            if (/^\d+$/.test(ref)) {
+              try {
+                const { data } = await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: parseInt(ref, 10)
+                });
+                pr = data;
+              } catch (e) {
+                // not a valid PR number → fall through
+              }
+            }
+
+            // Otherwise, try to find any PR associated with this commit SHA
+            if (!pr) {
+              const res = await github.request(
+                'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
+                {
+                  owner,
+                  repo,
+                  commit_sha: ref,
+                  headers: {
+                    accept: 'application/vnd.github.groot-preview+json'
+                  }
+                }
+              );
+              if (res.data.length) {
+                pr = res.data[0];
+              }
+            }
+
+            // Return “PR #123: Title” or the raw ref
+            return pr
+              ? `PR #${pr.number}: ${pr.title}`
+              : ref;
+
+      - name: Running for ${{ steps.pr_label.outputs.result }}"
+        shell: bash
+        run: |
+          echo ${{ steps.pr_label.outputs.result }}
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -139,12 +194,6 @@ jobs:
       - name: Remove stressgres repo
         run: rm -rf stressgres
 
-      - name: Fetch Benchmark Actions from main
-        run: |
-          git clone --depth 1 --branch main https://github.com/paradedb/paradedb.git tmp
-          cp -r tmp/.github/actions .github/
-          rm -rf tmp
-
       # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
       - name: Benchmark single-server.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -155,6 +204,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark bulk-updates.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -165,6 +215,7 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark wide-table.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -175,3 +226,4 @@ jobs:
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}

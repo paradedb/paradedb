@@ -9,13 +9,13 @@ on:
       commits: # JSON array of SHAs
         description: >
           Commits to re-run, written as a JSON array.
-          Example: `["6d3c1f0", "a1b2c3d", "deadbeef"]`
+          Example: ["6d3c1f0", "a1b2c3d", "deadbeef"]
 
-          Using one hash still requires the JSON array syntax, ie `["6d3c1f0"]`.
+          Using one hash still requires the JSON array syntax, ie ["6d3c1f0"].
         required: true
         type: string
       reset_data:
-        description: Set to `true` to reset the data before running the benchmarks.  The default is `true`.
+        description: Turn on to reset the data before running the benchmarks
         type: boolean
         default: true
 

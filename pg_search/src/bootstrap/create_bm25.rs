@@ -23,11 +23,8 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::insert::merge_index_with_policy;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{
-    LinkedList, MVCCEntry, SegmentMetaEntry, SEGMENT_METAS_START,
-};
+use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedItemList;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::SearchQueryInput;
 use anyhow::Result;
@@ -169,8 +166,7 @@ fn index_info(
     let mut results = Vec::new();
     for index in index_kind.partitions() {
         // open the specified index
-        let mut segment_components =
-            LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+        let mut segment_components = MetaPage::open(&index).segment_metas();
         let all_entries = unsafe { segment_components.list() };
 
         for entry in all_entries {
@@ -269,7 +265,7 @@ fn storage_info(
     index: PgRelation,
 ) -> TableIterator<'static, (name!(block, i64), name!(max_offset, i32))> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let segment_components = LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+    let segment_components = MetaPage::open(&index).segment_metas();
     let bman = segment_components.bman();
     let (mut blockno, mut buffer) = segment_components.get_start_blockno();
     let mut data = vec![];
@@ -303,8 +299,7 @@ fn page_info(
     >,
 > {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
-    let mut segment_components =
-        LinkedItemList::<SegmentMetaEntry>::open(&index, SEGMENT_METAS_START);
+    let mut segment_components = MetaPage::open(&index).segment_metas();
     let bman = segment_components.bman_mut();
     let buffer = bman.get_buffer(blockno as pg_sys::BlockNumber);
     let page = buffer.page();

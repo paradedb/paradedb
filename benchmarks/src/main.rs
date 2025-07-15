@@ -1,4 +1,5 @@
 use clap::Parser;
+use paradedb::median;
 use paradedb::micro_benchmarks::benchmark_mixed_fast_fields;
 use sqlx::{Connection, PgConnection};
 use std::fs::File;
@@ -113,17 +114,12 @@ struct JSONBenchmarkResult {
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let avg = if res.runtimes_ms.is_empty() {
-            0.0
-        } else {
-            let sum: f64 = res.runtimes_ms.iter().sum();
-            sum / res.runtimes_ms.len() as f64
-        };
+        let median = median(res.runtimes_ms.iter());
 
         Self {
             name: res.query_type,
-            unit: "avg ms",
-            value: avg,
+            unit: "median ms",
+            value: median,
             extra: res.query,
         }
     }
@@ -158,7 +154,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
     }
 
     let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    std::fs::read_dir(queries_dir)
+    let mut query_paths = std::fs::read_dir(queries_dir)
         .expect("Failed to read queries directory")
         .flat_map(|entry| {
             let entry = entry.expect("Failed to read directory entry");
@@ -166,9 +162,16 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                return vec![];
+                return None;
             }
+            Some(path)
+        })
+        .collect::<Vec<_>>();
+    query_paths.sort_unstable();
 
+    query_paths
+        .into_iter()
+        .flat_map(|path| {
             let queries = queries(&path);
             let query_type = path.file_stem().unwrap().to_string_lossy();
             queries
@@ -184,7 +187,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
                     };
                     (query_type, query)
                 })
-                .collect()
+                .collect::<Vec<_>>()
         })
         .map(|(query_type, query)| {
             println!("Query Type: {query_type}\nQuery: {query}");
@@ -527,20 +530,13 @@ fn queries(file: &Path) -> Vec<String> {
 }
 
 fn execute_psql_command(url: &str, command: &str) -> Result<String, std::io::Error> {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
-        .arg("-c")
-        .arg(command)
-        .output()?;
+    let output = base_psql_command(url).arg("-c").arg(command).output()?;
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 fn execute_sql_with_timing(url: &str, statement: &str) -> f64 {
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg("\\timing")
         .arg("-c")
@@ -574,9 +570,7 @@ fn extract_index_name(statement: &str) -> &str {
 
 fn get_index_size(url: &str, index_name: &str) -> i64 {
     let size_query = format!("SELECT pg_relation_size('{index_name}') / (1024 * 1024);");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&size_query)
         .output()
@@ -590,9 +584,7 @@ fn get_index_size(url: &str, index_name: &str) -> i64 {
 
 fn get_segment_count(url: &str, index_name: &str) -> i64 {
     let query = format!("SELECT count(*) FROM paradedb.index_info('{index_name}');");
-    let output = Command::new("psql")
-        .arg(url)
-        .arg("-t")
+    let output = base_psql_command(url)
         .arg("-c")
         .arg(&query)
         .output()
@@ -606,8 +598,7 @@ fn get_segment_count(url: &str, index_name: &str) -> i64 {
 
 fn prewarm_indexes(url: &str, dataset: &str, r#type: &str) {
     let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
-    let status = Command::new("psql")
-        .arg(url)
+    let status = base_psql_command(url)
         .arg("-f")
         .arg(&prewarm_sql)
         .status()
@@ -624,9 +615,7 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     let mut num_results = 0;
 
     for i in 0..times {
-        let output = Command::new("psql")
-            .arg(url)
-            .arg("-t")
+        let output = base_psql_command(url)
             .arg("-c")
             .arg("\\timing")
             .arg("-c")
@@ -655,4 +644,12 @@ fn execute_query_multiple_times(url: &str, query: &str, times: usize) -> (Vec<f6
     }
 
     (results, num_results)
+}
+
+fn base_psql_command(url: &str) -> Command {
+    let mut command = Command::new("psql");
+    command.arg(url); // connection url
+    command.arg("-X"); // don't use local .psqlrc file
+    command.arg("-t"); // output tuples only
+    command
 }

@@ -1,8 +1,8 @@
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::block::{
-    bm25_max_free_space, BM25PageSpecialData, PgItem, FIXED_BLOCK_NUMBERS,
-};
-use crate::postgres::storage::utils::{BM25BufferCache, BM25Page};
+use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::fsm::FreeSpaceManager;
+use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
 use pgrx::pg_sys;
 
 #[derive(Debug)]
@@ -107,24 +107,11 @@ impl BufferMut {
         self.inner.page_size()
     }
 
-    /// Return this [`BufferMut`] instance back to Postgres' Free Space Map, making
+    /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
-    ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub fn return_to_fsm(mut self, bman: &mut BufferManager) {
-        unsafe {
-            let blockno = self.page_mut().mark_deleted();
-            debug_assert!(
-                FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                "record_free_index_page: blockno {blockno} cannot ever be recycled"
-            );
-            pg_sys::RecordPageWithFreeSpace(
-                bman.bcache.rel().as_ptr(),
-                blockno,
-                bm25_max_free_space(),
-            );
-        }
+    pub fn return_to_fsm(self, bman: &mut BufferManager) {
+        let blockno = self.number();
+        bman.fsm().extend(bman, std::iter::once(blockno));
     }
 }
 
@@ -224,22 +211,6 @@ pub struct PageMut<'a> {
 }
 
 impl PageMut<'_> {
-    fn mark_deleted(mut self) -> pg_sys::BlockNumber {
-        let blockno = self.buffer.number();
-        let special = self.special_mut::<BM25PageSpecialData>();
-
-        assert!(
-            special.xmax == pg_sys::InvalidTransactionId
-                || special.xmax == pg_sys::FrozenTransactionId,
-            "page {} is already marked deleted with xid={}",
-            blockno,
-            special.xmax
-        );
-        special.xmax = pg_sys::FrozenTransactionId;
-        self.buffer.dirty = true;
-        blockno
-    }
-
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
@@ -404,6 +375,10 @@ impl PageMut<'_> {
         true
     }
 
+    pub fn contents<T: Copy>(&self) -> T {
+        unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
+    }
+
     pub fn contents_mut<T>(&mut self) -> &mut T {
         let contents = unsafe {
             let contents = pg_sys::PageGetContents(self.pg_page) as *mut T;
@@ -438,31 +413,45 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BufferManager {
-    bcache: BM25BufferCache,
+    rbufacc: RelationBufferAccess,
+    fsm_blockno: Option<pg_sys::BlockNumber>,
 }
 
 impl BufferManager {
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
-            bcache: BM25BufferCache::open(rel),
+            rbufacc: RelationBufferAccess::open(rel),
+            fsm_blockno: None,
         }
     }
 
-    pub fn bm25cache(&self) -> &BM25BufferCache {
-        &self.bcache
+    pub fn fsm(&mut self) -> FreeSpaceManager {
+        let fsm_blockno = *self
+            .fsm_blockno
+            .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());
+        FreeSpaceManager::open(fsm_blockno)
+    }
+
+    pub fn buffer_access(&self) -> &RelationBufferAccess {
+        &self.rbufacc
     }
 
     #[must_use]
     pub fn new_buffer(&mut self) -> BufferMut {
-        unsafe {
-            BufferMut {
-                dirty: false,
-                inner: Buffer {
-                    pg_buffer: self.bcache.new_buffer(),
-                },
-            }
+        let pg_buffer = self
+            .fsm()
+            .pop(self)
+            .map(|blockno| {
+                self.rbufacc
+                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE))
+            })
+            .unwrap_or_else(|| self.rbufacc.new_buffer());
+
+        BufferMut {
+            dirty: false,
+            inner: Buffer { pg_buffer },
         }
     }
 
@@ -470,28 +459,35 @@ impl BufferManager {
     /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
     /// locking the relation for every new buffer.
     pub fn new_buffers(&mut self, npages: usize) -> impl Iterator<Item = BufferMut> {
-        unsafe {
-            let mut buffer_vec = self.bcache.new_buffers(npages);
-            std::iter::from_fn(move || {
-                buffer_vec.next().map(|pg_buffer| BufferMut {
+        let fsm_blocknos = self.fsm().pop_many(self, npages);
+        let needed = npages - fsm_blocknos.len();
+        let new_buffers = self.rbufacc.new_buffers(needed);
+
+        let rbufacc = self.rbufacc.clone();
+        fsm_blocknos
+            .into_iter()
+            .map(move |blockno| {
+                let pg_buffer = rbufacc.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+                BufferMut {
                     dirty: false,
                     inner: Buffer { pg_buffer },
-                })
+                }
             })
-        }
+            .chain(new_buffers.map(|pg_buffer| BufferMut {
+                dirty: false,
+                inner: Buffer { pg_buffer },
+            }))
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
-        unsafe { PinnedBuffer::new(self.bcache.get_buffer(blockno, None)) }
+        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
-        unsafe {
-            Buffer::new(
-                self.bcache
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE)),
-            )
-        }
+        Buffer::new(
+            self.rbufacc
+                .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE)),
+        )
     }
 
     ///
@@ -507,14 +503,12 @@ impl BufferManager {
     }
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
-        unsafe {
-            BufferMut {
-                dirty: false,
-                inner: Buffer::new(
-                    self.bcache
-                        .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-                ),
-            }
+        BufferMut {
+            dirty: false,
+            inner: Buffer::new(
+                self.rbufacc
+                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
+            ),
         }
     }
 
@@ -534,7 +528,7 @@ impl BufferManager {
     #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
-            let pg_buffer = self.bcache.get_buffer(blockno, None);
+            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 Some(BufferMut {
                     dirty: false,
@@ -549,11 +543,7 @@ impl BufferManager {
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
-            let buffer = self.bcache.get_buffer_with_strategy(
-                blockno,
-                pg_sys::ReadBufferMode::RBM_NORMAL as _,
-                None,
-            );
+            let buffer = self.rbufacc.get_buffer(blockno, None);
             pg_sys::LockBufferForCleanup(buffer);
             BufferMut {
                 dirty: false,
@@ -567,7 +557,7 @@ impl BufferManager {
         blockno: pg_sys::BlockNumber,
     ) -> Option<BufferMut> {
         unsafe {
-            let buffer = self.bcache.get_buffer(blockno, None);
+            let buffer = self.rbufacc.get_buffer(blockno, None);
             if pg_sys::ConditionalLockBufferForCleanup(buffer) {
                 Some(BufferMut {
                     dirty: false,
@@ -582,5 +572,32 @@ impl BufferManager {
 
     pub fn page_is_empty(&self, blockno: pg_sys::BlockNumber) -> bool {
         self.get_buffer(blockno).page().is_empty()
+    }
+}
+
+/// Directly create a new buffer in the specified relation via extension, bypassing the Free Space Map,
+/// and initialize it as a new page.
+pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
+    unsafe {
+        pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
+        let pg_buffer = pg_sys::ReadBufferExtended(
+            rel.as_ptr(),
+            pg_sys::ForkNumber::MAIN_FORKNUM,
+            pg_sys::InvalidBlockNumber,
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            std::ptr::null_mut(),
+        );
+        pg_sys::UnlockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+
+        let mut buffer = BufferMut {
+            dirty: false,
+            inner: Buffer { pg_buffer },
+        };
+        let mut page = buffer.init_page();
+        let special = page.special_mut::<BM25PageSpecialData>();
+        special.next_blockno = pg_sys::InvalidBlockNumber;
+        special.xmax = pg_sys::InvalidTransactionId;
+        buffer
     }
 }

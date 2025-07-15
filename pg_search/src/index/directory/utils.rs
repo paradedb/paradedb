@@ -3,10 +3,8 @@ use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SCHEMA_START, SEGMENT_METAS_START, SETTINGS_START,
 };
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::path::PathBuf;
@@ -20,7 +18,7 @@ use tantivy::{
 };
 
 pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Result<()> {
-    let schema = LinkedBytesList::open(indexrel, SCHEMA_START);
+    let schema = MetaPage::open(indexrel).schema_bytes();
     if schema.is_empty() {
         let bytes = serde_json::to_vec(tantivy_schema)?;
         unsafe {
@@ -31,7 +29,7 @@ pub fn save_schema(indexrel: &PgSearchRelation, tantivy_schema: &Schema) -> Resu
 }
 
 pub fn save_settings(indexrel: &PgSearchRelation, tantivy_settings: &IndexSettings) -> Result<()> {
-    let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
+    let settings = MetaPage::open(indexrel).settings_bytes();
     if settings.is_empty() {
         let bytes = serde_json::to_vec(tantivy_settings)?;
         unsafe {
@@ -49,8 +47,7 @@ pub unsafe fn save_new_metas(
 ) -> Result<()> {
     // in order to ensure that all of our mutations to the list of segments appear atomically on
     // physical replicas, we atomically operate on a deep copy of the list.
-    let mut segment_metas_linked_list =
-        LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
+    let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
     let mut linked_list = segment_metas_linked_list.atomically();
 
     let incoming_segments = new_meta
@@ -165,7 +162,7 @@ pub unsafe fn save_new_metas(
 
             if meta_entry.delete.is_some() {
                 // remember the old delete_entry for future action
-                orphaned_deletes_files.push((meta_entry.xmax, meta_entry.delete.unwrap()));
+                orphaned_deletes_files.push(meta_entry);
             }
 
             // replace (or set new) the delete_entry
@@ -295,12 +292,10 @@ pub unsafe fn save_new_metas(
         // properly delete the blocks associated with the orphaned file
         let fake_entries = orphaned_deletes_files
             .into_iter()
-            .map(|(_, delete_entry)| SegmentMetaEntry {
+            .map(|old_entry| SegmentMetaEntry {
                 segment_id: SegmentId::from_bytes([0; 16]), // all zeros
-                max_doc: delete_entry.num_deleted_docs,
-                xmax: pg_sys::FrozenTransactionId, // immediately recyclable
-                delete: Some(delete_entry), // the file whose bytes we need to ensure get garbage collected in the future
-                ..Default::default()
+                xmax: pg_sys::FrozenTransactionId,          // immediately recyclable
+                ..old_entry
             })
             .collect::<Vec<_>>();
         linked_list.add_items(&fake_entries, None);
@@ -332,7 +327,8 @@ pub unsafe fn load_metas(
     let mut pin_cushion = PinCushion::default();
 
     // Collect segments from each relevant list.
-    let mut segment_metas = LinkedItemList::<SegmentMetaEntry>::open(indexrel, SEGMENT_METAS_START);
+    let metapage = MetaPage::open(indexrel);
+    let mut segment_metas = metapage.segment_metas();
     let mut exhausted_metas_lists = false;
 
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
@@ -441,7 +437,7 @@ pub unsafe fn load_metas(
         }
     }
 
-    let settings = LinkedBytesList::open(indexrel, SETTINGS_START);
+    let settings = metapage.settings_bytes();
     let deserialized_settings = serde_json::from_slice(&settings.read_all())?;
 
     Ok(LoadedMetas {
@@ -459,7 +455,8 @@ pub unsafe fn load_metas(
 }
 
 pub fn load_index_schema(indexrel: &PgSearchRelation) -> tantivy::Result<Option<Schema>> {
-    let schema_bytes = unsafe { LinkedBytesList::open(indexrel, SCHEMA_START).read_all() };
+    let metapage = MetaPage::open(indexrel);
+    let schema_bytes = unsafe { metapage.schema_bytes().read_all() };
     if schema_bytes.is_empty() {
         return Ok(None);
     }

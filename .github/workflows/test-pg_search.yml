@@ -10,17 +10,13 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
+      - 0.*.x
     paths:
       - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "tests/**"
       - "tokenizers/**"
-  push:
-    branches: # Also run on the default branch to fill the GitHub Actions Rust cache in a way that PRs can see it
-      - main
-    paths:
-      - "**/*.rs"
-      - "**/*.toml"
   workflow_dispatch:
 
 concurrency:
@@ -54,8 +50,6 @@ jobs:
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
-    env:
-      default_pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -71,16 +65,13 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches,
-      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          prefix-key: "rust-cache"
+          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof
@@ -156,8 +147,6 @@ jobs:
     strategy:
       matrix:
         pg_version: [17]
-    env:
-      default_pg_version: 17
 
     steps:
       - name: Checkout Git Repository
@@ -173,16 +162,13 @@ jobs:
           version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           echo "version=$version" >> $GITHUB_OUTPUT
 
-      # Caches from base branches are available to PRs, but not across unrelated branches,
-      # so we only save the cache on the default branch, but load it on all branches.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-rust"
-          key: ${{ matrix.pg_version }}-${{ steps.pgrx.outputs.version }}
+          prefix-key: "rust-cache"
+          shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install required system tools
         run: sudo apt-get update && sudo apt-get install -y lsof

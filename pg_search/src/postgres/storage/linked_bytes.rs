@@ -15,12 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::block::{
-    bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData, FIXED_BLOCK_NUMBERS,
-};
+use super::block::{bm25_max_free_space, BM25PageSpecialData, LinkedList, LinkedListData};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
-use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
+use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
 use anyhow::Result;
 use pgrx::pg_sys::BlockNumber;
 use pgrx::{check_for_interrupts, pg_sys};
@@ -194,9 +192,10 @@ impl LinkedList for LinkedBytesList {
     fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
         self.blocklist_reader
             .get_or_init(|| {
-                blocklist::reader::BlockList::new(&self.bman, unsafe {
-                    self.get_linked_list_data().blocklist_start
-                })
+                blocklist::reader::BlockList::new(
+                    &self.bman,
+                    self.get_linked_list_data().blocklist_start,
+                )
             })
             .get(ord)
     }
@@ -251,7 +250,30 @@ impl LinkedBytesList {
         }
     }
 
-    pub unsafe fn create(rel: &PgSearchRelation) -> Self {
+    /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
+    /// creates the necessary initial block structure without trying to use recycled pages from
+    /// the [`FreeSpaceManager`].
+    ///
+    /// This is required if this object is created during `CREATE INDEX`/`REINDEX` as part of the
+    /// initial index structure and the FSM hasn't been initialized yet.
+    pub unsafe fn create_without_fsm(rel: &PgSearchRelation) -> pg_sys::BlockNumber {
+        let (mut header_buffer, start_buffer) = (init_new_buffer(rel), init_new_buffer(rel));
+        let header_blockno = header_buffer.number();
+        let start_blockno = start_buffer.number();
+
+        let mut header_page = header_buffer.page_mut();
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.start_blockno = start_blockno;
+        metadata.last_blockno = start_blockno;
+        metadata.npages = 1;
+        metadata.blocklist_start = pg_sys::InvalidBlockNumber;
+
+        header_blockno
+    }
+
+    /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method
+    /// will attempt to create the initial block structure using recycled blocks from the [`FreeSpaceManager`].
+    pub fn create_with_fsm(rel: &PgSearchRelation) -> Self {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
@@ -302,33 +324,53 @@ impl LinkedBytesList {
         bytes
     }
 
-    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
-    /// Free Space Map behind this index.
+    /// Returns a lazily-evaluated iterator of all the [`pg_sys::BlockNumber`]s used by this [`LinkedBytesList`].
     ///
-    /// It's the caller's responsibility to later call [`pg_sys::IndexFreeSpaceMapVacuum`]
-    /// if necessary.
-    pub unsafe fn return_to_fsm(mut self) {
+    /// There's no locking per-se that happens while the returned Iterator emits block numbers.  It's
+    /// possible the place where block numbers are found happen to themselves live on a block and in
+    /// reading that block it will be locked with a share lock, but none of this provides any sort of
+    /// consistency guarantees around this [`LinkedBytesList`]'s physical representation in the face
+    /// of concurrency.
+    ///
+    /// [`LinkedBytesList`]s are immutable, up until the point where they're being reclaimed
+    /// as free space and added to the [`FreeSpaceManager`].
+    ///
+    /// Which is the only time this function should be called.  That is, when it's otherwise known that
+    /// no other concurrent Postgres backend would have open any block that will be returned from
+    /// this function.
+    ///
+    /// We take care of this, elsewhere, through our constructs like the [`PinCushion`], the [`MergeLock`],
+    /// and atomically managing the segment entries list through an atomic copy-on-write approach.
+    pub fn freeable_blocks(mut self) -> impl Iterator<Item = BlockNumber> {
         // in addition to the list itself, we also have a secondary list of linked blocks (which
         // contain the blocknumbers of this list) that needs to be marked deleted too
-        let metadata = self.get_linked_list_data();
-        for starting_blockno in [metadata.start_blockno, metadata.blocklist_start] {
-            let mut blockno = starting_blockno;
-            while blockno != pg_sys::InvalidBlockNumber {
-                debug_assert!(
-                    FIXED_BLOCK_NUMBERS.iter().all(|fb| *fb != blockno),
-                    "mark_deleted:  blockno {blockno} cannot ever be recycled"
-                );
-                let mut buffer = self.bman.get_buffer_mut(blockno);
-                let page = buffer.page_mut();
-                let special = page.special::<BM25PageSpecialData>();
 
-                blockno = special.next_blockno;
-                buffer.return_to_fsm(&mut self.bman);
-            }
-        }
+        let mut blocklist_blockno = self.get_linked_list_data().blocklist_start;
+        // iterate the BlockList contents -- this is every block used by this LinkedBytesList
+        self.blocklist_reader
+            .take()
+            .unwrap_or_else(|| blocklist::reader::BlockList::new(&self.bman, blocklist_blockno))
+            .into_iter()
+            // include our header page
+            .chain(std::iter::once(self.header_blockno))
+            // the BlockList itself consumes one or more blocks -- make sure to include them too
+            .chain(std::iter::from_fn(move || {
+                if blocklist_blockno == pg_sys::InvalidBlockNumber {
+                    return None;
+                }
+                let blockno = blocklist_blockno;
+                let buffer = self.bman.get_buffer(blockno);
+                blocklist_blockno = buffer.page().next_blockno();
+                Some(blockno)
+            }))
+    }
 
-        let header_buffer = self.bman.get_buffer_mut(self.header_blockno);
-        header_buffer.return_to_fsm(&mut self.bman);
+    /// Return all the allocated blocks used by this [`LinkedBytesList`] back to the
+    /// Free Space Map behind this index.
+    pub unsafe fn return_to_fsm(self) {
+        let mut bman = self.bman().clone();
+        let fsm = bman.fsm();
+        fsm.extend(&mut bman, self.freeable_blocks());
     }
 
     pub fn is_empty(&self) -> bool {
@@ -374,7 +416,7 @@ mod tests {
     use super::*;
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::BM25PageSpecialData;
-    use crate::postgres::storage::utils::BM25BufferCache;
+    use crate::postgres::storage::utils::RelationBufferAccess;
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -390,7 +432,7 @@ mod tests {
         // Test read/write from newly created linked list
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let start_blockno = {
-            let linked_list = LinkedBytesList::create(&indexrel);
+            let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
             let mut writer = linked_list.writer();
             writer.write(&bytes).unwrap();
             let linked_list = writer.into_inner().unwrap();
@@ -416,7 +458,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(&indexrel);
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
         assert!(linked_list.is_empty());
 
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
@@ -436,7 +478,7 @@ mod tests {
                 .unwrap();
         let indexrel = PgSearchRelation::open(relation_oid);
 
-        let linked_list = LinkedBytesList::create(&indexrel);
+        let linked_list = LinkedBytesList::create_with_fsm(&indexrel);
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();
@@ -445,11 +487,18 @@ mod tests {
         linked_list.return_to_fsm();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            let buffer = BM25BufferCache::open(&indexrel)
+            let buffer = RelationBufferAccess::open(&indexrel)
                 .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
             let page = pg_sys::BufferGetPage(buffer);
             let special = pg_sys::PageGetSpecialPointer(page) as *mut BM25PageSpecialData;
-            assert!((*special).xmax != pg_sys::InvalidTransactionId);
+
+            // NB:  There was a time when the call to `linked_list.returm_to_fsm()` above would
+            // update every page in the list, setting the `xmax` in the special data to the transaction id
+            // of the transaction that deleted it.
+            //
+            // Our custom FSM does not do this, and so now we assert that the xmax value is still invalid
+            // it's actually no longer used anywhere.
+            assert!((*special).xmax == pg_sys::InvalidTransactionId);
             blockno = (*special).next_blockno;
             pg_sys::UnlockReleaseBuffer(buffer);
         }

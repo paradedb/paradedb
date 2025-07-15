@@ -5,8 +5,9 @@ name = "Primary"
 [server.setup]
 sql = """
 DROP EXTENSION IF EXISTS pg_search CASCADE;
-DROP TABLE IF EXISTS test CASCADE;
 CREATE EXTENSION pg_search;
+
+DROP TABLE IF EXISTS test CASCADE;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,
@@ -92,3 +93,14 @@ UPDATE test
 SET severity = (severity + 1) % 5
 WHERE id < 10000;
 """
+
+#[[jobs]]
+#log_columns = ["fsm_size", "blocks_under_management"]
+#window_height = 25
+#refresh_ms = 1000
+#title = "Monitoring"
+#log_tps = false
+#log_count = false
+#sql = """
+#SELECT count(distinct fsm_blockno) fsm_size, count(*) blocks_under_management FROM paradedb.fsm_info('idxtest');
+#"""

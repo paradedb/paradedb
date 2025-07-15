@@ -1,7 +1,9 @@
 # workflows/publish-paradedb-docker.yml
 #
 # Publish ParadeDB (Docker)
-# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub.
+# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub. Stable
+# releases publish Docker images for all of our supported PostgreSQL versions, while beta releases
+# only publish the default PostgreSQL version we support (currently 17).
 
 name: Publish ParadeDB (Docker)
 

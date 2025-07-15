@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752598340750,
+  "lastUpdate": 1752598342604,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3646,6 +3646,66 @@ window.BENCHMARK_DATA = {
             "value": 164.6640625,
             "unit": "median mem",
             "extra": "avg mem: 154.4701904845972, max mem: 173.96875, count: 56467"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb3bc1d570c85d60804f6aab2f2d2cf998bd7597",
+          "message": "ci: benchmark workflow cleanups (#2851)\n\nThis is an attempt to cleanup the benchmark workflows a little bit.  \n\n- Centralizes checking out the latest benchmark code/suites/actions into\na composite action.\n- figures out the PR #/title being tested\n- Changes the slack notification messages to be reactive to the\nenvironment to hopefully avoid conflicts with -enterprise",
+          "timestamp": "2025-07-15T12:15:54-04:00",
+          "tree_id": "223c726790d68868f538b7f5aab9cf9904494f44",
+          "url": "https://github.com/paradedb/paradedb/commit/eb3bc1d570c85d60804f6aab2f2d2cf998bd7597"
+        },
+        "date": 1752598341672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.48614730239338, max cpu: 47.38401, count: 57164"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.63902523058655, max mem: 176.1953125, count: 57164"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19360,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17934.165961094393, max block_count: 23063.0, count: 57164"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.53789098033728, max segment_count: 159.0, count: 57164"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.45333314504253, max cpu: 32.74854, count: 57164"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 153.75233415589358, max mem: 173.49609375, count: 57164"
           }
         ]
       }

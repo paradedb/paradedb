@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752619181405,
+  "lastUpdate": 1752619794308,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3400,6 +3400,42 @@ window.BENCHMARK_DATA = {
             "value": 137.55425267303485,
             "unit": "median tps",
             "extra": "avg tps: 137.65325569812168, max tps: 145.6595574352143, count: 57164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7bdeebed6249725c87b87c276d2e09dfaffd152",
+          "message": "ci: publish stressgres benchmark graphs (#2852)\n\nThis will publish every stressgres benchmark graph to the new\n`paradedb/benchmark-data` repo.\n\nIt also ensures that when one of our \"[benchmark]\" labels are applied,\nthat it does *not* pull the benchmarks from main, but instead from the\nPR branch itself.",
+          "timestamp": "2025-07-15T18:13:26-04:00",
+          "tree_id": "f18bf519521a03613c5b12c861092f24314476ad",
+          "url": "https://github.com/paradedb/paradedb/commit/c7bdeebed6249725c87b87c276d2e09dfaffd152"
+        },
+        "date": 1752619793346,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.494826383202582,
+            "unit": "median tps",
+            "extra": "avg tps: 27.52106285429916, max tps: 29.705591447831516, count: 56424"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 128.51072601320266,
+            "unit": "median tps",
+            "extra": "avg tps: 128.23104107317803, max tps: 145.19202534924474, count: 56424"
           }
         ]
       }

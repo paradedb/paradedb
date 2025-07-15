@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod privdat;
+pub mod scan_state;
 
 use std::ffi::CStr;
 
@@ -24,6 +25,9 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, PrivateData};
+use crate::postgres::customscan::aggregatescan::scan_state::{
+    AggregateRow, AggregateScanState, ExecutionState,
+};
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, RestrictInfoType,
 };
@@ -34,15 +38,13 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::{
-    range_table, CreateUpperPathsHookArgs, CustomScan, CustomScanState, ExecMethod,
-    PlainExecCapable,
+    range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
 use crate::postgres::{rel_get_bm25_index, PgSearchRelation};
 use crate::query::SearchQueryInput;
 
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::Index;
-use tinyvec::TinyVec;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -305,73 +307,3 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
-
-// TODO: This should match the output types of the extracted aggregate functions. For now we only
-// support COUNT.
-type AggregateRow = TinyVec<[i64; 4]>;
-
-#[derive(Default)]
-enum ExecutionState {
-    #[default]
-    NotStarted,
-    Emitting(std::vec::IntoIter<AggregateRow>),
-    Completed,
-}
-
-#[derive(Default)]
-pub struct AggregateScanState {
-    // The state of this scan.
-    state: ExecutionState,
-    // The aggregate types that we are executing for.
-    aggregate_types: Vec<AggregateType>,
-    // The index that will be scanned.
-    indexrelid: pg_sys::Oid,
-    // The query that will be executed.
-    query: SearchQueryInput,
-}
-
-impl AggregateScanState {
-    fn aggregates_to_json(&self) -> serde_json::Value {
-        serde_json::Value::Object(
-            self.aggregate_types
-                .iter()
-                .enumerate()
-                .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
-                .collect(),
-        )
-    }
-
-    fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<AggregateRow> {
-        let result_map = result
-            .as_object()
-            .expect("unexpected aggregate result collection type");
-
-        let row = self
-            .aggregate_types
-            .iter()
-            .enumerate()
-            .map(move |(idx, aggregate)| {
-                let aggregate_val = result_map
-                    .get(&idx.to_string())
-                    .expect("missing aggregate result")
-                    .as_object()
-                    .expect("unexpected aggregate structure")
-                    .get("value")
-                    .expect("missing aggregate result value")
-                    .as_number()
-                    .expect("unexpected aggregate result type");
-
-                aggregate.result_from_json(aggregate_val)
-            })
-            .collect::<AggregateRow>();
-
-        vec![row]
-    }
-}
-
-impl CustomScanState for AggregateScanState {
-    fn init_exec_method(&mut self, cstate: *mut pg_sys::CustomScanState) {
-        // TODO: Unused currently. See the comment on `trait CustomScanState` regarding making this
-        // more useful.
-    }
-}

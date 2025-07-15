@@ -79,7 +79,7 @@ runs:
           channel: ${{ inputs.slack_channel }}
           text: |
             ${{ github.repository }} Benchmark Results
-            ${{ inputs.pr_title }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+            ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
             <https://paradedb.github.io/paradedb/benchmarks/>
 
     - name: Notify Slack on Failure (push only)

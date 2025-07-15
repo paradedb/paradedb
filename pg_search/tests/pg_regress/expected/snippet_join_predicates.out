@@ -64,22 +64,11 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_2.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
-       1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 | 0.20342469
-       2 |                     |                  |            0 | 0.13515766
-       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 |  0.2152619
+       1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111 | 0.20342469
+       2 |                     |                  |            1 | 0.13515766
+       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111 |  0.2152619
 (3 rows)
 
 -- For comparison, show a working case where predicates can be pushed down
@@ -137,22 +126,11 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_2.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |        content_positions        | author_score | book_score 
 ---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{5,12}"}       | {"{10,14}","{15,19}","{58,62}"} |    1.3042113 | 0.20342469
-       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {"{8,12}"}                      |            0 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{5,12}"}       | {"{12,16}","{17,21}","{22,26}"} |    1.3042113 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{5,12}"}       | {"{10,14}","{15,19}","{58,62}"} |    2.3042111 | 0.20342469
+       2 | Stephen King |                     | Another <b>test</b> of the snippet snippet function with repeated snippet words           |                  | {"{8,12}"}                      |            1 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{5,12}"}       | {"{12,16}","{17,21}","{22,26}"} |    2.3042111 |  0.2152619
 (3 rows)
 
 -- Additional test: Show that score functions work (they use placeholder mechanism)
@@ -166,22 +144,11 @@ SELECT
 FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_2.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> |    1.3042113 | 0.20342469
-       2 | Stephen King |                     |            0 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> |    1.3042113 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469
+       2 | Stephen King |                     |            1 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 |  0.2152619
 (3 rows)
 
 -- Test with different join types to see if the issue persists
@@ -195,22 +162,11 @@ SELECT
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: (table_2.col_1 op_401354 <const_type_401235>) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) }"
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
-       1 | J.K. Rowling | J.K. <b>Rowling</b> |    1.3042113 | 0.20342469
-       2 | Stephen King |                     |            0 | 0.13515766
-       3 | J.K. Rowling | J.K. <b>Rowling</b> |    1.3042113 |  0.2152619
+       1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469
+       2 | Stephen King |                     |            1 | 0.13515766
+       3 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 |  0.2152619
 (3 rows)
 
 -- Cleanup

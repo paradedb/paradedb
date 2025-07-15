@@ -666,14 +666,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_531 table_4.col_2) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_531 table_4.col_2) }"
                                                                                      QUERY PLAN                                                                                      
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -722,14 +714,6 @@ JOIN (
     WHERE author IN (SELECT author FROM score_test WHERE content @@@ 'technology')
 ) b ON a.author = b.author AND a.title <> b.title
 ORDER BY a.title, a.author, a.rating, a.score, b.title;
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_531 table_4.col_2) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (table_1.col_1 op_531 table_4.col_2) }"
            title            |    author     | rating |    score    |       related_title        
 ----------------------------+---------------+--------+-------------+----------------------------
  Post 1                     | Author 2      |      2 | 0.019852143 | Post 11

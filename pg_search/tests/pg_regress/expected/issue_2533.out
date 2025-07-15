@@ -148,22 +148,6 @@ SELECT (SELECT COUNT(*)
            OR (NOT (products.age @@@ '20')) AND (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') AND (users.name @@@ 'bob')) AND (products.color @@@ 'blue')
            OR (NOT (products.name @@@ 'bob')));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_2 op_98 'bob') AND (table_1.col_3 op_98 'blue') AND (table_1.col_2 op_98 'bob') AND (table_2.col_2 op_98 'bob')) OR ((table_2.col_4 op_531 '20') AND (table_1.col_2 op_98 'bob')) OR ((table_1.col_3 op_98 'blue') AND (table_1.col_2 op_98 'bob') AND (table_2.col_3 op_98 'blue')) OR (table_2.col_2 op_531 'bob')) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_2 op_98 'bob') AND (table_1.col_3 op_98 'blue') AND (table_1.col_2 op_98 'bob') AND (table_2.col_2 op_98 'bob')) OR ((table_2.col_4 op_531 '20') AND (table_1.col_2 op_98 'bob')) OR ((table_1.col_3 op_98 'blue') AND (table_1.col_2 op_98 'bob') AND (table_2.col_3 op_98 'blue')) OR (table_2.col_2 op_531 'bob')) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>)) OR ((NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_1.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>)) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>)) OR ((NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_1.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>)) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
     13 |    13
@@ -187,22 +171,6 @@ SELECT (SELECT COUNT(*)
            OR (orders.age @@@ '20') AND NOT (users.name @@@ 'bob')
            OR ((users.color @@@ 'blue') OR (NOT (users.name @@@ 'bob'))) AND
               NOT ((orders.name @@@ 'bob') OR (orders.age @@@ '20')) AND (orders.name @@@ 'bob'));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_2 op_98 'bob') AND ((table_1.col_3 op_98 'blue') OR (table_1.col_2 op_531 'bob')) AND ((table_2.col_2 op_531 'bob') OR (table_2.col_4 op_531 '20'))) OR ((table_2.col_4 op_98 '20') AND (table_1.col_2 op_531 'bob')) OR (((table_1.col_3 op_98 'blue') OR (table_1.col_2 op_531 'bob')) AND (table_2.col_2 op_531 'bob') AND (table_2.col_4 op_531 '20') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_2 op_98 'bob') AND ((table_1.col_3 op_98 'blue') OR (table_1.col_2 op_531 'bob')) AND ((table_2.col_2 op_531 'bob') OR (table_2.col_4 op_531 '20'))) OR ((table_2.col_4 op_98 '20') AND (table_1.col_2 op_531 'bob')) OR (((table_1.col_3 op_98 'blue') OR (table_1.col_2 op_531 'bob')) AND (table_2.col_2 op_531 'bob') AND (table_2.col_4 op_531 '20') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND ((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (NOT (table_2.col_1 op_401354 <const_type_401235>)))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND ((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (NOT (table_2.col_1 op_401354 <const_type_401235>)))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
      0 |     0
@@ -226,22 +194,6 @@ SELECT (SELECT COUNT(*)
            OR ((products.color @@@ 'blue') AND (products.color @@@ 'blue')) AND NOT (users.color @@@ 'blue')
            OR ((users.name @@@ 'bob') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.color @@@ 'blue') AND
               ((products.color @@@ 'blue') OR (products.color @@@ 'blue')));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_2 op_98 'bob') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue')) OR ((table_2.col_3 op_98 'blue') AND (table_2.col_3 op_98 'blue') AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_2 op_98 'bob') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue') AND (table_2.col_3 op_98 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_2 op_98 'bob') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue')) OR ((table_2.col_3 op_98 'blue') AND (table_2.col_3 op_98 'blue') AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_2 op_98 'bob') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue') AND (table_2.col_3 op_98 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
      2 |     2
@@ -265,22 +217,6 @@ SELECT (SELECT COUNT(*)
            OR ((products.age @@@ '20') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((users.age @@@ '20') OR (NOT (users.color @@@ 'blue'))) AND NOT (products.age @@@ '20') AND
               (NOT (NOT (products.name @@@ 'bob'))));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_4 op_98 '20') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue')) OR ((table_2.col_4 op_98 '20') AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_4 op_98 '20') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_4 op_531 '20') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_4 op_98 '20') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_3 op_531 'blue')) OR ((table_2.col_4 op_98 '20') AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_4 op_98 '20') OR (table_1.col_3 op_531 'blue')) AND (table_2.col_4 op_531 '20') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
      3 |     3
@@ -304,25 +240,6 @@ SELECT (SELECT COUNT(*)
            OR ((products.name @@@ 'bob') OR (products.age @@@ '20')) AND NOT (users.color @@@ 'blue')
            OR ((NOT (users.color @@@ 'blue')) OR (users.color @@@ 'blue')) AND NOT (products.age @@@ '20') AND
               ((products.color @@@ 'blue') AND (products.name @@@ 'bob')));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_3 op_531 'blue') OR (table_1.col_3 op_98 'blue')) AND (table_2.col_4 op_531 '20')) OR (((table_2.col_2 op_98 'bob') OR (table_2.col_4 op_98 '20')) AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_3 op_531 'blue') OR (table_1.col_3 op_98 'blue')) AND (table_2.col_4 op_531 '20') AND (table_2.col_3 op_98 'blue') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((table_2.col_4 op_531 '20') OR (table_2.col_2 op_98 'bob') OR (table_2.col_4 op_98 '20') OR ((table_2.col_4 op_531 '20') AND (table_2.col_3 op_98 'blue') AND (table_2.col_2 op_98 'bob'))) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND ((table_1.col_3 op_531 'blue') OR (table_1.col_3 op_98 'blue')) AND (table_2.col_4 op_531 '20')) OR (((table_2.col_2 op_98 'bob') OR (table_2.col_4 op_98 '20')) AND (table_1.col_3 op_531 'blue')) OR (((table_1.col_3 op_531 'blue') OR (table_1.col_3 op_98 'blue')) AND (table_2.col_4 op_531 '20') AND (table_2.col_3 op_98 'blue') AND (table_2.col_2 op_98 'bob'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND ((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR (((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
      2 |     2
@@ -344,25 +261,6 @@ SELECT (SELECT COUNT(*)
            OR ((users.age @@@ '20') OR (NOT (users.name @@@ 'bob'))) AND
               NOT NOT (NOT ((NOT (orders.name @@@ 'bob')) OR (orders.name @@@ 'bob'))) AND NOT (users.age @@@ '20')
            OR ((users.age @@@ '20') AND (NOT (users.color @@@ 'blue'))));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((((table_1.col_4 op_98 '20') OR (table_1.col_4 op_531 '20')) AND (table_2.col_4 op_531 '20')) OR (((table_2.col_4 op_98 '20') OR (table_2.col_2 op_531 'bob')) AND (table_1.col_2 op_98 'bob') AND (table_1.col_2 op_531 'bob') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_4 op_98 '20') AND (table_2.col_3 op_531 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((((table_1.col_4 op_98 '20') OR (table_1.col_4 op_531 '20')) AND (table_2.col_4 op_531 '20')) OR (((table_2.col_4 op_98 '20') OR (table_2.col_2 op_531 'bob')) AND (table_1.col_2 op_98 'bob') AND (table_1.col_2 op_531 'bob') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_4 op_98 '20') AND (table_2.col_3 op_531 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) AND (table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)))) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: ((((table_1.col_1 op_401354 <const_type_401235>) OR (NOT (table_1.col_1 op_401354 <const_type_401235>))) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) AND (table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)))) }"
  count | count 
 -------+-------
     13 |    13
@@ -384,25 +282,6 @@ SELECT (SELECT COUNT(*)
            OR ((NOT (users.color @@@ 'blue')) OR (users.name @@@ 'bob')) AND
               NOT NOT ((NOT (orders.color @@@ 'blue')) OR (NOT (orders.color @@@ 'blue'))) AND NOT (users.age @@@ '20')
            OR ((NOT (users.color @@@ 'blue')) AND (users.color @@@ 'blue')));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR (((table_2.col_3 op_531 'blue') OR (table_2.col_2 op_98 'bob')) AND (table_1.col_3 op_531 'blue') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_3 op_531 'blue') AND (table_2.col_3 op_98 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR (((table_2.col_3 op_531 'blue') OR (table_2.col_2 op_98 'bob')) AND (table_1.col_3 op_531 'blue') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_3 op_531 'blue') AND (table_2.col_3 op_98 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 444 baseri is not empty: "RestrictInfo { clause: ((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }" and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((NOT (table_2.col_1 op_401354 <const_type_401235>)) OR (table_2.col_1 op_401354 <const_type_401235>)) AND (NOT (table_1.col_1 op_401354 <const_type_401235>)) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((NOT (table_2.col_1 op_401354 <const_type_401235>)) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
     13 |    13
@@ -426,22 +305,6 @@ SELECT (SELECT COUNT(*)
               NOT ((orders.age @@@ '20') AND (orders.age @@@ '20'))
            OR (orders.color @@@ 'blue') AND NOT (users.age @@@ '20')
            OR ((users.name @@@ 'bob') AND (NOT (users.color @@@ 'blue'))));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_4 op_98 '20') AND (table_1.col_4 op_98 '20') AND (table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR (((table_2.col_2 op_98 'bob') OR (table_2.col_2 op_531 'bob')) AND (table_1.col_4 op_531 '20')) OR ((table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_2 op_98 'bob') AND (table_2.col_3 op_531 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_4 op_98 '20') AND (table_1.col_4 op_98 '20') AND (table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR (((table_2.col_2 op_98 'bob') OR (table_2.col_2 op_531 'bob')) AND (table_1.col_4 op_531 '20')) OR ((table_1.col_3 op_98 'blue') AND (table_2.col_4 op_531 '20')) OR ((table_2.col_2 op_98 'bob') AND (table_2.col_3 op_531 'blue'))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: (((table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR (((table_2.col_1 op_401354 <const_type_401235>) OR (NOT (table_2.col_1 op_401354 <const_type_401235>))) AND (NOT (table_1.col_1 op_401354 <const_type_401235>))) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>))) OR ((table_2.col_1 op_401354 <const_type_401235>) AND (NOT (table_2.col_1 op_401354 <const_type_401235>)))) }"
  count | count 
 -------+-------
     14 |    14
@@ -462,22 +325,6 @@ SELECT (SELECT COUNT(*)
                  JOIN orders ON products.name = orders.name
         WHERE (NOT (products.id @@@ '3'))
            OR ((products.name @@@ 'bob') AND (orders.id @@@ '3')));
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_411 3) OR ((table_1.col_2 op_98 'bob') AND (table_2.col_1 op_410 3))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((table_1.col_1 op_411 3) OR ((table_1.col_2 op_98 'bob') AND (table_2.col_1 op_410 3))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
-WARNING:  ri_tostring: Starting
-WARNING:  ri_tostring: Processing clause
-WARNING:  ri_tostring: Returning result
-WARNING:  >>> 333 baseri is empty and pushed_down_joinri is not empty: "RestrictInfo { clause: ((NOT (table_1.col_1 op_401354 <const_type_401235>)) OR ((table_1.col_1 op_401354 <const_type_401235>) AND (table_2.col_1 op_401354 <const_type_401235>))) }"
  count | count 
 -------+-------
     19 |    19

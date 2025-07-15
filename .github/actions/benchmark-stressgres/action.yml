@@ -154,7 +154,7 @@ runs:
           channel_id: ${{ inputs.slack_channel }}
           initial_comment: |
             ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
-            ${{ inputs.pr_title }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
+            ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
             <https://paradedb.github.io/paradedb/stressgres/>
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png

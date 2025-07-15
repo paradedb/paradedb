@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752524579228,
+  "lastUpdate": 1752597089976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -580,6 +580,72 @@ window.BENCHMARK_DATA = {
             "value": 4.961278230928719,
             "unit": "median tps",
             "extra": "avg tps: 9.438792350180849, max tps: 1254.4832093694843, count: 55164"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb3bc1d570c85d60804f6aab2f2d2cf998bd7597",
+          "message": "ci: benchmark workflow cleanups (#2851)\n\nThis is an attempt to cleanup the benchmark workflows a little bit.  \n\n- Centralizes checking out the latest benchmark code/suites/actions into\na composite action.\n- figures out the PR #/title being tested\n- Changes the slack notification messages to be reactive to the\nenvironment to hopefully avoid conflicts with -enterprise",
+          "timestamp": "2025-07-15T12:15:54-04:00",
+          "tree_id": "223c726790d68868f538b7f5aab9cf9904494f44",
+          "url": "https://github.com/paradedb/paradedb/commit/eb3bc1d570c85d60804f6aab2f2d2cf998bd7597"
+        },
+        "date": 1752597089068,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 305.4751239219894,
+            "unit": "median tps",
+            "extra": "avg tps: 306.23446307359137, max tps: 528.2094493721808, count: 54712"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2498.87633454221,
+            "unit": "median tps",
+            "extra": "avg tps: 2471.2933767677114, max tps: 2624.154564729526, count: 54712"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 306.4802582445157,
+            "unit": "median tps",
+            "extra": "avg tps: 307.4277099132346, max tps: 516.6447994389714, count: 54712"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 242.84460041715704,
+            "unit": "median tps",
+            "extra": "avg tps: 245.16532482624004, max tps: 435.8525509076869, count: 54712"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 153.651459454252,
+            "unit": "median tps",
+            "extra": "avg tps: 152.73316934924685, max tps: 157.1763490858229, count: 109424"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.07902744223273,
+            "unit": "median tps",
+            "extra": "avg tps: 136.50087448419276, max tps: 142.10078604826063, count: 54712"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.981613165249287,
+            "unit": "median tps",
+            "extra": "avg tps: 9.659748879884381, max tps: 1248.7730804484593, count: 54712"
           }
         ]
       }

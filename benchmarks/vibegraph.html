@@ -1,219 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Benchmark Results</title>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
-  <!-- Zoom plugin -->
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
-  <style>
-    .chart-container canvas { min-height: 300px; }
-    .toggle-switch { display: flex; align-items: center; margin-bottom: 0.5rem; gap: 1rem; }
-    .toggle-switch input { margin-right: 0.5rem; }
-    .reset-btn { padding: 0.25rem 0.75rem; background: #4299e1; color: white; border-radius: 0.375rem; cursor: pointer; }
-  </style>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Benchmark Results</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <!-- Zoom plugin -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
+    <style>
+        .chart-container canvas {
+            min-height: 300px;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            gap: 1rem;
+        }
+
+        .toggle-switch input {
+            margin-right: 0.5rem;
+        }
+
+        .reset-btn {
+            padding: 0.25rem 0.75rem;
+            background: #4299e1;
+            color: white;
+            border-radius: 0.375rem;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body class="bg-gray-100 text-gray-800 p-6">
-  <div class="max-w-7xl mx-auto">
+<div class="max-w-7xl mx-auto">
     <header class="mb-10">
-      <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
-      <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
+        <h1 class="text-4xl font-bold">ParadeDB Benchmark Results</h1>
+        <p class="text-gray-600 mt-2">Grouped benchmark charts.</p>
     </header>
     <div id="charts" class="space-y-12"></div>
-  </div>
+</div>
 
-  <script>
+<script>
     async function initCharts() {
-      const container = document.getElementById('charts');
-      try {
-        const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
-        const scriptText = await res.text(); eval(scriptText);
-        Chart.register(ChartZoom);
-
-        const rawData = window.BENCHMARK_DATA?.entries || {};
-        if (!Object.keys(rawData).length) {
-          container.innerHTML = '<p class="text-red-500">No data.</p>';
-          return;
-        }
-
-        // Prepare commit label mapping
-        const allEntries = Object.values(rawData).flat();
-        const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0,7)))];
-        const releaseMap = {};
+        const container = document.getElementById('charts');
         try {
-          const refs = await (await fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')).json();
-          for (const ref of refs) {
-            const tag = ref.ref.replace('refs/tags/', '');
-            let sha = ref.object.sha;
-            if (ref.object.type === 'tag') {
-              const tagObj = await (await fetch(ref.object.url)).json(); sha = tagObj.object.sha;
+            const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
+            const scriptText = await res.text();
+            eval(scriptText);
+            Chart.register(ChartZoom);
+
+            const rawData = window.BENCHMARK_DATA?.entries || {};
+            if (!Object.keys(rawData).length) {
+                container.innerHTML = '<p class="text-red-500">No data.</p>';
+                return;
             }
-            releaseMap[sha.slice(0,7)] = { label: tag, url: `https://github.com/paradedb/paradedb/releases/tag/${tag}` };
-          }
-        } catch {}
-        const hashInfo = {};
-        await Promise.all(uniqueShorts.map(async short => {
-          if (releaseMap[short]) { hashInfo[short] = releaseMap[short]; return; }
-          try {
-            const prs = await (await fetch(
-              `https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`,
-              { headers: { Accept: 'application/vnd.github.groot-preview+json' } }
-            )).json();
-            if (Array.isArray(prs) && prs.length) {
-              const pr = prs[0];
-              hashInfo[short] = { label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
-              return;
+
+            // Prepare commit label mapping
+            const allEntries = Object.values(rawData).flat();
+            const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0, 7)))];
+            const releaseMap = {};
+            try {
+                const refs = await (await fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')).json();
+                for (const ref of refs) {
+                    const tag = ref.ref.replace('refs/tags/', '');
+                    let sha = ref.object.sha;
+                    if (ref.object.type === 'tag') {
+                        const tagObj = await (await fetch(ref.object.url)).json();
+                        sha = tagObj.object.sha;
+                    }
+                    releaseMap[sha.slice(0, 7)] = {
+                        label: tag,
+                        url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`
+                    };
+                }
+            } catch {
             }
-          } catch {}
-          hashInfo[short] = { label: short, url: null };
-        }));
-
-        // Group data by file
-        const fileGroups = {};
-        Object.entries(rawData).forEach(([cat, ents]) => {
-          const fn = cat.split(' ')[1] || cat;
-          fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
-        });
-
-        for (const [fn, entries] of Object.entries(fileGroups)) {
-          const section = document.createElement('section');
-          section.className = 'bg-white p-6 rounded-xl shadow-lg';
-          const titleEl = document.createElement('h2');
-          titleEl.className = 'text-2xl font-semibold mb-4';
-          titleEl.textContent = fn;
-          section.appendChild(titleEl);
-
-          // Flatten and sort benches
-          const benches = entries.flatMap(ent => ent.benches.map(b => ({
-            name: b.name, unit: b.unit,
-            timestamp: new Date(ent.commit.timestamp).getTime(), run: ent.date,
-            short: ent.commit.id.slice(0,7), value: b.value
-          })));
-          benches.sort((a, b) => a.name.localeCompare(b.name));
-
-          // Group by prefix
-          const prefixGroups = {};
-          benches.forEach(b => {
-            const sep = b.name.indexOf(' - ');
-            const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
-            (prefixGroups[prefix] = prefixGroups[prefix]||[]).push(b);
-          });
-
-          // Render each prefix
-          Object.entries(prefixGroups).forEach(([prefix, group]) => {
-            const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
-            const runs = runKeys.map(k => { const [ts,r,sh] = k.split('|'); return { timestamp:+ts, run:+r, short:sh }; })
-                            .sort((a,b)=>a.timestamp-b.timestamp||a.run-b.run);
-            const labels = runs.map(r => {
-              const lbl = hashInfo[r.short]?.label || r.short;
-              return lbl.length>25?`${lbl.slice(0,25)}…`:lbl;
-            });
-            const runUrls = runs.map(r => hashInfo[r.short]?.url);
-
-            // Build datasets
-            const seriesMap = {};
-            group.forEach(d => {
-              (seriesMap[d.name] = seriesMap[d.name]||Array(runs.length).fill(null))[runs.findIndex(r=>r.timestamp===d.timestamp&&r.run===d.run&&r.short===d.short)] = d.value;
-            });
-            const datasets = Object.entries(seriesMap).map(([name,data])=>({
-              label:name,data:data.slice(),original:data.slice(),fill:false,tension:0.4,borderWidth:2,
-              pointStyle:'circle',pointRadius:3,
-              pointBackgroundColor:data.map((v,i,arr)=>{
-                if(i>0&&arr[i-1]!=null){const pct=(v-arr[i-1])/arr[i-1];if(Math.abs(pct)>=0.10) return pct>0?'rgb(255,0,0)':'rgb(0,255,0)';}
-                return 'white';
-              }),
-              pointBorderColor:data.map((v,i,arr)=>{
-                if(i>0&&arr[i-1]!=null){const pct=(v-arr[i-1])/arr[i-1];if(Math.abs(pct)>=0.10) return pct>0?'rgb(255,0,0)':'rgb(0,255,0)';}
-                return Chart.defaults.color;
-              })
+            const hashInfo = {};
+            await Promise.all(uniqueShorts.map(async short => {
+                if (releaseMap[short]) {
+                    hashInfo[short] = releaseMap[short];
+                    return;
+                }
+                try {
+                    const prs = await (await fetch(
+                        `https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`,
+                        {headers: {Accept: 'application/vnd.github.groot-preview+json'}}
+                    )).json();
+                    if (Array.isArray(prs) && prs.length) {
+                        const pr = prs[0];
+                        hashInfo[short] = {label: `#${pr.number}: ${pr.title}`, url: pr.html_url};
+                        return;
+                    }
+                } catch {
+                }
+                hashInfo[short] = {label: short, url: null};
             }));
 
-            const defaultNorm = datasets.some(ds=>ds.original.some((v,i,arr)=>i>0&&arr[i-1]!=null&&Math.abs((v-arr[i-1])/arr[i-1])>=0.10));
-            const yUnit = group[0].unit;
-            const percentLabel = '% diff from first value';
+            // Group data by file
+            const fileGroups = {};
+            Object.entries(rawData).forEach(([cat, ents]) => {
+                const fn = cat.split(' ')[1] || cat;
+                fileGroups[fn] = (fileGroups[fn] || []).concat(ents);
+            });
 
-            const wrap = document.createElement('div'); wrap.className='chart-container mb-8';
-            wrap.innerHTML = `
+            for (const [fn, entries] of Object.entries(fileGroups)) {
+                const section = document.createElement('section');
+                section.className = 'bg-white p-6 rounded-xl shadow-lg';
+                const titleEl = document.createElement('h2');
+                titleEl.className = 'text-2xl font-semibold mb-4';
+                titleEl.textContent = fn;
+                section.appendChild(titleEl);
+
+                // Flatten and sort benches
+                const benches = entries.flatMap(ent => ent.benches.map(b => ({
+                    name: b.name, unit: b.unit,
+                    timestamp: new Date(ent.commit.timestamp).getTime(), run: ent.date,
+                    short: ent.commit.id.slice(0, 7), value: b.value
+                })));
+                benches.sort((a, b) => a.name.localeCompare(b.name));
+
+                // Group by prefix
+                const prefixGroups = {};
+                benches.forEach(b => {
+                    const sep = b.name.indexOf(' - ');
+                    const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
+                    (prefixGroups[prefix] = prefixGroups[prefix] || []).push(b);
+                });
+
+                // Render each prefix
+                Object.entries(prefixGroups).forEach(([prefix, group]) => {
+                    const runKeys = Array.from(new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`)));
+                    const runs = runKeys.map(k => {
+                        const [ts, r, sh] = k.split('|');
+                        return {timestamp: +ts, run: +r, short: sh};
+                    })
+                        .sort((a, b) => a.timestamp - b.timestamp || a.run - b.run);
+                    const labels = runs.map(r => {
+                        const lbl = hashInfo[r.short]?.label || r.short;
+                        return lbl.length > 25 ? `${lbl.slice(0, 25)}…` : lbl;
+                    });
+                    const runUrls = runs.map(r => hashInfo[r.short]?.url);
+
+                    // Build datasets
+                    const seriesMap = {};
+                    group.forEach(d => {
+                        (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short)] = d.value;
+                    });
+                    const datasets = Object.entries(seriesMap).map(([name, data]) => ({
+                        label: name,
+                        data: data.slice(),
+                        original: data.slice(),
+                        fill: false,
+                        tension: 0.4,
+                        borderWidth: 2,
+                        pointStyle: 'circle',
+                        pointRadius: 3,
+                        pointBorderColor: data.map((v, i, arr) => {
+                            if (i > 0 && arr[i - 1] != null) {
+                                const pct = (v - arr[i - 1]) / arr[i - 1];
+                                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                            }
+                            return Chart.defaults.borderColor
+                        }),
+                    }));
+
+                    const defaultNorm = datasets.some(ds => ds.original.some((v, i, arr) => i > 0 && arr[i - 1] != null && Math.abs((v - arr[i - 1]) / arr[i - 1]) >= 0.10));
+                    const yUnit = group[0].unit;
+                    const percentLabel = '% diff from first value';
+
+                    const wrap = document.createElement('div');
+                    wrap.className = 'chart-container mb-8';
+                    wrap.innerHTML = `
               <div class="toggle-switch">
-                <label><input type="checkbox" class="norm-toggle" ${defaultNorm?'checked':''}/><span>Normalize to First Value</span></label>
+                <label><input type="checkbox" class="norm-toggle" ${defaultNorm ? 'checked' : ''}/><span>Normalize to First Value</span></label>
               </div>
             `;
-            const canvas = document.createElement('canvas'); wrap.appendChild(canvas);
-            const resetBtn = document.createElement('button'); resetBtn.className='reset-btn'; resetBtn.textContent='Zoom Out';
-            const btnDiv = document.createElement('div'); btnDiv.className='flex justify-start mt-2'; btnDiv.appendChild(resetBtn); wrap.appendChild(btnDiv);
-            section.appendChild(wrap);
+                    const canvas = document.createElement('canvas');
+                    wrap.appendChild(canvas);
+                    const resetBtn = document.createElement('button');
+                    resetBtn.className = 'reset-btn';
+                    resetBtn.textContent = 'Zoom Out';
+                    const btnDiv = document.createElement('div');
+                    btnDiv.className = 'flex justify-start mt-2';
+                    btnDiv.appendChild(resetBtn);
+                    wrap.appendChild(btnDiv);
+                    section.appendChild(wrap);
 
-            // Set up chart options with dynamic ticks for normalized view
-            function makeYOptions(normalized) {
-              if (normalized) {
-                return {
-                  beginAtZero: false,
-                  title: { display: true, text: percentLabel },
-                  ticks: {
-                    maxTicksLimit: 5,
-                    callback: val => `${Math.round((val * 100) - 100)}%`
-                  }
-                };
-              }
-              return { beginAtZero: true, title: { display: true, text: yUnit } };
-            }
-
-            const chart = new Chart(canvas.getContext('2d'),{
-              type:'line',
-              data:{ labels, datasets },
-              options:{
-                responsive:true,
-                scales:{
-                  x:{ ticks:{ maxRotation:33, minRotation:33 }},
-                  y: makeYOptions(defaultNorm)
-                },
-                plugins:{
-                  legend:{ display:true },
-                  title:{ display:true, text: prefix },
-                  tooltip:{ mode:'index', intersect:false, callbacks:{ label:ctx=>{
-                    const v=ctx.raw; const lines=[`${ctx.dataset.label}: ${v!=null?v.toFixed(3):'–'}`];
-                    const arr=ctx.dataset.original; const i=ctx.dataIndex;
-                    if(chart.normalized) {
-                      const pct=(v*100)-100; lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from first`);
-                    } else if(i>0&&arr[i-1]!=null) {
-                      const pct=((v-arr[i-1])/arr[i-1])*100; lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from prev`);
+                    // Set up chart options with dynamic ticks for normalized view
+                    function makeYOptions(normalized) {
+                        if (normalized) {
+                            return {
+                                beginAtZero: false,
+                                title: {display: true, text: percentLabel},
+                                ticks: {
+                                    maxTicksLimit: 5,
+                                    callback: val => `${Math.round((val * 100) - 100)}%`
+                                }
+                            };
+                        }
+                        return {beginAtZero: true, title: {display: true, text: yUnit}};
                     }
-                    return lines;
-                  }}}
-                },
-                onClick:(_,items)=>{ if(items.length) window.open(runUrls[items[0].index]); }
-              }
-            });
-            chart.normalized = defaultNorm;
 
-            if(defaultNorm) {
-              chart.data.datasets.forEach(ds => ds.data = ds.original.map(v => v!=null?v/ds.original[0]:null));
-              chart.update();
+                    const chart = new Chart(canvas.getContext('2d'), {
+                        type: 'line',
+                        data: {labels, datasets},
+                        options: {
+                            responsive: true,
+                            scales: {
+                                x: {ticks: {maxRotation: 33, minRotation: 33}},
+                                y: makeYOptions(defaultNorm)
+                            },
+                            plugins: {
+                                legend: {display: true},
+                                title: {display: true, text: prefix},
+                                tooltip: {
+                                    mode: 'index', intersect: false, callbacks: {
+                                        label: ctx => {
+                                            const v = ctx.raw;
+                                            const lines = [`${ctx.dataset.label}: ${v != null ? v.toFixed(3) : '–'}`];
+                                            const arr = ctx.dataset.original;
+                                            const i = ctx.dataIndex;
+                                            if (chart.normalized) {
+                                                const pct = (v * 100) - 100;
+                                                lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
+                                            } else if (i > 0 && arr[i - 1] != null) {
+                                                const pct = ((v - arr[i - 1]) / arr[i - 1]) * 100;
+                                                lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
+                                            }
+                                            return lines;
+                                        }
+                                    }
+                                }
+                            },
+                            onClick: (_, items) => {
+                                if (items.length) window.open(runUrls[items[0].index]);
+                            }
+                        }
+                    });
+                    chart.normalized = defaultNorm;
+
+                    if (defaultNorm) {
+                        chart.data.datasets.forEach(ds => ds.data = ds.original.map(v => v != null ? v / ds.original[0] : null));
+                        chart.update();
+                    }
+
+                    wrap.querySelector('.norm-toggle').addEventListener('change', e => {
+                        const norm = e.target.checked;
+                        chart.data.datasets.forEach(ds => ds.data = norm ? ds.original.map(v => v != null ? v / ds.original[0] : null) : ds.original.slice());
+                        chart.normalized = norm;
+                        chart.options.scales.y = makeYOptions(norm);
+                        chart.resetZoom();
+                        chart.update();
+                    });
+
+                    resetBtn.addEventListener('click', () => chart.resetZoom());
+                });
+
+                container.appendChild(section);
             }
-
-            wrap.querySelector('.norm-toggle').addEventListener('change', e => {
-              const norm = e.target.checked;
-              chart.data.datasets.forEach(ds => ds.data = norm ? ds.original.map(v => v!=null?v/ds.original[0]:null) : ds.original.slice());
-              chart.normalized = norm;
-              chart.options.scales.y = makeYOptions(norm);
-              chart.resetZoom(); chart.update();
-            });
-
-            resetBtn.addEventListener('click', ()=>chart.resetZoom());
-          });
-
-          container.appendChild(section);
+        } catch (err) {
+            console.error(err);
+            container.innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
         }
-      } catch(err) {
-        console.error(err);
-        container.innerHTML = '<p class="text-red-500">Failed to load benchmark data.</p>';
-      }
     }
+
     document.addEventListener('DOMContentLoaded', initCharts);
-  </script>
+</script>
 </body>
 </html>

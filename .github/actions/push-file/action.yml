@@ -23,6 +23,9 @@ inputs:
   commit-message:
     description: "Commit message to use."
     required: true
+  deploy-secret:
+    description: "The secret to be able to deploy to the specified repository"
+    required: true
 
 runs:
   using: "composite"

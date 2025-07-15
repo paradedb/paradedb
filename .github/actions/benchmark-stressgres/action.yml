@@ -27,6 +27,9 @@ inputs:
   pr_label:
     description: "The human readable version of the commit being tested"
     required: true
+  benchmark-deploy-secret:
+    description: "The secret to deploy benchmarks to our benchmark repo"
+    required: true
 
 runs:
   using: "composite"
@@ -167,6 +170,7 @@ runs:
         file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
         repository: "paradedb/benchmark-data"
         token: ${{ inputs.github_token }}
+        deploy-secret: ${{ inputs.benchmark-deploy-secret }}
 
     - name: Print Postgres Logs
       shell: bash

@@ -17,8 +17,8 @@ concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) r
 index under concurrent load.
 
 Both read and write throughput under concurrent load can be improved by tuning Postgres' settings. For instance, read throughput can be improved
-by configuring the [`max_parallel_worker` pool](/configuration/parallel#parallel-workers) and [buffer cache size](/configuration/parallel#shared-buffers),
-whereas writes can be improved by increasing [per-statement memory](/configuration/write#work-memory).
+by configuring the [`max_parallel_worker` pool](/documentation/configuration/parallel#parallel-workers) and [buffer cache size](/documentation/configuration/parallel#shared-buffers),
+whereas writes can be improved by increasing [per-statement memory](/documentation/configuration/write#work-memory).
 
 ### Replication Safety
 

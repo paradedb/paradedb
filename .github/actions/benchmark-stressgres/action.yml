@@ -49,7 +49,7 @@ runs:
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
           .github/stressgres/${{ inputs.test_file }} \
-          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}}.log \
+          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log \
           --runtime ${{ inputs.duration }}
 
     - name: Generate CSV

@@ -255,7 +255,11 @@ impl PdbScan {
             // boolean expressions that contain external vars. That's why, when handling the Join
             // quals, we'd endup scanning the whole tantivy index.
             // However, the Join quals help with scoring and snippet generation, as the documents
-            // that match partially the Join quals will be scored and snippets generated.
+            // that match partially the Join quals will be scored and snippets generated. That is
+            // why it only makes sense to use the Join quals if we have used our operator.
+            // TODO(mdasht): we should make it even more restrictive and only use the Join quals if
+            // we have used our operator and also use paradedb.score and paradedb.snippet functions
+            // in the query.
             if state.uses_our_operator {
                 (quals, RestrictInfoType::Join, joinri)
             } else {

@@ -227,6 +227,10 @@
                                             if (chart.normalized) {
                                                 const pct = (v * 100) - 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
+                                                if (i > 0 && arr[i - 1] != null) {
+                                                    const pct = ((arr[i] - arr[i - 1]) / arr[i - 1]) * 100;
+                                                    lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
+                                                }
                                             } else if (i > 0 && arr[i - 1] != null) {
                                                 const pct = ((v - arr[i - 1]) / arr[i - 1]) * 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);

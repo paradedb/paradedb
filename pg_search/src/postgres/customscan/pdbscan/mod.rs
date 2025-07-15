@@ -251,7 +251,7 @@ impl PdbScan {
             // If we have found something to push down in the join, then we can use the join quals
             // Note: these Join quals won't help in filtering down the data (as they contain
             // external vars, e.g. `b.category_name @@@ "technology"` in
-            // `a.name @@@ "abc" OR b.category_name @@@ "technology"`), and we cannot evalute
+            // `a.name @@@ "abc" OR b.category_name @@@ "technology"`), and we cannot evaluate
             // boolean expressions that contain external vars. That's why, when handling the Join
             // quals, we'd endup scanning the whole tantivy index.
             // However, the Join quals help with scoring and snippet generation, as the documents

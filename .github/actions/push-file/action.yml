@@ -6,9 +6,6 @@ inputs:
   repository:
     description: "Remote repository in owner/name format."
     required: true
-  token:
-    description: "GitHub token for authentication."
-    required: true
   branch:
     description: "Branch to check out and push to."
     required: false
@@ -34,7 +31,8 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.repository }}
-        token: ${{ inputs.token }}
+        ssh-key: ${{ inputs.deploy-secret }}
+        ssh-known-hosts: github.com
         ref: ${{ inputs.branch }}
         path: ${{ inputs.repo-path }}
 

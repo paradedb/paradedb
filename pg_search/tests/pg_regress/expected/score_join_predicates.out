@@ -12,23 +12,27 @@ CREATE TABLE authors (
     age INT
 );
 CREATE TABLE books (
-    id SERIAL PRIMARY KEY,
+    id INT,
     author_id INT,
     content TEXT,
     titles TEXT[],
-    metadata JSONB
+    metadata JSONB,
+    PRIMARY KEY (id, author_id)
 );
--- Insert test data
 INSERT INTO authors (name, age) VALUES
 ('J.K. Rowling', 55),
 ('Stephen King', 75),
 ('Agatha Christie', 80),
 ('Dan Brown', 60),
-('J.R.R. Tolkien', 100);
-INSERT INTO books (author_id, content, titles, metadata) VALUES
-(1, 'This is a test test of the scoring function with multiple test words', ARRAY['test', 'score', 'function'], '{"test": "test"}'),
-(2, 'Another test of the scoring scoring function with repeated scoring words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
-(1, 'Yet another test test test of the function function function', ARRAY['test', 'score', 'test'], '{"test": "test"}');
+('J.R.R. Tolkien', 100),
+('Sami Bowling', 66);
+INSERT INTO books (id, author_id,content, titles, metadata) VALUES
+(1, 2, 'This is a test test of the snippet function with multiple test words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 1, 'This is a final final of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 6, 'This is a final test of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(2, 2, 'Another test of the snippet snippet function with repeated snippet words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
+(3, 1, 'Yet another test test test of the function function function', ARRAY['test', 'snippet', 'test'], '{"test": "test"}'),
+(4, 3, 'test Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? test At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae. Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. test', ARRAY['test', 'snippet', 'function'], '{"test": "test"}');
 -- Create BM25 indexes
 CREATE INDEX ON authors USING bm25 (
     id,
@@ -64,12 +68,15 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score | book_score 
----------+--------------+--------------+------------
-       1 | J.K. Rowling |    2.3042111 | 0.20342469
-       2 | Stephen King |            1 | 0.13515766
-       3 | J.K. Rowling |    2.3042111 |  0.2152619
-(3 rows)
+ book_id |   author_name   | author_score | book_score 
+---------+-----------------+--------------+------------
+       1 | J.K. Rowling    |    2.4239407 |          0
+       1 | Stephen King    |            1 | 0.45681813
+       1 | Sami Bowling    |            1 | 0.35745716
+       2 | Stephen King    |            1 | 0.36441684
+       3 | J.K. Rowling    |    2.4239407 |  0.4624617
+       4 | Agatha Christie |            1 | 0.20612015
+(6 rows)
 
 -- For comparison, show a working case where predicates can be pushed down
 -- This should work correctly because all predicates for 'a' can be pushed to the authors scan
@@ -82,7 +89,7 @@ WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
 ORDER BY a.id;
  author_id | author_name  | author_score 
 -----------+--------------+--------------
-         1 | J.K. Rowling |    2.3042111
+         1 | J.K. Rowling |    2.4239407
 (1 row)
 
 -- Show another working case with books
@@ -94,10 +101,12 @@ WHERE b.content @@@ 'test'
 ORDER BY b.id;
  book_id | book_score 
 ---------+------------
-       1 | 0.20342469
-       2 | 0.13515766
-       3 |  0.2152619
-(3 rows)
+       1 | 0.45681813
+       1 | 0.35745716
+       2 | 0.36441684
+       3 |  0.4624617
+       4 | 0.20612015
+(5 rows)
 
 -- Test case with only join predicate - should show the issue more clearly
 -- This demonstrates scores being null when the scoring predicate is in the join filter
@@ -112,9 +121,8 @@ WHERE a.name @@@ 'Rowling' AND b.content @@@ 'test'
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |    1.3042113 | 0.20342469
-       3 | J.K. Rowling |    1.3042113 |  0.2152619
-(2 rows)
+       3 | J.K. Rowling |    1.4239408 |  0.4624617
+(1 row)
 
 -- Test with mixed predicates - some indexed, some not
 -- This should show partial scores based on what can be indexed
@@ -129,8 +137,9 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 70
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       2 | Stephen King |              |  0.7432616
-(1 row)
+       1 | Stephen King |              |          0
+       2 | Stephen King |              |          0
+(2 rows)
 
 SELECT
     b.id as book_id,
@@ -143,8 +152,8 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       1 | J.K. Rowling |            0 | 0.44333255
-       2 | Stephen King |    1.5308117 |  0.7432616
+       1 | Stephen King |    1.6777124 |          0
+       2 | Stephen King |    1.6777124 |          0
 (2 rows)
 
 SELECT
@@ -158,8 +167,9 @@ WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') AND a.age > 60
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score | book_score 
 ---------+--------------+--------------+------------
-       2 | Stephen King |              |  0.7432616
-(1 row)
+       1 | Stephen King |              |          0
+       2 | Stephen King |              |          0
+(2 rows)
 
 SELECT
     b.id as book_id,
@@ -170,11 +180,13 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring') OR a.age > 60
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score | book_score 
----------+--------------+--------------+------------
-       1 | J.K. Rowling |            0 | 0.44333255
-       2 | Stephen King |    2.5308118 |  0.7432616
-(2 rows)
+ book_id |   author_name   | author_score | book_score 
+---------+-----------------+--------------+------------
+       1 | Stephen King    |    2.6777124 |          0
+       1 | Sami Bowling    |            1 |          0
+       2 | Stephen King    |    2.6777124 |          0
+       4 | Agatha Christie |            1 |          0
+(4 rows)
 
 -- Test score comparison - direct vs join query
 -- Show how the same author gets different scores in different query contexts
@@ -189,7 +201,7 @@ WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
   query_type  | author_id | author_name  | author_score 
 --------------+-----------+--------------+--------------
- Direct Query |         1 | J.K. Rowling |    1.3042113
+ Direct Query |         1 | J.K. Rowling |    1.4239408
 (1 row)
 
 -- Join query (currently shows issue)
@@ -204,8 +216,8 @@ WHERE a.name @@@ 'Rowling'
 ORDER BY a.id;
  query_type | author_id | author_name  | author_score 
 ------------+-----------+--------------+--------------
- Join Query |         1 | J.K. Rowling |    1.3042113
- Join Query |         1 | J.K. Rowling |    1.3042113
+ Join Query |         1 | J.K. Rowling |    1.4239408
+ Join Query |         1 | J.K. Rowling |    1.4239408
 (2 rows)
 
 -- Test with different join types to see if the issue persists
@@ -219,12 +231,15 @@ FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score | book_score 
----------+--------------+--------------+------------
-       1 | J.K. Rowling |    2.3042111 | 0.20342469
-       2 | Stephen King |            1 | 0.13515766
-       3 | J.K. Rowling |    2.3042111 |  0.2152619
-(3 rows)
+ book_id |   author_name   | author_score | book_score 
+---------+-----------------+--------------+------------
+       1 | J.K. Rowling    |    2.4239407 |          0
+       1 | Stephen King    |            1 | 0.45681813
+       1 | Sami Bowling    |            1 | 0.35745716
+       2 | Stephen King    |            1 | 0.36441684
+       3 | J.K. Rowling    |    2.4239407 |  0.4624617
+       4 | Agatha Christie |            1 | 0.20612015
+(6 rows)
 
 -- RIGHT JOIN case
 SELECT
@@ -238,9 +253,11 @@ WHERE (a.name @@@ 'Christie' OR b.content @@@ 'test') AND a.age > 60
 ORDER BY a.id;
  author_id |   author_name   | author_score | book_score 
 -----------+-----------------+--------------+------------
-         2 | Stephen King    |              | 0.13515766
-         3 | Agatha Christie |              |          0
-(2 rows)
+         2 | Stephen King    |              | 0.45681813
+         2 | Stephen King    |              | 0.36441684
+         3 | Agatha Christie |              | 0.20612015
+         6 | Sami Bowling    |              | 0.35745716
+(4 rows)
 
 -- Test multiple score functions in same query
 -- This tests if score calculation is consistent across multiple score calls
@@ -257,10 +274,12 @@ WHERE (b.content @@@ 'function' OR a.name @@@ 'King') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
  book_id | author_name  | author_score_1 | author_score_2 | book_score_1 | book_score_2 
 ---------+--------------+----------------+----------------+--------------+--------------
-       1 | J.K. Rowling |              1 |              1 |   0.12595399 |   0.12595399
-       2 | Stephen King |      2.5308118 |      2.5308118 |   0.13515766 |   0.13515766
-       3 | J.K. Rowling |              1 |              1 |    0.2152619 |    0.2152619
-(3 rows)
+       1 | J.K. Rowling |              1 |              1 |   0.35745716 |   0.35745716
+       1 | Stephen King |      2.6777124 |      2.6777124 |   0.35745716 |   0.35745716
+       1 | Sami Bowling |              1 |              1 |   0.35745716 |   0.35745716
+       2 | Stephen King |      2.6777124 |      2.6777124 |   0.36441684 |   0.36441684
+       3 | J.K. Rowling |              1 |              1 |    0.4624617 |    0.4624617
+(5 rows)
 
 -- Test score with ORDER BY to verify scores make sense for ranking
 -- Even if scores are null/zero, the ordering should still work
@@ -288,198 +307,39 @@ FROM books b
 JOIN authors a ON b.author_id = a.id
 WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
 ORDER BY b.id, a.id;
- book_id | author_name  | author_score |   author_snippet    | book_score |                                       book_snippet                                        
----------+--------------+--------------+---------------------+------------+-------------------------------------------------------------------------------------------
-       1 | J.K. Rowling |    2.3042111 | J.K. <b>Rowling</b> | 0.20342469 | This is a <b>test</b> <b>test</b> of the scoring function with multiple <b>test</b> words
-       2 | Stephen King |            1 |                     | 0.13515766 | Another <b>test</b> of the scoring scoring function with repeated scoring words
-       3 | J.K. Rowling |    2.3042111 | J.K. <b>Rowling</b> |  0.2152619 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
-(3 rows)
+ book_id |   author_name   | author_score |   author_snippet    | book_score |                                                                       book_snippet                                                                       
+---------+-----------------+--------------+---------------------+------------+----------------------------------------------------------------------------------------------------------------------------------------------------------
+       1 | J.K. Rowling    |    2.4239407 | J.K. <b>Rowling</b> |          0 | 
+       1 | Stephen King    |            1 |                     | 0.45681813 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words
+       1 | Sami Bowling    |            1 |                     | 0.35745716 | This is a final <b>test</b> of the snippet function with multiple final words
+       2 | Stephen King    |            1 |                     | 0.36441684 | Another <b>test</b> of the snippet snippet function with repeated snippet words
+       3 | J.K. Rowling    |    2.4239407 | J.K. <b>Rowling</b> |  0.4624617 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function
+       4 | Agatha Christie |            1 |                     | 0.20612015 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim
+(6 rows)
 
--- Test LEFT JOIN behavior (should optimize right side only)
-EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF) 
+-- Test LEFT JOIN behavior
 SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY b.id, a.id;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                                                                                                                                                                                                                                          +
-   {                                                                                                                                                                                                                                                                                                                                                                                                                                        +
-     "Plan": {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Node Type": "Sort",                                                                                                                                                                                                                                                                                                                                                                                                                 +
-       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                             +
-       "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Startup Cost": 400000020.17,                                                                                                                                                                                                                                                                                                                                                                                                        +
-       "Total Cost": 400000020.18,                                                                                                                                                                                                                                                                                                                                                                                                          +
-       "Plan Rows": 2,                                                                                                                                                                                                                                                                                                                                                                                                                      +
-       "Plan Width": 48,                                                                                                                                                                                                                                                                                                                                                                                                                    +
-       "Sort Key": ["b.id", "a.id"],                                                                                                                                                                                                                                                                                                                                                                                                        +
-       "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                           +
-         {                                                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Node Type": "Hash Join",                                                                                                                                                                                                                                                                                                                                                                                                        +
-           "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                         +
-           "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                          +
-           "Join Type": "Left",                                                                                                                                                                                                                                                                                                                                                                                                             +
-           "Startup Cost": 200000020.11,                                                                                                                                                                                                                                                                                                                                                                                                    +
-           "Total Cost": 400000020.16,                                                                                                                                                                                                                                                                                                                                                                                                      +
-           "Plan Rows": 2,                                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Plan Width": 48,                                                                                                                                                                                                                                                                                                                                                                                                                +
-           "Inner Unique": true,                                                                                                                                                                                                                                                                                                                                                                                                            +
-           "Hash Cond": "(b.author_id = a.id)",                                                                                                                                                                                                                                                                                                                                                                                             +
-           "Filter": "((a.id @@@ '{\"with_index\":{\"oid\":458754,\"query\":{\"parse_with_field\":{\"field\":\"name\",\"query_string\":\"King\",\"lenient\":null,\"conjunction_mode\":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{\"with_index\":{\"oid\":458755,\"query\":{\"parse_with_field\":{\"field\":\"content\",\"query_string\":\"scoring\",\"lenient\":null,\"conjunction_mode\":null}}}}'::paradedb.searchqueryinput))",+
-           "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                       +
-             {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                                  +
-               "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                      +
-               "Relation Name": "books",                                                                                                                                                                                                                                                                                                                                                                                                    +
-               "Alias": "b",                                                                                                                                                                                                                                                                                                                                                                                                                +
-               "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                                                                                                                       +
-               "Total Cost": 10.03,                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Plan Rows": 3,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Plan Width": 12,                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Table": "books",                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Index": "books_id_author_id_content_titles_idx",                                                                                                                                                                                                                                                                                                                                                                            +
-               "Segment Count": 1,                                                                                                                                                                                                                                                                                                                                                                                                          +
-               "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                        +
-               "Scores": true,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Tantivy Query": "{\"boolean\":{\"must\":[{\"boolean\":{\"should\":[\"all\",{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"content\",\"query_string\":\"scoring\",\"lenient\":null,\"conjunction_mode\":null}}}}]}},\"all\"]}}"                                                                                                                                                                               +
-             },                                                                                                                                                                                                                                                                                                                                                                                                                             +
-             {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Node Type": "Hash",                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Parent Relationship": "Inner",                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                      +
-               "Startup Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                       +
-               "Total Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Plan Rows": 5,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Plan Width": 40,                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                   +
-                 {                                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                              +
-                   "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                                                                                                                 +
-                   "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                 +
-                   "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                  +
-                   "Relation Name": "authors",                                                                                                                                                                                                                                                                                                                                                                                              +
-                   "Alias": "a",                                                                                                                                                                                                                                                                                                                                                                                                            +
-                   "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                                                                                                                   +
-                   "Total Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                     +
-                   "Plan Rows": 5,                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Plan Width": 40,                                                                                                                                                                                                                                                                                                                                                                                                        +
-                   "Table": "authors",                                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Index": "authors_id_name_age_idx",                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Segment Count": 1,                                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                    +
-                   "Scores": true,                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Tantivy Query": "{\"boolean\":{\"must\":[{\"boolean\":{\"should\":[{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"name\",\"query_string\":\"King\",\"lenient\":null,\"conjunction_mode\":null}}}},\"all\"]}},\"all\"]}}"                                                                                                                                                                                 +
-                 }                                                                                                                                                                                                                                                                                                                                                                                                                          +
-               ]                                                                                                                                                                                                                                                                                                                                                                                                                            +
-             }                                                                                                                                                                                                                                                                                                                                                                                                                              +
-           ]                                                                                                                                                                                                                                                                                                                                                                                                                                +
-         }                                                                                                                                                                                                                                                                                                                                                                                                                                  +
-       ]                                                                                                                                                                                                                                                                                                                                                                                                                                    +
-     }                                                                                                                                                                                                                                                                                                                                                                                                                                      +
-   }                                                                                                                                                                                                                                                                                                                                                                                                                                        +
- ]
-(1 row)
+ id |     name     | author_score | book_score 
+----+--------------+--------------+------------
+  1 | Stephen King |    1.6777124 |          0
+  2 | Stephen King |    1.6777124 |          0
+(2 rows)
 
--- Test RIGHT JOIN behavior (should optimize left side only)
-EXPLAIN (FORMAT JSON, ANALYZE OFF, BUFFERS OFF)
+-- Test RIGHT JOIN behavior
 SELECT b.id, a.name, paradedb.score(a.id) as author_score, paradedb.score(b.id) as book_score
 FROM books b
 RIGHT JOIN authors a ON b.author_id = a.id
 WHERE (a.name @@@ 'King' OR b.content @@@ 'scoring')
 ORDER BY a.id;
-                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                                                                                                                                                                                                                                          +
-   {                                                                                                                                                                                                                                                                                                                                                                                                                                        +
-     "Plan": {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Node Type": "Sort",                                                                                                                                                                                                                                                                                                                                                                                                                 +
-       "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                             +
-       "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                              +
-       "Startup Cost": 400000020.20,                                                                                                                                                                                                                                                                                                                                                                                                        +
-       "Total Cost": 400000020.21,                                                                                                                                                                                                                                                                                                                                                                                                          +
-       "Plan Rows": 4,                                                                                                                                                                                                                                                                                                                                                                                                                      +
-       "Plan Width": 48,                                                                                                                                                                                                                                                                                                                                                                                                                    +
-       "Sort Key": ["a.id"],                                                                                                                                                                                                                                                                                                                                                                                                                +
-       "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                           +
-         {                                                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Node Type": "Hash Join",                                                                                                                                                                                                                                                                                                                                                                                                        +
-           "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                         +
-           "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                          +
-           "Join Type": "Right",                                                                                                                                                                                                                                                                                                                                                                                                            +
-           "Startup Cost": 200000020.11,                                                                                                                                                                                                                                                                                                                                                                                                    +
-           "Total Cost": 400000020.16,                                                                                                                                                                                                                                                                                                                                                                                                      +
-           "Plan Rows": 4,                                                                                                                                                                                                                                                                                                                                                                                                                  +
-           "Plan Width": 48,                                                                                                                                                                                                                                                                                                                                                                                                                +
-           "Inner Unique": true,                                                                                                                                                                                                                                                                                                                                                                                                            +
-           "Hash Cond": "(b.author_id = a.id)",                                                                                                                                                                                                                                                                                                                                                                                             +
-           "Filter": "((a.id @@@ '{\"with_index\":{\"oid\":458754,\"query\":{\"parse_with_field\":{\"field\":\"name\",\"query_string\":\"King\",\"lenient\":null,\"conjunction_mode\":null}}}}'::paradedb.searchqueryinput) OR (b.id @@@ '{\"with_index\":{\"oid\":458755,\"query\":{\"parse_with_field\":{\"field\":\"content\",\"query_string\":\"scoring\",\"lenient\":null,\"conjunction_mode\":null}}}}'::paradedb.searchqueryinput))",+
-           "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                       +
-             {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                                  +
-               "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                      +
-               "Relation Name": "books",                                                                                                                                                                                                                                                                                                                                                                                                    +
-               "Alias": "b",                                                                                                                                                                                                                                                                                                                                                                                                                +
-               "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                                                                                                                       +
-               "Total Cost": 10.03,                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Plan Rows": 3,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Plan Width": 12,                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Table": "books",                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Index": "books_id_author_id_content_titles_idx",                                                                                                                                                                                                                                                                                                                                                                            +
-               "Segment Count": 1,                                                                                                                                                                                                                                                                                                                                                                                                          +
-               "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                        +
-               "Scores": true,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Tantivy Query": "{\"boolean\":{\"must\":[{\"boolean\":{\"should\":[\"all\",{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"content\",\"query_string\":\"scoring\",\"lenient\":null,\"conjunction_mode\":null}}}}]}},\"all\"]}}"                                                                                                                                                                               +
-             },                                                                                                                                                                                                                                                                                                                                                                                                                             +
-             {                                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Node Type": "Hash",                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Parent Relationship": "Inner",                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                     +
-               "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                      +
-               "Startup Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                       +
-               "Total Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                         +
-               "Plan Rows": 5,                                                                                                                                                                                                                                                                                                                                                                                                              +
-               "Plan Width": 40,                                                                                                                                                                                                                                                                                                                                                                                                            +
-               "Plans": [                                                                                                                                                                                                                                                                                                                                                                                                                   +
-                 {                                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Node Type": "Custom Scan",                                                                                                                                                                                                                                                                                                                                                                                              +
-                   "Parent Relationship": "Outer",                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Custom Plan Provider": "ParadeDB Scan",                                                                                                                                                                                                                                                                                                                                                                                 +
-                   "Parallel Aware": false,                                                                                                                                                                                                                                                                                                                                                                                                 +
-                   "Async Capable": false,                                                                                                                                                                                                                                                                                                                                                                                                  +
-                   "Relation Name": "authors",                                                                                                                                                                                                                                                                                                                                                                                              +
-                   "Alias": "a",                                                                                                                                                                                                                                                                                                                                                                                                            +
-                   "Startup Cost": 10.00,                                                                                                                                                                                                                                                                                                                                                                                                   +
-                   "Total Cost": 10.05,                                                                                                                                                                                                                                                                                                                                                                                                     +
-                   "Plan Rows": 5,                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Plan Width": 40,                                                                                                                                                                                                                                                                                                                                                                                                        +
-                   "Table": "authors",                                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Index": "authors_id_name_age_idx",                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Segment Count": 1,                                                                                                                                                                                                                                                                                                                                                                                                      +
-                   "Exec Method": "NormalScanExecState",                                                                                                                                                                                                                                                                                                                                                                                    +
-                   "Scores": true,                                                                                                                                                                                                                                                                                                                                                                                                          +
-                   "Tantivy Query": "{\"boolean\":{\"must\":[{\"boolean\":{\"should\":[{\"with_index\":{\"query\":{\"parse_with_field\":{\"field\":\"name\",\"query_string\":\"King\",\"lenient\":null,\"conjunction_mode\":null}}}},\"all\"]}},\"all\"]}}"                                                                                                                                                                                 +
-                 }                                                                                                                                                                                                                                                                                                                                                                                                                          +
-               ]                                                                                                                                                                                                                                                                                                                                                                                                                            +
-             }                                                                                                                                                                                                                                                                                                                                                                                                                              +
-           ]                                                                                                                                                                                                                                                                                                                                                                                                                                +
-         }                                                                                                                                                                                                                                                                                                                                                                                                                                  +
-       ]                                                                                                                                                                                                                                                                                                                                                                                                                                    +
-     }                                                                                                                                                                                                                                                                                                                                                                                                                                      +
-   }                                                                                                                                                                                                                                                                                                                                                                                                                                        +
- ]
-(1 row)
+ id |     name     | author_score | book_score 
+----+--------------+--------------+------------
+  1 | Stephen King |    1.6777124 |          0
+  2 | Stephen King |    1.6777124 |          0
+(2 rows)
 
 -- Cleanup
 DROP TABLE IF EXISTS books;

@@ -8,7 +8,7 @@ inputs:
   duration:
     description: "Duration of the Stressgres run, in milliseconds"
     required: false
-    default: "600000" # 10 minutes in milliseconds
+    default: "6" # 10 minutes in milliseconds
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -49,12 +49,12 @@ runs:
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
           .github/stressgres/${{ inputs.test_file }} \
-          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log \
+          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}}.log \
           --runtime ${{ inputs.duration }}
 
     - name: Generate CSV
       shell: bash
-      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
+      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -142,7 +142,7 @@ runs:
 
     - name: Create Stressgres Graph
       shell: bash
-      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
+      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
@@ -158,6 +158,15 @@ runs:
             <https://paradedb.github.io/paradedb/stressgres/>
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
+
+    # NB:  we'll publish every graph so they can be located for historical purposes
+    - name: Publish Stressgres Graph
+      uses: ./.github/actions/push-file
+      with:
+        commit-message: "automatic publish for ${{ github.sha }} by @${{ github.actor }}"
+        file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
+        repository: "paradedb/benchmark-data"
+        token: ${{ inputs.github_token }}
 
     - name: Print Postgres Logs
       shell: bash

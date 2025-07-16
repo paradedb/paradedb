@@ -52,7 +52,7 @@ runs:
       env:
         REF: ${{ inputs.ref }}
       run: |
-        echo "🔍 Resolving ref: $REF" >&2
+        echo "Resolving ref: $REF" >&2
         # Try local resolution only
         SHA=$(git rev-parse --verify --quiet "$REF")
         if [ -z "$SHA" ]; then
@@ -185,6 +185,27 @@ runs:
         file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
         repository: "paradedb/benchmark-data"
         deploy-secret: ${{ inputs.benchmark-deploy-secret }}
+
+    - name: Comment benchmark image on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      env:
+        IMAGE_FILE: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const prNumber = context.payload.pull_request.number;
+          const file = process.env.IMAGE_FILE;
+          if (!file) throw new Error('IMAGE_FILE must be set');
+          // construct raw URL on the main branch of paradedb/benchmark-data
+          const url = `https://raw.githubusercontent.com/paradedb/benchmark-data/refs/heads/main/${file}`;
+          const body = `![${{ steps.sanitize-inputs.outputs.jobname }} result: ${file}](${url})`;
+          await github.rest.issues.createComment({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          issue_number: prNumber,
+          body
+          });
 
     - name: Print Postgres Logs
       shell: bash

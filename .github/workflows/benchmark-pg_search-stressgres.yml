@@ -72,6 +72,7 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
       - name: Fetch the Latest Composite Actions
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
@@ -80,15 +81,17 @@ jobs:
           fetch-depth: 1
           ref: main
       - name: Copy latest actions into place
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         shell: bash
         run: |
           cp -rv actions-temp/.github/actions .github/
       - name: Cleanup temporary checkout
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         shell: bash
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
-      - name: Fetch latest benchmark code, suites, and actions
+      - name: Fetch latest benchmark code, suites
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         uses: ./.github/actions/benchmarks-from-main
         with:

@@ -13,7 +13,6 @@ on:
       - main
     paths:
       - ".github/stressgres/**"
-      - ".github/workflows/benchmark-pg_search-stressgres.yml"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:

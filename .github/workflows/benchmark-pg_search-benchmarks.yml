@@ -12,7 +12,6 @@ on:
       - main
     paths:
       - "benchmarks/**"
-      - ".github/workflows/benchmark-pg_search-benchmarks.yml"
       - "**/*.rs"
       - "**/*.toml"
   pull_request:

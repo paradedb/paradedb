@@ -33,6 +33,17 @@
             border-radius: 0.375rem;
             cursor: pointer;
         }
+
+        .slider-container {
+            margin: 1rem 0;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .slider-container input[type="range"] {
+            flex-grow: 1;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 p-6">
@@ -63,9 +74,14 @@
             const allEntries = Object.values(rawData).flat();
             const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0, 7)))];
             const releaseMap = {};
+            const hashInfo = {};
+
             try {
-                const refs = await (await fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')).json();
-                const releases = await (await fetch('https://api.github.com/repos/paradedb/paradedb/releases')).json();
+                const [refs, releases] = await Promise.all([
+                    fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags').then(r => r.json()),
+                    fetch('https://api.github.com/repos/paradedb/paradedb/releases').then(r => r.json())
+                ]);
+
                 const releasesByTag = releases.reduce((acc, r) => {
                     acc[r.tag_name] = r.created_at;
                     return acc;
@@ -78,34 +94,38 @@
                         const tagObj = await (await fetch(ref.object.url)).json();
                         sha = tagObj.object.sha;
                     }
-                    releaseMap[sha.slice(0, 7)] = {
+                    const shortSha = sha.slice(0, 7);
+                    releaseMap[shortSha] = {
                         label: tag,
                         url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`,
                         timestamp: releasesByTag[tag]
                     };
+                    hashInfo[shortSha] = releaseMap[shortSha];
                 }
+
+                // Get PR info for non-release commits
+                const prRequests = uniqueShorts.filter(short => !releaseMap[short]).map(short =>
+                    fetch(`https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`, {
+                        headers: {Accept: 'application/vnd.github.groot-preview+json'}
+                    }).then(r => r.json()).then(prs => {
+                        if (Array.isArray(prs) && prs.length) {
+                            const pr = prs[0];
+                            hashInfo[short] = {label: `#${pr.number}: ${pr.title}`, url: pr.html_url};
+                        } else {
+                            hashInfo[short] = {label: short, url: null};
+                        }
+                    }).catch(() => {
+                        hashInfo[short] = {label: short, url: null};
+                    })
+                );
+
+                await Promise.all(prRequests);
+
             } catch {
+                uniqueShorts.forEach(short => {
+                    hashInfo[short] = {label: short, url: null};
+                });
             }
-            const hashInfo = {};
-            await Promise.all(uniqueShorts.map(async short => {
-                if (releaseMap[short]) {
-                    hashInfo[short] = releaseMap[short];
-                    return;
-                }
-                try {
-                    const prs = await (await fetch(
-                        `https://api.github.com/repos/paradedb/paradedb/commits/${short}/pulls`,
-                        {headers: {Accept: 'application/vnd.github.groot-preview+json'}}
-                    )).json();
-                    if (Array.isArray(prs) && prs.length) {
-                        const pr = prs[0];
-                        hashInfo[short] = {label: `#${pr.number}: ${pr.title}`, url: pr.html_url};
-                        return;
-                    }
-                } catch {
-                }
-                hashInfo[short] = {label: short, url: null};
-            }));
 
             // Group data by file
             const fileGroups = {};
@@ -188,6 +208,11 @@
               <div class="toggle-switch">
                 <label><input type="checkbox" class="norm-toggle" ${defaultNorm ? 'checked' : ''}/><span>Normalize to First Value</span></label>
               </div>
+              <div class="slider-container">
+                <label>Window Start:</label>
+                <input type="range" class="window-slider" min="0" max="${labels.length - 1}" value="0" />
+                <span class="window-label">0</span>
+              </div>
             `;
                     const canvas = document.createElement('canvas');
                     wrap.appendChild(canvas);
@@ -237,8 +262,11 @@
                                             if (chart.normalized) {
                                                 const pct = (v * 100) - 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
-                                            } else if (i > 0 && arr[i - 1] != null) {
-                                                const pct = ((v - arr[i - 1]) / arr[i - 1]) * 100;
+                                            }
+                                            if (i > 0 && arr[i - 1] != null) {
+                                                const prev = chart.normalized ? arr[i - 1] / arr[0] : arr[i - 1];
+                                                const curr = chart.normalized ? arr[i] / arr[0] : arr[i];
+                                                const pct = ((curr - prev) / prev) * 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
                                             }
                                             return lines;
@@ -260,10 +288,27 @@
 
                     wrap.querySelector('.norm-toggle').addEventListener('change', e => {
                         const norm = e.target.checked;
-                        chart.data.datasets.forEach(ds => ds.data = norm ? ds.original.map(v => v != null ? v / ds.original[0] : null) : ds.original.slice());
+                        const windowStart = parseInt(wrap.querySelector('.window-slider').value);
+                        chart.data.datasets.forEach(ds => {
+                            const slicedData = ds.original.slice(windowStart);
+                            ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+                        });
                         chart.normalized = norm;
                         chart.options.scales.y = makeYOptions(norm);
+                        chart.data.labels = labels.slice(windowStart);
                         chart.resetZoom();
+                        chart.update();
+                    });
+
+                    wrap.querySelector('.window-slider').addEventListener('input', e => {
+                        const windowStart = parseInt(e.target.value);
+                        wrap.querySelector('.window-label').textContent = labels[windowStart];
+                        const norm = wrap.querySelector('.norm-toggle').checked;
+                        chart.data.datasets.forEach(ds => {
+                            const slicedData = ds.original.slice(windowStart);
+                            ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+                        });
+                        chart.data.labels = labels.slice(windowStart);
                         chart.update();
                     });
 

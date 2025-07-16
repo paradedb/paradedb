@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752684019901,
+  "lastUpdate": 1752684637164,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4026,6 +4026,42 @@ window.BENCHMARK_DATA = {
             "value": 139.77297254808417,
             "unit": "median tps",
             "extra": "avg tps: 139.4712054480924, max tps: 155.96113186579203, count: 57536"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7c13c858851200e8ab5395779f821ca484cda0d",
+          "message": "feat: Add a custom scan for aggregates (#2763)\n\n## What\n\nAdd a new `CustomScan` (installed with `create_upper_paths_hook`) which\nreplaces simple aggregate plans on `bm25`-indexed tables with aggregate\nimplementations using [Tantivy\naggregates](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html).\n\n## Why\n\nTantivy aggregates can be significantly faster (in benchmarks, we've\nmeasured between 4-10x for bucketing/faceting queries). They have been\nexposed via `paradedb.aggregate` for a while now, but that function\nrequires learning a new API, and does not feel \"Postgres native\".\n\n## How\n\n* Adjust `CustomPathBuilder` and `CustomPathMethods` to allow multiple\n`CustomScan` implementations.\n* Remove the `CustomScan::PrivateData: Default` bound, as it requires\nthe `PrivateData` to start in an illegal state.\n* Move `qual_inspect` to a reusable location.\n* Split out a module to be used by both the `aggregate` API method and\nby the aggregate custom scan.\n* Implement the \"ParadeDB Aggregate Scan\" `CustomScan` type\n    * Add the new `CustomScan` type, hidden behind a GUC\n    * Filter Paths to those which represent `count(*)` queries\n    * Extract `quals` during `CustomPath` generation\n* Replace `Aggrefs` in target lists with `FuncExprs` while producing a\n`CustomPlan`\n* Execute a `count(*)` aggregate by pushing down a `value_count`\naggregate on the `ctid`\n\n## Tests\n\nAdded tests to validate that:\n* the GUC properly controls usage\n* the scan does not trigger for unsupported aggregates, tables without a\n`bm25` index, or group-bys (for now)",
+          "timestamp": "2025-07-16T09:12:24-07:00",
+          "tree_id": "69b043a9363fcf6ce2de468c97d14e41f593f017",
+          "url": "https://github.com/paradedb/paradedb/commit/f7c13c858851200e8ab5395779f821ca484cda0d"
+        },
+        "date": 1752684636196,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 26.848671487710114,
+            "unit": "median tps",
+            "extra": "avg tps: 26.875068178105664, max tps: 29.664177954774157, count: 57963"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 131.03485228825542,
+            "unit": "median tps",
+            "extra": "avg tps: 130.80097684615797, max tps: 144.10530655851247, count: 57963"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752669771207,
+  "lastUpdate": 1752669773311,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4392,6 +4392,64 @@ window.BENCHMARK_DATA = {
             "value": 164.42578125,
             "unit": "median mem",
             "extra": "avg mem: 154.04628335792393, max mem: 173.91796875, count: 56424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669772361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.221248004004604, max cpu: 42.772278, count: 57536"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.66007056994752, max mem: 180.25390625, count: 57536"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17079,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15485.6257647386, max block_count: 17079.0, count: 57536"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.74428184093438, max segment_count: 175.0, count: 57536"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.416365678004572, max cpu: 32.621357, count: 57536"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 154.2193589258247, max mem: 174.5, count: 57536"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752690219114,
+  "lastUpdate": 1752690220977,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4112,6 +4112,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.31493870402802, max segment_count: 97.0, count: 57100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d197630155f55d13eea0a81841951645a367a5f7",
+          "message": "test: Make GUCs a tested property, and add proptests for the aggregate custom scan (#2788)\n\n## What\n\nMove the GUCs that are in use into a test property, which reduces\nruntime while allowing for testing arbitrary combinations of GUCs.\n\nAdditionally, added proptests for the aggregate custom scan by:\n* Adding its GUC to the generated set\n* Expanding the `generated_single_relation` test to use `COUNT(*)` in\nits target list.\n\n## Why\n\nTo add additional test coverage for #2763.",
+          "timestamp": "2025-07-16T10:57:16-07:00",
+          "tree_id": "6a92b62b640f7a0b2dc7e6507966b75f3bd00594",
+          "url": "https://github.com/paradedb/paradedb/commit/d197630155f55d13eea0a81841951645a367a5f7"
+        },
+        "date": 1752690220049,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.31314547043461, max cpu: 43.199997, count: 57673"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.93933395230437, max mem: 231.703125, count: 57673"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.41056677723073, max cpu: 33.168808, count: 57673"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.7338768384903, max mem: 161.1640625, count: 57673"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22670,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20906.578364225894, max block_count: 23892.0, count: 57673"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.00568723666187, max segment_count: 96.0, count: 57673"
           }
         ]
       }

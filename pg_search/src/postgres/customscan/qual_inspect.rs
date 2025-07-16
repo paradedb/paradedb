@@ -15,15 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::opexpr::OpExpr;
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::pdbscan::projections::score::score_funcoid;
-use crate::postgres::customscan::pdbscan::pushdown::{
-    is_complex, try_pushdown_inner, PushdownField,
-};
+use crate::postgres::customscan::opexpr::OpExpr;
+use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
+use crate::postgres::customscan::{operator_oid, score_funcoid};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -943,7 +940,7 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
     match (*node).type_ {
         pg_sys::NodeTag::T_Var => {
             let var = node.cast::<pg_sys::Var>();
-            (*var).varno as i32 == rti as i32
+            (*var).varno as pg_sys::Index == rti
         }
         pg_sys::NodeTag::T_FuncExpr => {
             let funcexpr = node.cast::<pg_sys::FuncExpr>();

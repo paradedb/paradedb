@@ -22,7 +22,7 @@ use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
-use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
@@ -30,7 +30,7 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::{AsHumanReadable, SearchQueryInput};
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
+use pgrx::{pg_sys, PgTupleDesc};
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -243,12 +243,12 @@ impl PdbScanState {
 
     #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*self.heaprel().rd_rel).relname) }
+        self.heaprel().name()
     }
 
     #[inline(always)]
     pub fn indexrelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*self.indexrel().rd_rel).relname) }
+        self.indexrel().name()
     }
 
     #[inline(always)]

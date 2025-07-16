@@ -20,6 +20,11 @@ Both read and write throughput under concurrent load can be improved by tuning P
 by configuring the [`max_parallel_worker` pool](/documentation/configuration/parallel#parallel-workers) and [buffer cache size](/documentation/configuration/parallel#shared-buffers),
 whereas writes can be improved by increasing [per-statement memory](/documentation/configuration/write#work-memory).
 
+### Correctness vs. Performance
+
+While ParadeDB optimizes heavily around performance, there are some situations where the database can squeeze more performance by relaxing correctness
+constraints. In these cases, ParadeDB — like Postgres — will guarantee correctness, even if it comes at the cost of slower query execution.
+
 ### Replication Safety
 
 ParadeDB distinguishes between logical replication and physical replication.

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752685299444,
+  "lastUpdate": 1752685301393,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2454,6 +2454,126 @@ window.BENCHMARK_DATA = {
             "value": 91.76953125,
             "unit": "median mem",
             "extra": "avg mem: 90.14222327300388, max mem: 98.03515625, count: 54969"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c779dbb72178c1aa0e14ad94c72eeb9937251acd",
+          "message": "feat: a background merger for large layers (#2743)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLaunches Postgres [dynamic background\nworkers](https://docs.rs/pgrx/latest/pgrx/bgworkers/struct.DynamicBackgroundWorker.html)\nto merge large layers in the background.\n\nThis is configured by a new index setting, `background_layer_sizes`. Any\nlayers specified here will be merged in the background.\n\n## Why\n\nWrite throughput, and create more balanced indexes with fewer segments.\n\n## How\n\n1. The default (foreground) `layer_sizes` is now `10kb`, `100kb`, `1mb`\n2. The default `background_layer_sizes` is `10mb`, `100mb`, `1gb`,\n`10gb`, `100gb`, `1tb`\n3. After `aminsert` merges in the foreground, it checks to see if there\nare enough candidates for a background merge. If so, it spawns a dynamic\nbackground worker process to do the merge.\n4. `amvacuumcleanup` can also spawn a background worker, allowing the\nuser to rebalance their index with a `VACUUM`.\n\nAdditionally, I've tweaked merge policy to make it smarter:\n\n1. Terminate a merge early if we predict that, after the merge, we will\nend up with fewer than `target_segment_count` segments.\n2. Set the max layer size as byte size of index divided by\n`target_segment_count`. Discard all layer sizes above that, which avoids\nthe problem of merging too many segments into one giant segment.\n\nThis has allowed us to delete some code:\n\n1. `force_merge` is deprecated\n2. No longer need to store the segments created by an index build and\navoid merging them, since we just do expensive merges in the background\n\n## Tests\n\nAdded a new stressgres `.toml` file that configures the layer\nsizes/threshold, which triggers background merging.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-16T12:44:23-04:00",
+          "tree_id": "153c406e456a638a6b68ca9123210bbd498d66a5",
+          "url": "https://github.com/paradedb/paradedb/commit/c779dbb72178c1aa0e14ad94c72eeb9937251acd"
+        },
+        "date": 1752685300450,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.74353993511877, max cpu: 9.571285, count: 55119"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.97769570157296, max mem: 83.3203125, count: 55119"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5965984828445965, max cpu: 9.320388, count: 55119"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 53.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.00785587206771, max mem: 76.9453125, count: 55119"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.771042490419082, max cpu: 9.448819, count: 55119"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 59.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.03921260137158, max mem: 83.6953125, count: 55119"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.432769750103771, max cpu: 4.6966734, count: 55119"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 58.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.35947917800577, max mem: 81.4453125, count: 55119"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.449142992295745, max cpu: 23.529411, count: 110238"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 75.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 75.00406418243936, max mem: 103.51953125, count: 110238"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3662,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3696.1490955931713, max block_count: 6682.0, count: 55119"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.907182641194506, max segment_count: 28.0, count: 55119"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.050266210385479, max cpu: 14.159292, count: 55119"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 78.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 78.37628351555271, max mem: 106.58984375, count: 55119"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.171832329408024, max cpu: 4.6966734, count: 55119"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 58.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.87885926359331, max mem: 83.7265625, count: 55119"
           }
         ]
       }

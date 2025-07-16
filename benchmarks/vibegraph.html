@@ -292,6 +292,15 @@
                         chart.data.datasets.forEach(ds => {
                             const slicedData = ds.original.slice(windowStart);
                             ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                            // Recalculate point colors based on new window
+                            ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                                if (i > 0 && arr[i - 1] != null) {
+                                    const pct = (v - arr[i - 1]) / arr[i - 1];
+                                    if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                                }
+                                return Chart.defaults.borderColor;
+                            });
                         });
                         chart.normalized = norm;
                         chart.options.scales.y = makeYOptions(norm);
@@ -307,6 +316,15 @@
                         chart.data.datasets.forEach(ds => {
                             const slicedData = ds.original.slice(windowStart);
                             ds.data = norm ? slicedData.map(v => v != null ? v / slicedData[0] : null) : slicedData.slice();
+
+                            // Recalculate point colors based on new window
+                            ds.pointBorderColor = ds.data.map((v, i, arr) => {
+                                if (i > 0 && arr[i - 1] != null) {
+                                    const pct = (v - arr[i - 1]) / arr[i - 1];
+                                    if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                                }
+                                return Chart.defaults.borderColor;
+                            });
                         });
                         chart.data.labels = labels.slice(windowStart);
                         chart.update();

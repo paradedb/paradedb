@@ -18,6 +18,7 @@
 pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
+pub(crate) mod proximity;
 mod range;
 mod score;
 
@@ -27,10 +28,11 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
+use crate::query::proximity::query::ProximityQuery;
+use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::score::ScoreFilter;
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
-use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
 use range::{deserialize_bound, serialize_bound};
@@ -181,6 +183,12 @@ pub enum SearchQueryInput {
         field: FieldName,
         phrases: Vec<String>,
         max_expansions: Option<u32>,
+    },
+    Proximity {
+        field: FieldName,
+        left: ProximityClause,
+        distance: ProximityDistance,
+        right: ProximityClause,
     },
     Range {
         field: FieldName,
@@ -502,7 +510,7 @@ fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>)> {
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
@@ -625,7 +633,7 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-    ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn Query>, QueryError> {
         match self {
             Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
             Self::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
@@ -1024,6 +1032,26 @@ impl SearchQueryInput {
                     query.set_slop(slop)
                 }
                 Ok(Box::new(query))
+            }
+            Self::Proximity {
+                field,
+                left,
+                distance,
+                right,
+            } => {
+                if left.is_empty() || right.is_empty() {
+                    return Ok(Box::new(EmptyQuery));
+                }
+
+                let search_field = schema
+                    .search_field(field.root())
+                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
+                if !search_field.is_tokenized() {
+                    return Err(QueryError::InvalidTokenizer);
+                }
+
+                let prox = ProximityQuery::new(search_field.field(), left, distance, right);
+                Ok(Box::new(prox))
             }
             Self::Range {
                 field,
@@ -1796,7 +1824,7 @@ fn value_to_json_term(
     path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
-) -> Result<Term, Box<dyn std::error::Error>> {
+) -> Result<Term, QueryError> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
@@ -1843,7 +1871,7 @@ pub fn value_to_term(
     field_type: &FieldType,
     path: Option<&str>,
     is_datetime: bool,
-) -> Result<Term, Box<dyn std::error::Error>> {
+) -> std::result::Result<Term, QueryError> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
         _ => None,
@@ -1915,9 +1943,9 @@ impl TryFrom<&str> for TantivyDateTime {
 
 #[allow(dead_code)]
 #[derive(Debug, Error)]
-enum QueryError {
+pub enum QueryError {
     #[error("wrong field type for field: {0}")]
-    WrongFieldType(String),
+    WrongFieldType(FieldName),
     #[error("invalid field map json: {0}")]
     FieldMapJsonValue(#[source] serde_json::Error),
     #[error("field map json must be an object")]
@@ -1935,6 +1963,22 @@ enum QueryError {
            make sure to use column:term pairs, and to capitalize AND/OR."#
     )]
     ParseError(#[source] tantivy::query::QueryParserError, String),
+    #[error("{0}")]
+    TantivyError(#[source] tantivy::TantivyError),
+    #[error("{0}")]
+    InternalError(#[source] anyhow::Error),
+}
+
+impl From<tantivy::TantivyError> for QueryError {
+    fn from(err: tantivy::TantivyError) -> QueryError {
+        QueryError::TantivyError(err)
+    }
+}
+
+impl From<anyhow::Error> for QueryError {
+    fn from(err: anyhow::Error) -> QueryError {
+        QueryError::InternalError(err)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

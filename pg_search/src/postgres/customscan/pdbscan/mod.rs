@@ -1525,6 +1525,7 @@ fn base_query_has_search_predicates(
         | SearchQueryInput::Term { field: Some(_), .. }
         | SearchQueryInput::Phrase { .. }
         | SearchQueryInput::PhrasePrefix { .. }
+        | SearchQueryInput::Proximity { .. }
         | SearchQueryInput::FuzzyTerm { .. }
         | SearchQueryInput::Match { .. }
         | SearchQueryInput::Regex { .. }

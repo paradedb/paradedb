@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752689575165,
+  "lastUpdate": 1752690219114,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3250,6 +3250,42 @@ window.BENCHMARK_DATA = {
             "value": 5.709153143729733,
             "unit": "median tps",
             "extra": "avg tps: 5.097887215175038, max tps: 6.450583641664189, count: 57100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d197630155f55d13eea0a81841951645a367a5f7",
+          "message": "test: Make GUCs a tested property, and add proptests for the aggregate custom scan (#2788)\n\n## What\n\nMove the GUCs that are in use into a test property, which reduces\nruntime while allowing for testing arbitrary combinations of GUCs.\n\nAdditionally, added proptests for the aggregate custom scan by:\n* Adding its GUC to the generated set\n* Expanding the `generated_single_relation` test to use `COUNT(*)` in\nits target list.\n\n## Why\n\nTo add additional test coverage for #2763.",
+          "timestamp": "2025-07-16T10:57:16-07:00",
+          "tree_id": "6a92b62b640f7a0b2dc7e6507966b75f3bd00594",
+          "url": "https://github.com/paradedb/paradedb/commit/d197630155f55d13eea0a81841951645a367a5f7"
+        },
+        "date": 1752690218199,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.028125822196618,
+            "unit": "median tps",
+            "extra": "avg tps: 6.01131681076183, max tps: 9.024771931488527, count: 57673"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.686592793039652,
+            "unit": "median tps",
+            "extra": "avg tps: 5.102593450694813, max tps: 6.425915842587539, count: 57673"
           }
         ]
       }

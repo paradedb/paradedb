@@ -40,7 +40,7 @@ Prior to this release, the compaction, or merging, of the index [LSM tree](/welc
 `INSERT`/`UPDATE` transactions. While this is acceptable for smaller layers of the LSM tree, merging large layers can block transactions for
 long period of time.
 
-With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/configuration/segment_size#background-layer-sizes)
+With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/documentation/configuration/segment_size#background-layer-sizes)
 and delivers significant improvements to write throughput for update-heavy tables.
 
 ## Custom Free Space Map

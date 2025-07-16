@@ -90,6 +90,25 @@ jobs:
           fi
           echo "Version check passed!"
 
+      - name: Determine if Release Should be Marked as Latest
+        id: release_latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          # Get the upcoming and current latest release tag (without the "v")
+          current="${{ github.event.inputs.version }}"
+          latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
+          echo "Current latest release is $latest_tag"
+          echo "Current version to be released is $current"
+
+          # Install semver CLI and compare versions according to semVer rules
+          npm install semver
+          if npx semver -r ">$latest_tag" "$current"; then
+            echo "is_latest=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+          fi
+
       # The tag_name will have `-rc.X` suffix and be marked as a prerelease for beta releases,
       # and no suffix and marked as a full release for prod releases
       - name: Create GitHub Release
@@ -98,7 +117,7 @@ jobs:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from
           prerelease: ${{ github.event.inputs.beta }} # Whether this release is a beta release
-          make_latest: ${{ github.ref_name == 'main' }} # Only mark as “latest” if we are releasing the `main` branch (beta and patch releases should not be marked as latest)
+          make_latest: ${{ steps.release_latest.outputs.is_latest }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

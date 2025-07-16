@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752683747601,
+  "lastUpdate": 1752684793335,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -3802,6 +3802,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 88.9055,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7c13c858851200e8ab5395779f821ca484cda0d",
+          "message": "feat: Add a custom scan for aggregates (#2763)\n\n## What\n\nAdd a new `CustomScan` (installed with `create_upper_paths_hook`) which\nreplaces simple aggregate plans on `bm25`-indexed tables with aggregate\nimplementations using [Tantivy\naggregates](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html).\n\n## Why\n\nTantivy aggregates can be significantly faster (in benchmarks, we've\nmeasured between 4-10x for bucketing/faceting queries). They have been\nexposed via `paradedb.aggregate` for a while now, but that function\nrequires learning a new API, and does not feel \"Postgres native\".\n\n## How\n\n* Adjust `CustomPathBuilder` and `CustomPathMethods` to allow multiple\n`CustomScan` implementations.\n* Remove the `CustomScan::PrivateData: Default` bound, as it requires\nthe `PrivateData` to start in an illegal state.\n* Move `qual_inspect` to a reusable location.\n* Split out a module to be used by both the `aggregate` API method and\nby the aggregate custom scan.\n* Implement the \"ParadeDB Aggregate Scan\" `CustomScan` type\n    * Add the new `CustomScan` type, hidden behind a GUC\n    * Filter Paths to those which represent `count(*)` queries\n    * Extract `quals` during `CustomPath` generation\n* Replace `Aggrefs` in target lists with `FuncExprs` while producing a\n`CustomPlan`\n* Execute a `count(*)` aggregate by pushing down a `value_count`\naggregate on the `ctid`\n\n## Tests\n\nAdded tests to validate that:\n* the GUC properly controls usage\n* the scan does not trigger for unsupported aggregates, tables without a\n`bm25` index, or group-bys (for now)",
+          "timestamp": "2025-07-16T09:12:24-07:00",
+          "tree_id": "69b043a9363fcf6ce2de468c97d14e41f593f017",
+          "url": "https://github.com/paradedb/paradedb/commit/f7c13c858851200e8ab5395779f821ca484cda0d"
+        },
+        "date": 1752684792393,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1183.2310000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 842.2370000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1471.7694999999999,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 901.7945,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 881.994,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 2715.4004999999997,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 35.132999999999996,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 68.2895,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 93.8075,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

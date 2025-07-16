@@ -1,6 +1,4 @@
 # workflows/benchmark-backfill-auto.yml
-#
-# Backfill benchmarks using an array of git commit hashes
 name: Automatically backfill benchmarks using existing commit hashes
 
 on:
@@ -15,21 +13,6 @@ jobs:
   reset:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-      - name: Reset data.js files
-        run: |
-          git config user.name "Benchmark Backfill Job"
-          git config user.email "developers@paradedb.com"
-          files=$(git ls-files stressgres/data.js benchmarks/data.js)
-          if [ -n "$files" ]; then
-            echo "$files" | xargs git rm
-            git commit -m "Reset data.js files"
-            git push
-          fi
-
       - name: Load and extract commit IDs from benchmark data
         id: extract_commits
         run: |
@@ -57,6 +40,21 @@ jobs:
 
           # set as an output; for newer GH Actions syntaxes
           echo "ids=$ids" >> $GITHUB_OUTPUT
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Reset data.js files
+        run: |
+          git config user.name "Benchmark Backfill Job"
+          git config user.email "developers@paradedb.com"
+          files=$(git ls-files stressgres/data.js benchmarks/data.js)
+          if [ -n "$files" ]; then
+            echo "$files" | xargs git rm
+            git commit -m "Reset data.js files"
+            git push
+          fi
 
   dispatch:
     # one job per commit

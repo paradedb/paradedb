@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752683374853,
+  "lastUpdate": 1752683376646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2268,6 +2268,126 @@ window.BENCHMARK_DATA = {
             "value": 95.671875,
             "unit": "median mem",
             "extra": "avg mem: 96.78512823524339, max mem: 125.95703125, count: 55077"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7c13c858851200e8ab5395779f821ca484cda0d",
+          "message": "feat: Add a custom scan for aggregates (#2763)\n\n## What\n\nAdd a new `CustomScan` (installed with `create_upper_paths_hook`) which\nreplaces simple aggregate plans on `bm25`-indexed tables with aggregate\nimplementations using [Tantivy\naggregates](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html).\n\n## Why\n\nTantivy aggregates can be significantly faster (in benchmarks, we've\nmeasured between 4-10x for bucketing/faceting queries). They have been\nexposed via `paradedb.aggregate` for a while now, but that function\nrequires learning a new API, and does not feel \"Postgres native\".\n\n## How\n\n* Adjust `CustomPathBuilder` and `CustomPathMethods` to allow multiple\n`CustomScan` implementations.\n* Remove the `CustomScan::PrivateData: Default` bound, as it requires\nthe `PrivateData` to start in an illegal state.\n* Move `qual_inspect` to a reusable location.\n* Split out a module to be used by both the `aggregate` API method and\nby the aggregate custom scan.\n* Implement the \"ParadeDB Aggregate Scan\" `CustomScan` type\n    * Add the new `CustomScan` type, hidden behind a GUC\n    * Filter Paths to those which represent `count(*)` queries\n    * Extract `quals` during `CustomPath` generation\n* Replace `Aggrefs` in target lists with `FuncExprs` while producing a\n`CustomPlan`\n* Execute a `count(*)` aggregate by pushing down a `value_count`\naggregate on the `ctid`\n\n## Tests\n\nAdded tests to validate that:\n* the GUC properly controls usage\n* the scan does not trigger for unsupported aggregates, tables without a\n`bm25` index, or group-bys (for now)",
+          "timestamp": "2025-07-16T09:12:24-07:00",
+          "tree_id": "69b043a9363fcf6ce2de468c97d14e41f593f017",
+          "url": "https://github.com/paradedb/paradedb/commit/f7c13c858851200e8ab5395779f821ca484cda0d"
+        },
+        "date": 1752683375722,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.824514352499456, max cpu: 19.257774, count: 54969"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 90.375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.77890528354618, max mem: 95.48828125, count: 54969"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.631264794249504, max cpu: 9.213051, count: 54969"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 83.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 82.53111640197201, max mem: 87.0546875, count: 54969"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.305128389502062, max cpu: 23.575638, count: 54969"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 89.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.0264992399125, max mem: 95.6328125, count: 54969"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.584491629761695, max cpu: 9.204219, count: 54969"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 91.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 90.5710431675126, max mem: 94.5546875, count: 54969"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.132321590552975, max cpu: 23.645319, count: 109938"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 105.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 105.3538991508282, max mem: 117.3515625, count: 109938"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7790,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7734.265476905165, max block_count: 8482.0, count: 54969"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 119,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 117.9896669031636, max segment_count: 322.0, count: 54969"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.169691655339136, max cpu: 27.665707, count: 54969"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 104.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 104.99349363391184, max mem: 113.5625, count: 54969"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.562644612493461, max cpu: 28.263002, count: 54969"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.14222327300388, max mem: 98.03515625, count: 54969"
           }
         ]
       }

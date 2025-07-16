@@ -88,7 +88,7 @@ in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
 ```sql
 -- "Top N" queries may be parallelized
 EXPLAIN ANALYZE SELECT * FROM mock_items
-WHERE description @@@ 'rating`
+WHERE description @@@ 'rating'
 ORDER BY rating LIMIT 5;
 ```
 

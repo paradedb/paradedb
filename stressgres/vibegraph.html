@@ -152,6 +152,8 @@
               const resetBtn = document.createElement('button'); resetBtn.className='reset-btn'; resetBtn.textContent='Zoom Out';
               cw.appendChild(Object.assign(document.createElement('div'), { className: 'flex justify-start mt-2' })).appendChild(resetBtn);
 
+              let normalize_to_first_value = cw.querySelector('.norm-toggle');
+
               const linksEl = document.createElement('div');
               linksEl.className = 'mt-2';
               // Comma-separated PR# or release tag links
@@ -179,11 +181,16 @@
                         label: ctx => {
                           const ds = ctx.dataset, idx = ctx.dataIndex, raw = ds.original[idx];
                           const lines = [`${ds.label}: ${raw!=null? raw.toFixed(2):'–'}`];
-                          if (!ctx.chart.normalized && idx>0 && ds.original[idx-1]!=null) {
+                          if (idx>0 && ds.original[idx-1]!=null) {
                             const pct = ((raw - ds.original[idx-1])/ds.original[idx-1])*100;
                             lines.push(`${pct>=0?'+':''}${pct.toFixed(0)}% from prev`);
                           }
-                          return lines;
+                            if (normalize_to_first_value.checked && ds.original[0] && raw != null) {
+                                const pctFromFirst = ((raw - ds.original[0]) / ds.original[0]) * 100;
+                                lines.push(`${pctFromFirst >= 0 ? '+' : ''}${pctFromFirst.toFixed(0)}% from first`);
+                            }
+
+                            return lines;
                         }
                       }
                     }

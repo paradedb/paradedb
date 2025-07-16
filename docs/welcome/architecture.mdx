@@ -2,33 +2,23 @@
 title: Architecture
 ---
 
-All of the functionalities of ParadeDB are shipped as a Postgres extension called `pg_search`. `pg_search` introduces a new
-index, along with custom query execution methods, to Postgres.
+ParadeDB introduces modern query execution paths and data structures, optimized for high-ingest search and analytics workloads, to Postgres.
 
 ## Custom Index
 
 ![Custom Index Architecture](/images/architecture_indexam.png)
 
 In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
-ParadeDB introduces a custom index called the _BM25 index_ that's designed for full text search and analytical queries.
-
-### Real-Time Updates
+ParadeDB introduces a custom index called the _BM25 index_.
 
 When a table row is inserted or updated, the BM25 index is immediately notified. These changes are recorded as part of the current transaction, ensuring that index updates are real-time.
-
-### Query Optimizations
-
-Postgres allows extensions to define new execution nodes that can run custom logic — such as filters or aggregations — as part of query execution.
-These nodes are called [custom scans](https://www.postgresql.org/docs/current/custom-scan.html).
-
-ParadeDB's custom scans allow filters, "top N" queries, and aggregates to be pushed down directly into the BM25 index. They also support Postgres parallel workers, allowing query performance to scale
-with the underlying hardware.
 
 ## Data Model
 
 ![Data Model](/images/architecture_lsm.png)
 
 The BM25 index is laid out as an [LSM tree](#lsm-tree), where each segment in the tree consists of both an inverted index and columnar index.
+The inverted and columnar indexes optimize for fast reads, while the LSM tree optimizes for high-frequency writes.
 
 ### Inverted Index
 
@@ -38,7 +28,8 @@ An inverted index is a structure that maps each term (i.e., tokenized word) to a
 ### Columnar Index
 
 Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format. Columnar formats are standard
-for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets.
+for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets compared to Postgres'
+row-oriented layout.
 
 In ParadeDB these structures are referred to as [fast fields](/documentation/indexing/fast_fields).
 
@@ -52,6 +43,62 @@ These segment files are organized by size into layers or levels. Newer data is w
 
 In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
 is actually a collection of many inverted/columnar indexes, each of which allows for very dense intersection queries to rapidly filter matches.
+
+## Query Execution
+
+### ParadeDB Operator
+
+ParadeDB introduces a new operator, `@@@`, to Postgres. `@@@` means "find me all rows that match the following full-text query."
+
+```sql
+SELECT * FROM mock_items
+WHERE description @@@ 'running shoes';
+```
+
+ParadeDB’s custom query execution paths are only triggered when `@@@` is present _at least once_ in the query. If the query does not include `@@@`, it is executed entirely by native Postgres.
+
+### Custom Scan
+
+Whenever `@@@` is present in a query, ParadeDB will execute the query using a [custom scan](https://www.postgresql.org/docs/current/custom-scan.html).
+
+Custom scans are execution nodes set aside by Postgres that allow extensions to run custom logic during a query. They are more powerful and versatile than typical Postgres index scans because they
+allow the extension to "take over" large parts of the query, including aggregates, `WHERE`, and even [`GROUP BY` clauses](/welcome/roadmap#analytics).
+
+From a performance perspective, custom scans significantly speed up queries by pushing down filters, aggregates, and other operations directly into the index, rather than applying them afterward in separate phases.
+
+To understand what kind of scan is used, run `EXPLAIN`:
+
+```sql
+-- Native Postgres scan, no @@@
+EXPLAIN SELECT * FROM mock_items
+WHERE description = 'running shoes' AND rating <= 5;
+
+-- Custom scan, @@@ used
+EXPLAIN SELECT * FROM mock_items
+WHERE description @@@ 'running shoes' AND rating <= 5;
+```
+
+As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a BM25 index scan), then part of query is going through ParadeDB. Otherwise, it is going through standard Postgres.
+
+### Parallelization
+
+For queries that need to read large amounts of data like "top N" or aggregate queries, the custom scan automatically spawns additional workers to execute the query
+in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
+
+```sql
+-- "Top N" queries may be parallelized
+EXPLAIN ANALYZE SELECT * FROM mock_items
+WHERE description @@@ 'rating`
+ORDER BY rating LIMIT 5;
+```
+
+<Note>
+  Parallelization also depends on the [number of available
+  workers](/documentation/configuration/parallel).
+</Note>
+
+Parallel workers are another reason why the BM25 index is significantly faster than Postgres' native text search and aggregates,
+which are mostly not capable of parallelization.
 
 ## Design Philosophy
 

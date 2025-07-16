@@ -78,7 +78,7 @@ EXPLAIN SELECT * FROM mock_items
 WHERE description @@@ 'running shoes' AND rating <= 5;
 ```
 
-As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a BM25 index scan), then part of query is going through ParadeDB. Otherwise, it is going through standard Postgres.
+As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a BM25 index scan), then that part of query is going through ParadeDB. Otherwise, the query passes through standard Postgres.
 
 ### Parallelization
 

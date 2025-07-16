@@ -30,7 +30,7 @@ use pgrx::bgworkers::*;
 use pgrx::{check_for_interrupts, pg_sys};
 use pgrx::{pg_guard, FromDatum, IntoDatum};
 use std::ffi::CStr;
-use tantivy::index::{Index, SegmentMeta};
+use tantivy::index::SegmentMeta;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -141,9 +141,8 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         // why? the 100mb layer gets excluded because the target segment size is 20mb
         pgrx::debug1!("target_byte_size for merge: {target_byte_size}");
 
-        let mut foreground_layer_sizes = index_options.foreground_layer_sizes();
-        foreground_layer_sizes.retain(|&layer_size| layer_size < target_byte_size);
-        pgrx::debug1!("adjusted foreground_layer_sizes: {foreground_layer_sizes:?}");
+        let foreground_layer_sizes = index_options.foreground_layer_sizes();
+        pgrx::debug1!("foreground_layer_sizes: {foreground_layer_sizes:?}");
 
         let mut background_layer_sizes = index_options.background_layer_sizes();
         let max_foreground_layer_size = foreground_layer_sizes.iter().max().unwrap_or(&0);
@@ -311,16 +310,6 @@ unsafe fn merge_index(
     cleanup_lock: Buffer,
     gc_after_merge: bool,
 ) {
-    // keep track of how many segments we had before we started merging
-    // used to terminate this merge early if we predict we'll end up below the target segment count
-    let mut segment_count = Index::open(MvccSatisfies::Snapshot.directory(indexrel))
-        .expect("should be able to open index")
-        .searchable_segment_ids()
-        .expect("should be able to get searchable segment ids")
-        .len() as i32;
-    let index_options = indexrel.options();
-    let target_segment_count = index_options.target_segment_count() as i32;
-
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
@@ -358,12 +347,6 @@ unsafe fn merge_index(
         let mut merge_result: anyhow::Result<Option<SegmentMeta>> = Ok(None);
 
         for candidate in merge_candidates {
-            segment_count -= candidate.0.len() as i32 - 1;
-            if segment_count < target_segment_count {
-                pgrx::debug1!("ending merge early: segment count {segment_count} would be less than target segment count {target_segment_count}");
-                break;
-            }
-
             pgrx::debug1!("merging candidate with {} segments", candidate.0.len());
 
             merge_result = merger.merge_segments(&candidate.0);

@@ -25,24 +25,24 @@ use sqlx::PgConnection;
 fn merges_to_1_100k_segment(mut conn: PgConnection) {
     r#"
         CREATE TABLE layer_sizes (id bigint);
-        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '1kb, 10kb, 100kb, 1mb',target_segment_count = 8);
+        CREATE INDEX idxlayer_sizes ON layer_sizes USING bm25(id) WITH (key_field='id', layer_sizes = '100kb, 1mb, 100mb');
     "#
     .execute_result(&mut conn).expect("creating table/index should not fail");
 
-    for _ in 0..9 {
+    for _ in 0..165 {
         "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     }
 
     // assert that a merge hasn't happened yet
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(nsegments, 9);
+    assert_eq!(nsegments, 165);
 
     // creates another segment which will cause a merge
     "insert into layer_sizes select x from generate_series(1, 33) x;".execute(&mut conn);
     let (nsegments,) = "select count(*) from paradedb.index_info('idxlayer_sizes');"
         .fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(nsegments, 8);
+    assert_eq!(nsegments, 1);
 }
 
 #[rstest]
@@ -57,12 +57,12 @@ fn merge_with_no_positions(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // this will merge on the 9th insert insert
-    for _ in 0..8 {
+    for _ in 0..18 {
         "insert into test (message) select null from generate_series(1, 1000);".execute(&mut conn);
     }
 
     // and we should have 1 segment after it merges
     let (count,) =
         "select count(*) from paradedb.index_info('idxtest')".fetch_one::<(i64,)>(&mut conn);
-    assert_eq!(count, 8);
+    assert_eq!(count, 2);
 }

@@ -72,7 +72,6 @@ impl MergePolicy for LayeredMergePolicy {
         layer_sizes.sort_by_key(|size| Reverse(*size)); // largest to smallest
 
         for layer_size in layer_sizes {
-            pgrx::debug1!("compute_merge_candidates: evaluating layer_size={layer_size}");
             // individual segments that total a certain byte amount typically merge together into
             // a segment of a smaller size than the individual source segments.  So we fudge things
             // by a third more in the hopes the final segment will be >= to this layer size, ensuring
@@ -100,16 +99,9 @@ impl MergePolicy for LayeredMergePolicy {
                 let segment_byte_size =
                     actual_byte_size(segment, &self.mergeable_segments, avg_doc_size);
                 candidate_byte_size += segment_byte_size;
-
-                pgrx::debug1!(
-                    "compute_merge_candidates: adding segment={} with byte_size={} to candidate",
-                    segment.id(),
-                    segment_byte_size
-                );
                 candidates.last_mut().unwrap().1 .0.push(segment.id());
 
                 if candidate_byte_size >= extended_layer_size {
-                    pgrx::debug1!("compute_merge_candidates: candidate exceeds layer_size={}, candidate_byte_size={}", layer_size, candidate_byte_size);
                     // the candidate now exceeds the layer size so we start a new candidate
                     candidate_byte_size = 0;
                     candidates.push((layer_size, MergeCandidate(vec![])));
@@ -117,7 +109,6 @@ impl MergePolicy for LayeredMergePolicy {
             }
 
             if candidate_byte_size < extended_layer_size {
-                pgrx::debug1!("compute_merge_candidates: throwing away candidate because {} is less than required layer size {}", candidate_byte_size, layer_size);
                 // the last candidate isn't full, so throw it away
                 candidates.pop();
             }

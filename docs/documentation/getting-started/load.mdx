@@ -1,8 +1,8 @@
 ---
-title: Load Data 
+title: Load Data
 ---
 
-You can quickly load data from Postgres or Kafka to test ParadeDB. 
+You can quickly load data from Postgres or Kafka to test ParadeDB.
 
 See the [deployment guide](/deploy) for how to deploy ParadeDB into production.
 
@@ -89,10 +89,11 @@ In your Kafka instance, run [`kafka-console-consumer`](https://kafka.apache.org/
     | jq -r '[.user, .email, (.transaction_time | gsub("T";" ")), .amount, .status] | @csv' \
     > transactions.csv
     ```
+
   </Tab>
 </Tabs>
 
-### Create a Table 
+### Create a Table
 
 In ParadeDB, run [`CREATE TABLE`](https://www.postgresql.org/docs/current/sql-createtable.html) for a table that can accept the structure of the exported data in ParadeDB.
 

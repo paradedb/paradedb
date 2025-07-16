@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752619796099,
+  "lastUpdate": 1752669773311,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -712,6 +712,70 @@ window.BENCHMARK_DATA = {
             "value": 4.267097069170552,
             "unit": "median tps",
             "extra": "avg tps: 8.382422137054183, max tps: 1124.984672083843, count: 55161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752668513520,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 315.8428380993767,
+            "unit": "median tps",
+            "extra": "avg tps: 316.6870899892203, max tps: 522.5800943866939, count: 55077"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2320.926556132953,
+            "unit": "median tps",
+            "extra": "avg tps: 2326.3086373013957, max tps: 2591.1336883581325, count: 55077"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 301.3644541628425,
+            "unit": "median tps",
+            "extra": "avg tps: 302.7329004447359, max tps: 525.3100041333333, count: 55077"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 275.69848964891816,
+            "unit": "median tps",
+            "extra": "avg tps: 275.54867864964064, max tps: 447.0924638183717, count: 55077"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 155.54810824512654,
+            "unit": "median tps",
+            "extra": "avg tps: 162.95433038112125, max tps: 173.331819532512, count: 110154"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.51159221897996,
+            "unit": "median tps",
+            "extra": "avg tps: 137.32489841228025, max tps: 145.5387283399039, count: 55077"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.968872895106366,
+            "unit": "median tps",
+            "extra": "avg tps: 9.338879413398578, max tps: 1134.758211394107, count: 55077"
           }
         ]
       }
@@ -2022,6 +2086,124 @@ window.BENCHMARK_DATA = {
             "extra": "avg mem: 109.97686417373689, max mem: 130.921875, count: 55161"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752668515825,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.970152331474589, max cpu: 23.552504, count: 55077"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 97.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 98.52426829711132, max mem: 125.77734375, count: 55077"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629864980548322, max cpu: 9.213051, count: 55077"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 84.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 83.45504730876773, max mem: 95.34765625, count: 55077"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.3212605744362715, max cpu: 23.143684, count: 55077"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 97.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.62358968750567, max mem: 125.09765625, count: 55077"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.564069200672729, max cpu: 9.257474, count: 55077"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 96.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 98.15665426357644, max mem: 122.89453125, count: 55077"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.49939632128954, max cpu: 24.072216, count: 110154"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 100.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 102.49071970406204, max mem: 133.578125, count: 110154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8209,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8547.47500771647, max block_count: 12193.0, count: 55077"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 120,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 119.26615465620858, max segment_count: 448.0, count: 55077"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.183837131784775, max cpu: 14.117648, count: 55077"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 106.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 107.73512083083683, max mem: 139.65234375, count: 55077"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.461538,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.356566977081453, max cpu: 32.214767, count: 55077"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 95.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.78512823524339, max mem: 125.95703125, count: 55077"
+          }
+        ]
       }
     ],
     "pg_search bulk-updates.toml Performance - TPS": [
@@ -2404,6 +2586,40 @@ window.BENCHMARK_DATA = {
             "value": 5.934081329120296,
             "unit": "median tps",
             "extra": "avg tps: 5.301774457563865, max tps: 6.681558501984027, count: 57657"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669154339,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.878177037662716,
+            "unit": "median tps",
+            "extra": "avg tps: 5.888555221224742, max tps: 8.814803211894557, count: 57286"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.611810368976334,
+            "unit": "median tps",
+            "extra": "avg tps: 4.998988687018463, max tps: 6.381433860339025, count: 57286"
           }
         ]
       }
@@ -3054,6 +3270,64 @@ window.BENCHMARK_DATA = {
             "extra": "avg segment_count: 68.3133704493817, max segment_count: 97.0, count: 57657"
           }
         ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669156374,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.289877036708354, max cpu: 42.772278, count: 57286"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.31538178503473, max mem: 239.4609375, count: 57286"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.296618725773587, max cpu: 33.267326, count: 57286"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.00267858311804, max mem: 161.9296875, count: 57286"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21494,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19986.319327584402, max block_count: 21623.0, count: 57286"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.68140557902454, max segment_count: 96.0, count: 57286"
+          }
+        ]
       }
     ],
     "pg_search wide-table.toml Performance - TPS": [
@@ -3436,6 +3710,40 @@ window.BENCHMARK_DATA = {
             "value": 128.51072601320266,
             "unit": "median tps",
             "extra": "avg tps: 128.23104107317803, max tps: 145.19202534924474, count: 56424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669770232,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.895989538945585,
+            "unit": "median tps",
+            "extra": "avg tps: 28.80995836001874, max tps: 29.972178637932505, count: 57536"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 139.77297254808417,
+            "unit": "median tps",
+            "extra": "avg tps: 139.4712054480924, max tps: 155.96113186579203, count: 57536"
           }
         ]
       }
@@ -4084,6 +4392,64 @@ window.BENCHMARK_DATA = {
             "value": 164.42578125,
             "unit": "median mem",
             "extra": "avg mem: 154.04628335792393, max mem: 173.91796875, count: 56424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669772361,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.221248004004604, max cpu: 42.772278, count: 57536"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.66007056994752, max mem: 180.25390625, count: 57536"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17079,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15485.6257647386, max block_count: 17079.0, count: 57536"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 84.74428184093438, max segment_count: 175.0, count: 57536"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.416365678004572, max cpu: 32.621357, count: 57536"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 154.2193589258247, max mem: 174.5, count: 57536"
           }
         ]
       }

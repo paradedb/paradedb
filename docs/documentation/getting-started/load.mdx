@@ -1,13 +1,17 @@
 ---
-title: Load Data from Postgres
+title: Load Data 
 ---
+
+You can quickly load data from Postgres or Kafka to test ParadeDB. 
+
+See the [deployment guide](/deploy) for how to deploy ParadeDB into production.
+
+## Load Data from Postgres
 
 The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are
 installed by default when you install `psql`.
 
-This approach is ideal for quickly testing ParadeDB. See the [deployment guide](/deploy) for how to deploy ParadeDB into production.
-
-## Create a Dump
+### Create a Dump
 
 Run `pg_dump` to create a copy of your database. The `pg_dump` version needs be greater than or equal to that of your Postgres database. You can check the version with `pg_dump --version`.
 
@@ -36,7 +40,7 @@ pg_dump -Fc --no-acl --no-owner \
     <dbname> > old_db.dump
 ```
 
-## Restore the Dump
+### Restore the Dump
 
 Run `pg_restore` to load this data into ParadeDB. The `pg_restore` version needs be greater than or equal to that of your `pg_dump`. You can check the version with `pg_restore --version`.
 
@@ -52,5 +56,92 @@ pg_restore --verbose --clean --no-acl --no-owner \
     -Fc \
     old_db.dump
 ```
+
+Congratulations! You are now ready to run real queries over your data. To get started, refer to our [full text search documentation](https://docs.paradedb.com/documentation/full-text/overview).
+
+## Load Data from Kafka
+
+You have many ways to send Kafka data to ParadeDB. The following steps are manual to demonstrate the connection and help you conceptualize for scale.
+
+### Write Data to File
+
+In your Kafka instance, run [`kafka-console-consumer`](https://kafka.apache.org/20/documentation.html#quickstart_consume) to consume Kafka data and write to a file.
+
+<Tabs>
+  <Tab title="Command Format">
+    ```bash
+    kafka-console-consumer --bootstrap-server <host> \
+      --topic <topic_name> \
+      --from-beginning \
+      --timeout-ms 10000 \
+      > exported_topic_data.csv
+    ```
+  </Tab>
+  <Tab title="Command Example">
+    Writing Kafka topic transaction data from a local machine with a transform function.
+    <Info>You may have to transform your Kafka data to a more ingestible format like CSV for ParadeDB. </Info>
+
+    ```bash
+    kafka-console-consumer --bootstrap-server localhost:9092 \
+      --topic transactions \
+      --from-beginning \
+      --timeout-ms 10000 \
+    | jq -r '[.user, .email, (.transaction_time | gsub("T";" ")), .amount, .status] | @csv' \
+    > transactions.csv
+    ```
+  </Tab>
+</Tabs>
+
+### Create a Table 
+
+In ParadeDB, run [`CREATE TABLE`](https://www.postgresql.org/docs/current/sql-createtable.html) for a table that can accept the structure of the exported data in ParadeDB.
+
+<Tabs>
+  <Tab title="Command Format">
+    ```sql
+    CREATE TABLE <table_name> (
+      <element_name> <datatype> <column_constraint>,
+      ...
+    );
+    ```
+  </Tab>
+  <Tab title="Command Example">
+    Preparing to import transaction data from Kafka.
+    ```sql
+    CREATE TABLE transactions (
+        id SERIAL PRIMARY KEY,
+        "user" VARCHAR(100) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        transaction_time TIMESTAMP NOT NULL,
+        amount NUMERIC(10, 2) NOT NULL,
+        status VARCHAR(20) NOT NULL
+    );
+    ```
+  </Tab>
+</Tabs>
+
+### Load Data
+
+In ParadeDB, run [`\copy`](https://www.postgresql.org/docs/current/sql-copy.html) to write data to your new table.
+
+<Tabs>
+  <Tab title="Command Format">
+    ```bash
+    \COPY <table_name>(element1, element2...)
+    FROM '<file_name>.csv'
+    DELIMITER ','
+    CSV;
+    ```
+  </Tab>
+  <Tab title="Command Example">
+    Importing transaction data into ParadeDB Postgres instance.
+    ```bash
+    \COPY transactions(user, email, transaction_time, amount, status)
+    FROM 'transactions.csv'
+    DELIMITER ','
+    CSV;
+    ```
+  </Tab>
+</Tabs>
 
 Congratulations! You are now ready to run real queries over your data. To get started, refer to our [full text search documentation](https://docs.paradedb.com/documentation/full-text/overview).

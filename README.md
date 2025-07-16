@@ -27,9 +27,8 @@
 
 ## Get Started
 
-- 📚 [Documentation](https://docs.paradedb.com)
-- 🧩 [Architecture](https://docs.paradedb.com/welcome/architecture)
-- 📍 [Roadmap](https://docs.paradedb.com/welcome/roadmap)
+Please see our [documentation](https://docs.paradedb.com) to get started. You'll also find our [architecture](https://docs.paradedb.com/welcome/architecture)
+docs and [public roadmap](https://docs.paradedb.com/welcome/roadmap) there.
 
 ## Deploying ParadeDB
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752668516787,
+  "lastUpdate": 1752669155305,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2586,6 +2586,40 @@ window.BENCHMARK_DATA = {
             "value": 5.934081329120296,
             "unit": "median tps",
             "extra": "avg tps: 5.301774457563865, max tps: 6.681558501984027, count: 57657"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752669154339,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.878177037662716,
+            "unit": "median tps",
+            "extra": "avg tps: 5.888555221224742, max tps: 8.814803211894557, count: 57286"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.611810368976334,
+            "unit": "median tps",
+            "extra": "avg tps: 4.998988687018463, max tps: 6.381433860339025, count: 57286"
           }
         ]
       }

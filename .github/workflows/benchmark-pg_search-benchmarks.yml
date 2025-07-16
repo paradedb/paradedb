@@ -71,6 +71,7 @@ jobs:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
       - name: Fetch the Latest Composite Actions
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
@@ -87,7 +88,7 @@ jobs:
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
-      - name: Fetch latest benchmark code, suites, and actions
+      - name: Fetch latest benchmark code, suites
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
         uses: ./.github/actions/benchmarks-from-main
         with:

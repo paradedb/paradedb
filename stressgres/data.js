@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752686564236,
+  "lastUpdate": 1752686566182,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5146,6 +5146,66 @@ window.BENCHMARK_DATA = {
             "value": 161.3125,
             "unit": "median mem",
             "extra": "avg mem: 152.38926610510154, max mem: 173.359375, count: 57963"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c779dbb72178c1aa0e14ad94c72eeb9937251acd",
+          "message": "feat: a background merger for large layers (#2743)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLaunches Postgres [dynamic background\nworkers](https://docs.rs/pgrx/latest/pgrx/bgworkers/struct.DynamicBackgroundWorker.html)\nto merge large layers in the background.\n\nThis is configured by a new index setting, `background_layer_sizes`. Any\nlayers specified here will be merged in the background.\n\n## Why\n\nWrite throughput, and create more balanced indexes with fewer segments.\n\n## How\n\n1. The default (foreground) `layer_sizes` is now `10kb`, `100kb`, `1mb`\n2. The default `background_layer_sizes` is `10mb`, `100mb`, `1gb`,\n`10gb`, `100gb`, `1tb`\n3. After `aminsert` merges in the foreground, it checks to see if there\nare enough candidates for a background merge. If so, it spawns a dynamic\nbackground worker process to do the merge.\n4. `amvacuumcleanup` can also spawn a background worker, allowing the\nuser to rebalance their index with a `VACUUM`.\n\nAdditionally, I've tweaked merge policy to make it smarter:\n\n1. Terminate a merge early if we predict that, after the merge, we will\nend up with fewer than `target_segment_count` segments.\n2. Set the max layer size as byte size of index divided by\n`target_segment_count`. Discard all layer sizes above that, which avoids\nthe problem of merging too many segments into one giant segment.\n\nThis has allowed us to delete some code:\n\n1. `force_merge` is deprecated\n2. No longer need to store the segments created by an index build and\navoid merging them, since we just do expensive merges in the background\n\n## Tests\n\nAdded a new stressgres `.toml` file that configures the layer\nsizes/threshold, which triggers background merging.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-16T12:44:23-04:00",
+          "tree_id": "153c406e456a638a6b68ca9123210bbd498d66a5",
+          "url": "https://github.com/paradedb/paradedb/commit/c779dbb72178c1aa0e14ad94c72eeb9937251acd"
+        },
+        "date": 1752686565252,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.5796680185914, max cpu: 47.33728, count: 57220"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 165.94558263336683, max mem: 169.453125, count: 57220"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17964,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16642.27936036351, max block_count: 22042.0, count: 57220"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.0743446347431, max segment_count: 114.0, count: 57220"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.293786515610682, max cpu: 33.03835, count: 57220"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 151.48477538721164, max mem: 172.06640625, count: 57220"
           }
         ]
       }

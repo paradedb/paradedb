@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752685301393,
+  "lastUpdate": 1752685943930,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3028,6 +3028,42 @@ window.BENCHMARK_DATA = {
             "value": 5.736725883429835,
             "unit": "median tps",
             "extra": "avg tps: 5.1368885469373, max tps: 6.485192803846836, count: 57682"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c779dbb72178c1aa0e14ad94c72eeb9937251acd",
+          "message": "feat: a background merger for large layers (#2743)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLaunches Postgres [dynamic background\nworkers](https://docs.rs/pgrx/latest/pgrx/bgworkers/struct.DynamicBackgroundWorker.html)\nto merge large layers in the background.\n\nThis is configured by a new index setting, `background_layer_sizes`. Any\nlayers specified here will be merged in the background.\n\n## Why\n\nWrite throughput, and create more balanced indexes with fewer segments.\n\n## How\n\n1. The default (foreground) `layer_sizes` is now `10kb`, `100kb`, `1mb`\n2. The default `background_layer_sizes` is `10mb`, `100mb`, `1gb`,\n`10gb`, `100gb`, `1tb`\n3. After `aminsert` merges in the foreground, it checks to see if there\nare enough candidates for a background merge. If so, it spawns a dynamic\nbackground worker process to do the merge.\n4. `amvacuumcleanup` can also spawn a background worker, allowing the\nuser to rebalance their index with a `VACUUM`.\n\nAdditionally, I've tweaked merge policy to make it smarter:\n\n1. Terminate a merge early if we predict that, after the merge, we will\nend up with fewer than `target_segment_count` segments.\n2. Set the max layer size as byte size of index divided by\n`target_segment_count`. Discard all layer sizes above that, which avoids\nthe problem of merging too many segments into one giant segment.\n\nThis has allowed us to delete some code:\n\n1. `force_merge` is deprecated\n2. No longer need to store the segments created by an index build and\navoid merging them, since we just do expensive merges in the background\n\n## Tests\n\nAdded a new stressgres `.toml` file that configures the layer\nsizes/threshold, which triggers background merging.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-16T12:44:23-04:00",
+          "tree_id": "153c406e456a638a6b68ca9123210bbd498d66a5",
+          "url": "https://github.com/paradedb/paradedb/commit/c779dbb72178c1aa0e14ad94c72eeb9937251acd"
+        },
+        "date": 1752685942981,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.577212358905091,
+            "unit": "median tps",
+            "extra": "avg tps: 5.6823475038272395, max tps: 8.535648948910694, count: 57100"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.709153143729733,
+            "unit": "median tps",
+            "extra": "avg tps: 5.097887215175038, max tps: 6.450583641664189, count: 57100"
           }
         ]
       }

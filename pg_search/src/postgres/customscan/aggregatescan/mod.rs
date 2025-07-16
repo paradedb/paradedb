@@ -166,6 +166,11 @@ impl CustomScan for AggregateScan {
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
         explainer.add_query(&state.custom_state().query);
+        explainer.add_text(
+            "Aggregate Definition",
+            serde_json::to_string(&state.custom_state().aggregates_to_json())
+                .expect("Failed to serialize aggregate definition."),
+        );
     }
 
     fn begin_custom_scan(

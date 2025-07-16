@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752669773311,
+  "lastUpdate": 1752683374853,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -776,6 +776,72 @@ window.BENCHMARK_DATA = {
             "value": 4.968872895106366,
             "unit": "median tps",
             "extra": "avg tps: 9.338879413398578, max tps: 1134.758211394107, count: 55077"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7c13c858851200e8ab5395779f821ca484cda0d",
+          "message": "feat: Add a custom scan for aggregates (#2763)\n\n## What\n\nAdd a new `CustomScan` (installed with `create_upper_paths_hook`) which\nreplaces simple aggregate plans on `bm25`-indexed tables with aggregate\nimplementations using [Tantivy\naggregates](https://docs.rs/tantivy/latest/tantivy/aggregation/index.html).\n\n## Why\n\nTantivy aggregates can be significantly faster (in benchmarks, we've\nmeasured between 4-10x for bucketing/faceting queries). They have been\nexposed via `paradedb.aggregate` for a while now, but that function\nrequires learning a new API, and does not feel \"Postgres native\".\n\n## How\n\n* Adjust `CustomPathBuilder` and `CustomPathMethods` to allow multiple\n`CustomScan` implementations.\n* Remove the `CustomScan::PrivateData: Default` bound, as it requires\nthe `PrivateData` to start in an illegal state.\n* Move `qual_inspect` to a reusable location.\n* Split out a module to be used by both the `aggregate` API method and\nby the aggregate custom scan.\n* Implement the \"ParadeDB Aggregate Scan\" `CustomScan` type\n    * Add the new `CustomScan` type, hidden behind a GUC\n    * Filter Paths to those which represent `count(*)` queries\n    * Extract `quals` during `CustomPath` generation\n* Replace `Aggrefs` in target lists with `FuncExprs` while producing a\n`CustomPlan`\n* Execute a `count(*)` aggregate by pushing down a `value_count`\naggregate on the `ctid`\n\n## Tests\n\nAdded tests to validate that:\n* the GUC properly controls usage\n* the scan does not trigger for unsupported aggregates, tables without a\n`bm25` index, or group-bys (for now)",
+          "timestamp": "2025-07-16T09:12:24-07:00",
+          "tree_id": "69b043a9363fcf6ce2de468c97d14e41f593f017",
+          "url": "https://github.com/paradedb/paradedb/commit/f7c13c858851200e8ab5395779f821ca484cda0d"
+        },
+        "date": 1752683373932,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 330.9111602214654,
+            "unit": "median tps",
+            "extra": "avg tps: 329.92167490019744, max tps: 537.8537178898554, count: 54969"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2172.65116421297,
+            "unit": "median tps",
+            "extra": "avg tps: 2177.7799334667047, max tps: 2557.0574311107525, count: 54969"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 297.67917720904876,
+            "unit": "median tps",
+            "extra": "avg tps: 298.6746436727678, max tps: 521.0461764487536, count: 54969"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 300.5033144677903,
+            "unit": "median tps",
+            "extra": "avg tps: 298.9508004809313, max tps: 445.0016062332977, count: 54969"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 142.3523680439219,
+            "unit": "median tps",
+            "extra": "avg tps: 142.28634535921998, max tps: 160.0348674824421, count: 109938"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 128.57636426402675,
+            "unit": "median tps",
+            "extra": "avg tps: 128.79681433520523, max tps: 142.46938263004637, count: 54969"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 5.080037678584389,
+            "unit": "median tps",
+            "extra": "avg tps: 8.826804752925225, max tps: 1010.3071535808316, count: 54969"
           }
         ]
       }

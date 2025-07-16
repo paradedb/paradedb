@@ -97,7 +97,7 @@ jobs:
         run: |
           # Get the upcoming and current latest release tag (without the "v")
           current="${{ github.event.inputs.version }}"
-          latest_tag=$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases | head -n1 | cut -f1 | sed 's/^v//')
+          latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag"
           echo "Current version to be released is $current"
 

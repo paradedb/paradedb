@@ -1,0 +1,51 @@
+---
+title: Roadmap
+---
+
+## In Progress
+
+### Analytics
+
+- **A custom scan node for aggregates**. This will allow "plain SQL" aggregates to go through the same fast execution path as
+  our [aggregate UDFs](/documentation/aggregates/tantivy), further accelerating aggregates like `COUNT`, and SQL clauses like `GROUP BY`.
+
+### Write Throughput
+
+- **Background merging**. Improves write performance by merging index segments asynchronously without blocking inserts.
+- **Data model optimizations**. Reduces the storage overhead of index segments.
+- **Pending list**. Buffers recent write before flushing them to the LSM tree.
+
+### JOIN Improvements
+
+- **Scoring and highlighting across JOINs**. BM25 score and snippet functions can be used in `JOIN` queries.
+- **Smarter JOIN planning for search indexes**. Apply index-aware optimizations and cost estimation strategies when multiple BM25-indexed tables are joined.
+- **Faster JOIN performance through predicate pushdown**. Search predicates are selectively pushed down to relevant tables based on indexability and selectivity, improving `JOIN` query speed.
+
+### Improved UX
+
+- **More intuitive index configuration**. Overhaul the complicated JSON `WITH` index options.
+- **More ORM friendly**. Overhaul the [query builder functions](/documentation/advanced/overview) to use actual column references instead of string literals.
+- **New operators**. In addition to the existing `@@@` operator, introduce new operators for different query types (e.g. phrase, term, conjunction/disjunction).
+
+## Long Term
+
+### Managed Cloud
+
+- Today, you can [deploy ParadeDB](/deploy/overview) either self-hosted or with ParadeDB BYOC. We are working on a fully managed cloud offering,
+  with a focus on scalability and supporting distributed workloads.
+
+### Deeper Analytics Improvements
+
+- **Push Postgres visibility rules into the index**. This is currently a filter applied post index scan that adds overhead to large scans.
+- **Evaluate more industry-standard OLAP tools**. A new file format? Query execution library?
+
+### Vector Search Improvements
+
+- Postgres (and by extension, ParadeDB) uses [`pgvector`](https://github.com/pgvector/pgvector) for vector search. Contingent on demand and internal resources, we may
+  investigate what improvements can be made to the known limitations of `pgvector`.
+
+## We're Hiring
+
+We're a lean team that likes to ship at [incredibly high velocity](https://github.com/paradedb/paradedb/releases).
+We're tackling some of the hardest and (in our opinion) most impactful problems in Postgres. If you want to be a part of it,
+please check out our [open roles](https://paradedb.notion.site)!

@@ -27,6 +27,9 @@ inputs:
   pr_label:
     description: "The human readable version of the commit being tested"
     required: true
+  benchmark-deploy-secret:
+    description: "The secret to deploy benchmarks to our benchmark repo"
+    required: true
 
 runs:
   using: "composite"
@@ -49,12 +52,12 @@ runs:
         sudo chmod a+rwx /var/run/postgresql/
         stressgres headless \
           .github/stressgres/${{ inputs.test_file }} \
-          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log \
+          --log-file stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log \
           --runtime ${{ inputs.duration }}
 
     - name: Generate CSV
       shell: bash
-      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log output.csv
+      run: stressgres csv stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log output.csv
 
       # This is where we can configure how the different runs are aggregated
       # into multiple JSON files for plotting in our continuous benchmarks.
@@ -103,7 +106,7 @@ runs:
         tool: customBiggerIsBetter
         output-file-path: pg_search_tps.json
         github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/paradedb/paradedb
+        gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: stressgres
@@ -131,7 +134,7 @@ runs:
         tool: customSmallerIsBetter
         output-file-path: pg_search_other.json
         github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/paradedb/paradedb
+        gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: stressgres
@@ -142,7 +145,7 @@ runs:
 
     - name: Create Stressgres Graph
       shell: bash
-      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
+      run: stressgres graph "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.log" "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
 
     - name: Upload Stressgres Results to Slack (push only)
       if: github.event_name != 'pull_request'
@@ -159,6 +162,16 @@ runs:
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png
 
+    # NB:  we'll publish every graph so they can be located for historical purposes
+    - name: Publish Stressgres Graph
+      uses: ./.github/actions/push-file
+      with:
+        commit-message: "automatic publish for ${{ github.sha }} by @${{ github.actor }}"
+        file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ github.sha }}.png"
+        repository: "paradedb/benchmark-data"
+        token: ${{ inputs.github_token }}
+        deploy-secret: ${{ inputs.benchmark-deploy-secret }}
+
     - name: Print Postgres Logs
       shell: bash
       run: |
@@ -173,5 +186,5 @@ runs:
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-        MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
+        MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
         curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ inputs.slack_webhook_url }}

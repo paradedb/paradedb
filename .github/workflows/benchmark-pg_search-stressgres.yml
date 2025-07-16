@@ -71,7 +71,9 @@ jobs:
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
+      # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
       - name: Fetch latest benchmark code, suites, and actions
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -205,6 +207,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
 
       - name: Benchmark bulk-updates.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -216,6 +219,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
 
       - name: Benchmark wide-table.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -227,3 +231,4 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}

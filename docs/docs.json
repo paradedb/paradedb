@@ -20,7 +20,16 @@
               {
                 "group": "Documentation",
                 "pages": [
-                  "welcome/introduction",
+                  {
+                    "group": "Why ParadeDB?",
+                    "pages": [
+                      "welcome/introduction",
+                      "welcome/architecture",
+                      "welcome/guarantees",
+                      "welcome/limitations",
+                      "welcome/roadmap"
+                    ]
+                  },
                   {
                     "group": "Getting Started",
                     "pages": [

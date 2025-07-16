@@ -76,7 +76,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           path: actions-temp
-          token: ${{ inputs.github-token }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
           ref: main
       - name: Copy latest actions into place

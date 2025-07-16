@@ -31,7 +31,7 @@ pub extern "C-unwind" fn plan_custom_path<CS: CustomScan>(
     custom_plans: *mut pg_sys::List,
 ) -> *mut pg_sys::Plan {
     let mut planner_cxt = PgMemoryContexts::CurrentMemoryContext;
-    let builder = CustomScanBuilder::new::<CS>(root, rel, best_path, tlist, clauses, custom_plans);
+    let builder = CustomScanBuilder::new(root, rel, best_path, tlist, clauses, custom_plans);
 
     let scan = CS::plan_custom_path(builder);
     planner_cxt.leak_and_drop_on_delete(scan).cast()

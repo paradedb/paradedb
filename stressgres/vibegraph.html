@@ -41,24 +41,31 @@
           return;
         }
 
-        const uniqueFull = Array.from(new Set(allEntries.map(e => e.commit.id)));
-        const releaseMap = {};
-        try {
-          const [relResp, tagRefsResp] = await Promise.all([
-            fetch('https://api.github.com/repos/paradedb/paradedb/releases'),
-            fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')
-          ]);
-          const [releases, tagRefs] = await Promise.all([relResp.json(), tagRefsResp.json()]);
-          for (const ref of tagRefs) {
-            const tag = ref.ref.replace('refs/tags/', '');
-            let commitSha = ref.object.sha;
-            if (ref.object.type === 'tag') {
-              const tagObj = await (await fetch(ref.object.url)).json();
-              commitSha = tagObj.object.sha;
-            }
-            releaseMap[commitSha] = { label: tag, url: `https://github.com/paradedb/paradedb/releases/tag/${tag}` };
+          const uniqueFull = Array.from(new Set(allEntries.map(e => e.commit.id)));
+          const releaseMap = {};
+          try {
+              const [relResp, tagRefsResp] = await Promise.all([
+                  fetch('https://api.github.com/repos/paradedb/paradedb/releases'),
+                  fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')
+              ]);
+              const [releases, tagRefs] = await Promise.all([relResp.json(), tagRefsResp.json()]);
+              for (const ref of tagRefs) {
+                  const tag = ref.ref.replace('refs/tags/', '');
+                  let commitSha = ref.object.sha;
+                  if (ref.object.type === 'tag') {
+                      const tagObj = await (await fetch(ref.object.url)).json();
+                      commitSha = tagObj.object.sha;
+                  }
+                  // Find matching release to get its timestamp
+                  const release = releases.find(r => r.tag_name === tag);
+                  releaseMap[commitSha] = {
+                      label: tag,
+                      url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`,
+                      timestamp: release ? new Date(release.published_at).getTime() : null
+                  };
+              }
+          } catch {
           }
-        } catch {}
 
         const hashInfo = {};
         await Promise.all(uniqueFull.map(async full => {
@@ -92,17 +99,24 @@
           const fh = document.createElement('h2'); fh.className = 'text-2xl font-semibold mb-4'; fh.textContent = filename;
           section.appendChild(fh);
 
-          const metricGroups = {};
-          entries.forEach(ent => {
-            const cTs = new Date(ent.commit.timestamp).getTime();
-            ent.benches.forEach(b => {
-              const metric = b.name.split(' - ').pop();
-              metricGroups[metric] = metricGroups[metric] || [];
-              metricGroups[metric].push({ name: b.name, unit: b.unit, commitTs: cTs, runTs: new Date(ent.date).getTime(), full: ent.commit.id, value: b.value });
+            const metricGroups = {};
+            entries.forEach(ent => {
+                const cTs = releaseMap[ent.commit.id]?.timestamp || new Date(ent.commit.timestamp).getTime();
+                ent.benches.forEach(b => {
+                    const metric = b.name.split(' - ').pop();
+                    metricGroups[metric] = metricGroups[metric] || [];
+                    metricGroups[metric].push({
+                        name: b.name,
+                        unit: b.unit,
+                        commitTs: cTs,
+                        runTs: new Date(ent.date).getTime(),
+                        full: ent.commit.id,
+                        value: b.value
+                    });
+                });
             });
-          });
 
-          Object.entries(metricGroups).forEach(([metric, benchData]) => {
+            Object.entries(metricGroups).forEach(([metric, benchData]) => {
             const runKeys = [...new Set(benchData.map(d => `${d.commitTs}|${d.runTs}|${d.full}`))];
             const runs = runKeys.map(k => { const [c, r, f] = k.split('|'); return { commitTs: +c, runTs: +r, full: f }; })
                               .sort((a,b) => a.commitTs - b.commitTs || a.runTs - b.runTs);

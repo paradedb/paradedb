@@ -65,6 +65,12 @@
             const releaseMap = {};
             try {
                 const refs = await (await fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags')).json();
+                const releases = await (await fetch('https://api.github.com/repos/paradedb/paradedb/releases')).json();
+                const releasesByTag = releases.reduce((acc, r) => {
+                    acc[r.tag_name] = r.created_at;
+                    return acc;
+                }, {});
+
                 for (const ref of refs) {
                     const tag = ref.ref.replace('refs/tags/', '');
                     let sha = ref.object.sha;
@@ -74,7 +80,8 @@
                     }
                     releaseMap[sha.slice(0, 7)] = {
                         label: tag,
-                        url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`
+                        url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`,
+                        timestamp: releasesByTag[tag]
                     };
                 }
             } catch {
@@ -117,9 +124,12 @@
 
                 // Flatten and sort benches
                 const benches = entries.flatMap(ent => ent.benches.map(b => ({
-                    name: b.name, unit: b.unit,
-                    timestamp: new Date(ent.commit.timestamp).getTime(), run: ent.date,
-                    short: ent.commit.id.slice(0, 7), value: b.value
+                    name: b.name,
+                    unit: b.unit,
+                    timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
+                    run: ent.date,
+                    short: ent.commit.id.slice(0, 7),
+                    value: b.value
                 })));
                 benches.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -227,10 +237,6 @@
                                             if (chart.normalized) {
                                                 const pct = (v * 100) - 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from first`);
-                                                if (i > 0 && arr[i - 1] != null) {
-                                                    const pct = ((arr[i] - arr[i - 1]) / arr[i - 1]) * 100;
-                                                    lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);
-                                                }
                                             } else if (i > 0 && arr[i - 1] != null) {
                                                 const pct = ((v - arr[i - 1]) / arr[i - 1]) * 100;
                                                 lines.push(`${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% from prev`);

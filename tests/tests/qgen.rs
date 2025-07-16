@@ -17,11 +17,10 @@
 
 mod fixtures;
 
-use crate::fixtures::querygen::arb_joins_and_wheres;
-use crate::fixtures::querygen::compare;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
+use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
 
 use fixtures::*;
 
@@ -115,6 +114,7 @@ async fn generated_joins_small(database: Db) {
             tables,
             vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
+        gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
 
@@ -123,6 +123,7 @@ async fn generated_joins_small(database: Db) {
         compare(
             format!("{from} WHERE {}", where_expr.to_sql(" = ")),
             format!("{from} WHERE {}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_one::<(i64,)>(conn).0,
         )?;
@@ -159,6 +160,7 @@ async fn generated_joins_large_limit(database: Db) {
             vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         target_list in proptest::sample::subsequence(vec!["id", "name", "color", "age"], 1..=4),
+        gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
@@ -174,6 +176,7 @@ async fn generated_joins_large_limit(database: Db) {
         compare(
             format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
             format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_dynamic(conn).len(),
         )?;
@@ -197,10 +200,13 @@ async fn generated_single_relation(database: Db) {
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
+        gucs in any::<PgGucs>(),
+        target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
         compare(
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| {
                 let mut rows = query.fetch::<(i64,)>(conn);
@@ -229,10 +235,12 @@ async fn generated_paging_small(database: Db) {
         // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
         // columns here.
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         compare(
             format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
             format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch::<(i64,)>(conn),
         )?;
@@ -258,10 +266,12 @@ async fn generated_paging_large(database: Db) {
 
     proptest!(|(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         compare(
             format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
             format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch::<(String,)>(conn),
         )?;
@@ -297,9 +307,8 @@ async fn generated_subquery(database: Db) {
         // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
         // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
         // columns here.
-        // TODO: Not ordering by `uuid` until https://github.com/paradedb/paradedb/issues/2703
-        // is fixed.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
@@ -321,6 +330,7 @@ async fn generated_subquery(database: Db) {
         compare(
             pg,
             bm25,
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_one::<(i64,)>(conn),
         )?;

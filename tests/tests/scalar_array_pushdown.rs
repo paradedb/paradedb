@@ -26,8 +26,8 @@ use rstest::*;
 use sqlx::PgConnection;
 use std::fmt::Debug;
 
-use crate::fixtures::querygen::compare;
 use crate::fixtures::querygen::opexprgen::{ArrayQuantifier, Operator, ScalarArrayOperator};
+use crate::fixtures::querygen::{compare, PgGucs};
 
 #[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
@@ -226,7 +226,8 @@ async fn scalar_array_pushdown_correctness(database: Db) {
             .prop_flat_map(|expr| {
                 let values_strategy = proptest::collection::vec(expr.sample_values(), 1..4);
                 (Just(expr), values_strategy)
-            })
+            }),
+        gucs in any::<PgGucs>(),
     )| {
         let setup_sql = scalar_array_setup(&mut pool.pull(), expr.tokenizer.clone());
         eprintln!("Setup SQL:\n{setup_sql}");
@@ -241,12 +242,10 @@ async fn scalar_array_pushdown_correctness(database: Db) {
             "SELECT id, text_col FROM scalar_array_test WHERE {array_condition} ORDER BY id"
         );
 
-        eprintln!("{array_condition}");
-        eprintln!("pg_query: {pg_query}");
-        eprintln!("bm25_query: {bm25_query}");
         compare(
             pg_query,
             bm25_query,
+            gucs,
             &mut pool.pull(),
             |query, conn| {
                 query.fetch::<(i64, Option<String>)>(conn)

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752686566182,
+  "lastUpdate": 1752689573212,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -908,6 +908,72 @@ window.BENCHMARK_DATA = {
             "value": 42.310029001092055,
             "unit": "median tps",
             "extra": "avg tps: 48.50842428049031, max tps: 779.5635847140054, count: 55119"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d197630155f55d13eea0a81841951645a367a5f7",
+          "message": "test: Make GUCs a tested property, and add proptests for the aggregate custom scan (#2788)\n\n## What\n\nMove the GUCs that are in use into a test property, which reduces\nruntime while allowing for testing arbitrary combinations of GUCs.\n\nAdditionally, added proptests for the aggregate custom scan by:\n* Adding its GUC to the generated set\n* Expanding the `generated_single_relation` test to use `COUNT(*)` in\nits target list.\n\n## Why\n\nTo add additional test coverage for #2763.",
+          "timestamp": "2025-07-16T10:57:16-07:00",
+          "tree_id": "6a92b62b640f7a0b2dc7e6507966b75f3bd00594",
+          "url": "https://github.com/paradedb/paradedb/commit/d197630155f55d13eea0a81841951645a367a5f7"
+        },
+        "date": 1752689572238,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1232.79691495007,
+            "unit": "median tps",
+            "extra": "avg tps: 1228.3090654304374, max tps: 1238.4637743778426, count: 55128"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2776.989134830413,
+            "unit": "median tps",
+            "extra": "avg tps: 2763.7941970742245, max tps: 2796.2593347019438, count: 55128"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1226.3711804743555,
+            "unit": "median tps",
+            "extra": "avg tps: 1222.8106965527497, max tps: 1231.0797813540948, count: 55128"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1021.2117073605026,
+            "unit": "median tps",
+            "extra": "avg tps: 1009.4873950060686, max tps: 1034.5354264583887, count: 55128"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 171.89605644805638,
+            "unit": "median tps",
+            "extra": "avg tps: 173.15487975133402, max tps: 180.4668051232225, count: 110256"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 152.39942396934728,
+            "unit": "median tps",
+            "extra": "avg tps: 151.03715323983516, max tps: 154.02371908111525, count: 55128"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 49.87543201351079,
+            "unit": "median tps",
+            "extra": "avg tps: 50.88819643787881, max tps: 748.9722228671704, count: 55128"
           }
         ]
       }

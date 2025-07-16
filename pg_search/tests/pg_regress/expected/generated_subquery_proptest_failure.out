@@ -42,6 +42,9 @@ CREATE INDEX idxorders ON orders USING bm25 (id, uuid, name, color, age)
                 "age": { "tokenizer": { "type": "keyword" }, "fast": true }
             }'
     );
+--
+-- this INSERT pattern ensures we have 2 segments, which seems to be important in triggering the bug
+--
 INSERT INTO products VALUES (1, '748d481d-767c-480b-9a86-c23bae4c11eb', 'bob', 'blue', '20');
 INSERT INTO products VALUES (2, '240090f5-911c-4e5c-ab7e-89fe7c4bfc49', 'sally', 'red', '12'),
 (3, 'cc6cf1ae-8ade-44dc-852d-56af3f322017', 'brandy', 'orange', '63'),
@@ -53,6 +56,9 @@ INSERT INTO products VALUES (2, '240090f5-911c-4e5c-ab7e-89fe7c4bfc49', 'sally',
 (9, 'a3be0a59-7a33-4ccf-8975-e822afe0e78b', 'cloe', 'blue', '27'),
 (10, 'b39ee58a-2c41-45eb-8deb-ba82cf3e6982', 'bob', 'red', '23'),
 (11, '90ff382f-c9e3-4f31-ba11-45c070c68238', 'cloe', 'blue', '60');
+--
+-- this INSERT pattern ensures we have 2 segments, which seems to be important in triggering the bug
+--
 INSERT INTO orders VALUES (1, 'a13fa345-5753-47a7-856d-c9b096523aae', 'bob', 'blue', '20');
 INSERT INTO orders VALUES (2, '94a3f501-f3e6-4c63-9a47-ee287c07cd43', 'anchovy', 'red', '42'),
 (3, '9406362c-b674-401c-8bb9-a8f9e246d7e8', 'bob', 'green', '20'),
@@ -73,6 +79,8 @@ CREATE INDEX idxorders_name ON orders (name);
 CREATE INDEX idxorders_color ON orders (color);
 CREATE INDEX idxorders_age ON orders (age);
 ANALYZE;
+--
+-- these two queries should return the same count:  3
 SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age  =  '20') ORDER BY orders.id LIMIT 9) AND (products.name  =  'bob') AND (products.name  =  'bob');
  count 
 -------
@@ -82,6 +90,6 @@ SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders 
 SELECT COUNT(*) FROM products WHERE products.color IN (SELECT color FROM orders WHERE NOT (orders.age @@@ '20') ORDER BY orders.id LIMIT 9) AND (products.name @@@ 'bob') AND (products.name @@@ 'bob');
  count 
 -------
-     3      -- NB:  hand-edited to be the correct value so the test will fail CI
+     3
 (1 row)
 

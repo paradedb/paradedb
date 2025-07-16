@@ -130,14 +130,6 @@ impl TopNScanExecState {
 }
 
 impl ExecMethod for TopNScanExecState {
-    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
-        let sort_field = state.sort_field.clone();
-
-        self.search_query_input = Some(state.search_query_input().clone());
-        self.sort_field = sort_field;
-        self.search_reader = state.search_reader.clone();
-    }
-
     ///
     /// Query more results.
     ///
@@ -246,16 +238,18 @@ impl ExecMethod for TopNScanExecState {
         }
     }
 
-    fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset tracking state but don't clear search_results
+    fn reset(&mut self, state: &mut PdbScanState) {
+        // Reset state
+        self.claimed_segments.take();
+        self.did_query = false;
+        self.search_query_input = Some(state.search_query_input().clone());
+        self.search_reader = state.search_reader.clone();
+        self.search_results = SearchResults::None.peekable();
+        self.sort_field = state.sort_field.clone();
 
         // Reset counters - excluding nresults which tracks processed results
-        self.did_query = false;
-
-        // Reset the tracking state
         self.chunk_size = 0;
-        self.offset = 0;
         self.found = 0;
-        self.claimed_segments.take();
+        self.offset = 0;
     }
 }

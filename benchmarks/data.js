@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752686496382,
+  "lastUpdate": 1752686765281,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -4348,6 +4348,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 93.8075,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c779dbb72178c1aa0e14ad94c72eeb9937251acd",
+          "message": "feat: a background merger for large layers (#2743)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLaunches Postgres [dynamic background\nworkers](https://docs.rs/pgrx/latest/pgrx/bgworkers/struct.DynamicBackgroundWorker.html)\nto merge large layers in the background.\n\nThis is configured by a new index setting, `background_layer_sizes`. Any\nlayers specified here will be merged in the background.\n\n## Why\n\nWrite throughput, and create more balanced indexes with fewer segments.\n\n## How\n\n1. The default (foreground) `layer_sizes` is now `10kb`, `100kb`, `1mb`\n2. The default `background_layer_sizes` is `10mb`, `100mb`, `1gb`,\n`10gb`, `100gb`, `1tb`\n3. After `aminsert` merges in the foreground, it checks to see if there\nare enough candidates for a background merge. If so, it spawns a dynamic\nbackground worker process to do the merge.\n4. `amvacuumcleanup` can also spawn a background worker, allowing the\nuser to rebalance their index with a `VACUUM`.\n\nAdditionally, I've tweaked merge policy to make it smarter:\n\n1. Terminate a merge early if we predict that, after the merge, we will\nend up with fewer than `target_segment_count` segments.\n2. Set the max layer size as byte size of index divided by\n`target_segment_count`. Discard all layer sizes above that, which avoids\nthe problem of merging too many segments into one giant segment.\n\nThis has allowed us to delete some code:\n\n1. `force_merge` is deprecated\n2. No longer need to store the segments created by an index build and\navoid merging them, since we just do expensive merges in the background\n\n## Tests\n\nAdded a new stressgres `.toml` file that configures the layer\nsizes/threshold, which triggers background merging.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-16T12:44:23-04:00",
+          "tree_id": "153c406e456a638a6b68ca9123210bbd498d66a5",
+          "url": "https://github.com/paradedb/paradedb/commit/c779dbb72178c1aa0e14ad94c72eeb9937251acd"
+        },
+        "date": 1752686764279,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1188.5659999999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 841.634,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1461.4535,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 905.2265,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 878.5830000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 2635.9480000000003,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 34.341499999999996,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 64.1275,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 88.9115,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

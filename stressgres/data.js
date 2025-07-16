@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752619796099,
+  "lastUpdate": 1752668514506,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -712,6 +712,70 @@ window.BENCHMARK_DATA = {
             "value": 4.267097069170552,
             "unit": "median tps",
             "extra": "avg tps: 8.382422137054183, max tps: 1124.984672083843, count: 55161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@gmail.com"
+          },
+          "id": "8c164d666c4af2049b439690afa7823ab5be2c88",
+          "message": "ci: Post \"One-branch Release Model\" Improvements (#2792)\n\n# Ticket(s) Closed\n\n- Closes #N/A\n\n## What\n- Don't make Docker Scout post on PRs that don't modify the Dockerfile,\nnot necessary.\n- Make sure the SchemaBot workflow errors when community contributors\nmake a PR, so we can catch needed changes to the SQL upgrade script.\n- Rename it to SchemaBot\n\n## Why\nQoL\n\n## How\n^\n\n## Tests\nCI",
+          "timestamp": "2025-07-08T15:49:16Z",
+          "url": "https://github.com/paradedb/paradedb/commit/8c164d666c4af2049b439690afa7823ab5be2c88"
+        },
+        "date": 1752668513520,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 315.8428380993767,
+            "unit": "median tps",
+            "extra": "avg tps: 316.6870899892203, max tps: 522.5800943866939, count: 55077"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2320.926556132953,
+            "unit": "median tps",
+            "extra": "avg tps: 2326.3086373013957, max tps: 2591.1336883581325, count: 55077"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 301.3644541628425,
+            "unit": "median tps",
+            "extra": "avg tps: 302.7329004447359, max tps: 525.3100041333333, count: 55077"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 275.69848964891816,
+            "unit": "median tps",
+            "extra": "avg tps: 275.54867864964064, max tps: 447.0924638183717, count: 55077"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 155.54810824512654,
+            "unit": "median tps",
+            "extra": "avg tps: 162.95433038112125, max tps: 173.331819532512, count: 110154"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.51159221897996,
+            "unit": "median tps",
+            "extra": "avg tps: 137.32489841228025, max tps: 145.5387283399039, count: 55077"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 4.968872895106366,
+            "unit": "median tps",
+            "extra": "avg tps: 9.338879413398578, max tps: 1134.758211394107, count: 55077"
           }
         ]
       }

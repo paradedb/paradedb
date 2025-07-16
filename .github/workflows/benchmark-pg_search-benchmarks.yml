@@ -80,10 +80,12 @@ jobs:
           fetch-depth: 1
           ref: main
       - name: Copy latest actions into place
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
         shell: bash
         run: |
           cp -rv actions-temp/.github/actions .github/
       - name: Cleanup temporary checkout
+        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
         shell: bash
         run: rm -rf actions-temp
 

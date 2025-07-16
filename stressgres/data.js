@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752684639101,
+  "lastUpdate": 1752685299444,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -842,6 +842,72 @@ window.BENCHMARK_DATA = {
             "value": 5.080037678584389,
             "unit": "median tps",
             "extra": "avg tps: 8.826804752925225, max tps: 1010.3071535808316, count: 54969"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c779dbb72178c1aa0e14ad94c72eeb9937251acd",
+          "message": "feat: a background merger for large layers (#2743)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nLaunches Postgres [dynamic background\nworkers](https://docs.rs/pgrx/latest/pgrx/bgworkers/struct.DynamicBackgroundWorker.html)\nto merge large layers in the background.\n\nThis is configured by a new index setting, `background_layer_sizes`. Any\nlayers specified here will be merged in the background.\n\n## Why\n\nWrite throughput, and create more balanced indexes with fewer segments.\n\n## How\n\n1. The default (foreground) `layer_sizes` is now `10kb`, `100kb`, `1mb`\n2. The default `background_layer_sizes` is `10mb`, `100mb`, `1gb`,\n`10gb`, `100gb`, `1tb`\n3. After `aminsert` merges in the foreground, it checks to see if there\nare enough candidates for a background merge. If so, it spawns a dynamic\nbackground worker process to do the merge.\n4. `amvacuumcleanup` can also spawn a background worker, allowing the\nuser to rebalance their index with a `VACUUM`.\n\nAdditionally, I've tweaked merge policy to make it smarter:\n\n1. Terminate a merge early if we predict that, after the merge, we will\nend up with fewer than `target_segment_count` segments.\n2. Set the max layer size as byte size of index divided by\n`target_segment_count`. Discard all layer sizes above that, which avoids\nthe problem of merging too many segments into one giant segment.\n\nThis has allowed us to delete some code:\n\n1. `force_merge` is deprecated\n2. No longer need to store the segments created by an index build and\navoid merging them, since we just do expensive merges in the background\n\n## Tests\n\nAdded a new stressgres `.toml` file that configures the layer\nsizes/threshold, which triggers background merging.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-16T12:44:23-04:00",
+          "tree_id": "153c406e456a638a6b68ca9123210bbd498d66a5",
+          "url": "https://github.com/paradedb/paradedb/commit/c779dbb72178c1aa0e14ad94c72eeb9937251acd"
+        },
+        "date": 1752685298473,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1208.0354635097945,
+            "unit": "median tps",
+            "extra": "avg tps: 1206.4410751573776, max tps: 1246.9093546096562, count: 55119"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2728.6415683566192,
+            "unit": "median tps",
+            "extra": "avg tps: 2720.6510578172797, max tps: 2767.966283109858, count: 55119"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1201.7330530861334,
+            "unit": "median tps",
+            "extra": "avg tps: 1198.897374649925, max tps: 1207.797083605834, count: 55119"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1042.902855021601,
+            "unit": "median tps",
+            "extra": "avg tps: 1039.4849084799466, max tps: 1050.2722969022095, count: 55119"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 168.85197205251944,
+            "unit": "median tps",
+            "extra": "avg tps: 173.53358419604928, max tps: 183.05003792102082, count: 110238"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 149.79281249322253,
+            "unit": "median tps",
+            "extra": "avg tps: 150.34212698643736, max tps: 154.83215221855724, count: 55119"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.310029001092055,
+            "unit": "median tps",
+            "extra": "avg tps: 48.50842428049031, max tps: 779.5635847140054, count: 55119"
           }
         ]
       }

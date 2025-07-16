@@ -173,7 +173,7 @@ runs:
           initial_comment: |
             ${{ github.repository }} Stressgres Results: `${{ inputs.test_file }}`
             ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve_ref.outputs.sha }}>
-            <https://paradedb.github.io/paradedb/stressgres/>
+            <https://paradedb.github.io/${{ github.repository }}/stressgres/>
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
 

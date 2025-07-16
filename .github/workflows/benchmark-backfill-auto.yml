@@ -16,8 +16,9 @@ jobs:
       - name: Load and extract commit IDs from benchmark data
         id: extract_commits
         run: |
-          # fetch the remote data.js
-          curl -sSL https://raw.githubusercontent.com/paradedb/benchmark-data/refs/heads/main/data.js \
+          # fetch the existing benchmark data.  we only get the stressgres data as
+          # all benchmark styles should have the same commits
+          curl -sSL https://paradedb.github.io/paradedb/stressgres/data.js \
             -o data.js
 
           # run a tiny Node script to eval and extract distinct commit IDs

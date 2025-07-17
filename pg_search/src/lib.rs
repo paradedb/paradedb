@@ -30,6 +30,9 @@ pub mod parallel_worker;
 use self::postgres::customscan;
 use pgrx::*;
 
+/// The prefix applied to tantivy fields that are actually Postgres expressions.
+pub const PG_SEARCH_PREFIX: &str = "_pg_search_";
+
 /// Postgres' value for a `norm_selec` that hasn't been assigned
 const UNASSIGNED_SELECTIVITY: f64 = -1.0;
 

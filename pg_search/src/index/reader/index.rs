@@ -285,7 +285,7 @@ impl SearchIndexReader {
                     index_relation.oid(),
                     index_relation.rel_oid(),
                 )
-                .expect("must be able to parse query")
+                .unwrap_or_else(|e| panic!("{e}"))
         };
 
         Ok(Self {
@@ -349,7 +349,7 @@ impl SearchIndexReader {
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
             )
-            .expect("must be able to parse query")
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {

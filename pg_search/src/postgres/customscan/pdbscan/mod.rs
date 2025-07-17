@@ -1549,6 +1549,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::HeapFilter { indexed_query, .. } => {
             base_query_has_search_predicates(indexed_query, current_index_oid)
         }
+        SearchQueryInput::PhraseTokenize { .. } => false,
     }
 }
 

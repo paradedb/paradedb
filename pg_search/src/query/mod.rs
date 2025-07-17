@@ -182,6 +182,11 @@ pub enum SearchQueryInput {
         phrases: Vec<String>,
         max_expansions: Option<u32>,
     },
+    PhraseTokenize {
+        field: FieldName,
+        phrase: String,
+        slop: Option<u32>,
+    },
     Range {
         field: FieldName,
         #[serde(
@@ -1025,6 +1030,35 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
+
+            Self::PhraseTokenize {
+                field,
+                phrase,
+                slop,
+            } => {
+                let tantivy_field = schema
+                    .search_field(&field)
+                    .unwrap_or_else(|| panic!("Field `{field}` not found in tantivy schema"))
+                    .field();
+                let mut tokenizer = searcher
+                    .index()
+                    .tokenizer_for_field(tantivy_field)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                let mut stream = tokenizer.token_stream(&phrase);
+
+                let mut tokens = Vec::new();
+                while let Some(token) = stream.next() {
+                    tokens.push(Term::from_field_text(tantivy_field, &token.text));
+                }
+                if tokens.is_empty() {
+                    Ok(Box::new(EmptyQuery))
+                } else {
+                    let mut query = PhraseQuery::new(tokens);
+                    query.set_slop(slop.unwrap_or(0));
+                    Ok(Box::new(query))
+                }
+            }
+
             Self::Range {
                 field,
                 lower_bound,

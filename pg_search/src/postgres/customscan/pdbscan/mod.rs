@@ -901,6 +901,8 @@ impl CustomScan for PdbScan {
         // Remove the oid from the with_index object
         // This helps to reduce the variability of the explain output used in regression tests
         Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
+
+        // Add a flag to indicate if the query is a full index scan
         if state
             .custom_state()
             .base_search_query_input()
@@ -912,6 +914,7 @@ impl CustomScan for PdbScan {
                 true.into(),
             );
         }
+
         let updated_json_query =
             serde_json::to_string(&json_value).expect("updated query should serialize to json");
         explainer.add_text("Tantivy Query", &updated_json_query);

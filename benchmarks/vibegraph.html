@@ -59,7 +59,7 @@
     async function initCharts() {
         const container = document.getElementById('charts');
         try {
-            const res = await fetch('https://paradedb.github.io/paradedb/benchmarks/data.js');
+            const res = await fetch('data.js');
             const scriptText = await res.text();
             eval(scriptText);
             Chart.register(ChartZoom);

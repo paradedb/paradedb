@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752770188020,
+  "lastUpdate": 1752770189953,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6280,6 +6280,66 @@ window.BENCHMARK_DATA = {
             "value": 168.7421875,
             "unit": "median mem",
             "extra": "avg mem: 157.04750126468454, max mem: 177.94921875, count: 57203"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86bc2b092d2857a997cd05af4b554ac96ba225fd",
+          "message": "fix: Fix `rescan` for top-n (#2868)\n\n## What\n\nComments in both `Normal` and `TopN` scans claimed that their search\nresults would be reset by `PdbScanState`, but this was incorrect: they\nwere local variables in the struct, and needed to be reset locally.\n\n## Why\n\nFixes issue detected by the prop tests and repro'd by @eeeebbbbrrrr in\n#2751.\n\n## Tests\n\nNew regression test from #2751: thanks @eeeebbbbrrrr!\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-17T08:59:32-07:00",
+          "tree_id": "ccc9162bb96008badcb3046612d16394604ed6f7",
+          "url": "https://github.com/paradedb/paradedb/commit/86bc2b092d2857a997cd05af4b554ac96ba225fd"
+        },
+        "date": 1752770188966,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.768328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.97580878297552, max cpu: 66.60059, count: 56030"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 165.88912120181152, max mem: 171.2734375, count: 56030"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17658,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16538.45862930573, max block_count: 22216.0, count: 56030"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.33733714081742, max segment_count: 115.0, count: 56030"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.766731,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.957664603406469, max cpu: 42.814667, count: 56030"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 151.7431514785606, max mem: 169.23828125, count: 56030"
           }
         ]
       }

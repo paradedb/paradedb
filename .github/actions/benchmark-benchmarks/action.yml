@@ -80,7 +80,7 @@ runs:
           text: |
             ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}`
             ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
-            <https://paradedb.github.io/${{ github.repository }}/benchmarks/>
+            <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'

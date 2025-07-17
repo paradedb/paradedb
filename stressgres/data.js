@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752772984921,
+  "lastUpdate": 1752772986972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6658,6 +6658,66 @@ window.BENCHMARK_DATA = {
             "value": 162.15625,
             "unit": "median mem",
             "extra": "avg mem: 151.7431514785606, max mem: 169.23828125, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5772be0d3dea751c3609729efcc66cc69d9d30ee",
+          "message": "chore: Remove debug output in aggregate scan (#2876)\n\n## What\n\nRemove a stray `println`.\n\n## Why\n\nIt's not doing anyone any good.",
+          "timestamp": "2025-07-17T09:46:08-07:00",
+          "tree_id": "06a002186c2a701283d73854f64c4225a08aa1a8",
+          "url": "https://github.com/paradedb/paradedb/commit/5772be0d3dea751c3609729efcc66cc69d9d30ee"
+        },
+        "date": 1752772986002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.721910584507285, max cpu: 47.244095, count: 57758"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 179.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.59026766313758, max mem: 182.10546875, count: 57758"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18304,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16760.28768309152, max block_count: 21421.0, count: 57758"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.62498701478583, max segment_count: 119.0, count: 57758"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.346812127906308, max cpu: 37.83251, count: 57758"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.91160471006182, max mem: 175.22265625, count: 57758"
           }
         ]
       }

@@ -170,9 +170,9 @@ impl ExecMethod for StringFastFieldExecState {
         }
     }
 
-    fn reset(&mut self, _state: &mut PdbScanState) {
+    fn reset(&mut self, state: &mut PdbScanState) {
         // Reset tracking state but don't clear search_results - that's handled by PdbScanState.reset()
-        self.inner.reset(_state);
+        self.inner.reset(state);
     }
 }
 

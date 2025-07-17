@@ -307,11 +307,9 @@ impl ExecMethod for MixedFastFieldExecState {
     /// # Arguments
     ///
     /// * `state` - The current scan state
-    fn reset(&mut self, _state: &mut PdbScanState) {
+    fn reset(&mut self, state: &mut PdbScanState) {
         // Reset inner FastFieldExecState
-        self.inner.search_results = SearchResults::None;
-        self.inner.did_query = false;
-        self.inner.blockvis = (pg_sys::InvalidBlockNumber, false);
+        self.inner.reset(state);
 
         // Reset mixed results state
         self.mixed_results = MixedAggResults::new(self.inner.which_fast_fields.len(), vec![]);

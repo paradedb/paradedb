@@ -80,7 +80,7 @@ pub trait ExecMethod {
     /// * by the `init` method (by default)
     /// * in a parallel-workers leader (_not_ in any parallel workers) during re-scans
     ///     * instead, parallel workers are re-created during re-scans, and so will have `init`
-    ///     called.
+    ///       called.
     ///
     /// [`PdbScanState::reset()`] will already have been called for you.
     fn reset(&mut self, state: &mut PdbScanState);

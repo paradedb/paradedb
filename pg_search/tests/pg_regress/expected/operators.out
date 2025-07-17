@@ -1,0 +1,179 @@
+--
+-- these are designed to validate that the EXPLAIN output is correct
+-- and that each operator returns the expected number of rows
+--
+    
+--
+-- @@@ (parse)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description @@@ 'running shoes';
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Partial Aggregate
+               ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: idxregress_mock_items
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description @@@ 'running shoes';
+ count 
+-------
+     3
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_2","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
+ count 
+-------
+     3
+(1 row)
+
+--
+-- &&& (match conjunction)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description &&& 'running shoes';
+ count 
+-------
+     1
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_2","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
+ count 
+-------
+     1
+(1 row)
+
+--
+-- ||| (match disjunction)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description ||| 'running shoes';
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Partial Aggregate
+               ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: idxregress_mock_items
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(10 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description ||| 'running shoes';
+ count 
+-------
+     3
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_2","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
+ count 
+-------
+     3
+(1 row)
+
+--
+-- ### (phrase)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description ### 'running shoes';
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"phrase_tokenize":{"field":"description","phrase":"running shoes","slop":null}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description ### 'running shoes';
+ count 
+-------
+     1
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ### 'running shoes';
+                                                               QUERY PLAN                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"phrase_tokenize":{"field":"_pg_search_2","phrase":"running shoes","slop":null}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ### 'running shoes';
+ count 
+-------
+     1
+(1 row)
+

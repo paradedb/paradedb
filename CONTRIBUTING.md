@@ -4,10 +4,13 @@ Welcome! We're excited that you're interested in contributing to ParadeDB and wa
 
 ## Technical Info
 
-Before submitting a pull request, please review this document, which outlines what
-conventions to follow when submitting changes. If you have any questions not covered
-in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw)
-or via [email](mailto:support@paradedb.com).
+Before submitting a pull request, please review this document, which outlines what conventions to follow when submitting changes. If you have any questions not covered in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw) or via [email](mailto:support@paradedb.com).
+
+### Selecting GitHub Issues
+
+All external contributions should be associated with a GitHub issue. If there is no open issue for the bug or feature that you'd like to work on, please open one first. When selecting an issue to work on, we recommend focusing on issues labeled `good first issue`.
+
+Ideal issues for external contributors include well-scoped, individual features (e.g. adding support for a new tokenizer) as those are less likely to conflict with our general development process. We welcome small documentation contributions that accompany a feature, correct wrong information or fix typos, but will not accept "general improvement" documentation PRs.
 
 ### Claiming GitHub Issues
 
@@ -30,8 +33,7 @@ ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged eith
 
 ### Pull Request Workflow
 
-All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended
-flow for making a change:
+All changes to ParadeDB happen through GitHub Pull Requests. Here is the recommended flow for making a change:
 
 1. Before working on a change, please check if there is already a GitHub issue open for it.
 2. If there is not, please open an issue first. This gives the community visibility into your work and allows others to make suggestions and leave comments.

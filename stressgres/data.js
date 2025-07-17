@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752768916242,
+  "lastUpdate": 1752769563319,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3694,6 +3694,42 @@ window.BENCHMARK_DATA = {
             "value": 5.814467328276157,
             "unit": "median tps",
             "extra": "avg tps: 5.198471742557322, max tps: 6.559758100059857, count: 57393"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86bc2b092d2857a997cd05af4b554ac96ba225fd",
+          "message": "fix: Fix `rescan` for top-n (#2868)\n\n## What\n\nComments in both `Normal` and `TopN` scans claimed that their search\nresults would be reset by `PdbScanState`, but this was incorrect: they\nwere local variables in the struct, and needed to be reset locally.\n\n## Why\n\nFixes issue detected by the prop tests and repro'd by @eeeebbbbrrrr in\n#2751.\n\n## Tests\n\nNew regression test from #2751: thanks @eeeebbbbrrrr!\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-17T08:59:32-07:00",
+          "tree_id": "ccc9162bb96008badcb3046612d16394604ed6f7",
+          "url": "https://github.com/paradedb/paradedb/commit/86bc2b092d2857a997cd05af4b554ac96ba225fd"
+        },
+        "date": 1752769562347,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.626537041753655,
+            "unit": "median tps",
+            "extra": "avg tps: 5.714168301975587, max tps: 8.606851060256512, count: 57850"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.716161967135559,
+            "unit": "median tps",
+            "extra": "avg tps: 5.069803781438279, max tps: 6.494772456869284, count: 57850"
           }
         ]
       }

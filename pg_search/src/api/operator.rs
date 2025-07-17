@@ -16,13 +16,12 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 mod searchqueryinput;
-mod text;
+mod specialized;
 
 use crate::api::{fieldname_typoid, FieldName};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::expression::{find_expr_attnum, PG_SEARCH_PREFIX};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::locate_bm25_index_from_heaprel;
 use crate::postgres::var::find_var_relation;
@@ -86,9 +85,9 @@ pub fn anyelement_text_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.search_with_text(anyelement, text)".into_datum()],
+            &[c"paradedb.search_with_parse(anyelement, text)".into_datum()],
         )
-        .expect("the `paradedb.search_with_text(anyelement, text) function should exist")
+        .expect("the `paradedb.search_with_parse(anyelement, text) function should exist")
     }
 }
 
@@ -395,51 +394,9 @@ pub unsafe fn attname_from_var(
     (heaprelid, attname)
 }
 
-/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
-/// It supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
-/// the first argument of the `FuncExpr`.
-/// This function requires the node to be related to a `bm25` index, otherwise it will panic.
-///
-/// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
-pub unsafe fn fieldname_from_node(
-    root: *mut pg_sys::PlannerInfo,
-    node: *mut pg_sys::Node,
-) -> Option<(pg_sys::Oid, Option<FieldName>)> {
-    match (*node).type_ {
-        NodeTag::T_FuncExpr | NodeTag::T_OpExpr => {
-            // We expect the funcexpr/opexpr to contain the var of the field name we're looking for
-            let (heaprelid, _, _) = find_node_relation(node, root);
-            if heaprelid == pg_sys::Oid::INVALID {
-                panic!("could not find heap relation for node");
-            }
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-                .expect("could not find bm25 index for heaprelid");
-
-            let attnum = find_expr_attnum(&indexrel, node)?;
-            let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
-            Some((heaprelid, Some(expression_str)))
-        }
-        NodeTag::T_Var => {
-            let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
-            let (oid, attname) = attname_from_var(root, var);
-            Some((oid, attname))
-        }
-        _ => None,
-    }
-}
-
 extension_sql!(
     r#"
-ALTER FUNCTION paradedb.search_with_text SUPPORT paradedb.text_support;
 ALTER FUNCTION paradedb.search_with_query_input SUPPORT paradedb.query_input_support;
-
-CREATE OPERATOR pg_catalog.@@@ (
-    PROCEDURE = search_with_text,
-    LEFTARG = anyelement,
-    RIGHTARG = text,
-    RESTRICT = text_restrict
-);
 
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_with_query_input,
@@ -456,9 +413,7 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     name = "bm25_ops_anyelement_operator",
     requires = [
         // for using plain text on the rhs
-        text::search_with_text,
-        text::text_restrict,
-        text::text_support,
+        atatat::search_with_parse,
         // for using SearchQueryInput on the rhs
         searchqueryinput::search_with_query_input,
         searchqueryinput::query_input_restrict,

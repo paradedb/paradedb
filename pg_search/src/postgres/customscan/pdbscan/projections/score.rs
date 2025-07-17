@@ -16,10 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
+use crate::postgres::customscan::score_funcoid;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{
-    direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, IntoDatum, PgList,
-};
+use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
@@ -34,16 +33,6 @@ ALTER FUNCTION score SUPPORT placeholder_support;
     name = "score_placeholder",
     requires = [score_from_relation, placeholder_support]
 );
-
-pub fn score_funcoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"paradedb.score(anyelement)".into_datum()],
-        )
-        .expect("the `paradedb.score(anyelement)` function should exist")
-    }
-}
 
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,

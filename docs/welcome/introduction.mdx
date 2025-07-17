@@ -1,8 +1,8 @@
 ---
-title: Welcome to ParadeDB
+title: Search and Analytics for Postgres
 ---
 
-## What is ParadeDB?
+![ParadeDB Banner](/images/paradedb_banner.png)
 
 ParadeDB is an Elasticsearch alternative built on Postgres. We're modernizing the features of Elasticsearch,
 starting with real-time search and analytics.
@@ -16,16 +16,45 @@ Today, Postgres users who need a search and analytics engine face two options: a
 Elasticsearch, which is powerful but painful to run, tune, and sync, or use Postgres’ native search and
 aggregations, which lack critical functionality and perform poorly over large datasets.
 
-ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
+ParadeDB aims to be the best of both worlds, providing developers with the guarantees of Postgres and the
 performance of a dedicated search and analytical database.
 
-ParadeDB is a good fit for developers who:
+ParadeDB may be a good fit for your stack if:
 
-- Have UPDATE heavy workloads that trigger frequent index rebuilds in Elasticsearch
-- Want real-time search without complex and expensive ETL or CDC pipelines
-- Require an ACID-compliant, MVCC-safe search and analytics engine
-- Search over JOINs and want to avoid data denormalization
-- Trust Postgres and don't want to operate a non-Postgres database/query engine
+- **You already use Postgres** as your primary database, either self-hosted or in a managed service like RDS.
+- **Expensive aggregates** (`COUNT`s, `GROUP BY`s) and "top N" queries (i.e. `ORDER BY`s) frequently hit query timeouts.
+- **You have tried `tsvector` and the `GIN` index for text search**, but lack of fuzzy matching,
+  BM25 relevance scoring, advanced query types, etc. leads to low-quality results.
+- **Your application requires real-time results** over data that's frequently updated, and the sync process with
+  tools like Elasticsearch is time-consuming/error-prone.
+
+## ParadeDB vs. Alternatives
+
+There are many search and analytical databases to choose from. ParadeDB differentiates by optimizing for Postgres. This means that ParadeDB:
+
+- **Provides the same [guarantees](/welcome/guarantees)** that Postgres does around transaction and replication
+  safety.
+- **Eliminates the overhead of sync tools** like ETL, Debezium, Kafka, etc. when deployed as a logical replica of your primary Postgres.
+- **Has first-class support for JOINS**. Most search and analytical databases support JOINs as an afterthought, or don't support them at all, forcing users to denormalize their data.
+- **Enables teams to ship new features faster**. Engineers can leverage existing PostgreSQL expertise instead of learning a new database or query language.
+
+## Production Readiness
+
+As a company, ParadeDB is over two years old. ParadeDB launched in the [Y Combinator (YC)](https://ycombinator.com) S23 batch and has been validated in
+production since December 2023.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb), the open-source version of ParadeDB, has been deployed over 100,000 times in the past 12 months.
+ParadeDB Enterprise, the durable and production-hardened edition
+of ParadeDB, powers core search and analytics use cases at enterprises ranging from Fortune 500s to fast-growing startups. A few
+examples include:
+
+- **Alibaba**, the largest Asia-Pacific cloud provider, uses ParadeDB to power search inside their data warehouse. [Case study available](https://paradedb.com/blog/case_study_alibaba).
+- **Bilt Rewards**<sup>1</sup>, a rent payments technology company that processed over $36B in payments in 2024.
+- **Modern Treasury**<sup>1</sup>, a financial technology company that automates the full cycle of money movement.
+- **UnifyGTM**<sup>1</sup>, one of the fastest-growing startups in AI sales automation.
+- **TCDI**<sup>1</sup>, a giant in the legal software and litigation management space.
+
+_1. Case study coming soon_
 
 ## Next Steps
 
@@ -40,18 +69,18 @@ You're now ready to jump into our guides.
     Get started with ParadeDB in under five minutes.
   </Card>
   <Card
-    title="Search API"
+    title="Architecture"
+    icon="diagram-project"
+    href="/welcome/architecture"
+  >
+    Learn how ParadeDB is built.
+  </Card>
+  <Card
+    title="Reference"
     icon="magnifying-glass"
     href="/documentation/full-text/overview"
   >
-    API reference for full text, similarity, and hybrid search.
-  </Card>
-  <Card
-    title="Analytics API"
-    icon="chart-simple"
-    href="/documentation/aggregates/overview/"
-  >
-    API reference for aggregates.
+    API reference for full text search and analytics.
   </Card>
   <Card title="Deploy" icon="server" href="/deploy">
     Deploy ParadeDB as a Postgres extension or standalone database.

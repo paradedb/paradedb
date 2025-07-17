@@ -153,6 +153,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         prewarm_indexes(&args.url, &args.dataset, &args.r#type);
     }
 
+    // Locate all query paths, and sort them for stability in the output.
     let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
     let mut query_paths = std::fs::read_dir(queries_dir)
         .expect("Failed to read queries directory")
@@ -169,6 +170,7 @@ fn run_benchmarks(args: &Args) -> impl Iterator<Item = QueryResult> + '_ {
         .collect::<Vec<_>>();
     query_paths.sort_unstable();
 
+    // Load queries from each query path.
     query_paths
         .into_iter()
         .flat_map(|path| {
@@ -504,6 +506,8 @@ fn run_benchmarks_json(args: &Args) {
 /// Return a Vec of the query strings contained in the given file path.
 ///
 /// Strips comments and flattens each query onto a single line.
+///
+/// Will only split on semicolons with trailing newlines, which allows for applying GUCs to queries.
 ///
 fn queries(file: &Path) -> Vec<String> {
     let content = std::fs::read_to_string(file)

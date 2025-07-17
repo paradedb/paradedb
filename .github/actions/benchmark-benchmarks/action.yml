@@ -60,7 +60,7 @@ runs:
         tool: customSmallerIsBetter
         output-file-path: benchmarks/results.json
         github-token: ${{ inputs.github_token }}
-        gh-repository: github.com/paradedb/paradedb
+        gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
         benchmark-data-dir-path: benchmarks
@@ -78,14 +78,14 @@ runs:
         payload: |
           channel: ${{ inputs.slack_channel }}
           text: |
-            ${{ github.repository }} Benchmark Results
+            ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}`
             ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
-            <https://paradedb.github.io/paradedb/benchmarks/>
+            <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'
       shell: bash
       run: |
         GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`paradedb/paradedb\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+        MESSAGE="<!here> `benchmark-pg_search-benchmarks` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
         curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ inputs.slack_webhook_url }}

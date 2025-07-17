@@ -25,21 +25,10 @@
 
 [ParadeDB](https://paradedb.com) is a modern Elasticsearch alternative built on Postgres. Built for real-time, update-heavy workloads.
 
-## Roadmap
-
-- [x] Search
-  - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
-  - [ ] Distributed search
-- [ ] Analytics
-  - [x] Faceted search over Postgres data with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [ ] Column-oriented Postgres table access method
-
-For a detailed roadmap, see the [ParadeDB Roadmap for 2025](https://github.com/orgs/paradedb/discussions/2041).
-
 ## Get Started
 
-To get started, please visit our [documentation](https://docs.paradedb.com).
+Please see our [documentation](https://docs.paradedb.com) to get started. You'll also find our [architecture](https://docs.paradedb.com/welcome/architecture)
+docs and [public roadmap](https://docs.paradedb.com/welcome/roadmap) there.
 
 ## Deploying ParadeDB
 

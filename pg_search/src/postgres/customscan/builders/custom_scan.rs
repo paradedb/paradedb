@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::CustomScan;
-use pgrx::{node_to_string, pg_sys, PgList};
 use std::fmt::{Debug, Formatter};
+
+use crate::node_to_string;
+use crate::postgres::customscan::CustomScan;
+use pgrx::{pg_sys, PgList};
 
 pub struct Args {
     pub root: *mut pg_sys::PlannerInfo,
@@ -48,15 +50,15 @@ impl Debug for Args {
     }
 }
 
-pub struct CustomScanBuilder<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> {
+pub struct CustomScanBuilder<CS: CustomScan> {
     args: Args,
 
     custom_scan_node: pg_sys::CustomScan,
-    custom_private: P,
+    custom_private: CS::PrivateData,
 }
 
-impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanBuilder<P> {
-    pub fn new<CS: CustomScan>(
+impl<CS: CustomScan> CustomScanBuilder<CS> {
+    pub fn new(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         best_path: *mut pg_sys::CustomPath,
@@ -86,7 +88,7 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
                 ..Default::default()
             };
 
-            let custom_private = P::from(scan.custom_private);
+            let custom_private = CS::PrivateData::from(scan.custom_private);
             CustomScanBuilder {
                 args: Args {
                     root,
@@ -106,12 +108,28 @@ impl<P: Into<*mut pg_sys::List> + From<*mut pg_sys::List> + Default> CustomScanB
         &self.args
     }
 
-    pub fn custom_private(&self) -> &P {
+    pub fn custom_private(&self) -> &CS::PrivateData {
         &self.custom_private
     }
 
-    pub fn custom_private_mut(&mut self) -> &mut P {
+    pub fn custom_private_mut(&mut self) -> &mut CS::PrivateData {
         &mut self.custom_private
+    }
+
+    ///
+    /// Override the targetlist for the CustomScan.
+    ///
+    pub fn set_targetlist(&mut self, tlist: PgList<pg_sys::TargetEntry>) {
+        self.custom_scan_node.scan.plan.targetlist = tlist.into_pg();
+    }
+
+    ///
+    /// Override the RTI of the relation to be scanned.
+    ///
+    /// NOTE: `scanrelid` is a misnomer: it is actually an RTI.
+    ///
+    pub fn set_scanrelid(&mut self, scanrelid: pg_sys::Index) {
+        self.custom_scan_node.scan.scanrelid = scanrelid;
     }
 
     pub fn build(self) -> pg_sys::CustomScan {

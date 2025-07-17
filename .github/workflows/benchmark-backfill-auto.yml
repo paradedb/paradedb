@@ -1,0 +1,93 @@
+# workflows/benchmark-backfill-auto.yml
+name: Automatically backfill benchmarks using existing commit hashes
+
+on:
+  workflow_dispatch:
+
+# the token must be allowed to start other workflows
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Load and extract commit IDs from benchmark data
+        id: extract_commits
+        run: |
+          # fetch the existing benchmark data.  we only get the stressgres data as
+          # all benchmark styles should have the same commits
+          curl -sSL https://paradedb.github.io/paradedb/stressgres/data.js \
+            -o data.js
+
+          # run a tiny Node script to eval and extract distinct commit IDs
+          ids=$(node -e "
+            const fs = require('fs');
+            global.window = {};
+            // load the JS file, which populates window.BENCHMARK_DATA
+            eval(fs.readFileSync('data.js', 'utf8'));
+            const data = window.BENCHMARK_DATA;
+            const ids = new Set();
+            // traverse each entry array and collect commit.id
+            for (const arr of Object.values(data.entries)) {
+              for (const item of arr) {
+                ids.add(item.commit.id);
+              }
+            }
+
+            console.log(JSON.stringify([...ids]));   # <-- JSON array
+          ")
+
+          # set as an output; for newer GH Actions syntaxes
+          echo "ids=$ids" >> $GITHUB_OUTPUT
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+      - name: Reset data.js files
+        run: |
+          git config user.name "Benchmark Backfill Job"
+          git config user.email "developers@paradedb.com"
+          files=$(git ls-files stressgres/data.js benchmarks/data.js)
+          if [ -n "$files" ]; then
+            echo "$files" | xargs git rm
+            git commit -m "Reset data.js files"
+            git push
+          fi
+
+  dispatch:
+    # one job per commit
+    needs: reset
+    strategy:
+      matrix:
+        sha: ${{ fromJSON(steps.extract_commits.outputs.ids) }} # → ["…","…"]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fire benchmark & stressgres for ${{ matrix.sha }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const sha   = '${{ matrix.sha }}';
+
+            // Workflows you want to queue
+            const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
+
+            for (const wf of targets) {
+              /*  createWorkflowDispatch must point at a branch or tag, not a
+                  bare SHA, so we send `ref:"main"` and hand the commit SHA
+                  through an input named `commit`  */
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: wf,
+                ref: 'main',
+                inputs: { commit: sha }
+              });
+              core.info(`queued ${wf} for ${sha}`);
+            }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752772360244,
+  "lastUpdate": 1752772984921,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5616,6 +5616,42 @@ window.BENCHMARK_DATA = {
             "value": 136.83059434639068,
             "unit": "median tps",
             "extra": "avg tps: 136.2806159099001, max tps: 138.73334834985792, count: 56030"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5772be0d3dea751c3609729efcc66cc69d9d30ee",
+          "message": "chore: Remove debug output in aggregate scan (#2876)\n\n## What\n\nRemove a stray `println`.\n\n## Why\n\nIt's not doing anyone any good.",
+          "timestamp": "2025-07-17T09:46:08-07:00",
+          "tree_id": "06a002186c2a701283d73854f64c4225a08aa1a8",
+          "url": "https://github.com/paradedb/paradedb/commit/5772be0d3dea751c3609729efcc66cc69d9d30ee"
+        },
+        "date": 1752772983917,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.562956943979223,
+            "unit": "median tps",
+            "extra": "avg tps: 27.4248947817487, max tps: 27.732300954052057, count: 57758"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 128.0365126809508,
+            "unit": "median tps",
+            "extra": "avg tps: 127.43020980762667, max tps: 130.66972624057132, count: 57758"
           }
         ]
       }

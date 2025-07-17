@@ -21,18 +21,10 @@ ALTER OPERATOR pg_catalog.@@@(anyelement, text) SET (RESTRICT = NONE);
 DROP FUNCTION IF EXISTS text_restrict(planner_info internal, operator_oid oid, args internal, _var_relid pg_catalog.int4);
 
 -- rename these functions
-ALTER FUNCTION search_with_text RENAME TO search_with_parse;
 ALTER FUNCTION text_support RENAME TO search_with_parse_support;
+ALTER FUNCTION search_with_text RENAME TO search_with_parse;
 
 -- we just renamed these functions and now we need to replace them to get the proper symbol name in the catalog
-CREATE OR REPLACE FUNCTION "search_with_parse"(
-    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
-    "query" TEXT /* &str */
-) RETURNS bool /* bool */
-    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
-
 CREATE OR REPLACE FUNCTION "search_with_parse_support"(
     "arg" internal /* pgrx::datum::internal::Internal */
 ) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
@@ -40,7 +32,19 @@ CREATE OR REPLACE FUNCTION "search_with_parse_support"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_parse_support_wrapper';
 
+CREATE OR REPLACE FUNCTION "search_with_parse"(
+    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
+    "query" TEXT /* &str */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    SUPPORT search_with_parse_support   /* make sure to set the SUPPORT function! */
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
 
+
+--
+-- machine-generated upgrade code
+--
 
 -- pg_search/src/api/operator/specialized/andandand.rs:21
 -- pg_search::api::operator::specialized::andandand::search_with_match_conjunction

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752712097114,
+  "lastUpdate": 1752768914038,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1040,6 +1040,72 @@ window.BENCHMARK_DATA = {
             "value": 28.836449623973515,
             "unit": "median tps",
             "extra": "avg tps: 30.66624333407178, max tps: 784.8541976357053, count: 55161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86bc2b092d2857a997cd05af4b554ac96ba225fd",
+          "message": "fix: Fix `rescan` for top-n (#2868)\n\n## What\n\nComments in both `Normal` and `TopN` scans claimed that their search\nresults would be reset by `PdbScanState`, but this was incorrect: they\nwere local variables in the struct, and needed to be reset locally.\n\n## Why\n\nFixes issue detected by the prop tests and repro'd by @eeeebbbbrrrr in\n#2751.\n\n## Tests\n\nNew regression test from #2751: thanks @eeeebbbbrrrr!\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-07-17T08:59:32-07:00",
+          "tree_id": "ccc9162bb96008badcb3046612d16394604ed6f7",
+          "url": "https://github.com/paradedb/paradedb/commit/86bc2b092d2857a997cd05af4b554ac96ba225fd"
+        },
+        "date": 1752768913065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1246.9269240074839,
+            "unit": "median tps",
+            "extra": "avg tps: 1241.4896151905957, max tps: 1251.2348455074155, count: 54877"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2790.053911501425,
+            "unit": "median tps",
+            "extra": "avg tps: 2779.329643640563, max tps: 2805.869410750366, count: 54877"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1242.8435857271666,
+            "unit": "median tps",
+            "extra": "avg tps: 1236.9044241867246, max tps: 1245.088001655496, count: 54877"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 980.8910714797896,
+            "unit": "median tps",
+            "extra": "avg tps: 974.6635948777052, max tps: 1014.4512526021379, count: 54877"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 170.60048264847552,
+            "unit": "median tps",
+            "extra": "avg tps: 179.00815440145536, max tps: 192.70584414080597, count: 109754"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 149.3005028495966,
+            "unit": "median tps",
+            "extra": "avg tps: 148.05838627043275, max tps: 162.39627008246873, count: 54877"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 37.71610939171841,
+            "unit": "median tps",
+            "extra": "avg tps: 40.15324910471507, max tps: 760.5169994562303, count: 54877"
           }
         ]
       }

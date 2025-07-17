@@ -601,8 +601,8 @@ FROM score_test
 WHERE content @@@ 'science' AND NOT (title @@@ 'technology')
 ORDER BY title, author, relevance DESC
 LIMIT 10;
-                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: score_test.title, score_test.author, (paradedb.score(score_test.id)) DESC
@@ -624,7 +624,7 @@ LIMIT 10;
                      String Fast Fields: author, title
                      Numeric Fast Fields: id
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
+                     Tantivy Query: {"full_index_scan":true,"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
 (22 rows)
 
 SELECT title, author, paradedb.score(id) as relevance

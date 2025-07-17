@@ -321,6 +321,35 @@ impl SearchQueryInput {
             _ => None,
         }
     }
+
+    pub fn contains_all_query(&self) -> bool {
+        match self {
+            SearchQueryInput::All => true,
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                must.iter().any(|query| query.contains_all_query())
+                    || should.iter().any(|query| query.contains_all_query())
+                    || must_not.iter().any(|query| query.contains_all_query())
+            }
+            SearchQueryInput::WithIndex { query, .. } => query.contains_all_query(),
+            SearchQueryInput::Boost { query, .. } => query.contains_all_query(),
+            SearchQueryInput::ConstScore { query, .. } => query.contains_all_query(),
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.contains_all_query(),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(|query| query.contains_all_query())
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                indexed_query.contains_all_query()
+            }
+            // All other variants don't contain nested queries or are not All
+            _ => false,
+        }
+    }
 }
 
 impl AsHumanReadable for SearchQueryInput {

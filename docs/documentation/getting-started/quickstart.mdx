@@ -2,13 +2,9 @@
 title: Quickstart
 ---
 
-This guide will walk you through the following steps to get started with ParadeDB:
+This guide will walk you through a few queries to give you a feel for ParadeDB.
 
-1. Full text search over a single table
-2. Full text search over a JOIN
-3. Similarity (i.e. vector) search
-
-## Single Table Search
+## Create Example Table
 
 ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
 you get started. Once connected with `psql`, run the following commands to create and inspect
@@ -37,7 +33,6 @@ LIMIT 3;
 </Accordion>
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
-The following code block demonstrates the various Postgres types that can be combined inside a single index.
 
 ```sql
 CREATE INDEX search_idx ON mock_items
@@ -46,69 +41,26 @@ WITH (key_field='id');
 ```
 
 <Note>
+As a general rule of thumb, any columns that you want to filter, `COUNT`, `GROUP BY`, or `ORDER BY` as part of a full text query should be added to the index for faster
+performance.
+</Note>
+
+<Note>
   Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
   which should be the name of a column that will function as a row's unique
   identifier within the index. Additionally, the `key_field` must be the first field
   in the list of columns. See [choosing a key field](/documentation/indexing/create_index#choosing-a-key-field) for more details.
 </Note>
 
-We're now ready to execute a full-text search. We'll look for the first five rows with a `rating` greater than `2` where `description` matches `shoes`
-or `category` matches `footwear`.
+## Match Query
+
+We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
-ORDER BY description
-LIMIT 5;
-```
-
-<Accordion title="Expected Response">
-``` csv
-     description      | rating | category
-----------------------+--------+----------
- Comfortable slippers |      3 | Footwear
- Generic shoes        |      4 | Footwear
- Sleek running shoes  |      5 | Footwear
- Sturdy hiking boots  |      4 | Footwear
- White jogging shoes  |      3 | Footwear
-(5 rows)
-```
-</Accordion>
-
-The ParadeDB-specific `@@@` operator instructs ParadeDB to execute a full-text search using the BM25 index. Its job is to return matching rows as quickly as possible in no
-particular order. To sort by relevance, the `paradedb.score` function generates BM25 scores for each row.
-
-```sql
-SELECT description, rating, category, paradedb.score(id)
-FROM mock_items
-WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2'
-ORDER BY score DESC, description
-LIMIT 5;
-```
-
-<Accordion title="Expected Response">
-``` csv
-     description      | rating | category |   score
-----------------------+--------+----------+-----------
- Generic shoes        |      4 | Footwear | 5.8135376
- Sleek running shoes  |      5 | Footwear | 5.4211845
- White jogging shoes  |      3 | Footwear | 5.4211845
- Comfortable slippers |      3 | Footwear | 2.9362776
- Sturdy hiking boots  |      4 | Footwear | 2.9362776
-(5 rows)
-```
-</Accordion>
-
-The result table shows that rows matching on both `description` and `category` scored more highly than rows matching only one of the fields.
-
-Finally, let's see how ParadeDB handles a phrase query like `white shoes`. Let's also surface results even
-if there is a word between `white` and `shoes` using the `~` slop operator.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ '"white shoes"~1'
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY rating
 LIMIT 5;
 ```
 
@@ -117,11 +69,81 @@ LIMIT 5;
      description     | rating | category
 ---------------------+--------+----------
  White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+</Accordion>
+
+`|||` is ParadeDB's custom [match disjunction](/documentation/full-text/match#disjunction) operator, which means "find me all documents containing
+`running OR shoes`.
+
+If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
 (1 row)
 ```
 </Accordion>
 
-In addition to simple string queries, ParadeDB supports advanced [query builder functions](/documentation/advanced) similar to the Elastic DSL.
+## BM25 Scoring
+
+Next, let's add BM25 scoring to the results, which allows us to sort matches by relevance. To do this, we'll use `paradedb.score`.
+
+```sql
+SELECT description, paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     |   score
+---------------------+-----------
+ Sleek running shoes |  6.833782
+ Generic shoes       |  3.901802
+ White jogging shoes | 3.4987166
+(3 rows)
+```
+</Accordion>
+
+## Highlighting
+
+Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
+To do this, we'll use `paradedb.snippet`.
+
+
+```sql
+SELECT description, paradedb.snippet(description), paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     |              snippet              |   score
+---------------------+-----------------------------------+-----------
+ Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.833782
+ Generic shoes       | Generic <b>shoes</b>              |  3.901802
+ White jogging shoes | White jogging <b>shoes</b>        | 3.4987166
+(3 rows)
+```
+</Accordion>
 
 ## Joined Search
 
@@ -154,7 +176,7 @@ SELECT * FROM orders LIMIT 3;
 ```
 </Accordion>
 
-Next, let's create a BM25 index over the `orders` table.
+Next, let's create a [BM25 index](/welcome/roadmap/architecture#) over the `orders` table.
 
 ```sql
 CREATE INDEX orders_idx ON orders
@@ -168,7 +190,7 @@ The following query searches for rows where `customer_name` matches `Johnson` an
 SELECT o.order_id, o.customer_name, m.description
 FROM orders o
 JOIN mock_items m ON o.product_id = m.id
-WHERE o.customer_name @@@ 'Johnson' AND m.description @@@ 'shoes'
+WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'shoes'
 ORDER BY order_id
 LIMIT 5;
 ```

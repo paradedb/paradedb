@@ -41,7 +41,6 @@
                   {
                     "group": "Reference",
                     "pages": [
-                      "documentation/overview",
                       {
                         "group": "Indexing",
                         "pages": [
@@ -81,8 +80,9 @@
                         "group": "Full Text Search",
                         "pages": [
                           "documentation/full-text/overview",
-                          "documentation/full-text/boolean",
+                          "documentation/full-text/match",
                           "documentation/full-text/phrase",
+                          "documentation/full-text/term",
                           "documentation/full-text/filtering",
                           "documentation/full-text/pagination",
                           "documentation/full-text/scoring",

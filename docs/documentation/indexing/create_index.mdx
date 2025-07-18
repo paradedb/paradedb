@@ -2,6 +2,9 @@
 title: Create an Index
 ---
 
+All code blocks in this section reference a table called `mock_items`, which was created in the [quickstart](/documentation/getting-started/quickstart). We recommend going through the quickstart
+first to develop a feel for the API and create the example BM25 index.
+
 ## Basic Usage
 
 <Note>
@@ -74,7 +77,7 @@ A BM25 index can be created over a partitioned table in the same way as a normal
 
 <Note>
   If the partition key of your partitioned table is only indexed as a fast field by the BM25 index
-  (and not additionally indexed via a B-Tree index), note that the `@@@` operator [must be used](/documentation/aggregates/limitations#filtering)
+  (and not additionally indexed via a B-Tree index), note that one of the ParadeDB operators [must be used](/documentation/aggregates/limitations#filtering)
   in order for filtering to be optimized by the index.
 </Note>
 

@@ -2,40 +2,38 @@
 title: Phrase
 ---
 
-Searches for the presence of a [phrase](/documentation/concepts/phrase). The field must be indexed with [record](/documentation/indexing/record) of `position`.
-For more granular controls, see the [phrase query](/documentation/advanced/phrase).
+Phrase queries work exactly like [match](/documentation/full-text/phrase) queries, but are more strict in that they require the
+order and position of tokens to be the same. For instance, suppose our query is `running shoes`, and we want to omit results like
+`running sleek shoes` or `shoes running` — these results contain the right tokens, but not in the exact order and position
+that the query specifies.
 
-## Basic Usage
-
-Phrases must be wrapped inside double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ '"plastic keyboard"';
-```
-
-Under the hood, the query string is first tokenized in the same way as the field was at index time. Then, a phrase query is executed with the tokenized
-values.
-
-## Slop Operator
-
-The `~` slop operator allows for other words to come in between words in the query phrase. For instance, the following query finds documents containing
-the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word in between.
+Enter the `###` phrase operator:
 
 ```sql
+INSERT INTO mock_items (description, rating, category) VALUES
+('running sleek shoes', 5, 'Footwear'),
+('shoes running', 5, 'Footwear');
+
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ '"ergonomic keyboard"~1';
+WHERE description ### 'running shoes';
 ```
 
-## Phrase Prefix
+This query returns:
 
-The `*` prefix operator allows for the last term in the phrase query to be the prefix of another word. For instance,
-`"plastic keyb"*` matches `plastic keyboard`.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ '"plastic keyb"*';
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
 ```
+
+Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
+`shoes` because they appear in the wrong order or with other words in between.
+
+## Slop
+
+Slop allows phrase queries to be relaxed a bit. It specifies how many changes — like extra words in between or swapped word positions — are allowed while still considering the phrase a match.
+
+For example, searching for `sleek shoes` with a slop of `1` would match `sleek running shoes` because there is one word, `running`, between
+`sleek` and `shoes`.

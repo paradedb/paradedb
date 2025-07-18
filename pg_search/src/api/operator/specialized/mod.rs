@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use crate::api::operator::{
     anyelement_text_opoid, anyelement_text_procoid, attname_from_var, find_node_relation,
-    make_search_query_input_opexpr_node, ReturnedNodePointer,
+    make_search_query_input_opexpr_node, searchqueryinput_typoid, ReturnedNodePointer,
 };
 use crate::api::FieldName;
 use crate::nodecast;
@@ -28,10 +28,17 @@ use pgrx::{pg_sys, FromDatum, Internal, PgList};
 
 mod andandand;
 mod atatat;
+mod eqeqeq;
 mod hashhashhash;
 mod ororor;
 
-unsafe fn request_simplify<F: FnOnce(Option<FieldName>, String) -> SearchQueryInput>(
+enum RHSValue {
+    Text(String),
+    TextArray(Vec<String>),
+    SearchQueryInput(SearchQueryInput),
+}
+
+unsafe fn request_simplify<F: FnOnce(Option<FieldName>, RHSValue) -> SearchQueryInput>(
     arg: Internal,
     ctor: F,
 ) -> Option<ReturnedNodePointer> {
@@ -51,9 +58,35 @@ unsafe fn request_simplify<F: FnOnce(Option<FieldName>, String) -> SearchQueryIn
     let (_heaprelid, field) = tantivy_field_name_from_node((*srs).root, lhs)?;
     let (query, param) = if let Some(const_) = nodecast!(Const, T_Const, rhs) {
         // the field name comes from the lhs of the @@@ operator
-        let rhs_text = String::from_datum((*const_).constvalue, (*const_).constisnull)
-            .expect("query must not be NULL");
-        let query = ctor(field, rhs_text);
+
+        let rhs_value = match (*const_).consttype {
+            pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(
+                String::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text value must not be NULL"),
+            ),
+
+            pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
+                Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text array value must not be NULL"),
+            ),
+
+            pg_sys::UUIDARRAYOID => RHSValue::TextArray(
+                Vec::<pgrx::datum::Uuid>::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs uuid array value must not be NULL")
+                    .into_iter()
+                    .map(|uuid| uuid.to_string())
+                    .collect(),
+            ),
+
+            other if other == searchqueryinput_typoid() => RHSValue::SearchQueryInput(
+                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs query value must not be NULL"),
+            ),
+
+            other => panic!("unsupported type for @@@ operator oid: {other}"),
+        };
+
+        let query = ctor(field, rhs_value);
         (Some(query), None)
     } else {
         (None, Some((rhs, field)))

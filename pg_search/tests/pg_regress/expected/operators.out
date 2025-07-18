@@ -38,7 +38,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_i
                Index: idxregress_mock_items
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_2","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_3","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
@@ -81,7 +81,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_i
                Index: idxregress_mock_items
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_2","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (9 rows)
 
 SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
@@ -125,7 +125,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_i
                Index: idxregress_mock_items
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_2","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+               Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
 (9 rows)
 
 SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
@@ -168,7 +168,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_i
                Index: idxregress_mock_items
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"phrase_tokenize":{"field":"_pg_search_2","phrase":"running shoes","slop":null}}}}
+               Tantivy Query: {"with_index":{"query":{"phrase_tokenize":{"field":"_pg_search_3","phrase":"running shoes","slop":null}}}}
 (9 rows)
 
 SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ### 'running shoes';
@@ -177,3 +177,135 @@ SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) ### 'running sh
      1
 (1 row)
 
+--
+-- === (term equality)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description === 'shoes';
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Partial Aggregate
+               ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: idxregress_mock_items
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes","is_datetime":false}}}}
+(10 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description === 'shoes';
+ count 
+-------
+     3
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) === 'shoes';
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"_pg_search_3","value":"shoes","is_datetime":false}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) === 'shoes';
+ count 
+-------
+     3
+(1 row)
+
+--
+-- === (termset equality)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'];
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Partial Aggregate
+               ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: idxregress_mock_items
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"description","value":"shoes","is_datetime":false},{"field":"description","value":"SHOES","is_datetime":false}]}}}}
+(10 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'];
+ count 
+-------
+     3
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Gather
+         Workers Planned: 1
+         ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: idxregress_mock_items
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"_pg_search_3","value":"shoes","is_datetime":false},{"field":"_pg_search_3","value":"SHOES","is_datetime":false}]}}}}
+(9 rows)
+
+SELECT COUNT(*) FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
+ count 
+-------
+     3
+(1 row)
+
+--
+-- some unsupported types on the lhs
+-- these will all produce an error
+--
+SELECT COUNT(*) FROM regress.mock_items WHERE id &&& '42';
+ERROR:  operator does not exist: integer &&& unknown at character 50
+SELECT COUNT(*) FROM regress.mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid &&& unknown at character 51
+SELECT COUNT(*) FROM regress.mock_items WHERE in_stock &&& 'true';
+ERROR:  operator does not exist: boolean &&& unknown at character 56
+SELECT COUNT(*) FROM regress.mock_items WHERE last_updated_date &&& now()::date::text;
+ERROR:  operator does not exist: date &&& text at character 65
+SELECT COUNT(*) FROM regress.mock_items WHERE latest_available_time &&& now()::date::text;
+ERROR:  operator does not exist: time without time zone &&& text at character 69
+SELECT COUNT(*) FROM regress.mock_items WHERE id ||| '42';
+ERROR:  operator does not exist: integer ||| unknown at character 50
+SELECT COUNT(*) FROM regress.mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid ||| unknown at character 51
+SELECT COUNT(*) FROM regress.mock_items WHERE in_stock ||| 'true';
+ERROR:  operator does not exist: boolean ||| unknown at character 56
+SELECT COUNT(*) FROM regress.mock_items WHERE last_updated_date ||| now()::date::text;
+ERROR:  operator does not exist: date ||| text at character 65
+SELECT COUNT(*) FROM regress.mock_items WHERE latest_available_time ||| now()::date::text;
+ERROR:  operator does not exist: time without time zone ||| text at character 69
+SELECT COUNT(*) FROM regress.mock_items WHERE id ### '42';
+ERROR:  operator does not exist: integer ### unknown at character 50
+SELECT COUNT(*) FROM regress.mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid ### unknown at character 51
+SELECT COUNT(*) FROM regress.mock_items WHERE in_stock ### 'true';
+ERROR:  operator does not exist: boolean ### unknown at character 56
+SELECT COUNT(*) FROM regress.mock_items WHERE last_updated_date ### now()::date::text;
+ERROR:  operator does not exist: date ### text at character 65
+SELECT COUNT(*) FROM regress.mock_items WHERE latest_available_time ### now()::date::text;
+ERROR:  operator does not exist: time without time zone ### text at character 69
+SELECT COUNT(*) FROM regress.mock_items WHERE id === '42';
+ERROR:  operator does not exist: integer === unknown at character 50
+SELECT COUNT(*) FROM regress.mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid === unknown at character 51
+SELECT COUNT(*) FROM regress.mock_items WHERE in_stock === 'true';
+ERROR:  operator does not exist: boolean === unknown at character 56
+SELECT COUNT(*) FROM regress.mock_items WHERE last_updated_date === now()::date::text;
+ERROR:  operator does not exist: date === text at character 65
+SELECT COUNT(*) FROM regress.mock_items WHERE latest_available_time === now()::date::text;
+ERROR:  operator does not exist: time without time zone === text at character 69

@@ -1052,6 +1052,10 @@ impl SearchQueryInput {
                 }
                 if tokens.is_empty() {
                     Ok(Box::new(EmptyQuery))
+                } else if tokens.len() == 1 {
+                    let query =
+                        TermQuery::new(tokens.remove(0), IndexRecordOption::WithFreqs.into());
+                    Ok(Box::new(query))
                 } else {
                     let mut query = PhraseQuery::new(tokens);
                     query.set_slop(slop.unwrap_or(0));

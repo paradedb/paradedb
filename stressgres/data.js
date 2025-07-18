@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752861988924,
+  "lastUpdate": 1752862608318,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6252,6 +6252,42 @@ window.BENCHMARK_DATA = {
             "value": 135.72585042157178,
             "unit": "median tps",
             "extra": "avg tps: 134.99500063424355, max tps: 136.88170470308302, count: 57764"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b45b24d47a7cac36696bae2d8505c750a7ee801",
+          "message": "test: added more join regression tests + improved when to use Join quals (#2808)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-18T10:40:03-07:00",
+          "tree_id": "fb63bd81696cd27d03b6d5724551c3ff8fd59613",
+          "url": "https://github.com/paradedb/paradedb/commit/8b45b24d47a7cac36696bae2d8505c750a7ee801"
+        },
+        "date": 1752862607331,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.345083907530327,
+            "unit": "median tps",
+            "extra": "avg tps: 27.31875994755776, max tps: 27.6725178435038, count: 56580"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 129.5415322449111,
+            "unit": "median tps",
+            "extra": "avg tps: 128.96287903135322, max tps: 133.79855913063307, count: 56580"
           }
         ]
       }

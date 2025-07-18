@@ -26,7 +26,7 @@ ORDER BY paradedb.score(id)
 LIMIT 5;
 ```
 
-While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index will allow results matching
+While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index definition will allow results matching
 `rating < 2` to rank higher than those that do not match.
 
 ## Joined Scores

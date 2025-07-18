@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752860867093,
+  "lastUpdate": 1752860869262,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5240,6 +5240,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.69605938063476, max segment_count: 97.0, count: 57123"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16307a200509cd31b42c1338f3c5b6e097a77fbf",
+          "message": "fix: issue #2844 - Use `paradedb.with_index()` when necessary (#2879)\n\n# Ticket(s) Closed\n\n- Closes #2844\n\n## What\n\nWhen the right-hand-side of the `@@@` operator is a complex expression\nthat can't be evaluated to a `T_Const` during planning, we need to\nrewrite it to be a call to our `paradedb.with_index(<indexrelid>,\n<rhs>)` so that it can be properly used in Filter contexts during\nexecution.\n\nThis seems to come up, at least, during RLS rule evaluation if those\nrules use our `@@@` operator.\n\n## Why\n\nSo long as the right-hand-side of `@@@` is a `SearchQueryInput`, we need\nto be able to execute it when Postgres wants us to, whether that's\nduring a scan or, as in this case, a filter being run as part of RLS\nevaluation.\n\n## How\n\nWrapping Postgres expression nodes!\n\n## Tests\n\nI used the re-create the OP from #2844 put together as a regression\ntest. I seem to be lacking the creative energy today to reduce the test\ndown to its simplest form that doesn't require a complicated RLS\nconfiguration.",
+          "timestamp": "2025-07-18T13:21:25-04:00",
+          "tree_id": "f2e8c7ca2ce45eefd03b85ff45d56f0481ebae1a",
+          "url": "https://github.com/paradedb/paradedb/commit/16307a200509cd31b42c1338f3c5b6e097a77fbf"
+        },
+        "date": 1752860868291,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.492889293635105, max cpu: 42.814667, count: 57123"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 228.02069458394604, max mem: 234.37109375, count: 57123"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.284744258650274, max cpu: 33.20158, count: 57123"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.96487431726274, max mem: 161.84765625, count: 57123"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22301,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20759.757995903576, max block_count: 23812.0, count: 57123"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.74362340913467, max segment_count: 97.0, count: 57123"
           }
         ]
       }

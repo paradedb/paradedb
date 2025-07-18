@@ -36,7 +36,22 @@ pub fn search_with_parse(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
-    unsafe { request_simplify(arg).unwrap_or(ReturnedNodePointer(None)) }
+    unsafe {
+        super::request_simplify(arg, |field, query_string| match field {
+            Some(field) => SearchQueryInput::ParseWithField {
+                field,
+                query_string,
+                lenient: None,
+                conjunction_mode: None,
+            },
+            None => SearchQueryInput::Parse {
+                query_string,
+                lenient: None,
+                conjunction_mode: None,
+            },
+        })
+        .unwrap_or(ReturnedNodePointer(None))
+    }
 }
 
 extension_sql!(
@@ -44,19 +59,3 @@ extension_sql!(
     name = "search_with_parse_support_fn",
     requires = [search_with_parse, search_with_parse_support]
 );
-
-unsafe fn request_simplify(arg: Internal) -> Option<ReturnedNodePointer> {
-    super::request_simplify(arg, |field, query_string| match field {
-        Some(field) => SearchQueryInput::ParseWithField {
-            field,
-            query_string,
-            lenient: None,
-            conjunction_mode: None,
-        },
-        None => SearchQueryInput::Parse {
-            query_string,
-            lenient: None,
-            conjunction_mode: None,
-        },
-    })
-}

@@ -63,7 +63,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id;
  book_id |   author_snippet    | author_positions | author_score | book_score 
 ---------+---------------------+------------------+--------------+------------
        1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111 | 0.20342469
@@ -79,7 +80,8 @@ SELECT
     paradedb.snippet_positions(a.name) as author_positions,
     paradedb.score(a.id) as author_score
 FROM authors a
-WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50';
+WHERE a.name @@@ 'Rowling' AND a.age @@@ '>50'
+ORDER BY a.id;
  author_id |   author_snippet    | author_positions | author_score 
 -----------+---------------------+------------------+--------------
          1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    2.3042111
@@ -92,7 +94,8 @@ SELECT
     paradedb.snippet_positions(b.content) as content_positions,
     paradedb.score(b.id) as book_score
 FROM books b
-WHERE b.content @@@ 'test';
+WHERE b.content @@@ 'test'
+ORDER BY b.id;
  book_id |                                      content_snippet                                      |        content_positions        | book_score 
 ---------+-------------------------------------------------------------------------------------------+---------------------------------+------------
        1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{10,14}","{15,19}","{58,62}"} | 0.20342469
@@ -125,7 +128,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
  book_id | author_name  |   author_snippet    |                                      content_snippet                                      | author_positions |        content_positions        | author_score | book_score 
 ---------+--------------+---------------------+-------------------------------------------------------------------------------------------+------------------+---------------------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words | {"{5,12}"}       | {"{10,14}","{15,19}","{58,62}"} |    2.3042111 | 0.20342469
@@ -143,7 +147,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469
@@ -161,7 +166,8 @@ SELECT
     paradedb.score(b.id) as book_score
 FROM books b
 LEFT JOIN authors a ON b.author_id = a.id
-WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50';
+WHERE (b.content @@@ 'test' OR a.name @@@ 'Rowling') AND a.age @@@ '>50'
+ORDER BY b.id, a.id;
  book_id | author_name  |   author_snippet    | author_score | book_score 
 ---------+--------------+---------------------+--------------+------------
        1 | J.K. Rowling | J.K. <b>Rowling</b> |    2.3042111 | 0.20342469

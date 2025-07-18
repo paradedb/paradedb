@@ -33,7 +33,7 @@ CREATE OR REPLACE FUNCTION "search_with_parse_support"(
 AS 'MODULE_PATHNAME', 'search_with_parse_support_wrapper';
 
 CREATE OR REPLACE FUNCTION "search_with_parse"(
-    "_element" text, /* &str */
+    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
     "query" TEXT /* &str */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000

@@ -46,7 +46,7 @@ and delivers significant improvements to write throughput for update-heavy table
 ## Non-Indexed Filter Pushdown
 
 Prior to this release, ParadeDB could only efficiently evaluate `WHERE` clauses if all the columns in those claused were present in the BM25 index.
-If any clauses not indexed, they would be applied as filters post index scan. Additionally, BM25 scoring and snippet
+If any clauses were not indexed, they would be applied as filters post index scan. Additionally, BM25 scoring and snippet
 generation would be skipped if the `WHERE` clauses included non-indexed columns.
 
 With this release, ParadeDB can now push down filters on non-indexed columns directly into the custom scan. This means:

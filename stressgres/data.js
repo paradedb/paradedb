@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752860869262,
+  "lastUpdate": 1752861340862,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1238,6 +1238,72 @@ window.BENCHMARK_DATA = {
             "value": 34.58616595823601,
             "unit": "median tps",
             "extra": "avg tps: 41.78505249654763, max tps: 707.6835324165057, count: 55078"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b45b24d47a7cac36696bae2d8505c750a7ee801",
+          "message": "test: added more join regression tests + improved when to use Join quals (#2808)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-18T10:40:03-07:00",
+          "tree_id": "fb63bd81696cd27d03b6d5724551c3ff8fd59613",
+          "url": "https://github.com/paradedb/paradedb/commit/8b45b24d47a7cac36696bae2d8505c750a7ee801"
+        },
+        "date": 1752861339896,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1205.4208568896743,
+            "unit": "median tps",
+            "extra": "avg tps: 1207.1144608225204, max tps: 1253.3580580706457, count: 55215"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2699.2008447227113,
+            "unit": "median tps",
+            "extra": "avg tps: 2711.853278873035, max tps: 2849.940958762393, count: 55215"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1219.1244938605862,
+            "unit": "median tps",
+            "extra": "avg tps: 1217.2018261189007, max tps: 1255.3973832199456, count: 55215"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1007.9035544867553,
+            "unit": "median tps",
+            "extra": "avg tps: 994.4996902478134, max tps: 1018.646029954793, count: 55215"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.7726173113627,
+            "unit": "median tps",
+            "extra": "avg tps: 175.0111704805521, max tps: 191.37880673840797, count: 110430"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 143.50312481472966,
+            "unit": "median tps",
+            "extra": "avg tps: 144.42915709607087, max tps: 152.85131249629617, count: 55215"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 21.796006548150203,
+            "unit": "median tps",
+            "extra": "avg tps: 26.411693402303865, max tps: 767.2247715396436, count: 55215"
           }
         ]
       }

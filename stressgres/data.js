@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752860224380,
+  "lastUpdate": 1752860867093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4138,6 +4138,42 @@ window.BENCHMARK_DATA = {
             "value": 5.754033669342192,
             "unit": "median tps",
             "extra": "avg tps: 5.149000423436561, max tps: 6.496827530426565, count: 57123"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16307a200509cd31b42c1338f3c5b6e097a77fbf",
+          "message": "fix: issue #2844 - Use `paradedb.with_index()` when necessary (#2879)\n\n# Ticket(s) Closed\n\n- Closes #2844\n\n## What\n\nWhen the right-hand-side of the `@@@` operator is a complex expression\nthat can't be evaluated to a `T_Const` during planning, we need to\nrewrite it to be a call to our `paradedb.with_index(<indexrelid>,\n<rhs>)` so that it can be properly used in Filter contexts during\nexecution.\n\nThis seems to come up, at least, during RLS rule evaluation if those\nrules use our `@@@` operator.\n\n## Why\n\nSo long as the right-hand-side of `@@@` is a `SearchQueryInput`, we need\nto be able to execute it when Postgres wants us to, whether that's\nduring a scan or, as in this case, a filter being run as part of RLS\nevaluation.\n\n## How\n\nWrapping Postgres expression nodes!\n\n## Tests\n\nI used the re-create the OP from #2844 put together as a regression\ntest. I seem to be lacking the creative energy today to reduce the test\ndown to its simplest form that doesn't require a complicated RLS\nconfiguration.",
+          "timestamp": "2025-07-18T13:21:25-04:00",
+          "tree_id": "f2e8c7ca2ce45eefd03b85ff45d56f0481ebae1a",
+          "url": "https://github.com/paradedb/paradedb/commit/16307a200509cd31b42c1338f3c5b6e097a77fbf"
+        },
+        "date": 1752860866119,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.765328112560796,
+            "unit": "median tps",
+            "extra": "avg tps: 5.8071809928134535, max tps: 8.736528945223796, count: 57123"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.7337192378670405,
+            "unit": "median tps",
+            "extra": "avg tps: 5.128294259143312, max tps: 6.472686673491412, count: 57123"
           }
         ]
       }

@@ -14,24 +14,29 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::operator::specialized::RHSValue;
 use crate::api::operator::ReturnedNodePointer;
 use crate::query::SearchQueryInput;
-use pgrx::{extension_sql, opname, pg_extern, pg_operator, AnyElement, Internal};
+use pgrx::{extension_sql, opname, pg_extern, pg_operator, Internal};
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.|||)]
-fn search_with_match_disjunction(_field: AnyElement, terms_to_tokenize: &str) -> bool {
-    panic!("query is incompatible with pg_search's `|||(key_field, TEXT)` operator: `{terms_to_tokenize}`")
+fn search_with_match_disjunction(_field: &str, terms_to_tokenize: &str) -> bool {
+    panic!(
+        "query is incompatible with pg_search's `|||(field, TEXT)` operator: `{terms_to_tokenize}`"
+    )
 }
 
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
         super::request_simplify(arg, |field, to_tokenize| SearchQueryInput::Match {
-            field: field.expect(
-                "The left hand side of the `|||(key_field, TEXT)` operator must be a field.",
-            ),
-            value: to_tokenize,
+            field: field
+                .expect("The left hand side of the `|||(field, TEXT)` operator must be a field."),
+            value: match to_tokenize {
+                RHSValue::Text(to_tokenize) => to_tokenize,
+                _ => unreachable!("The right hand side of the `|||(key_field, TEXT)` operator must be a text value")
+            },
             conjunction_mode: Some(false),
             tokenizer: None,
             distance: None,

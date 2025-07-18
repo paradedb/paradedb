@@ -60,6 +60,19 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
     }
 }
 
+pub fn with_index_procoid() -> pg_sys::Oid {
+    unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regprocedurein,
+            // NB:  the SQL signature here needs to match our Rust implementation
+            &[c"paradedb.with_index(regclass, paradedb.searchqueryinput)".into_datum()],
+        )
+        .expect(
+            "the `paradedb.with_index(regclass, paradedb.searchqueryinput)` function should exist",
+        )
+    }
+}
+
 pub fn parse_with_field_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -307,6 +320,40 @@ unsafe fn make_search_query_input_opexpr_node(
         newopexpr.opno = anyelement_query_input_opoid();
         newopexpr.opfuncid = anyelement_query_input_procoid();
     } else {
+        // the rhs is a more complex expression that we can't directly convert into a `SearchQueryInput::WithIndex`
+        //
+        // instead create a function call to `paradedb.with_index(indexrelid, rhs)`
+
+        // the index oid as a Const
+        let indexrelid_const = pg_sys::makeConst(
+            pg_sys::REGCLASSOID,
+            -1,
+            pg_sys::Oid::INVALID,
+            size_of::<pg_sys::Oid>() as _,
+            indexrel.oid().into_datum().unwrap(),
+            false,
+            true,
+        );
+
+        // first, build the list of arguments to the `paradedb.with_index` function
+        //  - the first argument is the index oid
+        //  - the second argument is the rhs of the original operator expression
+        let mut with_index_args = PgList::<pg_sys::Node>::new();
+        with_index_args.push(indexrelid_const.cast());
+        with_index_args.push(input_args.get_ptr(1).unwrap());
+
+        // construct the `paradedb.with_index` function call
+        let with_index = pg_sys::makeFuncExpr(
+            with_index_procoid(),
+            searchqueryinput_typoid(),
+            with_index_args.into_pg(),
+            pg_sys::Oid::INVALID,
+            pg_sys::DEFAULT_COLLATION_OID,
+            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+        );
+
+        // and finally, replace the original argument with this `paradedb.with_index` function call
+        input_args.replace_ptr(1, with_index.cast());
         newopexpr.opno = opoid;
         newopexpr.opfuncid = procoid;
     }

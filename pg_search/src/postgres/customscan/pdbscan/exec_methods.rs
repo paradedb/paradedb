@@ -42,7 +42,14 @@ impl Default for Box<dyn ExecMethod> {
 }
 
 pub trait ExecMethod {
-    fn init(&mut self, state: &mut PdbScanState, cstate: *mut pg_sys::CustomScanState);
+    /// Called after an ExecMethod is created, but before the first calls to `query`/`next`.
+    ///
+    /// By default this method calls `reset`, which is the behavior you will want if you do not
+    /// want to differentiate "being created from scratch" from "preserving some state but
+    /// starting over from the beginning of the scan".
+    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
+        self.reset(state)
+    }
 
     fn uses_visibility_map(&self, state: &PdbScanState) -> bool {
         true
@@ -69,12 +76,13 @@ pub trait ExecMethod {
         // default of noop
     }
 
-    /// This is called when the scan is rescanned.
+    /// This is called:
+    /// * by the `init` method (by default)
+    /// * in a parallel-workers leader (_not_ in any parallel workers) during re-scans
+    ///     * instead, parallel workers are re-created during re-scans, and so will have `init`
+    ///       called.
     ///
-    /// ## Implementor's Note
-    ///
-    /// `SearchResults` are reset for you by [`PdbScanState::reset()`], which is called by the
-    /// custom scan machinery.
+    /// [`PdbScanState::reset()`] will already have been called for you.
     fn reset(&mut self, state: &mut PdbScanState);
 }
 

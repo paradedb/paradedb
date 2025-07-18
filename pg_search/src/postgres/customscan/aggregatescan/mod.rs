@@ -179,7 +179,6 @@ impl CustomScan for AggregateScan {
         eflags: i32,
     ) {
         unsafe {
-            println!(">>> opening with {}", state.custom_state().execution_rti);
             let rte = pg_sys::exec_rt_fetch(state.custom_state().execution_rti, estate);
             assert!(!rte.is_null());
             let lockmode = (*rte).rellockmode as pg_sys::LOCKMODE;

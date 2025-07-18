@@ -15,10 +15,19 @@ ORDER BY paradedb.score(id)
 LIMIT 5;
 ```
 
-<Note>
-  Sorting by a field with a limit other than `paradedb.score()`, while returning `paradedb.score()` in the query's target
-  list defeat the "top N" optimization.  The results will still be sorted by the specified field, but not as efficiently.
-</Note>
+In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
+consider this query:
+
+```sql
+SELECT id, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'keyboard' OR rating < 2
+ORDER BY paradedb.score(id)
+LIMIT 5;
+```
+
+While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index definition will allow results matching
+`rating < 2` to rank higher than those that do not match.
 
 ## Joined Scores
 

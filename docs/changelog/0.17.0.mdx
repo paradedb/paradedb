@@ -43,6 +43,17 @@ long period of time.
 With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/documentation/configuration/segment_size#background-layer-sizes)
 and delivers significant improvements to write throughput for update-heavy tables.
 
+## Non-Indexed Filter Pushdown
+
+Prior to this release, ParadeDB could only efficiently evaluate `WHERE` clauses if all the columns in those claused were present in the BM25 index.
+If any clauses not indexed, they would be applied as filters post index scan. Additionally, BM25 scoring and snippet
+generation would be skipped if the `WHERE` clauses included non-indexed columns.
+
+With this release, ParadeDB can now push down filters on non-indexed columns directly into the custom scan. This means:
+
+- Filtering happens earlier, improving performance
+- Scores and snippets are now computed correctly, even if the query includes filters on non-indexed columns
+
 ## Custom Free Space Map
 
 Prior to this release, the BM25 index relied on the built-in Postgres [free space map (FSM)](https://www.postgresql.org/docs/current/storage-fsm.html) to reclaim

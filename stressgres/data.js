@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752861986848,
+  "lastUpdate": 1752861988924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5522,6 +5522,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.74362340913467, max segment_count: 97.0, count: 57123"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b45b24d47a7cac36696bae2d8505c750a7ee801",
+          "message": "test: added more join regression tests + improved when to use Join quals (#2808)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-18T10:40:03-07:00",
+          "tree_id": "fb63bd81696cd27d03b6d5724551c3ff8fd59613",
+          "url": "https://github.com/paradedb/paradedb/commit/8b45b24d47a7cac36696bae2d8505c750a7ee801"
+        },
+        "date": 1752861987929,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.3908645451741, max cpu: 42.64561, count: 57679"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.32159742659806, max mem: 231.64453125, count: 57679"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.31702151119204, max cpu: 33.168808, count: 57679"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.26343433322788, max mem: 161.0703125, count: 57679"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22517,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20929.595970803934, max block_count: 23869.0, count: 57679"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.92818876887603, max segment_count: 96.0, count: 57679"
           }
         ]
       }

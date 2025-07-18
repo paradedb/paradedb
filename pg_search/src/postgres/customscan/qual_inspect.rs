@@ -1039,7 +1039,7 @@ unsafe fn booltest(
     qual
 }
 
-/// Extract join-level search predicates that are relevant for snippet generation
+/// Extract join-level search predicates that are relevant for snippet/score generation
 /// This captures search predicates that reference specific fields but may not be
 /// pushed down to the current scan due to join conditions.
 /// Returns the entire simplified Boolean expression to preserve OR structures.
@@ -1088,7 +1088,7 @@ pub unsafe fn extract_join_predicates(
                 true,
                 &mut qual_extract_state,
             ) {
-                if qual_extract_state.uses_tantivy_to_query {
+                if qual_extract_state.uses_our_operator {
                     // Convert qual to SearchQueryInput and return the entire expression
                     let search_input = SearchQueryInput::from(&qual);
                     // Return the entire simplified expression for scoring

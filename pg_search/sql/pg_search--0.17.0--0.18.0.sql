@@ -17,7 +17,7 @@ DefineStmt { kind: OBJECT_OPERATOR, oldstyle: false, defnames: Some([Value(Value
 --
 
 -- the restrict function is not needed for the text operator
-ALTER OPERATOR pg_catalog.@@@(text, text) SET (RESTRICT = NONE);
+ALTER OPERATOR pg_catalog.@@@(anyelement, text) SET (RESTRICT = NONE);
 DROP FUNCTION IF EXISTS text_restrict(planner_info internal, operator_oid oid, args internal, _var_relid pg_catalog.int4);
 
 -- rename these functions

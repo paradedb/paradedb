@@ -44,7 +44,8 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `text`            | `text`             |
 |                                            | `uuid`            | `uuid`             |
 | `=`                                        | `bool`            | `bool`             | `WHERE in_stock = 2`       |
-| `IN`, `ANY`, `ALL`                         | `int2`            | `int2[]`           | `WHERE rating IN (1,2,3)`  |
+| `IN`, `ANY`, `ALL`                         | `bool`            | `bool[]`           | `WHERE rating IN (1,2,3)`  |
+|                                            | `int2`            | `int2[]`           |
 |                                            | `int4`            | `int4[]`           |
 |                                            | `int8`            | `int8[]`           |
 |                                            | `int2`            | `int4[]`           |

@@ -908,11 +908,7 @@ impl CustomScan for PdbScan {
             .base_search_query_input()
             .is_full_scan_query()
         {
-            json_value.as_object_mut().unwrap().shift_insert(
-                0,
-                "full_index_scan".to_string(),
-                true.into(),
-            );
+            explainer.add_bool("Full Index Scan", true);
         }
 
         let updated_json_query =

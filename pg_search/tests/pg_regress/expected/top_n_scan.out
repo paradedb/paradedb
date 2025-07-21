@@ -137,8 +137,8 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: time_period DESC
@@ -148,7 +148,7 @@ LIMIT 25;
                Exec Method: NormalScanExecState
                Scores: false
                   Top N Limit: 25
-               Tantivy Query: {"full_index_scan":true,"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
+               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 3: Same query without paradedb.all() operator
@@ -165,8 +165,8 @@ WHERE tenant_id = 'tenant-1'
   AND (NOT id @@@ paradedb.exists('removed_at'))
 ORDER BY time_period DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: time_period DESC
@@ -176,7 +176,7 @@ LIMIT 25;
                Exec Method: NormalScanExecState
                Scores: false
                   Top N Limit: 25
-               Tantivy Query: {"full_index_scan":true,"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
+               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 4: Testing the impact of paradedb.all() alone
@@ -188,8 +188,8 @@ FROM records
 WHERE id @@@ paradedb.all()
 ORDER BY id
 LIMIT 25;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+                      QUERY PLAN                       
+-------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on records
          Table: records
@@ -199,8 +199,9 @@ LIMIT 25;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 25
-         Tantivy Query: {"full_index_scan":true,"with_index":{"query":"all"}}
-(10 rows)
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(11 rows)
 
 -- Test 5: Testing NOT with paradedb.exists
 \echo 'Test 5: Testing NOT with paradedb.exists'
@@ -211,8 +212,8 @@ FROM records
 WHERE NOT id @@@ paradedb.exists('removed_at')
 ORDER BY id
 LIMIT 25;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on records
          Table: records
@@ -222,7 +223,7 @@ LIMIT 25;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 25
-         Tantivy Query: {"full_index_scan":true,"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
+         Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
 (10 rows)
 
 -- Test 6: Testing IN negation with @@@
@@ -234,8 +235,8 @@ FROM records
 WHERE NOT source_id @@@ 'IN [source-1 source-2 source-3]'
 ORDER BY id
 LIMIT 25;
-                                                                                                                     QUERY PLAN                                                                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on records
          Table: records
@@ -245,7 +246,7 @@ LIMIT 25;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 25
-         Tantivy Query: {"full_index_scan":true,"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
 (10 rows)
 
 -- Test 7: Testing simplified complex query - removing one component at a time
@@ -316,8 +317,8 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.all())
 ORDER BY time_period DESC
 LIMIT 25;
-                                                                                                                                                                                                                                                                                                                                                                                                            QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                 QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: time_period DESC
@@ -327,7 +328,7 @@ LIMIT 25;
                Exec Method: NormalScanExecState
                Scores: false
                   Top N Limit: 25
-               Tantivy Query: {"full_index_scan":true,"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
+               Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
 (10 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields

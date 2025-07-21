@@ -322,31 +322,63 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn contains_all_query(&self) -> bool {
+    pub fn is_full_scan_query(&self) -> bool {
         match self {
+            // All by itself is a full scan
             SearchQueryInput::All => true,
+
+            // Boolean queries - analyze based on Boolean semantics:
+            // A document matches if it matches ALL Must AND NONE of MustNot AND at least one of (Must OR Should)
             SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
             } => {
-                must.iter().any(|query| query.contains_all_query())
-                    || should.iter().any(|query| query.contains_all_query())
-                    || must_not.iter().any(|query| query.contains_all_query())
+                // For the query to be a full scan, ALL documents must match
+
+                // Check if all Must clauses would match all documents
+                let all_must_match_all =
+                    must.is_empty() || must.iter().all(Self::is_full_scan_query);
+
+                // Check if we have at least one clause that matches all documents
+                // If we have Must clauses, the "at least one" is satisfied if all Must are full scans
+                // If we have no Must clauses, we need at least one Should to be a full scan
+                let has_matching_clause = if !must.is_empty() {
+                    // If Must clauses exist and all match all docs, then we satisfy "at least one"
+                    all_must_match_all
+                } else {
+                    // No Must clauses, so we need at least one Should to match all docs
+                    should.iter().any(Self::is_full_scan_query)
+                };
+
+                // MustNot clauses must not exclude any documents
+                // This means all MustNot clauses must be Empty (which matches nothing, so "not nothing" = everything)
+                let must_not_excludes_nothing = must_not.is_empty()
+                    || must_not
+                        .iter()
+                        .all(|q| matches!(q, SearchQueryInput::Empty));
+
+                // Only a full scan if all conditions are met
+                all_must_match_all && has_matching_clause && must_not_excludes_nothing
             }
-            SearchQueryInput::WithIndex { query, .. } => query.contains_all_query(),
-            SearchQueryInput::Boost { query, .. } => query.contains_all_query(),
-            SearchQueryInput::ConstScore { query, .. } => query.contains_all_query(),
+
+            // DisjunctionMax - full scan if any disjunct is full scan (OR semantics)
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::is_full_scan_query)
+            }
+
+            // Wrapper queries - inherit from inner query
+            SearchQueryInput::WithIndex { query, .. } => Self::is_full_scan_query(query),
+            SearchQueryInput::Boost { query, .. } => Self::is_full_scan_query(query),
+            SearchQueryInput::ConstScore { query, .. } => Self::is_full_scan_query(query),
             SearchQueryInput::ScoreFilter {
                 query: Some(query), ..
-            } => query.contains_all_query(),
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                disjuncts.iter().any(|query| query.contains_all_query())
-            }
+            } => Self::is_full_scan_query(query),
             SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                indexed_query.contains_all_query()
+                Self::is_full_scan_query(indexed_query)
             }
-            // All other variants don't contain nested queries or are not All
+
+            // All other variants are not full scans
             _ => false,
         }
     }
@@ -2069,5 +2101,293 @@ impl PostgresExpression {
             "ExprState has not been initialized"
         );
         self.expr_state.0.cast()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tantivy::schema::OwnedValue;
+
+    fn create_term_query() -> SearchQueryInput {
+        SearchQueryInput::Term {
+            field: Some("test".into()),
+            value: OwnedValue::Str("value".to_string()),
+            is_datetime: false,
+        }
+    }
+
+    fn create_match_query() -> SearchQueryInput {
+        SearchQueryInput::Match {
+            field: "test".into(),
+            value: "value".to_string(),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+            conjunction_mode: None,
+        }
+    }
+
+    #[test]
+    fn test_is_full_scan_query_base_cases() {
+        // All query is a full scan
+        assert!(SearchQueryInput::All.is_full_scan_query());
+
+        // Empty query is not a full scan
+        assert!(!SearchQueryInput::Empty.is_full_scan_query());
+
+        // Uninitialized is not a full scan
+        assert!(!SearchQueryInput::Uninitialized.is_full_scan_query());
+
+        // Term queries are not full scans
+        assert!(!create_term_query().is_full_scan_query());
+
+        // Match queries are not full scans
+        assert!(!create_match_query().is_full_scan_query());
+
+        // Exists queries are not full scans
+        assert!(!SearchQueryInput::Exists {
+            field: "test".into(),
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_boolean_must_only() {
+        // Single Must clause with All → full scan
+        assert!(SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Multiple Must clauses with all All → full scan
+        assert!(SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All, SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Must clause with All and term → not full scan (not all Must are full scan)
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All, create_term_query()],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Must clause with only term → not full scan
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![create_term_query()],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_boolean_should_only() {
+        // Should clause with All → full scan
+        assert!(SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![SearchQueryInput::All],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Should clause with All and term → full scan (any Should is full scan)
+        assert!(SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![SearchQueryInput::All, create_term_query()],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Should clause with only term → not full scan
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![create_term_query()],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Empty Should clause → not full scan
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_boolean_must_not() {
+        // Must with All, MustNot with term → not full scan (MustNot excludes docs)
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![create_term_query()],
+        }
+        .is_full_scan_query());
+
+        // Must with All, MustNot with Empty → full scan (MustNot excludes nothing)
+        assert!(SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::Empty],
+        }
+        .is_full_scan_query());
+
+        // Must with All, MustNot with multiple Empty → full scan
+        assert!(SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::Empty, SearchQueryInput::Empty],
+        }
+        .is_full_scan_query());
+
+        // Must with All, MustNot with Empty and term → not full scan (one MustNot excludes docs)
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![],
+            must_not: vec![SearchQueryInput::Empty, create_term_query()],
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_boolean_mixed() {
+        // Must with All, Should with term → full scan (Must satisfies "at least one")
+        assert!(SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::All],
+            should: vec![create_term_query()],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Must with term, Should with All → not full scan (not all Must are full scan)
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![create_term_query()],
+            should: vec![SearchQueryInput::All],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_disjunction_max() {
+        // DisjunctionMax with All → full scan
+        assert!(SearchQueryInput::DisjunctionMax {
+            disjuncts: vec![SearchQueryInput::All],
+            tie_breaker: None,
+        }
+        .is_full_scan_query());
+
+        // DisjunctionMax with All and term → full scan (any disjunct is full scan)
+        assert!(SearchQueryInput::DisjunctionMax {
+            disjuncts: vec![SearchQueryInput::All, create_term_query()],
+            tie_breaker: None,
+        }
+        .is_full_scan_query());
+
+        // DisjunctionMax with only terms → not full scan
+        assert!(!SearchQueryInput::DisjunctionMax {
+            disjuncts: vec![create_term_query(), create_match_query()],
+            tie_breaker: None,
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_wrapper_queries() {
+        // WithIndex wrapping All → full scan
+        assert!(SearchQueryInput::WithIndex {
+            oid: 12345.into(),
+            query: Box::new(SearchQueryInput::All),
+        }
+        .is_full_scan_query());
+
+        // WithIndex wrapping term → not full scan
+        assert!(!SearchQueryInput::WithIndex {
+            oid: 12345.into(),
+            query: Box::new(create_term_query()),
+        }
+        .is_full_scan_query());
+
+        // Boost wrapping All → full scan
+        assert!(SearchQueryInput::Boost {
+            query: Box::new(SearchQueryInput::All),
+            factor: 2.0,
+        }
+        .is_full_scan_query());
+
+        // ConstScore wrapping All → full scan
+        assert!(SearchQueryInput::ConstScore {
+            query: Box::new(SearchQueryInput::All),
+            score: 1.0,
+        }
+        .is_full_scan_query());
+
+        // ScoreFilter with All → full scan
+        assert!(SearchQueryInput::ScoreFilter {
+            bounds: vec![],
+            query: Some(Box::new(SearchQueryInput::All)),
+        }
+        .is_full_scan_query());
+
+        // ScoreFilter without query → not full scan
+        assert!(!SearchQueryInput::ScoreFilter {
+            bounds: vec![],
+            query: None,
+        }
+        .is_full_scan_query());
+
+        // HeapFilter with All → full scan
+        assert!(SearchQueryInput::HeapFilter {
+            indexed_query: Box::new(SearchQueryInput::All),
+            field_filters: vec![],
+        }
+        .is_full_scan_query());
+    }
+
+    #[test]
+    fn test_is_full_scan_query_nested_queries() {
+        // Nested Boolean with All deep inside Should
+        assert!(SearchQueryInput::Boolean {
+            must: vec![],
+            should: vec![SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![],
+            }],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
+
+        // Nested WithIndex(Boolean(All))
+        assert!(SearchQueryInput::WithIndex {
+            oid: 12345.into(),
+            query: Box::new(SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All],
+                should: vec![],
+                must_not: vec![],
+            }),
+        }
+        .is_full_scan_query());
+
+        // Complex nesting that should not be full scan
+        assert!(!SearchQueryInput::Boolean {
+            must: vec![SearchQueryInput::Boolean {
+                must: vec![SearchQueryInput::All, create_term_query()], // Not all Must are full scan
+                should: vec![],
+                must_not: vec![],
+            }],
+            should: vec![],
+            must_not: vec![],
+        }
+        .is_full_scan_query());
     }
 }

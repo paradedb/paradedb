@@ -906,7 +906,7 @@ impl CustomScan for PdbScan {
         if state
             .custom_state()
             .base_search_query_input()
-            .contains_all_query()
+            .is_full_scan_query()
         {
             json_value.as_object_mut().unwrap().shift_insert(
                 0,

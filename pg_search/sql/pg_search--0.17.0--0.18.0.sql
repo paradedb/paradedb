@@ -40,6 +40,7 @@ CREATE OR REPLACE FUNCTION "search_with_parse"(
     SUPPORT search_with_parse_support   /* make sure to set the SUPPORT function! */
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
+ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.search_with_parse_support;
 
 
 --
@@ -137,34 +138,6 @@ AS 'MODULE_PATHNAME', 'search_with_match_disjunction_support_wrapper';
 --   search_with_match_disjunction
 --   search_with_match_disjunction_support
     ALTER FUNCTION paradedb.search_with_match_disjunction SUPPORT paradedb.search_with_match_disjunction_support;
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/operator/atatat.rs:31
--- pg_search::api::operator::atatat::search_with_parse
-CREATE  FUNCTION "search_with_parse"(
-    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
-    "query" TEXT /* &str */
-) RETURNS bool /* bool */
-    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/operator/atatat.rs:37
--- pg_search::api::operator::atatat::search_with_parse_support
-CREATE  FUNCTION "search_with_parse_support"(
-    "arg" internal /* pgrx::datum::internal::Internal */
-) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
-    IMMUTABLE PARALLEL SAFE
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'search_with_parse_support_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/operator/atatat.rs:124
--- requires:
---   search_with_parse
---   search_with_parse_support
-    ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.search_with_parse_support;
 /* </end connected objects> */
 /* <begin connected objects> */
 -- pg_search/src/api/operator/hashhashhash.rs:27

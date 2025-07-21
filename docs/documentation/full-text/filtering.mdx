@@ -43,7 +43,7 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timestamptz`     | `timestamptz`      |
 |                                            | `text`            | `text`             |
 |                                            | `uuid`            | `uuid`             |
-| `=`                                        | `bool`            | `bool`             | `WHERE in_stock = 2`       |
+| `=`                                        | `bool`            | `bool`             | `WHERE in_stock = true`    |
 | `IN`, `ANY`, `ALL`                         | `bool`            | `bool[]`           | `WHERE rating IN (1,2,3)`  |
 |                                            | `int2`            | `int2[]`           |
 |                                            | `int4`            | `int4[]`           |
@@ -79,6 +79,3 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timestamptz`     |                    |
 |                                            | `text`            |                    |
 |                                            | `uuid`            |                    |
-
-As part of our roadmap, we are adding support for more operators and types. To request support for a new type or operator,
-please open a [Github issue](https://github.com/paradedb/paradedb/issues).

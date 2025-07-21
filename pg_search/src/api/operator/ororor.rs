@@ -51,12 +51,13 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
         request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize|
             match_disjunction(field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field."), match to_tokenize {
                 RHSValue::Text(to_tokenize) => to_tokenize,
-                _ => unreachable!("The right hand side of the `|||(key_field, TEXT)` operator must be a text value")
+                _ => unreachable!("The right-hand side of the `|||(key_field, TEXT)` operator must be a text value")
             }), |field, rhs| {
-            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right hand side of the `|||(field, TEXT)` operator must be a text value");
+            let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
+            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `|||(field, TEXT)` operator must be a text value");
             let mut args = PgList::<pg_sys::Node>::new();
 
-            args.push(field.map(|field| field.into()).unwrap_or_else(FieldName::null_const).cast());
+            args.push(field.into_const().cast());
             args.push(rhs.cast());
 
             pg_sys::FuncExpr {

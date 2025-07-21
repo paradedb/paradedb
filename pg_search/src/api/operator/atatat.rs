@@ -18,8 +18,6 @@
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::api::FieldName;
-use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -32,29 +30,8 @@ use pgrx::{
 /// And in that case we just have to give up.
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.@@@)]
-pub fn search_with_parse(
-    _element: AnyElement,
-    query: &str,
-    _fcinfo: pg_sys::FunctionCallInfo,
-) -> bool {
+pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`")
-}
-
-#[pg_extern(immutable, parallel_safe)]
-pub fn _search_with_parse(field: Option<FieldName>, query_string: String) -> SearchQueryInput {
-    match field {
-        Some(field) => SearchQueryInput::ParseWithField {
-            field,
-            query_string,
-            lenient: None,
-            conjunction_mode: None,
-        },
-        None => SearchQueryInput::Parse {
-            query_string,
-            lenient: None,
-            conjunction_mode: None,
-        },
-    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -63,7 +40,10 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
         request_simplify(
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
             |field, query_value| match query_value {
-                RHSValue::Text(query_string) => _search_with_parse(field, query_string),
+                RHSValue::Text(query_string) => match field {
+                    Some(field) => crate::api::builder_fns::parse_with_field(field, query_string, None, None),
+                    None => crate::api::builder_fns::parse(query_string, None, None),
+                }
                 _ => {
                     unreachable!(
                         "search_with_parse_support should only ever be called with a text value"
@@ -76,39 +56,68 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
 
                 assert!(
                     expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID,
-                    "The right hand side of the `@@@` operator must be a text value"
+                    "The right-hand side of the `@@@` operator must be a text value"
                 );
 
-                let mut args = PgList::<pg_sys::Node>::new();
-                args.push(
-                    field
-                        .map(|field| field.into())
-                        .unwrap_or_else(FieldName::null_const)
-                        .cast(),
-                );
-                args.push(rhs.cast());
+                match field {
+                    // here we call the `paradedb.parse_with_field` function
+                    Some(field) => {
+                        let mut args = PgList::<pg_sys::Node>::new();
+                        args.push(field.into_const().cast());
+                        args.push(rhs.cast());
+                        args.push(pg_sys::makeBoolConst(false, true));
+                        args.push(pg_sys::makeBoolConst(false, true));
 
-                pg_sys::FuncExpr {
-                    xpr: pg_sys::Expr {
-                        type_: pg_sys::NodeTag::T_FuncExpr,
-                    },
-                    funcid: direct_function_call::<pg_sys::Oid>(
-                        pg_sys::regprocedurein,
-                        &[c"paradedb._search_with_parse(paradedb.fieldname, text)".into_datum()],
-                    )
-                    .expect("`paradedb._search_with_parse(paradedb.fieldname, text)` should exist"),
-                    funcresulttype: search_query_input_typoid,
-                    funcretset: false,
-                    funcvariadic: false,
-                    funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-                    funccollid: pg_sys::Oid::INVALID,
-                    inputcollid: pg_sys::Oid::INVALID,
-                    args: args.into_pg(),
-                    location: -1,
+                        pg_sys::FuncExpr {
+                            xpr: pg_sys::Expr {
+                                type_: pg_sys::NodeTag::T_FuncExpr,
+                            },
+                            funcid: direct_function_call::<pg_sys::Oid>(
+                                pg_sys::regprocedurein,
+                                &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
+                            )
+                                .expect("`paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` should exist"),
+                            funcresulttype: search_query_input_typoid,
+                            funcretset: false,
+                            funcvariadic: false,
+                            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                            funccollid: pg_sys::Oid::INVALID,
+                            inputcollid: pg_sys::Oid::INVALID,
+                            args: args.into_pg(),
+                            location: -1,
+                        }
+                    }
+
+                    // here we call the `paradedb.parse` function
+                    None => {
+                        let mut args = PgList::<pg_sys::Node>::new();
+                        args.push(rhs.cast());
+                        args.push(pg_sys::makeBoolConst(false, true));
+                        args.push(pg_sys::makeBoolConst(false, true));
+
+                        pg_sys::FuncExpr {
+                            xpr: pg_sys::Expr {
+                                type_: pg_sys::NodeTag::T_FuncExpr,
+                            },
+                            funcid: direct_function_call::<pg_sys::Oid>(
+                                pg_sys::regprocedurein,
+                                &[c"paradedb.parse(text, bool, bool)".into_datum()],
+                            )
+                                .expect("`paradedb.parse(text, bool, bool)` should exist"),
+                            funcresulttype: search_query_input_typoid,
+                            funcretset: false,
+                            funcvariadic: false,
+                            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+                            funccollid: pg_sys::Oid::INVALID,
+                            inputcollid: pg_sys::Oid::INVALID,
+                            args: args.into_pg(),
+                            location: -1,
+                        }
+                    }
                 }
             },
         )
-        .unwrap_or(ReturnedNodePointer(None))
+            .unwrap_or(ReturnedNodePointer(None))
     }
 }
 

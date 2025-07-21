@@ -146,7 +146,37 @@ impl InOutFuncs for FieldName {
     }
 }
 
+impl From<FieldName> for *mut pg_sys::Const {
+    fn from(value: FieldName) -> Self {
+        unsafe {
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                value.into_datum().unwrap(),
+                false,
+                false,
+            )
+        }
+    }
+}
+
 impl FieldName {
+    pub fn null_const() -> *mut pg_sys::Const {
+        unsafe {
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                pg_sys::Datum::null(),
+                true,
+                false,
+            )
+        }
+    }
+
     #[inline(always)]
     pub fn into_inner(self) -> String {
         self.0

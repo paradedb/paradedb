@@ -199,8 +199,9 @@ LIMIT 25;
             Sort Field: id
             Sort Direction: asc
             Top N Limit: 25
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+(11 rows)
 
 -- Test 5: Testing NOT with paradedb.exists
 \echo 'Test 5: Testing NOT with paradedb.exists'

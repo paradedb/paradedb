@@ -330,3 +330,17 @@ pub fn resolve_base_type(oid: PgOid) -> Option<(PgOid, IsArray)> {
         }
     }
 }
+
+pub trait ToPalloc: Sized {
+    fn palloc(self) -> *mut Self {
+        self.palloc_in(PgMemoryContexts::CurrentMemoryContext)
+    }
+
+    fn palloc_in(self, mcxt: PgMemoryContexts) -> *mut Self;
+}
+
+impl<T> ToPalloc for T {
+    fn palloc_in(mut self, mut mcxt: PgMemoryContexts) -> *mut Self {
+        unsafe { mcxt.copy_ptr_into((&mut self as *mut T).cast(), size_of::<T>()) }
+    }
+}

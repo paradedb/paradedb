@@ -46,26 +46,49 @@ AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
 -- machine-generated upgrade code
 --
 
--- pg_search/src/api/operator/specialized/andandand.rs:21
--- pg_search::api::operator::specialized::andandand::search_with_match_conjunction
+/* <begin connected objects> */
+-- pg_search/src/api/operator/andandand.rs:35
+-- pg_search::api::operator::andandand::match_conjunction
+CREATE  FUNCTION "match_conjunction"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "terms_to_tokenize" TEXT /* alloc::string::String */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'match_conjunction_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/ororor.rs:35
+-- pg_search::api::operator::ororor::match_disjunction
+CREATE  FUNCTION "match_disjunction"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "terms_to_tokenize" TEXT /* alloc::string::String */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'match_disjunction_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/andandand.rs:27
+-- pg_search::api::operator::andandand::search_with_match_conjunction
 CREATE  FUNCTION "search_with_match_conjunction"(
-    "_field" text, /* &str */
+    "_field" TEXT, /* &str */
     "terms_to_tokenize" TEXT /* &str */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_match_conjunction_wrapper';
--- pg_search/src/api/operator/specialized/andandand.rs:21
--- pg_search::api::operator::specialized::andandand::search_with_match_conjunction
+-- pg_search/src/api/operator/andandand.rs:27
+-- pg_search::api::operator::andandand::search_with_match_conjunction
 CREATE OPERATOR pg_catalog.&&& (
     PROCEDURE="search_with_match_conjunction",
-    LEFTARG=text, /* &str */
+    LEFTARG=TEXT, /* &str */
     RIGHTARG=TEXT /* &str */
     );
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/andandand.rs:27
--- pg_search::api::operator::specialized::andandand::search_with_match_conjunction_support
+-- pg_search/src/api/operator/andandand.rs:48
+-- pg_search::api::operator::andandand::search_with_match_conjunction_support
 CREATE  FUNCTION "search_with_match_conjunction_support"(
     "arg" internal /* pgrx::datum::internal::Internal */
 ) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
@@ -74,33 +97,33 @@ CREATE  FUNCTION "search_with_match_conjunction_support"(
 AS 'MODULE_PATHNAME', 'search_with_match_conjunction_support_wrapper';
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/andandand.rs:45
+-- pg_search/src/api/operator/andandand.rs:83
 -- requires:
 --   search_with_match_conjunction
 --   search_with_match_conjunction_support
     ALTER FUNCTION paradedb.search_with_match_conjunction SUPPORT paradedb.search_with_match_conjunction_support;
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/ororor.rs:21
--- pg_search::api::operator::specialized::ororor::search_with_match_disjunction
+-- pg_search/src/api/operator/ororor.rs:27
+-- pg_search::api::operator::ororor::search_with_match_disjunction
 CREATE  FUNCTION "search_with_match_disjunction"(
-    "_field" text, /* &str */
+    "_field" TEXT, /* &str */
     "terms_to_tokenize" TEXT /* &str */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_match_disjunction_wrapper';
--- pg_search/src/api/operator/specialized/ororor.rs:21
--- pg_search::api::operator::specialized::ororor::search_with_match_disjunction
+-- pg_search/src/api/operator/ororor.rs:27
+-- pg_search::api::operator::ororor::search_with_match_disjunction
 CREATE OPERATOR pg_catalog.||| (
     PROCEDURE="search_with_match_disjunction",
-    LEFTARG=text, /* &str */
+    LEFTARG=TEXT, /* &str */
     RIGHTARG=TEXT /* &str */
     );
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/ororor.rs:27
--- pg_search::api::operator::specialized::ororor::search_with_match_disjunction_support
+-- pg_search/src/api/operator/ororor.rs:48
+-- pg_search::api::operator::ororor::search_with_match_disjunction_support
 CREATE  FUNCTION "search_with_match_disjunction_support"(
     "arg" internal /* pgrx::datum::internal::Internal */
 ) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
@@ -109,34 +132,61 @@ CREATE  FUNCTION "search_with_match_disjunction_support"(
 AS 'MODULE_PATHNAME', 'search_with_match_disjunction_support_wrapper';
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/ororor.rs:45
+-- pg_search/src/api/operator/ororor.rs:84
 -- requires:
 --   search_with_match_disjunction
 --   search_with_match_disjunction_support
     ALTER FUNCTION paradedb.search_with_match_disjunction SUPPORT paradedb.search_with_match_disjunction_support;
 /* </end connected objects> */
-
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/hashhashhash.rs:21
--- pg_search::api::operator::specialized::hashhashhash::search_with_phrase
+-- pg_search/src/api/operator/atatat.rs:31
+-- pg_search::api::operator::atatat::search_with_parse
+CREATE  FUNCTION "search_with_parse"(
+    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
+    "query" TEXT /* &str */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_parse_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/atatat.rs:37
+-- pg_search::api::operator::atatat::search_with_parse_support
+CREATE  FUNCTION "search_with_parse_support"(
+    "arg" internal /* pgrx::datum::internal::Internal */
+) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
+    IMMUTABLE PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_parse_support_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/atatat.rs:124
+-- requires:
+--   search_with_parse
+--   search_with_parse_support
+    ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.search_with_parse_support;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/hashhashhash.rs:27
+-- pg_search::api::operator::hashhashhash::search_with_phrase
 CREATE  FUNCTION "search_with_phrase"(
-    "_field" text, /* &str */
+    "_field" TEXT, /* &str */
     "terms_to_tokenize" TEXT /* &str */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_phrase_wrapper';
--- pg_search/src/api/operator/specialized/hashhashhash.rs:21
--- pg_search::api::operator::specialized::hashhashhash::search_with_phrase
+-- pg_search/src/api/operator/hashhashhash.rs:27
+-- pg_search::api::operator::hashhashhash::search_with_phrase
 CREATE OPERATOR pg_catalog.### (
     PROCEDURE="search_with_phrase",
-    LEFTARG=text, /* &str */
+    LEFTARG=TEXT, /* &str */
     RIGHTARG=TEXT /* &str */
     );
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/hashhashhash.rs:27
--- pg_search::api::operator::specialized::hashhashhash::search_with_phrase_support
+-- pg_search/src/api/operator/hashhashhash.rs:44
+-- pg_search::api::operator::hashhashhash::search_with_phrase_support
 CREATE  FUNCTION "search_with_phrase_support"(
     "arg" internal /* pgrx::datum::internal::Internal */
 ) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
@@ -145,63 +195,44 @@ CREATE  FUNCTION "search_with_phrase_support"(
 AS 'MODULE_PATHNAME', 'search_with_phrase_support_wrapper';
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/hashhashhash.rs:41
+-- pg_search/src/api/operator/hashhashhash.rs:83
 -- requires:
 --   search_with_phrase
 --   search_with_phrase_support
-ALTER FUNCTION paradedb.search_with_phrase SUPPORT paradedb.search_with_phrase_support;
-
---
--- ===(text)
---
-
+    ALTER FUNCTION paradedb.search_with_phrase SUPPORT paradedb.search_with_phrase_support;
+/* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/eqeqeq.rs:22
--- pg_search::api::operator::specialized::eqeqeq::search_with_term
+-- pg_search/src/api/operator/eqeqeq.rs:27
+-- pg_search::api::operator::eqeqeq::search_with_term
 CREATE  FUNCTION "search_with_term"(
-    "_field" text, /* &str */
+    "_field" TEXT, /* &str */
     "term" TEXT /* &str */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_term_wrapper';
-
--- pg_search/src/api/operator/specialized/eqeqeq.rs:22
--- pg_search::api::operator::specialized::eqeqeq::search_with_term
+-- pg_search/src/api/operator/eqeqeq.rs:27
+-- pg_search::api::operator::eqeqeq::search_with_term
 CREATE OPERATOR pg_catalog.=== (
     PROCEDURE="search_with_term",
-    LEFTARG=text, /* &str */
+    LEFTARG=TEXT, /* &str */
     RIGHTARG=TEXT /* &str */
     );
 /* </end connected objects> */
-
---
--- ===(text[])
---
-
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/eqeqeq.rs:28
--- pg_search::api::operator::specialized::eqeqeq::search_with_term_array
+-- pg_search/src/api/operator/eqeqeq.rs:33
+-- pg_search::api::operator::eqeqeq::search_with_term_array
 CREATE  FUNCTION "search_with_term_array"(
-    "_field" text, /* &str */
+    "_field" TEXT, /* &str */
     "terms" TEXT[] /* alloc::vec::Vec<alloc::string::String> */
 ) RETURNS bool /* bool */
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_term_array_wrapper';
-
--- pg_search/src/api/operator/specialized/eqeqeq.rs:28
--- pg_search::api::operator::specialized::eqeqeq::search_with_term_array
-CREATE OPERATOR pg_catalog.=== (
-    PROCEDURE="search_with_term_array",
-    LEFTARG=text, /* &str */
-    RIGHTARG=TEXT[] /* alloc::vec::Vec<alloc::string::String> */
-    );
 /* </end connected objects> */
-
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/eqeqeq.rs:34
--- pg_search::api::operator::specialized::eqeqeq::search_with_term_support
+-- pg_search/src/api/operator/eqeqeq.rs:62
+-- pg_search::api::operator::eqeqeq::search_with_term_support
 CREATE  FUNCTION "search_with_term_support"(
     "arg" internal /* pgrx::datum::internal::Internal */
 ) RETURNS internal /* pg_search::api::operator::ReturnedNodePointer */
@@ -209,14 +240,44 @@ CREATE  FUNCTION "search_with_term_support"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_term_support_wrapper';
 /* </end connected objects> */
-
 /* <begin connected objects> */
--- pg_search/src/api/operator/specialized/eqeqeq.rs:70
+-- pg_search/src/api/operator/eqeqeq.rs:114
 -- requires:
 --   search_with_term
 --   search_with_term_array
 --   search_with_term_support
-ALTER FUNCTION paradedb.search_with_term SUPPORT paradedb.search_with_term_support;
+    ALTER FUNCTION paradedb.search_with_term SUPPORT paradedb.search_with_term_support;
 ALTER FUNCTION paradedb.search_with_term_array SUPPORT paradedb.search_with_term_support;
 /* </end connected objects> */
-
+/* <begin connected objects> */
+-- pg_search/src/api/operator/eqeqeq.rs:39
+-- pg_search::api::operator::eqeqeq::string_term
+CREATE  FUNCTION "string_term"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "term" TEXT /* alloc::string::String */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'string_term_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/eqeqeq.rs:48
+-- pg_search::api::operator::eqeqeq::string_term_array
+CREATE  FUNCTION "string_term_array"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "terms" TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'string_term_array_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/hashhashhash.rs:35
+-- pg_search::api::operator::hashhashhash::tokenized_phrase
+CREATE  FUNCTION "tokenized_phrase"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "phrase" TEXT /* alloc::string::String */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'tokenized_phrase_wrapper';

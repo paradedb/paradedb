@@ -70,6 +70,15 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;
 
 
+---
+--- the rhs of the operator is an expression that must be evaluated at execution time
+---
+select * from regress.mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from regress.mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from regress.mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from regress.mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+select * from regress.mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+
 --
 -- some unsupported types on the lhs
 -- these will all produce an error

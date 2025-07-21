@@ -265,6 +265,39 @@ SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SH
   5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
 (3 rows)
 
+---
+--- the rhs of the operator is an expression that must be evaluated at execution time
+---
+select * from regress.mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
 --
 -- some unsupported types on the lhs
 -- these will all produce an error

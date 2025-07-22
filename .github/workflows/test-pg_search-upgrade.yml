@@ -76,20 +76,20 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.15.11
-      - name: Install cargo-pgrx for ParadeDB v0.15.11
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.13.0 --debug
+      # This is the pgrx version compatible with ParadeDB v0.15.19
+      - name: Install cargo-pgrx for ParadeDB v0.15.19
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.14.3 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.11
+      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.19
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # While technically backwards-compatible since 0.15.0, our Lindera dependency made a backwards-incompatible
-      # change by deleting its previous repositroy URL and forcing dependencies to upgrade, which forces us to test
-      # our upgrade compatibility from 0.15.11 onwards
-      - name: Checkout ParadeDB v0.15.11
-        run: git checkout v0.15.11
+      # change by deleting its previous repository URL and forcing dependencies to upgrade, which forces us to test
+      # our upgrade compatibility from 0.15.19 onwards
+      - name: Checkout ParadeDB v0.15.19
+        run: git checkout v0.15.19
 
-      - name: Compile & install pg_search v0.15.11
+      - name: Compile & install pg_search v0.15.19
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

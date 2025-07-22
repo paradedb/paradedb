@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753204569730,
+  "lastUpdate": 1753226072247,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1370,6 +1370,72 @@ window.BENCHMARK_DATA = {
             "value": 41.61645133167983,
             "unit": "median tps",
             "extra": "avg tps: 50.94915649313984, max tps: 810.5356668114823, count: 55046"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e26a38533fa872a935955128b2ecd08b3febf66",
+          "message": "perf: Skip computing scores if not requested for top-n field queries (#2892)\n\n## What\n\n`SearchIndexReader::{top_by_field_in_segments,\ntop_by_string_field_in_segments}` were not using\n`SearchIndexReader::need_scores`, and were instead universally enabling\nscores.\n\nUse the `enable_scoring` helper and `self.need_scores` to skip computing\nscores where possible.\n\n## Why\n\nComputing scores requires field norms, which ([if they have not been\ndisabled](https://docs.paradedb.com/documentation/indexing/record)) can\ntake time to load and use.",
+          "timestamp": "2025-07-22T15:58:56-07:00",
+          "tree_id": "2a41c9e06be04ef92fed2b265dc3f90340fb0e37",
+          "url": "https://github.com/paradedb/paradedb/commit/1e26a38533fa872a935955128b2ecd08b3febf66"
+        },
+        "date": 1753226071223,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1230.540494198395,
+            "unit": "median tps",
+            "extra": "avg tps: 1228.5048266499005, max tps: 1237.4384718998551, count: 55159"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2852.4112867588165,
+            "unit": "median tps",
+            "extra": "avg tps: 2830.4466073086696, max tps: 2859.4945005732516, count: 55159"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1263.1318840772733,
+            "unit": "median tps",
+            "extra": "avg tps: 1256.104347610509, max tps: 1265.4076108560569, count: 55159"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1059.6132992501766,
+            "unit": "median tps",
+            "extra": "avg tps: 1046.5864871514912, max tps: 1065.0338273218633, count: 55159"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 177.22306197677597,
+            "unit": "median tps",
+            "extra": "avg tps: 182.39038309700967, max tps: 192.61772313668288, count: 110318"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.03500347603702,
+            "unit": "median tps",
+            "extra": "avg tps: 152.66859364683089, max tps: 154.5240866737964, count: 55159"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.89032597054898,
+            "unit": "median tps",
+            "extra": "avg tps: 52.69106112926876, max tps: 705.1122045051028, count: 55159"
           }
         ]
       }

@@ -26,11 +26,113 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
 use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::SearchQueryInput;
+use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use pgrx::PgRelation;
 use serde_json::Value;
+use tantivy::schema::FieldType;
+
+#[allow(clippy::type_complexity)]
+#[pg_extern]
+pub fn schema(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(name, String),
+        name!(field_type, String),
+        name!(stored, bool),
+        name!(indexed, bool),
+        name!(fast, bool),
+        name!(fieldnorms, bool),
+        name!(expand_dots, Option<bool>),
+        name!(tokenizer, Option<String>),
+        name!(record, Option<String>),
+        name!(normalizer, Option<String>),
+    ),
+> {
+    // # Safety
+    //
+    // Lock the index relation until the end of this function so it is not dropped or
+    // altered while we are reading it.
+    //
+    // Because we accept a PgRelation above, we have confidence that Postgres has already
+    // validated the existence of the relation. We are safe calling the function below as
+    // long we do not pass pg_sys::NoLock without any other locking mechanism of our own.
+    let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
+
+    // We only consider the first partition for the purposes of computing a schema.
+    let index = IndexKind::for_index(index)
+        .unwrap()
+        .partitions()
+        .next()
+        .expect("expected at least one partition of the index");
+
+    let search_reader = SearchIndexReader::empty(&index, MvccSatisfies::Snapshot)
+        .expect("could not open search index reader");
+    let schema = search_reader.schema();
+
+    let mut field_rows = Vec::new();
+    for (_, field_entry) in schema.fields() {
+        let (field_type, tokenizer, record, normalizer, expand_dots) =
+            match field_entry.field_type() {
+                FieldType::I64(_) => ("I64".to_string(), None, None, None, None),
+                FieldType::U64(_) => ("U64".to_string(), None, None, None, None),
+                FieldType::F64(_) => ("F64".to_string(), None, None, None, None),
+                FieldType::Bool(_) => ("Bool".to_string(), None, None, None, None),
+                FieldType::Str(text_options) => {
+                    let indexing_options = text_options.get_indexing_options();
+                    let tokenizer = indexing_options.map(|opt| opt.tokenizer().to_string());
+                    let record = indexing_options
+                        .map(|opt| IndexRecordOption::from(opt.index_option()).to_string());
+                    let normalizer = text_options
+                        .get_fast_field_tokenizer_name()
+                        .map(|s| s.to_string());
+                    ("Str".to_string(), tokenizer, record, normalizer, None)
+                }
+                FieldType::JsonObject(json_options) => {
+                    let indexing_options = json_options.get_text_indexing_options();
+                    let tokenizer = indexing_options.map(|opt| opt.tokenizer().to_string());
+                    let record = indexing_options
+                        .map(|opt| IndexRecordOption::from(opt.index_option()).to_string());
+                    let normalizer = json_options
+                        .get_fast_field_tokenizer_name()
+                        .map(|s| s.to_string());
+                    let expand_dots = Some(json_options.is_expand_dots_enabled());
+                    (
+                        "JsonObject".to_string(),
+                        tokenizer,
+                        record,
+                        normalizer,
+                        expand_dots,
+                    )
+                }
+                FieldType::Date(_) => ("Date".to_string(), None, None, None, None),
+                _ => ("Other".to_string(), None, None, None, None),
+            };
+
+        let row = (
+            field_entry.name().to_string(),
+            field_type,
+            field_entry.is_stored(),
+            field_entry.is_indexed(),
+            field_entry.is_fast(),
+            field_entry.has_fieldnorms(),
+            expand_dots,
+            tokenizer,
+            record,
+            normalizer,
+        );
+
+        field_rows.push(row);
+    }
+
+    // Sort field rows for consistent ordering
+    field_rows.sort_by_key(|(name, _, _, _, _, _, _, _, _, _)| name.clone());
+    TableIterator::new(field_rows)
+}
 
 #[pg_extern]
 pub unsafe fn index_fields(index: PgRelation) -> anyhow::Result<JsonB> {

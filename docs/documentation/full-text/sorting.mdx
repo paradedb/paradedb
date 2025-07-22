@@ -27,6 +27,35 @@ ORDER BY rating DESC
 LIMIT 5;
 ```
 
+<Note>
+If `paradedb.score` is present in the query, but the `ORDER BY` is not on `paradedb.score`, the query will be executed less
+efficiently. This is due to the performance overhead of both computing scores and sorting by another field.
+
+```sql
+-- Less efficient: paradedb.score present
+-- but ORDER BY rating
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY rating DESC
+LIMIT 5;
+
+-- More efficient: ORDER BY paradedb.score
+SELECT description, rating, category, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY paradedb.score(id) DESC
+LIMIT 5;
+
+-- More efficient: No paradedb.score
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes'
+ORDER BY rating DESC
+LIMIT 5;
+```
+</Note>
+
 ## Tiebreaking
 
 Postgres can `ORDER BY` multiple columns to break ties in BM25 scores. In the following query, rows with the same

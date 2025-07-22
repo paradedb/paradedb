@@ -18,6 +18,7 @@
 // TODO: See https://github.com/pgcentralfoundation/pgrx/pull/2089
 #![allow(for_loops_over_fallibles)]
 
+mod admin;
 pub mod aggregate;
 pub mod builder_fns;
 pub mod config;

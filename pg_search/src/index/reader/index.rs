@@ -540,10 +540,7 @@ impl SearchIndexReader {
             .order_by_u64_field(&sort_field, sortdir.into());
         let weight = self
             .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
@@ -589,10 +586,7 @@ impl SearchIndexReader {
             .order_by_string_fast_field(&sort_field, sortdir.into());
         let weight = self
             .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {

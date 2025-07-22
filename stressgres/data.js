@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753203946246,
+  "lastUpdate": 1753204567592,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6570,6 +6570,42 @@ window.BENCHMARK_DATA = {
             "value": 129.5415322449111,
             "unit": "median tps",
             "extra": "avg tps: 128.96287903135322, max tps: 133.79855913063307, count: 56580"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77c6cd1aeb5f5c03bba892a38cd792a113cfbd39",
+          "message": "chore: move code around (#2889)\n\n## What\n\nThis relocates the `src/boostrap/create_bm25.rs` source to\n`src/api/admin.rs`, which I believe is a more sensibile location and\nname.\n\nAdditionally it moves the `#[pg_extern] schema()` function from\n`src/api/builder_fns.rs` to this new(ly renamed) `admin.rs`, as it's an\nadministrative function, not a query builder function.\n\n## Why\n\nTrying to better organize things\n\n## How\n\n## Tests\n\nNo functional changes here.",
+          "timestamp": "2025-07-22T12:39:21-04:00",
+          "tree_id": "1ab036752fc8adf7ad2757741d4e274ab0e73c64",
+          "url": "https://github.com/paradedb/paradedb/commit/77c6cd1aeb5f5c03bba892a38cd792a113cfbd39"
+        },
+        "date": 1753204566572,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 29.00341934298043,
+            "unit": "median tps",
+            "extra": "avg tps: 28.816883910229965, max tps: 29.258784756170176, count: 57628"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 135.12259497023186,
+            "unit": "median tps",
+            "extra": "avg tps: 134.58698459138492, max tps: 136.55890154706543, count: 57628"
           }
         ]
       }

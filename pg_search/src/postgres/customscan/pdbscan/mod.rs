@@ -321,10 +321,10 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
+            let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let segment_count = segment_count.load(Ordering::Relaxed);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -1240,7 +1240,15 @@ fn compute_exec_which_fast_fields(
         let execution_rti = custom_state.execution_rti;
         let heaprel = custom_state.heaprel();
 
+        // Calculate the ordered set of fast fields which have actually been requested in
+        // the target list.
+        //
+        // In order for our planned ExecMethodType to be accurate, this must always be a
+        // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
+            // At this point, all fast fields which we need to extract are listed directly
+            // in our execution-time target list, so there is no need to extract from other
+            // positions.
             target_list,
             &HashSet::default(),
             execution_rti,

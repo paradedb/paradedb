@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753226072247,
+  "lastUpdate": 1753226074335,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3942,6 +3942,126 @@ window.BENCHMARK_DATA = {
             "value": 58.8046875,
             "unit": "median mem",
             "extra": "avg mem: 56.487118373156086, max mem: 80.828125, count: 55046"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e26a38533fa872a935955128b2ecd08b3febf66",
+          "message": "perf: Skip computing scores if not requested for top-n field queries (#2892)\n\n## What\n\n`SearchIndexReader::{top_by_field_in_segments,\ntop_by_string_field_in_segments}` were not using\n`SearchIndexReader::need_scores`, and were instead universally enabling\nscores.\n\nUse the `enable_scoring` helper and `self.need_scores` to skip computing\nscores where possible.\n\n## Why\n\nComputing scores requires field norms, which ([if they have not been\ndisabled](https://docs.paradedb.com/documentation/indexing/record)) can\ntake time to load and use.",
+          "timestamp": "2025-07-22T15:58:56-07:00",
+          "tree_id": "2a41c9e06be04ef92fed2b265dc3f90340fb0e37",
+          "url": "https://github.com/paradedb/paradedb/commit/1e26a38533fa872a935955128b2ecd08b3febf66"
+        },
+        "date": 1753226073332,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7000672420128735, max cpu: 9.421001, count: 55159"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 60.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.99806496899871, max mem: 83.7109375, count: 55159"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.689766112496035, max cpu: 9.476802, count: 55159"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.02815879434906, max mem: 77.7109375, count: 55159"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.782111730917777, max cpu: 9.4395275, count: 55159"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 58.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.82779357176526, max mem: 83.3359375, count: 55159"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4425078554270545, max cpu: 4.7197638, count: 55159"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 58.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.49116573791222, max mem: 83.7109375, count: 55159"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.30794938479934, max cpu: 23.809525, count: 110318"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 72.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 73.30897889368688, max mem: 104.1328125, count: 110318"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3714,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3748.4774742109175, max block_count: 6738.0, count: 55159"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.89356224732138, max segment_count: 28.0, count: 55159"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.24182648101196, max cpu: 14.285715, count: 55159"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 78.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 78.94608193755779, max mem: 106.18359375, count: 55159"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1252370982549325, max cpu: 4.6829267, count: 55159"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 59.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.24563201664733, max mem: 83.02734375, count: 55159"
           }
         ]
       }

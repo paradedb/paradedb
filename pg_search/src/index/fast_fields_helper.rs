@@ -316,12 +316,14 @@ impl FFDynamic {
                     return None;
                 }
             };
+            // early exit if there are more than one handle, i.e. more than one fast field type
             if handles.len() > 1 {
                 return None;
             }
             all_handles.extend(handles);
         }
 
+        // get the type of the fast field, if there is only one type
         let dynamic_column = if let Some(first_type) = all_handles.first().map(|c| c.column_type())
         {
             if all_handles.iter().all(|c| c.column_type() == first_type) {

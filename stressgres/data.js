@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1752862610303,
+  "lastUpdate": 1753203296710,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1304,6 +1304,72 @@ window.BENCHMARK_DATA = {
             "value": 21.796006548150203,
             "unit": "median tps",
             "extra": "avg tps: 26.411693402303865, max tps: 767.2247715396436, count: 55215"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77c6cd1aeb5f5c03bba892a38cd792a113cfbd39",
+          "message": "chore: move code around (#2889)\n\n## What\n\nThis relocates the `src/boostrap/create_bm25.rs` source to\n`src/api/admin.rs`, which I believe is a more sensibile location and\nname.\n\nAdditionally it moves the `#[pg_extern] schema()` function from\n`src/api/builder_fns.rs` to this new(ly renamed) `admin.rs`, as it's an\nadministrative function, not a query builder function.\n\n## Why\n\nTrying to better organize things\n\n## How\n\n## Tests\n\nNo functional changes here.",
+          "timestamp": "2025-07-22T12:39:21-04:00",
+          "tree_id": "1ab036752fc8adf7ad2757741d4e274ab0e73c64",
+          "url": "https://github.com/paradedb/paradedb/commit/77c6cd1aeb5f5c03bba892a38cd792a113cfbd39"
+        },
+        "date": 1753203295706,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1223.7565385311345,
+            "unit": "median tps",
+            "extra": "avg tps: 1218.0213060236151, max tps: 1227.936233405042, count: 55046"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2700.78007463258,
+            "unit": "median tps",
+            "extra": "avg tps: 2699.6694861410824, max tps: 2741.4607643979557, count: 55046"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1236.1452401072272,
+            "unit": "median tps",
+            "extra": "avg tps: 1229.496712311209, max tps: 1239.6467823315336, count: 55046"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1014.8156984151757,
+            "unit": "median tps",
+            "extra": "avg tps: 1008.5281916773866, max tps: 1024.4658788644676, count: 55046"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 173.05159585579165,
+            "unit": "median tps",
+            "extra": "avg tps: 177.87356913818854, max tps: 186.77714521969176, count: 110092"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 145.05097473742177,
+            "unit": "median tps",
+            "extra": "avg tps: 144.79626064904642, max tps: 150.4990918608882, count: 55046"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.61645133167983,
+            "unit": "median tps",
+            "extra": "avg tps: 50.94915649313984, max tps: 810.5356668114823, count: 55046"
           }
         ]
       }

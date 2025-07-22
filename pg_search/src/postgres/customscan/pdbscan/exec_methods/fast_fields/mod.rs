@@ -162,16 +162,16 @@ pub unsafe fn collect_fast_fields(
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
     heaprel: &PgSearchRelation,
-    is_execution_time: bool,
     index: &PgSearchRelation,
+    is_execution_time: bool,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
         target_list,
         referenced_columns,
         heaprel,
+        index,
         rti,
         is_execution_time,
-        index,
     );
     fast_fields
         .filter(|fast_fields| !fast_fields.is_empty())
@@ -267,9 +267,9 @@ pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     heaprel: &PgSearchRelation,
+    index: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
-    index: &PgSearchRelation,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::default();
@@ -416,6 +416,7 @@ pub fn is_string_fast_field_capable(privdata: &PrivateData) -> Option<String> {
     }
 
     if privdata.limit().is_some() {
+        // See the method doc with regard to limits/laziness.
         return None;
     }
 

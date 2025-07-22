@@ -375,8 +375,8 @@ impl CustomScan for PdbScan {
                     &referenced_columns,
                     rti,
                     &table,
-                    false,
                     &bm25_index,
+                    false,
                 )
                 .into_iter()
                 .collect(),
@@ -1245,8 +1245,8 @@ fn compute_exec_which_fast_fields(
             &HashSet::default(),
             execution_rti,
             heaprel,
-            true,
             indexrel,
+            true,
         )
     };
 

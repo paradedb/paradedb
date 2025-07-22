@@ -305,11 +305,14 @@ pub unsafe fn pullup_fast_fields(
                 continue;
             }
             let attno = (*var).varattno;
-            let (_, fieldname) = find_one_var_and_fieldname(
+            let fieldname = if let Some((_, fieldname)) = find_one_var_and_fieldname(
                 VarContext::from_exec(heaprel.oid(), attno),
                 (*te).expr.cast(),
-            )
-            .unwrap();
+            ) {
+                Some(fieldname)
+            } else {
+                None
+            };
             if !collect_fast_field_try_for_attno(
                 attno as i32,
                 &mut processed_attnos,
@@ -318,7 +321,7 @@ pub unsafe fn pullup_fast_fields(
                 heaprel,
                 schema,
                 index,
-                Some(&fieldname),
+                fieldname.as_ref(),
             ) {
                 return None;
             }

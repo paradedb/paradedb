@@ -13,7 +13,10 @@ WHERE description @@@ 'shoes' AND rating > 2;
 
 ## Filter Pushdown
 
-While not required, performance can be improved by including commonly filtered columns in the BM25 index. When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself. This can result in faster query execution over large datasets.
+### Non-Text Fields
+
+While not required, filtering performance over non-text columns can be improved by including them in the BM25 index, and making sure they are configured as [fast](/documentation/indexing/fast_fields)
+(which is already the default for non-text fields). When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself. This can result in faster query execution over large datasets.
 
 For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:
 
@@ -41,7 +44,6 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timetz`          | `timetz`           |
 |                                            | `timestamp`       | `timestamp`        |
 |                                            | `timestamptz`     | `timestamptz`      |
-|                                            | `text`            | `text`             |
 |                                            | `uuid`            | `uuid`             |
 | `=`                                        | `bool`            | `bool`             | `WHERE in_stock = true`    |
 | `IN`, `ANY`, `ALL`                         | `bool`            | `bool[]`           | `WHERE rating IN (1,2,3)`  |
@@ -55,11 +57,9 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `float8`          | `float8[]`         |
 |                                            | `float4`          | `float8[]`         |
 |                                            | `date`            | `date[]`           |
-|                                            | `time`            | `time[]`           |
 |                                            | `timetz`          | `timetz[]`         |
 |                                            | `timestamp`       | `timestamp[]`      |
 |                                            | `timestamptz`     | `timestamptz[]`    |
-|                                            | `text`            | `text[]`           |
 |                                            | `uuid`            | `uuid[]`           |
 | `IS`, `IS NOT`                             | `bool`            | `bool`             | `WHERE in_stock IS true`   |
 | `IS NULL`, `IS NOT NULL`                   | `bool`            |                    | `WHERE rating IS NOT NULL` |
@@ -77,5 +77,30 @@ Filter pushdown is currently supported for the following combinations of types a
 |                                            | `timetz`          |                    |
 |                                            | `timestamp`       |                    |
 |                                            | `timestamptz`     |                    |
-|                                            | `text`            |                    |
 |                                            | `uuid`            |                    |
+
+### Text Fields
+
+Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND category = 'Footwear';
+```
+
+To push down the `category = 'Footwear'` filter, `category` must be indexed using the `keyword` tokenizer:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25(id, description, category)
+WITH (key_field = 'id', text_fields = '{"category": {"tokenizer": {"type": "keyword"}}}');
+```
+
+Pushdown of set filters over text fields also requires the `keyword` tokenizer:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
+```

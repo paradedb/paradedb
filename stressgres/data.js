@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753227346119,
+  "lastUpdate": 1753227348198,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8170,6 +8170,66 @@ window.BENCHMARK_DATA = {
             "value": 166.94921875,
             "unit": "median mem",
             "extra": "avg mem: 156.93496366241237, max mem: 175.86328125, count: 57628"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e26a38533fa872a935955128b2ecd08b3febf66",
+          "message": "perf: Skip computing scores if not requested for top-n field queries (#2892)\n\n## What\n\n`SearchIndexReader::{top_by_field_in_segments,\ntop_by_string_field_in_segments}` were not using\n`SearchIndexReader::need_scores`, and were instead universally enabling\nscores.\n\nUse the `enable_scoring` helper and `self.need_scores` to skip computing\nscores where possible.\n\n## Why\n\nComputing scores requires field norms, which ([if they have not been\ndisabled](https://docs.paradedb.com/documentation/indexing/record)) can\ntake time to load and use.",
+          "timestamp": "2025-07-22T15:58:56-07:00",
+          "tree_id": "2a41c9e06be04ef92fed2b265dc3f90340fb0e37",
+          "url": "https://github.com/paradedb/paradedb/commit/1e26a38533fa872a935955128b2ecd08b3febf66"
+        },
+        "date": 1753227347192,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.56424557360741, max cpu: 55.598457, count: 57209"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.5463334003391, max mem: 179.29296875, count: 57209"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18133,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16843.69961020119, max block_count: 21977.0, count: 57209"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.14649792864759, max segment_count: 116.0, count: 57209"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.18349534168653, max cpu: 37.907207, count: 57209"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 159.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 149.18621523711303, max mem: 167.15625, count: 57209"
           }
         ]
       }

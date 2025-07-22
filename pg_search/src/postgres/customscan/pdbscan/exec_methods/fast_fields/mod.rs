@@ -182,6 +182,7 @@ pub unsafe fn collect_fast_fields(
 }
 
 // Helper function to process an attribute number and add a fast field if appropriate
+#[allow(clippy::too_many_arguments)]
 fn collect_fast_field_try_for_attno(
     attno: i32,
     processed_attnos: &mut HashSet<pg_sys::AttrNumber>,

@@ -318,30 +318,16 @@ impl FFDynamic {
             all_handles.extend(handles);
         }
 
-        let mut dynamic_columns = Vec::<DynamicColumn>::new();
-        for handle in &all_handles {
-            let col = match handle.open() {
-                Ok(c) => c,
-                Err(_) => {
-                    return None;
-                }
-            };
-            dynamic_columns.push(col);
-        }
-
-        let dynamic_column =
-            if let Some(first_type) = dynamic_columns.first().map(|c| c.column_type()) {
-                if dynamic_columns
-                    .iter()
-                    .all(|c| c.column_type() == first_type)
-                {
-                    Some(dynamic_columns.first().unwrap().clone())
-                } else {
-                    None
-                }
+        let dynamic_column = if let Some(first_type) = all_handles.first().map(|c| c.column_type())
+        {
+            if all_handles.iter().all(|c| c.column_type() == first_type) {
+                all_handles.first().map(|c| c.open().unwrap())
             } else {
                 None
-            };
+            }
+        } else {
+            None
+        };
 
         match dynamic_column {
             Some(DynamicColumn::Str(col)) => Some(FFDynamic::Text(col, field_name.clone())),

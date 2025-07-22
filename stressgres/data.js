@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753203296710,
+  "lastUpdate": 1753203298730,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3756,6 +3756,126 @@ window.BENCHMARK_DATA = {
             "value": 59.5546875,
             "unit": "median mem",
             "extra": "avg mem: 58.685225369012045, max mem: 83.47265625, count: 55215"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77c6cd1aeb5f5c03bba892a38cd792a113cfbd39",
+          "message": "chore: move code around (#2889)\n\n## What\n\nThis relocates the `src/boostrap/create_bm25.rs` source to\n`src/api/admin.rs`, which I believe is a more sensibile location and\nname.\n\nAdditionally it moves the `#[pg_extern] schema()` function from\n`src/api/builder_fns.rs` to this new(ly renamed) `admin.rs`, as it's an\nadministrative function, not a query builder function.\n\n## Why\n\nTrying to better organize things\n\n## How\n\n## Tests\n\nNo functional changes here.",
+          "timestamp": "2025-07-22T12:39:21-04:00",
+          "tree_id": "1ab036752fc8adf7ad2757741d4e274ab0e73c64",
+          "url": "https://github.com/paradedb/paradedb/commit/77c6cd1aeb5f5c03bba892a38cd792a113cfbd39"
+        },
+        "date": 1753203297751,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.728058499733118, max cpu: 9.4395275, count: 55046"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.06565276087272, max mem: 81.859375, count: 55046"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577862812576371, max cpu: 9.266409, count: 55046"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 54.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.741005250154416, max mem: 76.984375, count: 55046"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.737606933187179, max cpu: 9.402546, count: 55046"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 59.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.31283012162555, max mem: 81.859375, count: 55046"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.291801104196035, max cpu: 4.692082, count: 55046"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 59.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.885491225520475, max mem: 82.984375, count: 55046"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.3716793049992475, max cpu: 23.346306, count: 110092"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 64.05859375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.92471190288577, max mem: 92.41015625, count: 110092"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3695,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3714.4300403299058, max block_count: 6672.0, count: 55046"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.936543981397376, max segment_count: 27.0, count: 55046"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.209776214579861, max cpu: 14.173229, count: 55046"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 68.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 68.15582216180557, max mem: 96.20703125, count: 55046"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.375605597686752, max cpu: 4.7058825, count: 55046"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 58.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.487118373156086, max mem: 80.828125, count: 55046"
           }
         ]
       }

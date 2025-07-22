@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753203943902,
+  "lastUpdate": 1753203946246,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5804,6 +5804,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.92818876887603, max segment_count: 96.0, count: 57679"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77c6cd1aeb5f5c03bba892a38cd792a113cfbd39",
+          "message": "chore: move code around (#2889)\n\n## What\n\nThis relocates the `src/boostrap/create_bm25.rs` source to\n`src/api/admin.rs`, which I believe is a more sensibile location and\nname.\n\nAdditionally it moves the `#[pg_extern] schema()` function from\n`src/api/builder_fns.rs` to this new(ly renamed) `admin.rs`, as it's an\nadministrative function, not a query builder function.\n\n## Why\n\nTrying to better organize things\n\n## How\n\n## Tests\n\nNo functional changes here.",
+          "timestamp": "2025-07-22T12:39:21-04:00",
+          "tree_id": "1ab036752fc8adf7ad2757741d4e274ab0e73c64",
+          "url": "https://github.com/paradedb/paradedb/commit/77c6cd1aeb5f5c03bba892a38cd792a113cfbd39"
+        },
+        "date": 1753203945270,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.121387,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.475938005126512, max cpu: 42.561577, count: 57774"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 228.69132687281476, max mem: 236.390625, count: 57774"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.259629460821138, max cpu: 33.168808, count: 57774"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.18903480588153, max mem: 160.56640625, count: 57774"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22247,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20703.81206078859, max block_count: 23457.0, count: 57774"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.39417384982865, max segment_count: 97.0, count: 57774"
           }
         ]
       }

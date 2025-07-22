@@ -16,11 +16,11 @@ pub enum VarContext {
 }
 
 impl VarContext {
-    pub fn new_planner(root: *mut pg_sys::PlannerInfo) -> Self {
+    pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
         Self::Planner(root)
     }
 
-    pub fn new_exec(heaprelid: pg_sys::Oid, varattno: pg_sys::AttrNumber) -> Self {
+    pub fn from_exec(heaprelid: pg_sys::Oid, varattno: pg_sys::AttrNumber) -> Self {
         Self::Exec(heaprelid, varattno)
     }
 

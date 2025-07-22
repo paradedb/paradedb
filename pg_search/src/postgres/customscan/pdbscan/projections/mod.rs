@@ -150,7 +150,7 @@ pub unsafe fn pullout_funcexprs(
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 for arg in args.iter_ptr() {
                     if let Some((var, fieldname)) =
-                        find_one_var_and_fieldname(VarContext::new_planner(data.root), arg)
+                        find_one_var_and_fieldname(VarContext::from_planner(data.root), arg)
                     {
                         if (*var).varno as i32 == data.rti as i32 {
                             data.matches.push((funcexpr, var, fieldname));

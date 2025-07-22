@@ -306,7 +306,7 @@ pub unsafe fn pullup_fast_fields(
             }
             let attno = (*var).varattno;
             let (_, fieldname) = find_one_var_and_fieldname(
-                VarContext::new_exec(heaprel.oid(), attno),
+                VarContext::from_exec(heaprel.oid(), attno),
                 (*te).expr.cast(),
             )
             .unwrap();

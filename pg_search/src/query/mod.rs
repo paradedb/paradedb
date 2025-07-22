@@ -28,7 +28,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
-use crate::query::fielded_query::FieldedQueryInput;
+pub use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;

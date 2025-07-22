@@ -53,7 +53,10 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 pgrx::pg_module_magic!();
 
 extension_sql!(
-    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    r#"
+        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
+        DROP SCHEMA IF EXISTS paradedb_tmp;
+    "#,
     name = "paradedb_grant_all",
     finalize
 );

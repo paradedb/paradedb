@@ -18,6 +18,7 @@
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
+use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -88,7 +89,7 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
                         }
                     }
 
-                    // here we call the `paradedb.parse` function
+                    // here we call the `paradedb.parse` function without a FieldName
                     None => {
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(rhs.cast());

@@ -1520,7 +1520,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::MoreLikeThis { .. } => false,
 
         // For ParseWithField, check if it's a text search or a range query
-        SearchQueryInput::FieldedQuery { query, .. } if matches!(query, FieldedQueryInput::ParseWithField {query_string, ..} if is_range_query_string(query_string)) => {
+        SearchQueryInput::FieldedQuery { query, .. } if matches!(query, FieldedQueryInput::Parse {query_string, ..} if is_range_query_string(query_string)) => {
             true
         }
 

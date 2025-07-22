@@ -1,8 +1,10 @@
 use crate::api::FieldName;
 use crate::query::range::{deserialize_bound, serialize_bound, Comparison, RangeField};
-use crate::query::{check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError};
+use crate::query::{
+    check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
+};
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
-use pgrx::PostgresType;
+use pgrx::{pg_extern, PostgresType};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::Bound;
@@ -15,6 +17,11 @@ use tantivy::query::{
 use tantivy::schema::OwnedValue;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn to_search_query_input(field: FieldName, query: FieldedQueryInput) -> SearchQueryInput {
+    SearchQueryInput::FieldedQuery { field, query }
+}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -46,7 +53,7 @@ pub enum FieldedQueryInput {
         prefix: Option<bool>,
         conjunction_mode: Option<bool>,
     },
-    ParseWithField {
+    Parse {
         query_string: String,
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
@@ -184,11 +191,12 @@ impl FieldedQueryInput {
                 prefix,
                 conjunction_mode,
             )?,
-            FieldedQueryInput::ParseWithField {
+            FieldedQueryInput::Parse {
                 query_string,
                 lenient,
                 conjunction_mode,
-            } => parse_with_field(&field, parser, query_string, lenient, conjunction_mode)?,
+            } => parse(&field, parser, query_string, lenient, conjunction_mode)?,
+
             FieldedQueryInput::Phrase { phrases, slop } => {
                 phrase(&field, schema, searcher, phrases, slop)?
             }
@@ -1021,7 +1029,7 @@ fn phrase(
     Ok(Box::new(query))
 }
 
-fn parse_with_field(
+fn parse(
     field: &FieldName,
     parser: &mut QueryParser,
     query_string: String,

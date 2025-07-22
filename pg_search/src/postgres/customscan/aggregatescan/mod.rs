@@ -43,12 +43,13 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState}
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
-use pgrx::{pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::Index;
 
 #[derive(Default)]
@@ -367,7 +368,8 @@ fn extract_grouping_columns(
                         continue;
                     }
 
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         let field_name = att.name();

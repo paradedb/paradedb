@@ -24,6 +24,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::SearchQueryInput;
 use anyhow::Result;
 use pgrx::prelude::*;
@@ -217,10 +218,12 @@ fn index_info(
 fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<Vec<String>>> {
     let index = PgSearchRelation::with_lock(index.oid(), pg_sys::AccessShareLock as _);
     let ctid_u64 = item_pointer_to_u64(ctid);
-    let query = SearchQueryInput::Term {
-        field: Some("ctid".into()),
-        value: ctid_u64.into(),
-        is_datetime: false,
+    let query = SearchQueryInput::FieldedQuery {
+        field: "ctid".into(),
+        query: FieldedQueryInput::Term {
+            value: ctid_u64.into(),
+            is_datetime: false,
+        },
     };
     let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;
     let results = search_index.search(None);

@@ -64,6 +64,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -1516,32 +1517,16 @@ fn base_query_has_search_predicates(
             .any(|q| base_query_has_search_predicates(q, current_index_oid)),
 
         // These are NOT search predicates (they're range/exists/other predicates)
-        SearchQueryInput::Range { .. }
-        | SearchQueryInput::RangeContains { .. }
-        | SearchQueryInput::RangeIntersects { .. }
-        | SearchQueryInput::RangeTerm { .. }
-        | SearchQueryInput::RangeWithin { .. }
-        | SearchQueryInput::Exists { .. }
-        | SearchQueryInput::FastFieldRangeWeight { .. }
-        | SearchQueryInput::MoreLikeThis { .. } => false,
+        SearchQueryInput::MoreLikeThis { .. } => false,
 
-        // These are search predicates that use the @@@ operator
-        SearchQueryInput::ParseWithField { query_string, .. } => {
-            // For ParseWithField, check if it's a text search or a range query
-            !is_range_query_string(query_string)
+        // For ParseWithField, check if it's a text search or a range query
+        SearchQueryInput::FieldedQuery { query, .. } if matches!(query, FieldedQueryInput::ParseWithField {query_string, ..} if is_range_query_string(query_string)) => {
+            true
         }
+
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
-        | SearchQueryInput::Term { field: Some(_), .. }
-        | SearchQueryInput::Phrase { .. }
-        | SearchQueryInput::PhrasePrefix { .. }
-        | SearchQueryInput::FuzzyTerm { .. }
-        | SearchQueryInput::Match { .. }
-        | SearchQueryInput::Regex { .. }
-        | SearchQueryInput::RegexPhrase { .. } => true,
-
-        // Term with no field is not a search predicate
-        SearchQueryInput::Term { field: None, .. } => false,
+        | SearchQueryInput::FieldedQuery { .. } => true,
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,
@@ -1550,7 +1535,6 @@ fn base_query_has_search_predicates(
         SearchQueryInput::HeapFilter { indexed_query, .. } => {
             base_query_has_search_predicates(indexed_query, current_index_oid)
         }
-        SearchQueryInput::TokenizedPhrase { .. } => false,
     }
 }
 

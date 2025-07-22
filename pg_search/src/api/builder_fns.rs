@@ -24,6 +24,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::{SearchQueryInput, TermInput};
 use crate::schema::AnyEnum;
 use crate::schema::IndexRecordOption;
@@ -197,8 +198,12 @@ pub fn empty() -> SearchQueryInput {
 }
 
 #[pg_extern(immutable, parallel_safe)]
+// #[builder_fn]
 pub fn exists(field: FieldName) -> SearchQueryInput {
-    SearchQueryInput::Exists { field }
+    SearchQueryInput::FieldedQuery {
+        field,
+        query: FieldedQueryInput::Exists,
+    }
 }
 
 // Not clear on whether this query makes sense to support, as only our "key_field" is a fast
@@ -210,22 +215,26 @@ pub fn fast_field_range_weight(
     range: default!(Option<pgrx::Range<i32>>, "NULL"),
 ) -> SearchQueryInput {
     match range.expect("`range` argument is required").into_inner() {
-        None => SearchQueryInput::FastFieldRangeWeight {
+        None => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(0),
-            upper_bound: Bound::Excluded(0),
-        },
-        Some((lower, upper)) => SearchQueryInput::FastFieldRangeWeight {
-            field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(n as u64),
-                RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+            query: FieldedQueryInput::FastFieldRangeWeight {
+                lower_bound: Bound::Included(0),
+                upper_bound: Bound::Excluded(0),
             },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(n as u64),
-                RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+        },
+        Some((lower, upper)) => SearchQueryInput::FieldedQuery {
+            field,
+            query: FieldedQueryInput::FastFieldRangeWeight {
+                lower_bound: match lower {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(n as u64),
+                    RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+                },
+                upper_bound: match upper {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(n as u64),
+                    RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+                },
             },
         },
     }
@@ -239,12 +248,14 @@ pub fn fuzzy_term(
     transposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::FuzzyTerm {
+    SearchQueryInput::FieldedQuery {
         field,
-        value: value.expect("`value` argument is required"),
-        distance: distance.map(|n| n as u8),
-        transposition_cost_one,
-        prefix,
+        query: FieldedQueryInput::FuzzyTerm {
+            value: value.expect("`value` argument is required"),
+            distance: distance.map(|n| n as u8),
+            transposition_cost_one,
+            prefix,
+        },
     }
 }
 
@@ -258,14 +269,16 @@ pub fn match_query(
     prefix: default!(Option<bool>, "NULL"),
     conjunction_mode: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::Match {
+    SearchQueryInput::FieldedQuery {
         field,
-        value,
-        tokenizer: tokenizer.map(|t| t.0),
-        distance: distance.map(|n| n as u8),
-        transposition_cost_one,
-        prefix,
-        conjunction_mode,
+        query: FieldedQueryInput::Match {
+            value,
+            tokenizer: tokenizer.map(|t| t.0),
+            distance: distance.map(|n| n as u8),
+            transposition_cost_one,
+            prefix,
+            conjunction_mode,
+        },
     }
 }
 
@@ -360,11 +373,13 @@ pub fn parse_with_field(
     lenient: default!(Option<bool>, "NULL"),
     conjunction_mode: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::ParseWithField {
+    SearchQueryInput::FieldedQuery {
         field,
-        query_string,
-        lenient,
-        conjunction_mode,
+        query: FieldedQueryInput::ParseWithField {
+            query_string,
+            lenient,
+            conjunction_mode,
+        },
     }
 }
 
@@ -374,10 +389,12 @@ pub fn phrase(
     phrases: Vec<String>,
     slop: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::Phrase {
+    SearchQueryInput::FieldedQuery {
         field,
-        phrases,
-        slop: slop.map(|n| n as u32),
+        query: FieldedQueryInput::Phrase {
+            phrases,
+            slop: slop.map(|n| n as u32),
+        },
     }
 }
 
@@ -387,35 +404,41 @@ pub fn phrase_prefix(
     phrases: Vec<String>,
     max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::PhrasePrefix {
+    SearchQueryInput::FieldedQuery {
         field,
-        phrases,
-        max_expansions: max_expansion.map(|n| n as u32),
+        query: FieldedQueryInput::PhrasePrefix {
+            phrases,
+            max_expansions: max_expansion.map(|n| n as u32),
+        },
     }
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
-        None => SearchQueryInput::Range {
+        None => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::I64(0)),
-            upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-            is_datetime: false,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::I64(0)),
+                upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+                is_datetime: false,
+            },
         },
-        Some((lower, upper)) => SearchQueryInput::Range {
+        Some((lower, upper)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
+            query: FieldedQueryInput::Range {
+                lower_bound: match lower {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
+                },
+                upper_bound: match upper {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
+                },
+                is_datetime: false,
             },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
-            },
-            is_datetime: false,
         },
     }
 }
@@ -423,25 +446,29 @@ pub fn range_i32(field: FieldName, range: Range<i32>) -> SearchQueryInput {
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {
-        None => SearchQueryInput::Range {
+        None => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::I64(0)),
-            upper_bound: Bound::Excluded(OwnedValue::I64(0)),
-            is_datetime: false,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::I64(0)),
+                upper_bound: Bound::Excluded(OwnedValue::I64(0)),
+                is_datetime: false,
+            },
         },
-        Some((lower, upper)) => SearchQueryInput::Range {
+        Some((lower, upper)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
+            query: FieldedQueryInput::Range {
+                lower_bound: match lower {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
+                },
+                upper_bound: match upper {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
+                },
+                is_datetime: false,
             },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
-            },
-            is_datetime: false,
         },
     }
 }
@@ -449,33 +476,37 @@ pub fn range_i64(field: FieldName, range: Range<i64>) -> SearchQueryInput {
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_numeric(field: FieldName, range: Range<AnyNumeric>) -> SearchQueryInput {
     match range.into_inner() {
-        None => SearchQueryInput::Range {
+        None => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::F64(0.0)),
-            upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
-            is_datetime: false,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::F64(0.0)),
+                upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
+                is_datetime: false,
+            },
         },
-        Some((lower, upper)) => SearchQueryInput::Range {
+        Some((lower, upper)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: match lower {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                    n.try_into().expect("numeric should be a valid f64"),
-                )),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                    n.try_into().expect("numeric should be a valid f64"),
-                )),
+            query: FieldedQueryInput::Range {
+                lower_bound: match lower {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                        n.try_into().expect("numeric should be a valid f64"),
+                    )),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                        n.try_into().expect("numeric should be a valid f64"),
+                    )),
+                },
+                upper_bound: match upper {
+                    RangeBound::Infinite => Bound::Unbounded,
+                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
+                        n.try_into().expect("numeric should be a valid f64"),
+                    )),
+                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
+                        n.try_into().expect("numeric should be a valid f64"),
+                    )),
+                },
+                is_datetime: false,
             },
-            upper_bound: match upper {
-                RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
-                    n.try_into().expect("numeric should be a valid f64"),
-                )),
-                RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::F64(
-                    n.try_into().expect("numeric should be a valid f64"),
-                )),
-            },
-            is_datetime: false,
         },
     }
 }
@@ -485,57 +516,61 @@ macro_rules! datetime_range_fn {
         #[pg_extern(name = "range", immutable, parallel_safe)]
         pub fn $func_name(field: FieldName, range: Range<$value_type>) -> SearchQueryInput {
             match range.into_inner() {
-                None => SearchQueryInput::Range {
+                None => SearchQueryInput::FieldedQuery {
                     field,
-                    lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
-                        tantivy::DateTime::from_timestamp_micros(0),
-                    )),
-                    upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
-                        tantivy::DateTime::from_timestamp_micros(0),
-                    )),
-                    is_datetime: true,
+                    query: FieldedQueryInput::Range {
+                        lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
+                            tantivy::DateTime::from_timestamp_micros(0),
+                        )),
+                        upper_bound: Bound::Excluded(tantivy::schema::OwnedValue::Date(
+                            tantivy::DateTime::from_timestamp_micros(0),
+                        )),
+                        is_datetime: true,
+                    },
                 },
-                Some((lower, upper)) => SearchQueryInput::Range {
+                Some((lower, upper)) => SearchQueryInput::FieldedQuery {
                     field,
-                    lower_bound: match lower {
-                        RangeBound::Infinite => Bound::Unbounded,
-                        RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n)
-                                .expect("n should be a valid TantivyValue representation")
-                                .tantivy_schema_value())
-                                .as_datetime()
-                                .expect("OwnedValue should be a valid datetime value")
-                                .into(),
-                        ),
-                        RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n)
-                                .expect("n should be a valid TantivyValue representation")
-                                .tantivy_schema_value())
-                                .as_datetime()
-                                .expect("OwnedValue should be a valid datetime value")
-                                .into(),
-                        ),
+                    query: FieldedQueryInput::Range {
+                        lower_bound: match lower {
+                            RangeBound::Infinite => Bound::Unbounded,
+                            RangeBound::Inclusive(n) => Bound::Included(
+                                (&TantivyValue::try_from(n)
+                                    .expect("n should be a valid TantivyValue representation")
+                                    .tantivy_schema_value())
+                                    .as_datetime()
+                                    .expect("OwnedValue should be a valid datetime value")
+                                    .into(),
+                            ),
+                            RangeBound::Exclusive(n) => Bound::Excluded(
+                                (&TantivyValue::try_from(n)
+                                    .expect("n should be a valid TantivyValue representation")
+                                    .tantivy_schema_value())
+                                    .as_datetime()
+                                    .expect("OwnedValue should be a valid datetime value")
+                                    .into(),
+                            ),
+                        },
+                        upper_bound: match upper {
+                            RangeBound::Infinite => Bound::Unbounded,
+                            RangeBound::Inclusive(n) => Bound::Included(
+                                (&TantivyValue::try_from(n)
+                                    .expect("n should be a valid TantivyValue representation")
+                                    .tantivy_schema_value())
+                                    .as_datetime()
+                                    .expect("OwnedValue should be a valid datetime value")
+                                    .into(),
+                            ),
+                            RangeBound::Exclusive(n) => Bound::Excluded(
+                                (&TantivyValue::try_from(n)
+                                    .expect("n should be a valid TantivyValue representation")
+                                    .tantivy_schema_value())
+                                    .as_datetime()
+                                    .expect("OwnedValue should be a valid datetime value")
+                                    .into(),
+                            ),
+                        },
+                        is_datetime: true,
                     },
-                    upper_bound: match upper {
-                        RangeBound::Infinite => Bound::Unbounded,
-                        RangeBound::Inclusive(n) => Bound::Included(
-                            (&TantivyValue::try_from(n)
-                                .expect("n should be a valid TantivyValue representation")
-                                .tantivy_schema_value())
-                                .as_datetime()
-                                .expect("OwnedValue should be a valid datetime value")
-                                .into(),
-                        ),
-                        RangeBound::Exclusive(n) => Bound::Excluded(
-                            (&TantivyValue::try_from(n)
-                                .expect("n should be a valid TantivyValue representation")
-                                .tantivy_schema_value())
-                                .as_datetime()
-                                .expect("OwnedValue should be a valid datetime value")
-                                .into(),
-                        ),
-                    },
-                    is_datetime: true,
                 },
             }
         }
@@ -560,7 +595,7 @@ pub unsafe fn term_with_operator(
                 "<>" => Ok(
                     SearchQueryInput::Boolean {
                         // ensure that we don't match NULL nulls as not being equal to whatever the user specified
-                        must: vec![SearchQueryInput::Exists {field: $field.clone()}],
+                        must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: FieldedQueryInput::Exists}],
                         should: vec![],
                         must_not: vec![$eq_func_name(Some($field), <$value_type>::from_datum($anyelement.datum(), false))]
                     }
@@ -713,59 +748,101 @@ unsafe fn generic_range_query(
     is_datetime: bool,
 ) -> anyhow::Result<SearchQueryInput> {
     let query = match (lower, upper) {
-        (Bound::Included(s), Bound::Included(e)) => SearchQueryInput::Range {
+        (Bound::Included(s), Bound::Included(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
-        (Bound::Included(s), Bound::Excluded(e)) => SearchQueryInput::Range {
+        (Bound::Included(s), Bound::Excluded(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
-        (Bound::Included(s), Bound::Unbounded) => SearchQueryInput::Range {
+        (Bound::Included(s), Bound::Unbounded) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Unbounded,
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Unbounded,
+                is_datetime,
+            },
         },
-        (Bound::Excluded(s), Bound::Excluded(e)) => SearchQueryInput::Range {
+        (Bound::Excluded(s), Bound::Excluded(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
-        (Bound::Excluded(s), Bound::Included(e)) => SearchQueryInput::Range {
+        (Bound::Excluded(s), Bound::Included(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
-        (Bound::Excluded(s), Bound::Unbounded) => SearchQueryInput::Range {
+        (Bound::Excluded(s), Bound::Unbounded) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(s)?)),
-            upper_bound: Bound::Unbounded,
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    s,
+                )?)),
+                upper_bound: Bound::Unbounded,
+                is_datetime,
+            },
         },
-        (Bound::Unbounded, Bound::Unbounded) => SearchQueryInput::Range {
+        (Bound::Unbounded, Bound::Unbounded) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Unbounded,
-            upper_bound: Bound::Unbounded,
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Unbounded,
+                upper_bound: Bound::Unbounded,
+                is_datetime,
+            },
         },
-        (Bound::Unbounded, Bound::Included(e)) => SearchQueryInput::Range {
+        (Bound::Unbounded, Bound::Included(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Unbounded,
-            upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Unbounded,
+                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
-        (Bound::Unbounded, Bound::Excluded(e)) => SearchQueryInput::Range {
+        (Bound::Unbounded, Bound::Excluded(e)) => SearchQueryInput::FieldedQuery {
             field,
-            lower_bound: Bound::Unbounded,
-            upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(e)?)),
-            is_datetime,
+            query: FieldedQueryInput::Range {
+                lower_bound: Bound::Unbounded,
+                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
+                    e,
+                )?)),
+                is_datetime,
+            },
         },
     };
 
@@ -774,7 +851,10 @@ unsafe fn generic_range_query(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: FieldName, pattern: String) -> SearchQueryInput {
-    SearchQueryInput::Regex { field, pattern }
+    SearchQueryInput::FieldedQuery {
+        field,
+        query: FieldedQueryInput::Regex { pattern },
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -784,11 +864,13 @@ pub fn regex_phrase(
     slop: default!(Option<i32>, "NULL"),
     max_expansions: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
-    SearchQueryInput::RegexPhrase {
+    SearchQueryInput::FieldedQuery {
         field,
-        regexes,
-        slop: slop.map(|n| n as u32),
-        max_expansions: max_expansions.map(|n| n as u32),
+        query: FieldedQueryInput::RegexPhrase {
+            regexes,
+            slop: slop.map(|n| n as u32),
+            max_expansions: max_expansions.map(|n| n as u32),
+        },
     }
 }
 
@@ -808,10 +890,12 @@ macro_rules! term_fn {
                     _ => false,
                 };
 
-                SearchQueryInput::Term {
-                    field,
-                    value: tantivy_value,
-                    is_datetime,
+                SearchQueryInput::FieldedQuery {
+                    field: field.expect("field should be specified"),
+                    query: FieldedQueryInput::Term {
+                        value: tantivy_value,
+                        is_datetime,
+                    },
                 }
             } else {
                 panic!("no value provided to term query")
@@ -827,10 +911,12 @@ pub fn term_anyenum(field: FieldName, value: AnyEnum) -> SearchQueryInput {
         .tantivy_schema_value();
     let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
 
-    SearchQueryInput::Term {
-        field: Some(field),
-        value: tantivy_value,
-        is_datetime,
+    SearchQueryInput::FieldedQuery {
+        field: field,
+        query: FieldedQueryInput::Term {
+            value: tantivy_value,
+            is_datetime,
+        },
     }
 }
 
@@ -894,12 +980,14 @@ macro_rules! range_term_fn {
     ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
         #[pg_extern(name = "range_term", immutable, parallel_safe)]
         pub fn $func_name(field: FieldName, term: $value_type) -> SearchQueryInput {
-            SearchQueryInput::RangeTerm {
+            SearchQueryInput::FieldedQuery {
                 field,
-                value: TantivyValue::try_from(term)
-                    .expect("term should be a valid TantivyValue representation")
-                    .tantivy_schema_value(),
-                is_datetime: $is_datetime,
+                query: FieldedQueryInput::RangeTerm {
+                    value: TantivyValue::try_from(term)
+                        .expect("term should be a valid TantivyValue representation")
+                        .tantivy_schema_value(),
+                    is_datetime: $is_datetime,
+                },
             }
         }
     };
@@ -981,23 +1069,29 @@ macro_rules! range_term_range_fn {
             };
 
             match relation {
-                RangeRelation::Intersects => SearchQueryInput::RangeIntersects {
+                RangeRelation::Intersects => SearchQueryInput::FieldedQuery {
                     field,
-                    lower_bound,
-                    upper_bound,
-                    is_datetime: $is_datetime,
+                    query: FieldedQueryInput::RangeIntersects {
+                        lower_bound,
+                        upper_bound,
+                        is_datetime: $is_datetime,
+                    },
                 },
-                RangeRelation::Contains => SearchQueryInput::RangeContains {
+                RangeRelation::Contains => SearchQueryInput::FieldedQuery {
                     field,
-                    lower_bound,
-                    upper_bound,
-                    is_datetime: $is_datetime,
+                    query: FieldedQueryInput::RangeContains {
+                        lower_bound,
+                        upper_bound,
+                        is_datetime: $is_datetime,
+                    },
                 },
-                RangeRelation::Within => SearchQueryInput::RangeWithin {
+                RangeRelation::Within => SearchQueryInput::FieldedQuery {
                     field,
-                    lower_bound,
-                    upper_bound,
-                    is_datetime: $is_datetime,
+                    query: FieldedQueryInput::RangeWithin {
+                        lower_bound,
+                        upper_bound,
+                        is_datetime: $is_datetime,
+                    },
                 },
             }
         }
@@ -1048,12 +1142,10 @@ pub fn term_set(
     let terms: Vec<_> = terms
         .into_iter()
         .filter_map(|input| match input {
-            SearchQueryInput::Term {
+            SearchQueryInput::FieldedQuery {
                 field,
-                value,
-                is_datetime,
-                ..
-            } => field.map(|field| TermInput {
+                query: FieldedQueryInput::Term { value, is_datetime },
+            } => Some(TermInput {
                 field,
                 value,
                 is_datetime,

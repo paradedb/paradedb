@@ -18,6 +18,7 @@ use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
 use crate::api::FieldName;
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
@@ -34,10 +35,9 @@ fn search_with_phrase(_field: &str, terms_to_tokenize: &str) -> bool {
 
 #[pg_extern(immutable, parallel_safe)]
 fn tokenized_phrase(field: FieldName, phrase: String) -> SearchQueryInput {
-    SearchQueryInput::TokenizedPhrase {
+    SearchQueryInput::FieldedQuery {
         field,
-        phrase,
-        slop: None,
+        query: FieldedQueryInput::TokenizedPhrase { phrase, slop: None },
     }
 }
 

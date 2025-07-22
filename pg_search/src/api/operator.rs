@@ -161,7 +161,7 @@ unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
 /// This function requires the node to be related to a `bm25` index, otherwise it will panic.
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
-unsafe fn tantivy_field_name_from_node(
+pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> Option<(pg_sys::Oid, Option<FieldName>)> {

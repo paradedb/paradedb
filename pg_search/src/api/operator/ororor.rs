@@ -18,6 +18,7 @@ use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
 use crate::api::FieldName;
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::SearchQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
@@ -34,14 +35,16 @@ fn search_with_match_disjunction(_field: &str, terms_to_tokenize: &str) -> bool 
 
 #[pg_extern(immutable, parallel_safe)]
 fn match_disjunction(field: FieldName, terms_to_tokenize: String) -> SearchQueryInput {
-    SearchQueryInput::Match {
+    SearchQueryInput::FieldedQuery {
         field,
-        value: terms_to_tokenize,
-        conjunction_mode: Some(false),
-        tokenizer: None,
-        distance: None,
-        transposition_cost_one: None,
-        prefix: None,
+        query: FieldedQueryInput::Match {
+            value: terms_to_tokenize,
+            conjunction_mode: Some(false),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+        },
     }
 }
 

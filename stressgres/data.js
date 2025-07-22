@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753226074335,
+  "lastUpdate": 1753226721437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4804,6 +4804,42 @@ window.BENCHMARK_DATA = {
             "value": 5.727776863497542,
             "unit": "median tps",
             "extra": "avg tps: 5.123212965196485, max tps: 6.478526154598859, count: 57774"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e26a38533fa872a935955128b2ecd08b3febf66",
+          "message": "perf: Skip computing scores if not requested for top-n field queries (#2892)\n\n## What\n\n`SearchIndexReader::{top_by_field_in_segments,\ntop_by_string_field_in_segments}` were not using\n`SearchIndexReader::need_scores`, and were instead universally enabling\nscores.\n\nUse the `enable_scoring` helper and `self.need_scores` to skip computing\nscores where possible.\n\n## Why\n\nComputing scores requires field norms, which ([if they have not been\ndisabled](https://docs.paradedb.com/documentation/indexing/record)) can\ntake time to load and use.",
+          "timestamp": "2025-07-22T15:58:56-07:00",
+          "tree_id": "2a41c9e06be04ef92fed2b265dc3f90340fb0e37",
+          "url": "https://github.com/paradedb/paradedb/commit/1e26a38533fa872a935955128b2ecd08b3febf66"
+        },
+        "date": 1753226720391,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.906109918599827,
+            "unit": "median tps",
+            "extra": "avg tps: 5.926036621842602, max tps: 8.926910903061751, count: 57332"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.727330454936477,
+            "unit": "median tps",
+            "extra": "avg tps: 5.125484989699577, max tps: 6.457580610699357, count: 57332"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753203298730,
+  "lastUpdate": 1753203943902,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4582,6 +4582,42 @@ window.BENCHMARK_DATA = {
             "value": 5.7212590228355555,
             "unit": "median tps",
             "extra": "avg tps: 5.129602402622485, max tps: 6.460135104348981, count: 57679"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77c6cd1aeb5f5c03bba892a38cd792a113cfbd39",
+          "message": "chore: move code around (#2889)\n\n## What\n\nThis relocates the `src/boostrap/create_bm25.rs` source to\n`src/api/admin.rs`, which I believe is a more sensibile location and\nname.\n\nAdditionally it moves the `#[pg_extern] schema()` function from\n`src/api/builder_fns.rs` to this new(ly renamed) `admin.rs`, as it's an\nadministrative function, not a query builder function.\n\n## Why\n\nTrying to better organize things\n\n## How\n\n## Tests\n\nNo functional changes here.",
+          "timestamp": "2025-07-22T12:39:21-04:00",
+          "tree_id": "1ab036752fc8adf7ad2757741d4e274ab0e73c64",
+          "url": "https://github.com/paradedb/paradedb/commit/77c6cd1aeb5f5c03bba892a38cd792a113cfbd39"
+        },
+        "date": 1753203942901,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.6959259666478435,
+            "unit": "median tps",
+            "extra": "avg tps: 5.721619230040979, max tps: 8.544108203805319, count: 57774"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.727776863497542,
+            "unit": "median tps",
+            "extra": "avg tps: 5.123212965196485, max tps: 6.478526154598859, count: 57774"
           }
         ]
       }

@@ -22,7 +22,7 @@ pub mod string;
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::{FFDynamic, FFHelper, FastFieldType, WhichFastField};
 use crate::index::reader::index::SearchResults;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
@@ -32,6 +32,7 @@ use crate::postgres::customscan::pdbscan::projections::score::uses_scores;
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
@@ -164,6 +165,7 @@ pub unsafe fn collect_fast_fields(
     schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
     is_execution_time: bool,
+    index: &tantivy::Index,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
         target_list,
@@ -172,6 +174,7 @@ pub unsafe fn collect_fast_fields(
         heaprel,
         rti,
         is_execution_time,
+        index,
     );
     fast_fields
         .filter(|fast_fields| !fast_fields.is_empty())
@@ -186,6 +189,8 @@ fn collect_fast_field_try_for_attno(
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgSearchRelation,
     schema: &SearchIndexSchema,
+    index: &tantivy::Index,
+    fieldname: Option<&FieldName>,
 ) -> bool {
     // Skip if we've already processed this attribute number
     if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
@@ -226,6 +231,18 @@ fn collect_fast_field_try_for_attno(
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
                 if let Some(search_field) = schema.search_field(att.name()) {
                     if search_field.is_fast() {
+                        if att.type_oid().value() == pg_sys::JSONOID
+                            || att.type_oid().value() == pg_sys::JSONBOID
+                        {
+                            if let Some(fieldname) = fieldname {
+                                if let Some(ff_type) = FFDynamic::try_new(index, fieldname) {
+                                    matches.push(ff_type.which_fast_field());
+                                }
+                            }
+
+                            return true;
+                        }
+
                         let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                             || att.type_oid().value() == pg_sys::VARCHAROID
                             || att.type_oid().value() == pg_sys::UUIDOID
@@ -253,6 +270,7 @@ pub unsafe fn pullup_fast_fields(
     heaprel: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
+    index: &tantivy::Index,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::default();
@@ -268,7 +286,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+        if let Some(var) = find_one_var((*te).expr.cast()) {
             if (*var).varno as i32 != rti as i32 {
                 // We expect all Vars in the target list to be from the same range table as the
                 // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -285,14 +303,21 @@ pub unsafe fn pullup_fast_fields(
                 }
                 continue;
             }
-            let attno = (*var).varattno as i32;
+            let attno = (*var).varattno;
+            let (_, fieldname) = find_one_var_and_fieldname(
+                VarContext::new_exec(heaprel.oid(), attno),
+                (*te).expr.cast(),
+            )
+            .unwrap();
             if !collect_fast_field_try_for_attno(
-                attno,
+                attno as i32,
                 &mut processed_attnos,
                 &mut matches,
                 &tupdesc,
                 heaprel,
                 schema,
+                index,
+                Some(&fieldname),
             ) {
                 return None;
             }
@@ -339,6 +364,8 @@ pub unsafe fn pullup_fast_fields(
             &tupdesc,
             heaprel,
             schema,
+            index,
+            None,
         ) {
             return None;
         }
@@ -389,7 +416,6 @@ pub fn is_string_fast_field_capable(privdata: &PrivateData) -> Option<String> {
     }
 
     if privdata.limit().is_some() {
-        // See the method doc with regard to limits/laziness.
         return None;
     }
 

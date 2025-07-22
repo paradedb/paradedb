@@ -15,13 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::FieldName;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
-use tantivy::columnar::StrColumn;
+use tantivy::columnar::{DynamicColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
+use tantivy::index::Index;
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
 
@@ -101,6 +103,7 @@ pub enum FFType {
     U64(Column<u64>),
     Bool(Column<bool>),
     Date(Column<tantivy::DateTime>),
+    Json(FFDynamic),
 }
 
 impl FFType {
@@ -134,46 +137,16 @@ impl FFType {
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
     pub fn value(&self, doc: DocId) -> TantivyValue {
-        let value = match self {
+        match self {
             FFType::Junk => TantivyValue(OwnedValue::Null),
-            FFType::Text(ff) => {
-                let mut s = String::new();
-                let ord = ff
-                    .term_ords(doc)
-                    .next()
-                    .expect("term ord should be retrievable");
-                ff.ord_to_str(ord, &mut s)
-                    .expect("string should be retrievable for term ord");
-                TantivyValue(s.into())
-            }
-            FFType::I64(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
-            ),
-            FFType::F64(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
-            ),
-            FFType::U64(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
-            ),
-            FFType::Bool(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
-            ),
-            FFType::Date(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
-            ),
-        };
-
-        value
+            FFType::Text(ff) => get_string_value(ff, doc),
+            FFType::I64(ff) => get_first_value(ff.first(doc)),
+            FFType::F64(ff) => get_first_value(ff.first(doc)),
+            FFType::U64(ff) => get_first_value(ff.first(doc)),
+            FFType::Bool(ff) => get_first_value(ff.first(doc)),
+            FFType::Date(ff) => get_first_value(ff.first(doc)),
+            FFType::Json(ff) => ff.value(doc),
+        }
     }
 
     #[inline(always)]
@@ -299,4 +272,136 @@ impl WhichFastField {
             WhichFastField::Named(s, _) => s.clone(),
         }
     }
+}
+
+/// FFDynamic is a helper for getting fast field values nested in JSON.
+///
+/// For example, get me the value of the fast field for `metadata.color` at ordinal `n`
+#[derive(Debug, Clone)]
+pub enum FFDynamic {
+    Text(StrColumn, FieldName),
+    I64(Column<i64>, FieldName),
+    F64(Column<f64>, FieldName),
+    U64(Column<u64>, FieldName),
+    Bool(Column<bool>, FieldName),
+    Date(Column<tantivy::DateTime>, FieldName),
+}
+
+impl FFDynamic {
+    /// Try to construct a [`FFDynamic`] from the given [`FieldName`],
+    /// where `FieldName` is a Tantivy JSON path i.e. `metadata.color`.
+    ///
+    /// Returns [`None`] if we cannot support the fast field for this JSON path.
+    /// There are two scenarios where this is the case:
+    ///
+    /// - The JSON path contains columns of different types, i.e. {"color": "red"} and {"color": 1}
+    /// - The JSON path contains types that we don't support like IpAddr or Bytes
+    ///
+    /// This function also takes an array of `SegmentReader`s because we need to check that the above
+    /// conditions are met across all segments in the index
+    pub fn try_new(index: &Index, field_name: &FieldName) -> Option<Self> {
+        let searcher = index.reader().unwrap().searcher();
+        let segment_readers = searcher.segment_readers();
+        let mut all_handles = Vec::new();
+
+        for segment_reader in segment_readers {
+            let ff_reader = segment_reader.fast_fields();
+            let handles = match ff_reader.dynamic_column_handles(&field_name.clone().into_inner()) {
+                Ok(h) => h,
+                Err(_) => {
+                    return None;
+                }
+            };
+            if handles.len() > 1 {
+                return None;
+            }
+            all_handles.extend(handles);
+        }
+
+        let mut dynamic_columns = Vec::<DynamicColumn>::new();
+        for handle in &all_handles {
+            let col = match handle.open() {
+                Ok(c) => c,
+                Err(_) => {
+                    return None;
+                }
+            };
+            dynamic_columns.push(col);
+        }
+
+        let dynamic_column =
+            if let Some(first_type) = dynamic_columns.first().map(|c| c.column_type()) {
+                if dynamic_columns
+                    .iter()
+                    .all(|c| c.column_type() == first_type)
+                {
+                    Some(dynamic_columns.first().unwrap().clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+        match dynamic_column {
+            Some(DynamicColumn::Str(col)) => Some(FFDynamic::Text(col, field_name.clone())),
+            Some(DynamicColumn::I64(col)) => Some(FFDynamic::I64(col, field_name.clone())),
+            Some(DynamicColumn::U64(col)) => Some(FFDynamic::U64(col, field_name.clone())),
+            Some(DynamicColumn::F64(col)) => Some(FFDynamic::F64(col, field_name.clone())),
+            Some(DynamicColumn::Bool(col)) => Some(FFDynamic::Bool(col, field_name.clone())),
+            Some(DynamicColumn::DateTime(col)) => Some(FFDynamic::Date(col, field_name.clone())),
+            _ => None,
+        }
+    }
+
+    pub fn value(&self, doc: DocId) -> TantivyValue {
+        match self {
+            FFDynamic::Text(ff, _) => get_string_value(ff, doc),
+            FFDynamic::I64(ff, _) => get_first_value(ff.first(doc)),
+            FFDynamic::F64(ff, _) => get_first_value(ff.first(doc)),
+            FFDynamic::U64(ff, _) => get_first_value(ff.first(doc)),
+            FFDynamic::Bool(ff, _) => get_first_value(ff.first(doc)),
+            FFDynamic::Date(ff, _) => get_first_value(ff.first(doc)),
+        }
+    }
+
+    pub fn which_fast_field(&self) -> WhichFastField {
+        match self {
+            FFDynamic::Text(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::String)
+            }
+            FFDynamic::I64(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::Numeric)
+            }
+            FFDynamic::F64(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::Numeric)
+            }
+            FFDynamic::U64(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::Numeric)
+            }
+            FFDynamic::Bool(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::Numeric)
+            }
+            FFDynamic::Date(_, field_name) => {
+                WhichFastField::Named(field_name.clone().into_inner(), FastFieldType::Numeric)
+            }
+        }
+    }
+}
+
+#[inline]
+fn get_string_value(ff: &StrColumn, doc: DocId) -> TantivyValue {
+    let mut s = String::new();
+    let ord = ff
+        .term_ords(doc)
+        .next()
+        .expect("term ord should be retrievable");
+    ff.ord_to_str(ord, &mut s)
+        .expect("string should be retrievable for term ord");
+    TantivyValue(s.into())
+}
+
+#[inline]
+fn get_first_value<T: Into<OwnedValue>>(opt: Option<T>) -> TantivyValue {
+    TantivyValue(opt.map(|first| first.into()).unwrap_or(OwnedValue::Null))
 }

@@ -62,7 +62,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var, find_var_relation};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -377,6 +377,8 @@ impl CustomScan for PdbScan {
                     &schema,
                     &table,
                     false,
+                    &Index::open(MvccSatisfies::Snapshot.directory(&bm25_index))
+                        .expect("custom_scan: should be able to open index"),
                 )
                 .into_iter()
                 .collect(),
@@ -1233,27 +1235,26 @@ fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
+    let target_list = builder.target_list().as_ptr();
     let exec_which_fast_fields = unsafe {
-        let indexrel = builder.custom_state().indexrel();
+        let custom_state = builder.custom_state();
+        let indexrel = custom_state.indexrel();
         let schema = indexrel
             .schema()
             .expect("create_custom_scan_state: should have a schema");
+        let execution_rti = custom_state.execution_rti;
+        let heaprel = custom_state.heaprel();
+        let index = Index::open(MvccSatisfies::Snapshot.directory(&indexrel.clone()))
+            .expect("custom_scan: should be able to open index");
 
-        // Calculate the ordered set of fast fields which have actually been requested in
-        // the target list.
-        //
-        // In order for our planned ExecMethodType to be accurate, this must always be a
-        // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
-            builder.target_list().as_ptr(),
-            // At this point, all fast fields which we need to extract are listed directly
-            // in our execution-time target list, so there is no need to extract from other
-            // positions.
+            target_list,
             &HashSet::default(),
-            builder.custom_state().execution_rti,
+            execution_rti,
             &schema,
-            builder.custom_state().heaprel(),
+            heaprel,
             true,
+            &index,
         )
     };
 
@@ -1449,7 +1450,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     // Check reltarget exprs.
     let reltarget_exprs = PgList::<pg_sys::Expr>::from_pg((*(*rel).reltarget).exprs);
     for rte in reltarget_exprs.iter_ptr() {
-        if let Some(var) = nodecast!(Var, T_Var, rte) {
+        if let Some(var) = find_one_var(rte as *mut pg_sys::Node) {
             if (*var).varno as u32 == rte_index {
                 referenced_columns.insert((*var).varattno);
             }

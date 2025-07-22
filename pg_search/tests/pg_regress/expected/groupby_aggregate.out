@@ -31,8 +31,6 @@ FROM public.products
 WHERE description @@@ 'laptop' 
 GROUP BY rating 
 ORDER BY rating;
-WARNING:  group_val: "5"
-WARNING:  group_val: "3"
  rating | count 
 --------+-------
       3 |     1
@@ -45,8 +43,6 @@ FROM public.products
 WHERE description @@@ 'keyboard' 
 GROUP BY rating 
 ORDER BY rating DESC;
-WARNING:  group_val: "4"
-WARNING:  group_val: "5"
  rating | count 
 --------+-------
       5 |     1
@@ -69,9 +65,6 @@ FROM public.products
 WHERE description @@@ 'for' 
 GROUP BY rating 
 ORDER BY rating;
-WARNING:  group_val: "4"
-WARNING:  group_val: "3"
-WARNING:  group_val: "5"
  rating | count 
 --------+-------
       3 |     1
@@ -288,8 +281,6 @@ FROM public.product_reviews
 WHERE review_text @@@ 'battery' 
 GROUP BY sentiment 
 ORDER BY sentiment;
-WARNING:  group_val: "positive"
-WARNING:  group_val: "negative"
  sentiment | review_count 
 -----------+--------------
  negative  |            1

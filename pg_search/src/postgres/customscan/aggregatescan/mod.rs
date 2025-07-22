@@ -277,7 +277,6 @@ impl CustomScan for AggregateScan {
 
             // Fill in grouping column values
             for (i, group_val) in row.group_keys.iter().enumerate() {
-                pgrx::warning!("group_val: {:?}", group_val);
                 // Get the type of this grouping column from the tuple descriptor
                 let attr = tupdesc.get(i).expect("missing attribute");
                 let typoid = attr.type_oid().value();

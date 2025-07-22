@@ -38,7 +38,6 @@ FROM test_data
 WHERE content @@@ 'critical'
 GROUP BY category
 ORDER BY category;
-WARNING:  group_val: "analysis"
  category | count 
 ----------+-------
  analysis |     2

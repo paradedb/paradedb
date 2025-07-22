@@ -63,7 +63,6 @@ FROM products_catalog
 WHERE description @@@ 'smart OR AI OR advanced'
 GROUP BY category
 ORDER BY category;
-WARNING:  group_val: "Electronics"
   category   | smart_products 
 -------------+----------------
  Electronics |              2
@@ -125,8 +124,6 @@ FROM support_tickets
 WHERE ticket_description @@@ 'payment OR billing OR invoice OR subscription'
 GROUP BY priority
 ORDER BY priority;
-WARNING:  group_val: "High"
-WARNING:  group_val: "Low"
  priority | ticket_count 
 ----------+--------------
  High     |            2
@@ -185,8 +182,6 @@ FROM application_logs
 WHERE log_message @@@ 'database OR query OR connection'
 GROUP BY log_level
 ORDER BY log_level;
-WARNING:  group_val: "ERROR"
-WARNING:  group_val: "WARNING"
  log_level | db_issue_count 
 -----------+----------------
  ERROR     |              1
@@ -198,7 +193,6 @@ SELECT environment, COUNT(*) as perf_issues
 FROM application_logs
 WHERE log_message @@@ 'slow OR performance OR timeout OR threshold'
 GROUP BY environment;
-WARNING:  group_val: "production"
  environment | perf_issues 
 -------------+-------------
  production  |           3

@@ -47,6 +47,7 @@ pub struct TopNScanExecState {
     search_results: TopNSearchResults,
     nresults: usize,
     did_query: bool,
+    exhausted: bool,
     found: usize,
     offset: usize,
     chunk_size: usize,
@@ -66,6 +67,7 @@ impl TopNScanExecState {
             search_results: TopNSearchResults::empty(),
             nresults: 0,
             did_query: false,
+            exhausted: false,
             found: 0,
             offset: 0,
             chunk_size: 0,
@@ -140,7 +142,7 @@ impl ExecMethod for TopNScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         self.did_query = true;
 
-        if self.found >= self.limit {
+        if self.found >= self.limit || self.exhausted {
             return false;
         }
 
@@ -166,7 +168,11 @@ impl ExecMethod for TopNScanExecState {
         // Record the offset to start from for the next query.
         self.offset = next_offset;
 
-        // If we got any results at all, then the query was a success.
+        // If we got fewer results than we requested, then the query is exhausted: there is no
+        // point executing further queries.
+        self.exhausted = self.search_results.original_len() < local_limit;
+
+        // But if we got any results at all, then the query was a success.
         self.search_results.original_len() > 0
     }
 
@@ -241,6 +247,7 @@ impl ExecMethod for TopNScanExecState {
         // Reset state
         self.claimed_segments.take();
         self.did_query = false;
+        self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
         self.search_results = TopNSearchResults::empty();

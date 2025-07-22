@@ -277,6 +277,10 @@ impl WhichFastField {
 /// FFDynamic is a helper for getting fast field values nested in JSON.
 ///
 /// For example, get me the value of the fast field for `metadata.color` at ordinal `n`
+/// Because JSONs are not type checked in Postgres, it's possible that a JSON path has multiple fast fields,
+/// one for each type of value in the JSON.
+///
+/// For now, we only support the case where there is only one fast field for a JSON path.
 #[derive(Debug, Clone)]
 pub enum FFDynamic {
     Text(StrColumn, FieldName),

@@ -1,0 +1,226 @@
+-- ParadeDB GROUP BY Examples with String Fields
+-- This file demonstrates various use cases for GROUP BY with text/string fields
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable the aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- Example 1: E-commerce Product Analysis
+-- Group products by brand and category to analyze inventory
+CREATE TABLE products_catalog (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT,
+    brand TEXT,
+    category TEXT,
+    subcategory TEXT,
+    price NUMERIC,
+    in_stock BOOLEAN
+);
+INSERT INTO products_catalog (name, description, brand, category, subcategory, price, in_stock) VALUES
+    -- Electronics
+    ('iPhone 15 Pro', 'Latest Apple smartphone with titanium design', 'Apple', 'Electronics', 'Smartphones', 999, true),
+    ('iPhone 14', 'Previous generation Apple smartphone', 'Apple', 'Electronics', 'Smartphones', 799, true),
+    ('Samsung Galaxy S24', 'Premium Android smartphone with AI features', 'Samsung', 'Electronics', 'Smartphones', 899, true),
+    ('Google Pixel 8', 'Google smartphone with advanced camera', 'Google', 'Electronics', 'Smartphones', 699, false),
+    ('MacBook Air M3', 'Lightweight laptop with Apple silicon', 'Apple', 'Electronics', 'Laptops', 1099, true),
+    ('Dell XPS 13', 'Premium Windows ultrabook', 'Dell', 'Electronics', 'Laptops', 999, true),
+    ('ThinkPad X1', 'Business laptop with excellent keyboard', 'Lenovo', 'Electronics', 'Laptops', 1299, true),
+    
+    -- Clothing
+    ('Nike Air Max', 'Classic running shoes with air cushioning', 'Nike', 'Clothing', 'Shoes', 150, true),
+    ('Adidas Ultraboost', 'Premium running shoes with boost technology', 'Adidas', 'Clothing', 'Shoes', 180, true),
+    ('Nike Dri-FIT Shirt', 'Moisture-wicking athletic shirt', 'Nike', 'Clothing', 'Apparel', 35, true),
+    ('Adidas Track Jacket', 'Classic three-stripe track jacket', 'Adidas', 'Clothing', 'Apparel', 70, false),
+    ('Levi''s 501 Jeans', 'Original fit denim jeans', 'Levi''s', 'Clothing', 'Apparel', 80, true),
+    
+    -- Home & Garden
+    ('Dyson V15', 'Cordless vacuum with laser detection', 'Dyson', 'Home', 'Appliances', 649, true),
+    ('Roomba j7+', 'Self-emptying robot vacuum', 'iRobot', 'Home', 'Appliances', 799, false),
+    ('Instant Pot Pro', 'Multi-use pressure cooker', 'Instant Brands', 'Home', 'Kitchen', 150, true),
+    ('KitchenAid Mixer', 'Stand mixer for baking', 'KitchenAid', 'Home', 'Kitchen', 379, true);
+-- Create BM25 index with fast fields for grouping
+CREATE INDEX products_catalog_idx ON products_catalog
+USING bm25 (id, name, description, brand, category, subcategory)
+WITH (
+    key_field='id',
+    text_fields='{
+        "name": {},
+        "description": {},
+        "brand": {"fast": true},
+        "category": {"fast": true},
+        "subcategory": {"fast": true}
+    }'
+);
+-- Query 1: Find product count by brand for items matching "premium" or "pro"
+SELECT brand, COUNT(*) as premium_products
+FROM products_catalog
+WHERE description @@@ 'premium OR pro'
+GROUP BY brand
+ORDER BY premium_products DESC;
+ERROR:  could not find pathkey item to sort
+-- Query 2: Analyze categories for smart/AI products
+SELECT category, COUNT(*) as smart_products
+FROM products_catalog
+WHERE description @@@ 'smart OR AI OR advanced'
+GROUP BY category
+ORDER BY category;
+WARNING:  group_val: "Electronics"
+  category   | smart_products 
+-------------+----------------
+ Electronics |              2
+(1 row)
+
+-- Query 3: Group by subcategory for portable devices
+SELECT subcategory, COUNT(*) as portable_count
+FROM products_catalog
+WHERE description @@@ 'laptop OR smartphone OR cordless OR portable'
+GROUP BY subcategory
+ORDER BY portable_count DESC;
+ERROR:  could not find pathkey item to sort
+-- Example 2: Customer Support Ticket Analysis
+CREATE TABLE support_tickets (
+    id SERIAL PRIMARY KEY,
+    ticket_subject TEXT,
+    ticket_description TEXT,
+    product_category TEXT,
+    issue_type TEXT,
+    priority TEXT,
+    status TEXT,
+    created_date DATE
+);
+INSERT INTO support_tickets (ticket_subject, ticket_description, product_category, issue_type, priority, status, created_date) VALUES
+    ('Login not working', 'Cannot login to my account, password reset not helping', 'Account', 'Authentication', 'High', 'Open', '2024-01-15'),
+    ('Slow page load', 'Dashboard takes forever to load', 'Performance', 'Speed', 'Medium', 'In Progress', '2024-01-15'),
+    ('Payment failed', 'Credit card payment not going through', 'Billing', 'Payment', 'High', 'Resolved', '2024-01-14'),
+    ('Cannot upload files', 'File upload fails with error message', 'Features', 'Upload', 'Medium', 'Open', '2024-01-15'),
+    ('Account locked', 'My account is locked after multiple login attempts', 'Account', 'Authentication', 'High', 'Open', '2024-01-15'),
+    ('Missing invoice', 'Did not receive invoice for last month', 'Billing', 'Invoice', 'Low', 'Resolved', '2024-01-13'),
+    ('API rate limit', 'Getting rate limited on API calls', 'API', 'Limits', 'Medium', 'In Progress', '2024-01-14'),
+    ('Data export broken', 'Export to CSV not working properly', 'Features', 'Export', 'Low', 'Open', '2024-01-15'),
+    ('Password reset email', 'Not receiving password reset emails', 'Account', 'Email', 'High', 'Open', '2024-01-15'),
+    ('Subscription cancelled', 'My subscription was cancelled without notice', 'Billing', 'Subscription', 'High', 'Resolved', '2024-01-12');
+-- Create index for ticket analysis
+CREATE INDEX tickets_idx ON support_tickets
+USING bm25 (id, ticket_subject, ticket_description, product_category, issue_type, priority, status)
+WITH (
+    key_field='id',
+    text_fields='{
+        "ticket_subject": {},
+        "ticket_description": {},
+        "product_category": {"fast": true},
+        "issue_type": {"fast": true},
+        "priority": {"fast": true},
+        "status": {"fast": true}
+    }'
+);
+-- Query 4: Group by issue type for login/authentication problems
+SELECT issue_type, COUNT(*) as issue_count
+FROM support_tickets
+WHERE ticket_description @@@ 'login OR password OR authentication OR account'
+GROUP BY issue_type
+ORDER BY issue_count DESC;
+ERROR:  could not find pathkey item to sort
+-- Query 5: Analyze priority distribution for payment issues
+SELECT priority, COUNT(*) as ticket_count
+FROM support_tickets
+WHERE ticket_description @@@ 'payment OR billing OR invoice OR subscription'
+GROUP BY priority
+ORDER BY priority;
+WARNING:  group_val: "High"
+WARNING:  group_val: "Low"
+ priority | ticket_count 
+----------+--------------
+ High     |            2
+ Low      |            1
+(2 rows)
+
+-- Query 6: Status breakdown for high-priority issues
+SELECT status, COUNT(*) as high_priority_count
+FROM support_tickets
+WHERE priority = 'High' AND ticket_description @@@ 'cannot OR not working OR failed'
+GROUP BY status
+ORDER BY high_priority_count DESC;
+ERROR:  could not find pathkey item to sort
+-- Example 3: Log Analysis
+CREATE TABLE application_logs (
+    id SERIAL PRIMARY KEY,
+    log_message TEXT,
+    log_level TEXT,
+    service_name TEXT,
+    environment TEXT,
+    timestamp TIMESTAMP
+);
+INSERT INTO application_logs (log_message, log_level, service_name, environment, timestamp) VALUES
+    ('Database connection timeout after 30s', 'ERROR', 'api-service', 'production', '2024-01-15 10:00:00'),
+    ('Successfully processed payment for order 12345', 'INFO', 'payment-service', 'production', '2024-01-15 10:01:00'),
+    ('Redis cache miss for key user:1234', 'WARNING', 'cache-service', 'production', '2024-01-15 10:02:00'),
+    ('Starting scheduled job: cleanup-old-files', 'INFO', 'scheduler', 'production', '2024-01-15 10:03:00'),
+    ('Authentication failed for user john@example.com', 'WARNING', 'auth-service', 'production', '2024-01-15 10:04:00'),
+    ('Database query took 5.2s - possible performance issue', 'WARNING', 'api-service', 'production', '2024-01-15 10:05:00'),
+    ('Null pointer exception in OrderProcessor.java:142', 'ERROR', 'order-service', 'staging', '2024-01-15 10:06:00'),
+    ('Memory usage at 85% threshold', 'WARNING', 'monitoring', 'production', '2024-01-15 10:07:00'),
+    ('API rate limit exceeded for client 192.168.1.100', 'ERROR', 'api-gateway', 'production', '2024-01-15 10:08:00'),
+    ('Successfully deployed version 2.3.1', 'INFO', 'deployment', 'staging', '2024-01-15 10:09:00');
+-- Create index for log analysis
+CREATE INDEX logs_idx ON application_logs
+USING bm25 (id, log_message, log_level, service_name, environment)
+WITH (
+    key_field='id',
+    text_fields='{
+        "log_message": {},
+        "log_level": {"fast": true},
+        "service_name": {"fast": true},
+        "environment": {"fast": true}
+    }'
+);
+-- Query 7: Group errors by service
+SELECT service_name, COUNT(*) as error_count
+FROM application_logs
+WHERE log_message @@@ 'error OR exception OR failed OR timeout'
+GROUP BY service_name
+ORDER BY error_count DESC;
+ERROR:  could not find pathkey item to sort
+-- Query 8: Analyze log levels for database-related issues
+SELECT log_level, COUNT(*) as db_issue_count
+FROM application_logs
+WHERE log_message @@@ 'database OR query OR connection'
+GROUP BY log_level
+ORDER BY log_level;
+WARNING:  group_val: "ERROR"
+WARNING:  group_val: "WARNING"
+ log_level | db_issue_count 
+-----------+----------------
+ ERROR     |              1
+ WARNING   |              1
+(2 rows)
+
+-- Query 9: Environment breakdown for performance issues
+SELECT environment, COUNT(*) as perf_issues
+FROM application_logs
+WHERE log_message @@@ 'slow OR performance OR timeout OR threshold'
+GROUP BY environment;
+WARNING:  group_val: "production"
+ environment | perf_issues 
+-------------+-------------
+ production  |           3
+(1 row)
+
+-- Explain one of the string GROUP BY queries
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT brand, COUNT(*)
+FROM products_catalog
+WHERE description @@@ 'premium'
+GROUP BY brand;
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products_catalog
+   Output: brand, now()
+   Index: products_catalog_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"premium","lenient":null,"conjunction_mode":null}}}}
+   Human Readable Query: description:(premium)
+   Aggregate Definition: {"group_0":{"terms":{"field":"brand","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+(6 rows)
+
+-- Clean up
+DROP TABLE application_logs CASCADE;
+DROP TABLE support_tickets CASCADE;
+DROP TABLE products_catalog CASCADE; 

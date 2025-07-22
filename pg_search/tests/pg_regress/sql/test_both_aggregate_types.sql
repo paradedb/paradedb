@@ -1,0 +1,64 @@
+-- Demonstration: Both GROUP BY and non-GROUP BY aggregates work correctly
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Create test table
+CREATE TABLE test_data (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    category TEXT,
+    value INTEGER
+);
+
+INSERT INTO test_data (content, category, value) VALUES
+    ('Important document A', 'docs', 10),
+    ('Important report B', 'docs', 20),
+    ('Critical analysis C', 'analysis', 30),
+    ('Critical review D', 'analysis', 40),
+    ('Standard file E', 'other', 50);
+
+-- Create index with fast field
+CREATE INDEX test_idx ON test_data
+USING bm25 (id, content, category, value)
+WITH (
+    key_field='id',
+    text_fields='{"content": {}, "category": {"fast": true}}',
+    numeric_fields='{"value": {"fast": true}}'
+);
+
+-- Test 1: Non-GROUP BY aggregate (no grouping columns)
+SELECT COUNT(*) as total_important
+FROM test_data
+WHERE content @@@ 'important';
+-- Expected: 2
+
+-- Test 2: GROUP BY with string field
+SELECT category, COUNT(*) as count
+FROM test_data
+WHERE content @@@ 'critical'
+GROUP BY category
+ORDER BY category;
+-- Expected: analysis | 2
+
+-- Test 3: GROUP BY with numeric field  
+SELECT value / 10 * 10 as value_range, COUNT(*) as count
+FROM test_data
+WHERE content @@@ 'important OR critical'
+GROUP BY value / 10 * 10
+ORDER BY value_range;
+-- Expected: 
+-- 10 | 1
+-- 20 | 1
+-- 30 | 1
+-- 40 | 1
+
+-- Show the execution plans
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT COUNT(*) FROM test_data WHERE content @@@ 'important';
+
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category, COUNT(*) FROM test_data WHERE content @@@ 'critical' GROUP BY category;
+
+-- Clean up
+DROP TABLE test_data CASCADE; 

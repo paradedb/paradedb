@@ -280,7 +280,7 @@ impl Directory for MVCCDirectory {
     // Tantivy only uses this API to detect new commits to implement the
     // `OnCommitWithDelay` `ReloadPolicy`. We do not want this reload policy in Postgres.
     fn watch(&self, _watch_callback: WatchCallback) -> tantivy::Result<WatchHandle> {
-        Ok(WatchHandle::empty())
+        unimplemented!("OnCommitWithDelay ReloadPolicy not supported");
     }
 
     /// Returns a list of all segment components to Tantivy,

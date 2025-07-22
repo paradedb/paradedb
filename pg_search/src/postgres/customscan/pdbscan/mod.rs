@@ -321,10 +321,10 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
-            let segment_count = segment_count.load(Ordering::Relaxed);
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
+            let segment_count = segment_count.load(Ordering::Relaxed);
             let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
@@ -374,11 +374,9 @@ impl CustomScan for PdbScan {
                     target_list,
                     &referenced_columns,
                     rti,
-                    &schema,
                     &table,
                     false,
-                    &Index::open(MvccSatisfies::Snapshot.directory(&bm25_index))
-                        .expect("custom_scan: should be able to open index"),
+                    &bm25_index,
                 )
                 .into_iter()
                 .collect(),
@@ -1239,22 +1237,16 @@ fn compute_exec_which_fast_fields(
     let exec_which_fast_fields = unsafe {
         let custom_state = builder.custom_state();
         let indexrel = custom_state.indexrel();
-        let schema = indexrel
-            .schema()
-            .expect("create_custom_scan_state: should have a schema");
         let execution_rti = custom_state.execution_rti;
         let heaprel = custom_state.heaprel();
-        let index = Index::open(MvccSatisfies::Snapshot.directory(&indexrel.clone()))
-            .expect("custom_scan: should be able to open index");
 
         exec_methods::fast_fields::collect_fast_fields(
             target_list,
             &HashSet::default(),
             execution_rti,
-            &schema,
             heaprel,
             true,
-            &index,
+            indexrel,
         )
     };
 

@@ -33,7 +33,6 @@ use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
-use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
@@ -162,15 +161,13 @@ pub unsafe fn collect_fast_fields(
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
     is_execution_time: bool,
-    index: &tantivy::Index,
+    index: &PgSearchRelation,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
         target_list,
         referenced_columns,
-        schema,
         heaprel,
         rti,
         is_execution_time,
@@ -189,8 +186,7 @@ fn collect_fast_field_try_for_attno(
     matches: &mut Vec<WhichFastField>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgSearchRelation,
-    schema: &SearchIndexSchema,
-    index: &tantivy::Index,
+    index: &PgSearchRelation,
     fieldname: Option<&FieldName>,
 ) -> bool {
     // Skip if we've already processed this attribute number
@@ -230,6 +226,9 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                let schema = index
+                    .schema()
+                    .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
                     if search_field.is_fast() {
                         if att.type_oid().value() == pg_sys::JSONOID
@@ -267,11 +266,10 @@ fn collect_fast_field_try_for_attno(
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
-    index: &tantivy::Index,
+    index: &PgSearchRelation,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
     let mut processed_attnos = HashSet::default();
@@ -319,7 +317,6 @@ pub unsafe fn pullup_fast_fields(
                 &mut matches,
                 &tupdesc,
                 heaprel,
-                schema,
                 index,
                 fieldname.as_ref(),
             ) {
@@ -367,7 +364,6 @@ pub unsafe fn pullup_fast_fields(
             &mut matches,
             &tupdesc,
             heaprel,
-            schema,
             index,
             None,
         ) {

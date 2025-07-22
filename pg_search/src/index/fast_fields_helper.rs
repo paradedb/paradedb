@@ -16,14 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::index::directory::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tantivy::columnar::{DynamicColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
-use tantivy::index::Index;
 use tantivy::schema::OwnedValue;
 use tantivy::{DocAddress, DocId};
 
@@ -303,8 +304,10 @@ impl FFDynamic {
     ///
     /// This function also takes an array of `SegmentReader`s because we need to check that the above
     /// conditions are met across all segments in the index
-    pub fn try_new(index: &Index, field_name: &FieldName) -> Option<Self> {
-        let searcher = index.reader().unwrap().searcher();
+    pub fn try_new(index: &PgSearchRelation, field_name: &FieldName) -> Option<Self> {
+        let reader = SearchIndexReader::empty(index, MvccSatisfies::Snapshot)
+            .expect("FFDynamic: should be able to open reader");
+        let searcher = reader.searcher();
         let segment_readers = searcher.segment_readers();
         let mut all_handles = Vec::new();
 

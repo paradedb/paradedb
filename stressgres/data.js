@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753302210366,
+  "lastUpdate": 1753302212842,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4686,6 +4686,126 @@ window.BENCHMARK_DATA = {
             "value": 57.67578125,
             "unit": "median mem",
             "extra": "avg mem: 56.864297841360454, max mem: 81.921875, count: 55136"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac",
+          "message": "perf: Lazily load bitpacked columns (#2894)\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/56.\n\n## Why\n\nAs mentioned there:\n> We would like to be able to lazily load `BitpackedCodec` columns\n(similar to what\nhttps://github.com/paradedb/tantivy/commit/020bdffd61365a140218643c49ba01c5043b2966\ndid for `BlockwiseLinearCodec`), because in the context of `pg_search`,\nimmediately constructing `OwnedBytes` means copying the entire content\nof the column into memory.\n\n## Tests\n\nThere are a few 2x speedups in the benchmark suite, as well as a 1.8x\nspeedup on a representative customer query.\n\nUnfortunately there are also some 13-19% slowdowns on aggregates with\n`solve_mvcc=false`: it looks like that is because aggregates use\n`get_vals`, for which the default implementation is to just call\n`get_val` in a loop. After discussion, we think that getting back that\nperformance might require wider API changes to make batching more\ninherent.",
+          "timestamp": "2025-07-23T13:06:17-07:00",
+          "tree_id": "f25d5227041b7df9d6e6841c1cdedccb09c977b9",
+          "url": "https://github.com/paradedb/paradedb/commit/80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac"
+        },
+        "date": 1753302211831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.763969559109568, max cpu: 9.430255, count: 55108"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 60.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.02412691328845, max mem: 82.9453125, count: 55108"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621426496074359, max cpu: 9.266409, count: 55108"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.78555220544204, max mem: 75.4453125, count: 55108"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.705202901298985, max cpu: 9.4395275, count: 55108"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.999445832501635, max mem: 83.6953125, count: 55108"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.115633463698556, max cpu: 4.6421666, count: 55108"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.424099608949696, max mem: 82.9453125, count: 55108"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.449726308303104, max cpu: 23.121387, count: 110216"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 64.5,
+            "unit": "median mem",
+            "extra": "avg mem: 64.46534291187305, max mem: 92.94921875, count: 110216"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3692,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3696.9956630616243, max block_count: 6656.0, count: 55108"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.955269652319082, max segment_count: 28.0, count: 55108"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.23667083521531, max cpu: 14.173229, count: 55108"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 68.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 68.41318233911139, max mem: 96.0078125, count: 55108"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.118873565300126, max cpu: 9.239654, count: 55108"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.58825425754881, max mem: 83.70703125, count: 55108"
           }
         ]
       }

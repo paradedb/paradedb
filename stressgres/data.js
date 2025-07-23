@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753227348198,
+  "lastUpdate": 1753281703759,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1436,6 +1436,72 @@ window.BENCHMARK_DATA = {
             "value": 41.89032597054898,
             "unit": "median tps",
             "extra": "avg tps: 52.69106112926876, max tps: 705.1122045051028, count: 55159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbd2e802901988c181281a9b7f772543e1df32d2",
+          "message": "chore: add `background-merge.toml` to CI (#2895)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis new stressgres file was instrumental in catching the bug fixed in\n#2845 and was used to test background merging, but has not been added to\nCI.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T10:26:09-04:00",
+          "tree_id": "bb8e3ca51c2d0de5e56be65f478f11096b0d410e",
+          "url": "https://github.com/paradedb/paradedb/commit/cbd2e802901988c181281a9b7f772543e1df32d2"
+        },
+        "date": 1753281702768,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1238.1554277707633,
+            "unit": "median tps",
+            "extra": "avg tps: 1227.86208954594, max tps: 1241.154754241053, count: 55205"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2775.393228591363,
+            "unit": "median tps",
+            "extra": "avg tps: 2754.786799935381, max tps: 2791.255540404496, count: 55205"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1245.2597555285251,
+            "unit": "median tps",
+            "extra": "avg tps: 1240.5476385436898, max tps: 1249.3464526845712, count: 55205"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1046.0873249629806,
+            "unit": "median tps",
+            "extra": "avg tps: 1041.083569661939, max tps: 1061.436176848277, count: 55205"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 180.18424545496453,
+            "unit": "median tps",
+            "extra": "avg tps: 180.73226397279493, max tps: 185.17380010463705, count: 110410"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.37373785019372,
+            "unit": "median tps",
+            "extra": "avg tps: 156.96237973840113, max tps: 158.9642442931985, count: 55205"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.96335750849179,
+            "unit": "median tps",
+            "extra": "avg tps: 49.423641971005026, max tps: 901.1282125220777, count: 55205"
           }
         ]
       }

@@ -72,6 +72,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
             match term {
                 RHSValue::Text(term) => string_term(field, term),
                 RHSValue::TextArray(terms) => string_term_array(field, terms),
+                _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, rhs| {
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");

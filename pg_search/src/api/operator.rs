@@ -29,7 +29,7 @@ use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::find_var_relation;
-use crate::query::SearchQueryInput;
+use crate::query::{FieldedQueryInput, SearchQueryInput};
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -41,6 +41,7 @@ use std::ptr::NonNull;
 enum RHSValue {
     Text(String),
     TextArray(Vec<String>),
+    FieldedQueryInput(FieldedQueryInput),
 }
 
 #[derive(Debug)]
@@ -110,6 +111,20 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
         .expect("type `paradedb.SearchQueryInput` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `paradedb.SearchQueryInput` should exist");
+        }
+        oid
+    }
+}
+
+pub fn fieldedqueryinput_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"paradedb.FieldedQueryInput".into_datum()],
+        )
+        .expect("type `paradedb.FieldedQueryInput` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `paradedb.FieldedQueryInput` should exist");
         }
         oid
     }
@@ -406,14 +421,22 @@ where
         //
         // we currently only support rewriting Consts of type TEXT or TEXT[]
         let rhs_value = match (*const_).consttype {
+            // these are used for the @@@, &&&, |||, ###, and === operators
             pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
 
+            // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text array value must not be NULL"),
+            ),
+
+            // this is specifically used for the `@@@(anyelement, paradedb.fieldedqueryinput)` operator
+            other if other == fieldedqueryinput_typoid() => RHSValue::FieldedQueryInput(
+                FieldedQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fielded query input value must not be NULL"),
             ),
 
             other => panic!("operator does not support rhs type {other}"),

@@ -18,6 +18,7 @@
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
+use crate::query::FieldedQueryInput;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -34,8 +35,14 @@ pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`")
 }
 
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.@@@)]
+pub fn search_with_fieled_query_input(_element: AnyElement, query: FieldedQueryInput) -> bool {
+    panic!("query is incompatible with pg_search's `@@@(field, paradedb.fieldedqueryinput)` operator: `{query:?}`")
+}
+
 #[pg_extern(immutable, parallel_safe)]
-pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
+pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
         request_simplify(
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
@@ -44,9 +51,13 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
                     Some(field) => crate::query::fielded_query::to_search_query_input(field, crate::api::builder_fns::fielded::parse_with_field(query_string, None, None)),
                     None => crate::api::builder_fns::parse(query_string, None, None),
                 }
+                RHSValue::FieldedQueryInput(query) => {
+                    assert!(field.is_some());
+                    crate::query::fielded_query::to_search_query_input(field.unwrap(), query)
+                }
                 _ => {
                     unreachable!(
-                        "search_with_parse_support should only ever be called with a text value"
+                        "atatat_support should only ever be called with a text value"
                     )
                 }
             },
@@ -122,7 +133,10 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
 }
 
 extension_sql!(
-    "ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.search_with_parse_support;",
-    name = "search_with_parse_support_fn",
-    requires = [search_with_parse, search_with_parse_support]
+    r#"
+        ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
+        ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
+    "#,
+    name = "atatat_support_fn",
+    requires = [search_with_parse, atatat_support]
 );

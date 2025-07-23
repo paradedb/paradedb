@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753283612042,
+  "lastUpdate": 1753288160348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1502,6 +1502,72 @@ window.BENCHMARK_DATA = {
             "value": 42.96335750849179,
             "unit": "median tps",
             "extra": "avg tps: 49.423641971005026, max tps: 901.1282125220777, count: 55205"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53fa29a57e7daa2bdec9bf05f86d8db50088fd51",
+          "message": "perf: Avoid a re-query when a top-n query is exhausted (#2888)\n\n## What\n\nSplit the iterators consumed by the `TopN` exec method and by the\n`Normal`/`FF` exec methods into two separate implementations.\n\nAfter splitting them, use the known exact size of the `TopN` iterator to\nexit early (as `exhausted: bool`) if we had fewer matches than were\nrequested. This avoids re-querying an iterator (and re-scanning its\ncolumns) that we know has no more results.\n\n## Why\n\nThe two types of consumers of these iterators have very different\nconsumption patterns and constraints:\n* TopN knows exactly how many results there will be, and already buffers\nthem all in memory. It would like to be able to know the precise count\nof results.\n* `Normal` and `FF` exec methods do not know the total number of results\nto expect, and in some cases would like to be able to consume in a\nsegment-aware fashion in order to be able to late-fetch fast field\ncolumns (see #2623).\n\n## Tests\n\nAdded a test to cement the change in query count.\n\nBenchmarks show a 1.5x speedup for `paging-string-max`, and no change\nfor other queries.",
+          "timestamp": "2025-07-23T09:13:45-07:00",
+          "tree_id": "c162e59fb9a6b4523c0ff39e10d9d54d92761460",
+          "url": "https://github.com/paradedb/paradedb/commit/53fa29a57e7daa2bdec9bf05f86d8db50088fd51"
+        },
+        "date": 1753288159284,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1238.629942194621,
+            "unit": "median tps",
+            "extra": "avg tps: 1236.555006221168, max tps: 1245.9307340737812, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2634.2268220939786,
+            "unit": "median tps",
+            "extra": "avg tps: 2638.332278912309, max tps: 2673.94474843985, count: 55213"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1205.51400474282,
+            "unit": "median tps",
+            "extra": "avg tps: 1204.2073079390982, max tps: 1228.886654891459, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1049.680852658833,
+            "unit": "median tps",
+            "extra": "avg tps: 1043.8969711508491, max tps: 1066.1527017486392, count: 55213"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 177.31748109191562,
+            "unit": "median tps",
+            "extra": "avg tps: 177.40880578103796, max tps: 181.18959983070656, count: 110426"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.18906055263136,
+            "unit": "median tps",
+            "extra": "avg tps: 153.63754183082375, max tps: 156.11638100409218, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 68.86646114848666,
+            "unit": "median tps",
+            "extra": "avg tps: 66.84238445452274, max tps: 875.1915575521593, count: 55213"
           }
         ]
       }

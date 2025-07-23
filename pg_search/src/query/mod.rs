@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod fielded_query;
 pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
+pub mod pdb_query;
 mod range;
 mod score;
 
@@ -28,8 +28,8 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
-pub use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::more_like_this::MoreLikeThisQuery;
+pub use crate::query::pdb_query::PdbQuery;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -136,13 +136,13 @@ pub enum SearchQueryInput {
     #[serde(untagged)]
     FieldedQuery {
         field: FieldName,
-        query: FieldedQueryInput,
+        query: PdbQuery,
     },
 }
 
 fn serialize_fielded_query<S>(
     field: &FieldName,
-    query: &FieldedQueryInput,
+    query: &PdbQuery,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -172,15 +172,13 @@ where
     }
 }
 
-fn deserialize_fielded_query<'de, D>(
-    deserializer: D,
-) -> Result<(FieldName, FieldedQueryInput), D::Error>
+fn deserialize_fielded_query<'de, D>(deserializer: D) -> Result<(FieldName, PdbQuery), D::Error>
 where
     D: Deserializer<'de>,
 {
     struct Visitor;
     impl<'de> serde::de::Visitor<'de> for Visitor {
-        type Value = (FieldName, FieldedQueryInput);
+        type Value = (FieldName, PdbQuery);
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
             formatter.write_str("a map")
@@ -203,14 +201,13 @@ where
 
                 if value.as_object_mut().unwrap().is_empty() {
                     let field_query_input =
-                        serde_json::from_value::<FieldedQueryInput>(serde_json::Value::String(key))
-                            .unwrap();
+                        serde_json::from_value::<PdbQuery>(serde_json::Value::String(key)).unwrap();
                     Ok((field, field_query_input))
                 } else {
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
-                    let field_query_input = serde_json::from_value::<FieldedQueryInput>(
+                    let field_query_input = serde_json::from_value::<PdbQuery>(
                         serde_json::Value::Object(reconstructed),
                     )
                     .unwrap();

@@ -61,7 +61,7 @@ fn build_function(item_fn: &ItemFn) -> Result<proc_macro2::TokenStream, syn::Err
 
             #(#attributes)*
             pub fn #fn_name_decorated(field: crate::api::FieldName, #(#args),*) -> crate::query::SearchQueryInput {
-                crate::query::fielded_query::to_search_query_input(field, super::super::#fn_name(#(#arg_names),*))
+                crate::query::pdb_query::to_search_query_input(field, super::super::#fn_name(#(#arg_names),*))
             }
         }
     };

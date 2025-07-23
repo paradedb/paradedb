@@ -21,8 +21,8 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoid};
-use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::heap_field_filter::HeapFieldFilter;
+use crate::query::pdb_query::PdbQuery;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
@@ -275,35 +275,35 @@ impl From<&Qual> for SearchQueryInput {
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
-                query: FieldedQueryInput::Term {
+                query: PdbQuery::Term {
                     value: OwnedValue::Bool(true),
                     is_datetime: false,
                 },
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
-                query: FieldedQueryInput::Term {
+                query: PdbQuery::Term {
                     value: OwnedValue::Bool(false),
                     is_datetime: false,
                 },
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
-                query: FieldedQueryInput::Term {
+                query: PdbQuery::Term {
                     value: OwnedValue::Bool(true),
                     is_datetime: false,
                 },
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
-                query: FieldedQueryInput::Term {
+                query: PdbQuery::Term {
                     value: OwnedValue::Bool(false),
                     is_datetime: false,
                 },
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
-                query: FieldedQueryInput::Exists,
+                query: PdbQuery::Exists,
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -1520,7 +1520,7 @@ mod tests {
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::FieldedQuery {
             field: "foo".into(),
-            query: FieldedQueryInput::Term {
+            query: PdbQuery::Term {
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
@@ -1536,7 +1536,7 @@ mod tests {
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::FieldedQuery {
             field: "bar".into(),
-            query: crate::query::fielded_query::FieldedQueryInput::Term {
+            query: crate::query::pdb_query::PdbQuery::Term {
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
@@ -1552,7 +1552,7 @@ mod tests {
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::FieldedQuery {
             field: "baz".into(),
-            query: crate::query::fielded_query::FieldedQueryInput::Term {
+            query: crate::query::pdb_query::PdbQuery::Term {
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
@@ -1568,7 +1568,7 @@ mod tests {
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::FieldedQuery {
             field: "qux".into(),
-            query: crate::query::fielded_query::FieldedQueryInput::Term {
+            query: crate::query::pdb_query::PdbQuery::Term {
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
@@ -1584,7 +1584,7 @@ mod tests {
         let got = SearchQueryInput::from(&qual);
         let want = SearchQueryInput::FieldedQuery {
             field: "fld".into(),
-            query: FieldedQueryInput::Exists,
+            query: PdbQuery::Exists,
         };
         assert_eq!(got, want);
     }
@@ -1630,7 +1630,7 @@ mod tests {
                 qual @ (Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field }),
                 SearchQueryInput::FieldedQuery {
                     field: f,
-                    query: FieldedQueryInput::Term { value, .. },
+                    query: PdbQuery::Term { value, .. },
                 },
             ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
 
@@ -1639,7 +1639,7 @@ mod tests {
                 qual @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
                 SearchQueryInput::FieldedQuery {
                     field: f,
-                    query: FieldedQueryInput::Term { value, .. },
+                    query: PdbQuery::Term { value, .. },
                 },
             ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
 
@@ -1648,7 +1648,7 @@ mod tests {
                 Qual::PushdownIsNotNull { field },
                 SearchQueryInput::FieldedQuery {
                     field: f,
-                    query: FieldedQueryInput::Exists,
+                    query: PdbQuery::Exists,
                 },
             ) => field.attname() == *f,
 
@@ -1688,7 +1688,7 @@ mod tests {
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query:
-                        FieldedQueryInput::Term {
+                        PdbQuery::Term {
                             value: OwnedValue::Bool(false),
                             ..
                         },
@@ -1703,7 +1703,7 @@ mod tests {
                 SearchQueryInput::FieldedQuery {
                     field: f,
                     query:
-                        FieldedQueryInput::Term {
+                        PdbQuery::Term {
                             value: OwnedValue::Bool(true),
                             ..
                         },

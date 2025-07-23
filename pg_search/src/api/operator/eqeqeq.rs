@@ -14,11 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::basic_builder_fns::{term_set_str, term_str};
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::query::fielded_query::to_search_query_input;
+use crate::api::pdb_builder_fns::{term_set_str, term_str};
+use crate::query::pdb_query::to_search_query_input;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
     IntoDatum, PgList,

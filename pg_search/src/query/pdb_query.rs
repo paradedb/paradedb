@@ -19,13 +19,13 @@ use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn to_search_query_input(field: FieldName, query: FieldedQueryInput) -> SearchQueryInput {
+pub fn to_search_query_input(field: FieldName, query: PdbQuery) -> SearchQueryInput {
     SearchQueryInput::FieldedQuery { field, query }
 }
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum FieldedQueryInput {
+pub enum PdbQuery {
     Exists,
     FastFieldRangeWeight {
         #[serde(
@@ -164,7 +164,7 @@ pub enum FieldedQueryInput {
     },
 }
 
-impl FieldedQueryInput {
+impl PdbQuery {
     pub fn into_tantivy_query(
         self,
         field: FieldName,
@@ -173,12 +173,12 @@ impl FieldedQueryInput {
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn Query>, Box<dyn Error>> {
         let query: Box<dyn Query> = match self {
-            FieldedQueryInput::Exists => exists(field, searcher),
-            FieldedQueryInput::FastFieldRangeWeight {
+            PdbQuery::Exists => exists(field, searcher),
+            PdbQuery::FastFieldRangeWeight {
                 lower_bound,
                 upper_bound,
             } => fast_field_range_weight(&field, schema, lower_bound, upper_bound),
-            FieldedQueryInput::FuzzyTerm {
+            PdbQuery::FuzzyTerm {
                 value,
                 distance,
                 transposition_cost_one,
@@ -191,7 +191,7 @@ impl FieldedQueryInput {
                 transposition_cost_one,
                 prefix,
             )?,
-            FieldedQueryInput::Match {
+            PdbQuery::Match {
                 value,
                 tokenizer,
                 distance,
@@ -209,56 +209,52 @@ impl FieldedQueryInput {
                 prefix,
                 conjunction_mode,
             )?,
-            FieldedQueryInput::ParseWithField {
+            PdbQuery::ParseWithField {
                 query_string,
                 lenient,
                 conjunction_mode,
             } => parse(&field, parser, query_string, lenient, conjunction_mode)?,
 
-            FieldedQueryInput::Phrase { phrases, slop } => {
-                phrase(&field, schema, searcher, phrases, slop)?
-            }
+            PdbQuery::Phrase { phrases, slop } => phrase(&field, schema, searcher, phrases, slop)?,
 
-            FieldedQueryInput::PhrasePrefix {
+            PdbQuery::PhrasePrefix {
                 phrases,
                 max_expansions,
             } => phrase_prefix(&field, schema, phrases, max_expansions)?,
-            FieldedQueryInput::TokenizedPhrase { phrase, slop } => {
+            PdbQuery::TokenizedPhrase { phrase, slop } => {
                 tokenized_phrase(&field, schema, searcher, &phrase, slop)
             }
-            FieldedQueryInput::Range {
+            PdbQuery::Range {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            FieldedQueryInput::RangeContains {
+            PdbQuery::RangeContains {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_contains(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            FieldedQueryInput::RangeIntersects {
+            PdbQuery::RangeIntersects {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_intersects(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            FieldedQueryInput::RangeTerm { value, is_datetime } => {
+            PdbQuery::RangeTerm { value, is_datetime } => {
                 range_term(&field, schema, &value, is_datetime)?
             }
-            FieldedQueryInput::RangeWithin {
+            PdbQuery::RangeWithin {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_within(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            FieldedQueryInput::Regex { pattern } => regex(&field, schema, &pattern)?,
-            FieldedQueryInput::RegexPhrase {
+            PdbQuery::Regex { pattern } => regex(&field, schema, &pattern)?,
+            PdbQuery::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            FieldedQueryInput::Term { value, is_datetime } => {
-                term(field, schema, &value, is_datetime)?
-            }
-            FieldedQueryInput::TermSet { terms } => term_set(field, schema, terms)?,
+            PdbQuery::Term { value, is_datetime } => term(field, schema, &value, is_datetime)?,
+            PdbQuery::TermSet { terms } => term_set(field, schema, terms)?,
         };
 
         Ok(query)

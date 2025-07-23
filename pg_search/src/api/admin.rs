@@ -24,7 +24,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{LinkedList, MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::item_pointer_to_u64;
-use crate::query::fielded_query::FieldedQueryInput;
+use crate::query::pdb_query::PdbQuery;
 use crate::query::SearchQueryInput;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
@@ -322,7 +322,7 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
     let ctid_u64 = item_pointer_to_u64(ctid);
     let query = SearchQueryInput::FieldedQuery {
         field: "ctid".into(),
-        query: FieldedQueryInput::Term {
+        query: PdbQuery::Term {
             value: ctid_u64.into(),
             is_datetime: false,
         },

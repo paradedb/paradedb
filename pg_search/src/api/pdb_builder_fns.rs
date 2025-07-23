@@ -3,7 +3,7 @@ pub use pdb::*;
 #[pgrx::pg_schema]
 mod pdb {
     use crate::postgres::types::TantivyValue;
-    use crate::query::fielded_query::FieldedQueryInput;
+    use crate::query::pdb_query::PdbQuery;
     use crate::schema::AnyEnum;
     use macros::builder_fn;
     use pgrx::datum::RangeBound;
@@ -15,8 +15,8 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe)]
-    pub fn match_conjunction(terms_to_tokenize: String) -> FieldedQueryInput {
-        FieldedQueryInput::Match {
+    pub fn match_conjunction(terms_to_tokenize: String) -> PdbQuery {
+        PdbQuery::Match {
             value: terms_to_tokenize,
             conjunction_mode: Some(true),
             tokenizer: None,
@@ -28,8 +28,8 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe)]
-    pub fn match_disjunction(terms_to_tokenize: String) -> FieldedQueryInput {
-        FieldedQueryInput::Match {
+    pub fn match_disjunction(terms_to_tokenize: String) -> PdbQuery {
+        PdbQuery::Match {
             value: terms_to_tokenize,
             conjunction_mode: Some(false),
             tokenizer: None,
@@ -41,14 +41,14 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
-    pub fn phrase_string(phrase: String) -> FieldedQueryInput {
-        FieldedQueryInput::TokenizedPhrase { phrase, slop: None }
+    pub fn phrase_string(phrase: String) -> PdbQuery {
+        PdbQuery::TokenizedPhrase { phrase, slop: None }
     }
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "exists")]
-    pub fn exists() -> FieldedQueryInput {
-        FieldedQueryInput::Exists
+    pub fn exists() -> PdbQuery {
+        PdbQuery::Exists
     }
 
     #[builder_fn]
@@ -58,8 +58,8 @@ mod pdb {
         distance: default!(Option<i32>, "NULL"),
         transposition_cost_one: default!(Option<bool>, "NULL"),
         prefix: default!(Option<bool>, "NULL"),
-    ) -> FieldedQueryInput {
-        FieldedQueryInput::FuzzyTerm {
+    ) -> PdbQuery {
+        PdbQuery::FuzzyTerm {
             value: value.expect("`value` argument is required"),
             distance: distance.map(|n| n as u8),
             transposition_cost_one,
@@ -76,8 +76,8 @@ mod pdb {
         transposition_cost_one: default!(Option<bool>, "NULL"),
         prefix: default!(Option<bool>, "NULL"),
         conjunction_mode: default!(Option<bool>, "NULL"),
-    ) -> FieldedQueryInput {
-        FieldedQueryInput::Match {
+    ) -> PdbQuery {
+        PdbQuery::Match {
             value,
             tokenizer: tokenizer.map(|t| t.0),
             distance: distance.map(|n| n as u8),
@@ -93,8 +93,8 @@ mod pdb {
         query_string: String,
         lenient: default!(Option<bool>, "NULL"),
         conjunction_mode: default!(Option<bool>, "NULL"),
-    ) -> FieldedQueryInput {
-        FieldedQueryInput::ParseWithField {
+    ) -> PdbQuery {
+        PdbQuery::ParseWithField {
             query_string,
             lenient,
             conjunction_mode,
@@ -103,8 +103,8 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "phrase")]
-    pub fn phrase(phrases: Vec<String>, slop: default!(Option<i32>, "NULL")) -> FieldedQueryInput {
-        FieldedQueryInput::Phrase {
+    pub fn phrase(phrases: Vec<String>, slop: default!(Option<i32>, "NULL")) -> PdbQuery {
+        PdbQuery::Phrase {
             phrases,
             slop: slop.map(|n| n as u32),
         }
@@ -115,8 +115,8 @@ mod pdb {
     pub fn phrase_prefix(
         phrases: Vec<String>,
         max_expansion: default!(Option<i32>, "NULL"),
-    ) -> FieldedQueryInput {
-        FieldedQueryInput::PhrasePrefix {
+    ) -> PdbQuery {
+        PdbQuery::PhrasePrefix {
             phrases,
             max_expansions: max_expansion.map(|n| n as u32),
         }
@@ -124,15 +124,15 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "range")]
-    pub fn range_i32(range: Range<i32>) -> FieldedQueryInput {
+    pub fn range_i32(range: Range<i32>) -> PdbQuery {
         match range.into_inner() {
-            None => FieldedQueryInput::Range {
+            None => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::I64(0)),
                 upper_bound: Bound::Excluded(OwnedValue::I64(0)),
                 is_datetime: false,
             },
 
-            Some((lower, upper)) => FieldedQueryInput::Range {
+            Some((lower, upper)) => PdbQuery::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
                     RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
@@ -150,14 +150,14 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "range")]
-    pub fn range_i64(range: Range<i64>) -> FieldedQueryInput {
+    pub fn range_i64(range: Range<i64>) -> PdbQuery {
         match range.into_inner() {
-            None => FieldedQueryInput::Range {
+            None => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::I64(0)),
                 upper_bound: Bound::Excluded(OwnedValue::I64(0)),
                 is_datetime: false,
             },
-            Some((lower, upper)) => FieldedQueryInput::Range {
+            Some((lower, upper)) => PdbQuery::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
                     RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
@@ -175,14 +175,14 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "range")]
-    pub fn range_numeric(range: Range<AnyNumeric>) -> FieldedQueryInput {
+    pub fn range_numeric(range: Range<AnyNumeric>) -> PdbQuery {
         match range.into_inner() {
-            None => FieldedQueryInput::Range {
+            None => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::F64(0.0)),
                 upper_bound: Bound::Excluded(OwnedValue::F64(0.0)),
                 is_datetime: false,
             },
-            Some((lower, upper)) => FieldedQueryInput::Range {
+            Some((lower, upper)) => PdbQuery::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
                     RangeBound::Inclusive(n) => Bound::Included(OwnedValue::F64(
@@ -210,9 +210,9 @@ mod pdb {
         ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range")]
-            pub fn $func_name(range: Range<$value_type>) -> FieldedQueryInput {
+            pub fn $func_name(range: Range<$value_type>) -> PdbQuery {
                 match range.into_inner() {
-                    None => FieldedQueryInput::Range {
+                    None => PdbQuery::Range {
                         lower_bound: Bound::Included(tantivy::schema::OwnedValue::Date(
                             tantivy::DateTime::from_timestamp_micros(0),
                         )),
@@ -221,7 +221,7 @@ mod pdb {
                         )),
                         is_datetime: true,
                     },
-                    Some((lower, upper)) => FieldedQueryInput::Range {
+                    Some((lower, upper)) => PdbQuery::Range {
                         lower_bound: match lower {
                             RangeBound::Infinite => Bound::Unbounded,
                             RangeBound::Inclusive(n) => Bound::Included(
@@ -275,9 +275,9 @@ mod pdb {
         lower: Bound<AnyElement>,
         upper: Bound<AnyElement>,
         is_datetime: bool,
-    ) -> anyhow::Result<FieldedQueryInput> {
+    ) -> anyhow::Result<PdbQuery> {
         let query = match (lower, upper) {
-            (Bound::Included(s), Bound::Included(e)) => FieldedQueryInput::Range {
+            (Bound::Included(s), Bound::Included(e)) => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
@@ -286,7 +286,7 @@ mod pdb {
                 )?)),
                 is_datetime,
             },
-            (Bound::Included(s), Bound::Excluded(e)) => FieldedQueryInput::Range {
+            (Bound::Included(s), Bound::Excluded(e)) => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
@@ -295,14 +295,14 @@ mod pdb {
                 )?)),
                 is_datetime,
             },
-            (Bound::Included(s), Bound::Unbounded) => FieldedQueryInput::Range {
+            (Bound::Included(s), Bound::Unbounded) => PdbQuery::Range {
                 lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
                 upper_bound: Bound::Unbounded,
                 is_datetime,
             },
-            (Bound::Excluded(s), Bound::Excluded(e)) => FieldedQueryInput::Range {
+            (Bound::Excluded(s), Bound::Excluded(e)) => PdbQuery::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
@@ -311,7 +311,7 @@ mod pdb {
                 )?)),
                 is_datetime,
             },
-            (Bound::Excluded(s), Bound::Included(e)) => FieldedQueryInput::Range {
+            (Bound::Excluded(s), Bound::Included(e)) => PdbQuery::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
@@ -320,26 +320,26 @@ mod pdb {
                 )?)),
                 is_datetime,
             },
-            (Bound::Excluded(s), Bound::Unbounded) => FieldedQueryInput::Range {
+            (Bound::Excluded(s), Bound::Unbounded) => PdbQuery::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
                 upper_bound: Bound::Unbounded,
                 is_datetime,
             },
-            (Bound::Unbounded, Bound::Unbounded) => FieldedQueryInput::Range {
+            (Bound::Unbounded, Bound::Unbounded) => PdbQuery::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Unbounded,
                 is_datetime,
             },
-            (Bound::Unbounded, Bound::Included(e)) => FieldedQueryInput::Range {
+            (Bound::Unbounded, Bound::Included(e)) => PdbQuery::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
                 is_datetime,
             },
-            (Bound::Unbounded, Bound::Excluded(e)) => FieldedQueryInput::Range {
+            (Bound::Unbounded, Bound::Excluded(e)) => PdbQuery::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
@@ -353,8 +353,8 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "regex")]
-    pub fn regex(pattern: String) -> FieldedQueryInput {
-        FieldedQueryInput::Regex { pattern }
+    pub fn regex(pattern: String) -> PdbQuery {
+        PdbQuery::Regex { pattern }
     }
 
     #[builder_fn]
@@ -363,8 +363,8 @@ mod pdb {
         regexes: Vec<String>,
         slop: default!(Option<i32>, "NULL"),
         max_expansions: default!(Option<i32>, "NULL"),
-    ) -> FieldedQueryInput {
-        FieldedQueryInput::RegexPhrase {
+    ) -> PdbQuery {
+        PdbQuery::RegexPhrase {
             regexes,
             slop: slop.map(|n| n as u32),
             max_expansions: max_expansions.map(|n| n as u32),
@@ -375,7 +375,7 @@ mod pdb {
         ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "term")]
-            pub fn $func_name(value: $value_type) -> FieldedQueryInput {
+            pub fn $func_name(value: $value_type) -> PdbQuery {
                 let tantivy_value = TantivyValue::try_from(value)
                     .expect("value should be a valid TantivyValue representation")
                     .tantivy_schema_value();
@@ -384,7 +384,7 @@ mod pdb {
                     _ => false,
                 };
 
-                FieldedQueryInput::Term {
+                PdbQuery::Term {
                     value: tantivy_value,
                     is_datetime,
                 }
@@ -394,13 +394,13 @@ mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "term")]
-    pub fn term_anyenum(value: AnyEnum) -> FieldedQueryInput {
+    pub fn term_anyenum(value: AnyEnum) -> PdbQuery {
         let tantivy_value = TantivyValue::try_from(value)
             .expect("value should be a valid TantivyValue representation")
             .tantivy_schema_value();
         let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
 
-        FieldedQueryInput::Term {
+        PdbQuery::Term {
             value: tantivy_value,
             is_datetime,
         }
@@ -428,7 +428,7 @@ mod pdb {
         ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "term_set")]
-            pub fn $func_name(terms: Vec<$value_type>) -> FieldedQueryInput {
+            pub fn $func_name(terms: Vec<$value_type>) -> PdbQuery {
                 let terms = terms
                     .into_iter()
                     .map(|term| {
@@ -437,7 +437,7 @@ mod pdb {
                             .tantivy_schema_value()
                     })
                     .collect::<Vec<_>>();
-                FieldedQueryInput::TermSet { terms }
+                PdbQuery::TermSet { terms }
             }
         };
     }
@@ -468,8 +468,8 @@ mod pdb {
         ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
-            pub fn $func_name(term: $value_type) -> FieldedQueryInput {
-                FieldedQueryInput::RangeTerm {
+            pub fn $func_name(term: $value_type) -> PdbQuery {
+                PdbQuery::RangeTerm {
                     value: TantivyValue::try_from(term)
                         .expect("term should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
@@ -515,7 +515,7 @@ mod pdb {
         ($func_name:ident, $value_type:ty, $is_datetime:expr, $default:expr) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
-            pub fn $func_name(range: $value_type, relation: RangeRelation) -> FieldedQueryInput {
+            pub fn $func_name(range: $value_type, relation: RangeRelation) -> PdbQuery {
                 let (lower_bound, upper_bound) = match range.into_inner() {
                     None => (Bound::Included($default), Bound::Excluded($default)),
                     Some((lower, upper)) => {
@@ -552,17 +552,17 @@ mod pdb {
                 };
 
                 match relation {
-                    RangeRelation::Intersects => FieldedQueryInput::RangeIntersects {
+                    RangeRelation::Intersects => PdbQuery::RangeIntersects {
                         lower_bound,
                         upper_bound,
                         is_datetime: $is_datetime,
                     },
-                    RangeRelation::Contains => FieldedQueryInput::RangeContains {
+                    RangeRelation::Contains => PdbQuery::RangeContains {
                         lower_bound,
                         upper_bound,
                         is_datetime: $is_datetime,
                     },
-                    RangeRelation::Within => FieldedQueryInput::RangeWithin {
+                    RangeRelation::Within => PdbQuery::RangeWithin {
                         lower_bound,
                         upper_bound,
                         is_datetime: $is_datetime,

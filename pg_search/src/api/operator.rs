@@ -29,7 +29,7 @@ use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::find_var_relation;
-use crate::query::{FieldedQueryInput, SearchQueryInput};
+use crate::query::{PdbQuery, SearchQueryInput};
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -41,7 +41,7 @@ use std::ptr::NonNull;
 enum RHSValue {
     Text(String),
     TextArray(Vec<String>),
-    FieldedQueryInput(FieldedQueryInput),
+    FieldedQueryInput(PdbQuery),
 }
 
 #[derive(Debug)]
@@ -435,7 +435,7 @@ where
 
             // this is specifically used for the `@@@(anyelement, paradedb.fieldedqueryinput)` operator
             other if other == fieldedqueryinput_typoid() => RHSValue::FieldedQueryInput(
-                FieldedQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)
+                PdbQuery::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
             ),
 

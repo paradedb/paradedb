@@ -20,10 +20,10 @@
 
 mod admin;
 pub mod aggregate;
-pub mod basic_builder_fns;
 pub mod builder_fns;
 pub mod config;
 pub mod operator;
+pub mod pdb_builder_fns;
 pub mod tokenize;
 
 use pgrx::{

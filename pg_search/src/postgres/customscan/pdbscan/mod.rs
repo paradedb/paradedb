@@ -64,7 +64,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::query::fielded_query::FieldedQueryInput;
+use crate::query::pdb_query::PdbQuery;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -1520,7 +1520,7 @@ fn base_query_has_search_predicates(
 
         // For ParseWithField, check if it's a text search or a range query
         SearchQueryInput::FieldedQuery {
-            query: FieldedQueryInput::ParseWithField { query_string, .. },
+            query: PdbQuery::ParseWithField { query_string, .. },
             ..
         } if is_range_query_string(query_string) => true,
 

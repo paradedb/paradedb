@@ -19,7 +19,7 @@ use pgrx::*;
 
 use crate::api::{FieldName, HashMap};
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::fielded_query::FieldedQueryInput;
+use crate::query::pdb_query::PdbQuery;
 use crate::query::{SearchQueryInput, TermInput};
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
@@ -185,7 +185,7 @@ pub unsafe fn term_with_operator(
                 "<>" => Ok(
                     SearchQueryInput::Boolean {
                         // ensure that we don't match NULL nulls as not being equal to whatever the user specified
-                        must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: FieldedQueryInput::Exists}],
+                        must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: PdbQuery::Exists}],
                         should: vec![],
                         must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}]
                     }
@@ -199,7 +199,7 @@ pub unsafe fn term_with_operator(
         };
     }
 
-    use crate::api::basic_builder_fns::*;
+    use crate::api::pdb_builder_fns::*;
     match value.oid() {
         pg_sys::CHAROID => make_query!(operator, field, term_i8, i8, value, false),
         pg_sys::INT2OID => make_query!(operator, field, term_i16, i16, value, false),
@@ -379,7 +379,7 @@ pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
         .map(|input| match input {
             SearchQueryInput::FieldedQuery {
                 field,
-                query: FieldedQueryInput::Term { value, is_datetime },
+                query: PdbQuery::Term { value, is_datetime },
             } => TermInput {
                 field,
                 value,

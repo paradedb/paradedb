@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753292528450,
+  "lastUpdate": 1753302210366,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1634,6 +1634,72 @@ window.BENCHMARK_DATA = {
             "value": 56.09449838219721,
             "unit": "median tps",
             "extra": "avg tps: 59.27040622953118, max tps: 724.8220380691031, count: 55136"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac",
+          "message": "perf: Lazily load bitpacked columns (#2894)\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/56.\n\n## Why\n\nAs mentioned there:\n> We would like to be able to lazily load `BitpackedCodec` columns\n(similar to what\nhttps://github.com/paradedb/tantivy/commit/020bdffd61365a140218643c49ba01c5043b2966\ndid for `BlockwiseLinearCodec`), because in the context of `pg_search`,\nimmediately constructing `OwnedBytes` means copying the entire content\nof the column into memory.\n\n## Tests\n\nThere are a few 2x speedups in the benchmark suite, as well as a 1.8x\nspeedup on a representative customer query.\n\nUnfortunately there are also some 13-19% slowdowns on aggregates with\n`solve_mvcc=false`: it looks like that is because aggregates use\n`get_vals`, for which the default implementation is to just call\n`get_val` in a loop. After discussion, we think that getting back that\nperformance might require wider API changes to make batching more\ninherent.",
+          "timestamp": "2025-07-23T13:06:17-07:00",
+          "tree_id": "f25d5227041b7df9d6e6841c1cdedccb09c977b9",
+          "url": "https://github.com/paradedb/paradedb/commit/80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac"
+        },
+        "date": 1753302209330,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1252.5169226073353,
+            "unit": "median tps",
+            "extra": "avg tps: 1246.330029620314, max tps: 1255.089833959128, count: 55108"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2737.556275276938,
+            "unit": "median tps",
+            "extra": "avg tps: 2727.047491850745, max tps: 2755.61710933603, count: 55108"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1223.3168372780028,
+            "unit": "median tps",
+            "extra": "avg tps: 1219.4318917505884, max tps: 1229.5913374441122, count: 55108"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1015.3853129226604,
+            "unit": "median tps",
+            "extra": "avg tps: 1012.696617236245, max tps: 1024.4406600463392, count: 55108"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.33112185338678,
+            "unit": "median tps",
+            "extra": "avg tps: 173.6365213224056, max tps: 187.061028555413, count: 110216"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 147.42163227863546,
+            "unit": "median tps",
+            "extra": "avg tps: 147.3451486976374, max tps: 148.45725528950152, count: 55108"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 27.115828160118358,
+            "unit": "median tps",
+            "extra": "avg tps: 30.03439819317569, max tps: 511.4085008366643, count: 55108"
           }
         ]
       }

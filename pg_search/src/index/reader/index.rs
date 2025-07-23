@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::iterator::{DeferredScorer, ScorerIter};
+use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753289440599,
+  "lastUpdate": 1753289442714,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8926,6 +8926,66 @@ window.BENCHMARK_DATA = {
             "value": 160.2578125,
             "unit": "median mem",
             "extra": "avg mem: 150.70848516510085, max mem: 167.22265625, count: 57904"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53fa29a57e7daa2bdec9bf05f86d8db50088fd51",
+          "message": "perf: Avoid a re-query when a top-n query is exhausted (#2888)\n\n## What\n\nSplit the iterators consumed by the `TopN` exec method and by the\n`Normal`/`FF` exec methods into two separate implementations.\n\nAfter splitting them, use the known exact size of the `TopN` iterator to\nexit early (as `exhausted: bool`) if we had fewer matches than were\nrequested. This avoids re-querying an iterator (and re-scanning its\ncolumns) that we know has no more results.\n\n## Why\n\nThe two types of consumers of these iterators have very different\nconsumption patterns and constraints:\n* TopN knows exactly how many results there will be, and already buffers\nthem all in memory. It would like to be able to know the precise count\nof results.\n* `Normal` and `FF` exec methods do not know the total number of results\nto expect, and in some cases would like to be able to consume in a\nsegment-aware fashion in order to be able to late-fetch fast field\ncolumns (see #2623).\n\n## Tests\n\nAdded a test to cement the change in query count.\n\nBenchmarks show a 1.5x speedup for `paging-string-max`, and no change\nfor other queries.",
+          "timestamp": "2025-07-23T09:13:45-07:00",
+          "tree_id": "c162e59fb9a6b4523c0ff39e10d9d54d92761460",
+          "url": "https://github.com/paradedb/paradedb/commit/53fa29a57e7daa2bdec9bf05f86d8db50088fd51"
+        },
+        "date": 1753289441705,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.338844378798772, max cpu: 43.373497, count: 57616"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 173.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 172.53398585299655, max mem: 178.9296875, count: 57616"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18287,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16935.253176201055, max block_count: 22279.0, count: 57616"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 41,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.73588933629547, max segment_count: 122.0, count: 57616"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.5084081219152, max cpu: 32.65306, count: 57616"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.30285966571785, max mem: 174.18359375, count: 57616"
           }
         ]
       }

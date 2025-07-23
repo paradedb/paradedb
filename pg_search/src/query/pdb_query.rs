@@ -1,184 +1,192 @@
 use crate::api::FieldName;
-use crate::query::range::{deserialize_bound, serialize_bound, Comparison, RangeField};
+use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
-use pgrx::{pg_extern, PostgresType};
-use serde::{Deserialize, Serialize};
+use pgrx::{pg_extern, pg_schema};
 use serde_json::Value;
 use std::collections::Bound;
 use std::error::Error;
 use tantivy::query::{
     BooleanQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
-    PhrasePrefixQuery, PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery,
-    TermQuery, TermSetQuery,
+    PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, QueryParser, RangeQuery,
+    RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn to_search_query_input(field: FieldName, query: PdbQuery) -> SearchQueryInput {
+pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
     SearchQueryInput::FieldedQuery { field, query }
 }
 
-#[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PdbQuery {
-    Exists,
-    FastFieldRangeWeight {
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<u64>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<u64>,
-    },
-    FuzzyTerm {
-        value: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        distance: Option<u8>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        transposition_cost_one: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        prefix: Option<bool>,
-    },
-    Match {
-        value: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        tokenizer: Option<serde_json::Value>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        distance: Option<u8>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        transposition_cost_one: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        prefix: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        conjunction_mode: Option<bool>,
-    },
-    ParseWithField {
-        query_string: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        lenient: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        conjunction_mode: Option<bool>,
-    },
-    Phrase {
-        phrases: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        slop: Option<u32>,
-    },
-    PhrasePrefix {
-        phrases: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        max_expansions: Option<u32>,
-    },
-    TokenizedPhrase {
-        phrase: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        slop: Option<u32>,
-    },
-    Range {
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeContains {
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeIntersects {
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeTerm {
-        value: OwnedValue,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeWithin {
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: Bound<OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: Bound<OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    Regex {
-        pattern: String,
-    },
-    RegexPhrase {
-        regexes: Vec<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        slop: Option<u32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        max_expansions: Option<u32>,
-    },
-    Term {
-        value: OwnedValue,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    TermSet {
-        terms: Vec<OwnedValue>,
-    },
+#[pg_schema]
+pub mod pdb {
+    use crate::query::range::{deserialize_bound, serialize_bound};
+    use pgrx::PostgresType;
+    use serde::{Deserialize, Serialize};
+    use std::collections::Bound;
+    use tantivy::schema::OwnedValue;
+
+    #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Query {
+        Exists,
+        FastFieldRangeWeight {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<u64>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<u64>,
+        },
+        FuzzyTerm {
+            value: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            distance: Option<u8>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            transposition_cost_one: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            prefix: Option<bool>,
+        },
+        Match {
+            value: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            tokenizer: Option<serde_json::Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            distance: Option<u8>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            transposition_cost_one: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            prefix: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            conjunction_mode: Option<bool>,
+        },
+        ParseWithField {
+            query_string: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            lenient: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            conjunction_mode: Option<bool>,
+        },
+        Phrase {
+            phrases: Vec<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            slop: Option<u32>,
+        },
+        PhrasePrefix {
+            phrases: Vec<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            max_expansions: Option<u32>,
+        },
+        TokenizedPhrase {
+            phrase: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            slop: Option<u32>,
+        },
+        Range {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<OwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<OwnedValue>,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        RangeContains {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<OwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<OwnedValue>,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        RangeIntersects {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<OwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<OwnedValue>,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        RangeTerm {
+            value: OwnedValue,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        RangeWithin {
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            lower_bound: Bound<OwnedValue>,
+            #[serde(
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
+            )]
+            upper_bound: Bound<OwnedValue>,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        Regex {
+            pattern: String,
+        },
+        RegexPhrase {
+            regexes: Vec<String>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            slop: Option<u32>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            max_expansions: Option<u32>,
+        },
+        Term {
+            value: OwnedValue,
+            #[serde(default)]
+            is_datetime: bool,
+        },
+        TermSet {
+            terms: Vec<OwnedValue>,
+        },
+    }
 }
 
-impl PdbQuery {
+impl pdb::Query {
     pub fn into_tantivy_query(
         self,
         field: FieldName,
         schema: &SearchIndexSchema,
         parser: &mut QueryParser,
         searcher: &Searcher,
-    ) -> anyhow::Result<Box<dyn Query>, Box<dyn Error>> {
-        let query: Box<dyn Query> = match self {
-            PdbQuery::Exists => exists(field, searcher),
-            PdbQuery::FastFieldRangeWeight {
+    ) -> anyhow::Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+        let query: Box<dyn TantivyQuery> = match self {
+            pdb::Query::Exists => exists(field, searcher),
+            pdb::Query::FastFieldRangeWeight {
                 lower_bound,
                 upper_bound,
             } => fast_field_range_weight(&field, schema, lower_bound, upper_bound),
-            PdbQuery::FuzzyTerm {
+            pdb::Query::FuzzyTerm {
                 value,
                 distance,
                 transposition_cost_one,
@@ -191,7 +199,7 @@ impl PdbQuery {
                 transposition_cost_one,
                 prefix,
             )?,
-            PdbQuery::Match {
+            pdb::Query::Match {
                 value,
                 tokenizer,
                 distance,
@@ -209,52 +217,54 @@ impl PdbQuery {
                 prefix,
                 conjunction_mode,
             )?,
-            PdbQuery::ParseWithField {
+            pdb::Query::ParseWithField {
                 query_string,
                 lenient,
                 conjunction_mode,
             } => parse(&field, parser, query_string, lenient, conjunction_mode)?,
 
-            PdbQuery::Phrase { phrases, slop } => phrase(&field, schema, searcher, phrases, slop)?,
+            pdb::Query::Phrase { phrases, slop } => {
+                phrase(&field, schema, searcher, phrases, slop)?
+            }
 
-            PdbQuery::PhrasePrefix {
+            pdb::Query::PhrasePrefix {
                 phrases,
                 max_expansions,
             } => phrase_prefix(&field, schema, phrases, max_expansions)?,
-            PdbQuery::TokenizedPhrase { phrase, slop } => {
+            pdb::Query::TokenizedPhrase { phrase, slop } => {
                 tokenized_phrase(&field, schema, searcher, &phrase, slop)
             }
-            PdbQuery::Range {
+            pdb::Query::Range {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            PdbQuery::RangeContains {
+            pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_contains(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            PdbQuery::RangeIntersects {
+            pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_intersects(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            PdbQuery::RangeTerm { value, is_datetime } => {
+            pdb::Query::RangeTerm { value, is_datetime } => {
                 range_term(&field, schema, &value, is_datetime)?
             }
-            PdbQuery::RangeWithin {
+            pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
                 is_datetime,
             } => range_within(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            PdbQuery::Regex { pattern } => regex(&field, schema, &pattern)?,
-            PdbQuery::RegexPhrase {
+            pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
+            pdb::Query::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            PdbQuery::Term { value, is_datetime } => term(field, schema, &value, is_datetime)?,
-            PdbQuery::TermSet { terms } => term_set(field, schema, terms)?,
+            pdb::Query::Term { value, is_datetime } => term(field, schema, &value, is_datetime)?,
+            pdb::Query::TermSet { terms } => term_set(field, schema, terms)?,
         };
 
         Ok(query)
@@ -265,7 +275,7 @@ fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
     terms: Vec<OwnedValue>,
-) -> anyhow::Result<Box<dyn Query>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(&field)
         .expect("field should exist in schema");
@@ -293,7 +303,7 @@ fn term(
     schema: &SearchIndexSchema,
     value: &OwnedValue,
     is_datetime: bool,
-) -> Result<Box<dyn Query>, Box<dyn Error>> {
+) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
     let search_field = schema
         .search_field(field.root())
@@ -353,7 +363,7 @@ fn range_within(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<dyn Query>, Box<dyn Error>> {
+) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -363,8 +373,8 @@ fn range_within(
 
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
-    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
+    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
+    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
 
     match lower_bound {
         Bound::Excluded(ref lower) => {
@@ -608,7 +618,7 @@ fn range_intersects(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<dyn Query>, Box<dyn Error>> {
+) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -618,8 +628,8 @@ fn range_intersects(
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
-    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
+    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
+    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
 
     match lower_bound {
         Bound::Excluded(ref lower) => {
@@ -774,8 +784,8 @@ fn range_contains(
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
-    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
+    let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
+    let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
 
     match lower_bound {
         Bound::Included(lower) => {
@@ -962,7 +972,7 @@ fn tokenized_phrase(
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
-) -> Box<dyn Query> {
+) -> Box<dyn TantivyQuery> {
     let tantivy_field = schema
         .search_field(field)
         .unwrap_or_else(|| core::panic!("Field `{field}` not found in tantivy schema"))
@@ -1075,7 +1085,7 @@ fn parse(
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
-) -> Result<Box<dyn Query>, Box<dyn Error>> {
+) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
@@ -1137,7 +1147,7 @@ fn match_query(
             field.path().as_deref(),
             false,
         )?;
-        let term_query: Box<dyn Query> = match (distance, prefix) {
+        let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(
                 term,
                 IndexRecordOption::WithFreqsAndPositions.into(),
@@ -1171,7 +1181,7 @@ fn fuzzy_term(
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
-) -> Result<Box<dyn Query>, Box<dyn Error>> {
+) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;

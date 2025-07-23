@@ -29,7 +29,8 @@ use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::find_var_relation;
-use crate::query::{PdbQuery, SearchQueryInput};
+use crate::query::pdb_query::pdb;
+use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pgrx_sql_entity_graph::metadata::{
@@ -41,7 +42,7 @@ use std::ptr::NonNull;
 enum RHSValue {
     Text(String),
     TextArray(Vec<String>),
-    FieldedQueryInput(PdbQuery),
+    PdbQuery(pdb::Query),
 }
 
 #[derive(Debug)]
@@ -116,15 +117,13 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     }
 }
 
-pub fn fieldedqueryinput_typoid() -> pg_sys::Oid {
+pub fn pdb_query_typoid() -> pg_sys::Oid {
     unsafe {
-        let oid = direct_function_call::<pg_sys::Oid>(
-            pg_sys::regtypein,
-            &[c"paradedb.FieldedQueryInput".into_datum()],
-        )
-        .expect("type `paradedb.FieldedQueryInput` should exist");
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.Query".into_datum()])
+                .expect("type `pdb.Query` should exist");
         if oid == pg_sys::Oid::INVALID {
-            panic!("type `paradedb.FieldedQueryInput` should exist");
+            panic!("type `pdb.Query` should exist");
         }
         oid
     }
@@ -433,9 +432,9 @@ where
                     .expect("rhs text array value must not be NULL"),
             ),
 
-            // this is specifically used for the `@@@(anyelement, paradedb.fieldedqueryinput)` operator
-            other if other == fieldedqueryinput_typoid() => RHSValue::FieldedQueryInput(
-                PdbQuery::from_datum((*const_).constvalue, (*const_).constisnull)
+            // this is specifically used for the `@@@(anyelement, pdb.query)` operator
+            other if other == pdb_query_typoid() => RHSValue::PdbQuery(
+                pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
             ),
 

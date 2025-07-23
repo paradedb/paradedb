@@ -29,7 +29,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
-pub use crate::query::pdb_query::PdbQuery;
+use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -40,8 +40,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
 use tantivy::query::{
-    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery, Query,
-    QueryParser, TermSetQuery,
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
+    Query as TantivyQuery, QueryParser, TermSetQuery,
 };
 use tantivy::DateTime;
 use tantivy::{
@@ -136,13 +136,13 @@ pub enum SearchQueryInput {
     #[serde(untagged)]
     FieldedQuery {
         field: FieldName,
-        query: PdbQuery,
+        query: pdb::Query,
     },
 }
 
 fn serialize_fielded_query<S>(
     field: &FieldName,
-    query: &PdbQuery,
+    query: &pdb::Query,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -167,18 +167,18 @@ where
         object.serialize(serializer)
     } else {
         Err(<S::Error as serde::ser::Error>::custom(
-            "this does not appear to be a FieldedQueryInput",
+            "this does not appear to be a `pdb::Query` instance",
         ))
     }
 }
 
-fn deserialize_fielded_query<'de, D>(deserializer: D) -> Result<(FieldName, PdbQuery), D::Error>
+fn deserialize_fielded_query<'de, D>(deserializer: D) -> Result<(FieldName, pdb::Query), D::Error>
 where
     D: Deserializer<'de>,
 {
     struct Visitor;
     impl<'de> serde::de::Visitor<'de> for Visitor {
-        type Value = (FieldName, PdbQuery);
+        type Value = (FieldName, pdb::Query);
 
         fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
             formatter.write_str("a map")
@@ -190,7 +190,7 @@ where
         {
             let Some((key, mut value)) = map.next_entry::<String, serde_json::Value>()? else {
                 return Err(<A::Error as serde::de::Error>::custom(
-                    "this does not appear to be a FieldedQueryInput",
+                    "this does not appear to be a `pdb::Query` instance",
                 ));
             };
 
@@ -201,13 +201,14 @@ where
 
                 if value.as_object_mut().unwrap().is_empty() {
                     let field_query_input =
-                        serde_json::from_value::<PdbQuery>(serde_json::Value::String(key)).unwrap();
+                        serde_json::from_value::<pdb::Query>(serde_json::Value::String(key))
+                            .unwrap();
                     Ok((field, field_query_input))
                 } else {
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
-                    let field_query_input = serde_json::from_value::<PdbQuery>(
+                    let field_query_input = serde_json::from_value::<pdb::Query>(
                         serde_json::Value::Object(reconstructed),
                     )
                     .unwrap();
@@ -215,7 +216,7 @@ where
                 }
             } else {
                 Err(<A::Error as serde::de::Error>::custom(
-                    "this does not appear to be a FieldedQueryInput",
+                    "this does not appear to be a `pdb::Query` instance",
                 ))
             }
         }
@@ -418,7 +419,7 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-    ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn TantivyQuery>, Box<dyn std::error::Error>> {
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")

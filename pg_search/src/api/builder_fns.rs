@@ -19,7 +19,7 @@ use pgrx::*;
 
 use crate::api::{FieldName, HashMap};
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::pdb_query::PdbQuery;
+use crate::query::pdb_query::pdb;
 use crate::query::{SearchQueryInput, TermInput};
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
@@ -185,7 +185,7 @@ pub unsafe fn term_with_operator(
                 "<>" => Ok(
                     SearchQueryInput::Boolean {
                         // ensure that we don't match NULL nulls as not being equal to whatever the user specified
-                        must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: PdbQuery::Exists}],
+                        must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: pdb::Query::Exists}],
                         should: vec![],
                         must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}]
                     }
@@ -379,7 +379,7 @@ pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
         .map(|input| match input {
             SearchQueryInput::FieldedQuery {
                 field,
-                query: PdbQuery::Term { value, is_datetime },
+                query: pdb::Query::Term { value, is_datetime },
             } => TermInput {
                 field,
                 value,

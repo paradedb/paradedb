@@ -18,7 +18,7 @@
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::query::PdbQuery;
+use crate::query::pdb_query::pdb;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -37,8 +37,8 @@ pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.@@@)]
-pub fn search_with_fieled_query_input(_element: AnyElement, query: PdbQuery) -> bool {
-    panic!("query is incompatible with pg_search's `@@@(field, paradedb.fieldedqueryinput)` operator: `{query:?}`")
+pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -> bool {
+    panic!("query is incompatible with pg_search's `@@@(field, pdb.query)` operator: `{query:?}`")
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -51,7 +51,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     Some(field) => crate::query::pdb_query::to_search_query_input(field, crate::api::pdb_builder_fns::parse_with_field(query_string, None, None)),
                     None => crate::api::builder_fns::parse(query_string, None, None),
                 }
-                RHSValue::FieldedQueryInput(query) => {
+                RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());
                     crate::query::pdb_query::to_search_query_input(field.unwrap(), query)
                 }
@@ -138,5 +138,9 @@ extension_sql!(
         ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
     "#,
     name = "atatat_support_fn",
-    requires = [search_with_parse, atatat_support]
+    requires = [
+        search_with_parse,
+        search_with_fieled_query_input,
+        atatat_support
+    ]
 );

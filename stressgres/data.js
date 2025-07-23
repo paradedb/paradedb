@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753303481306,
+  "lastUpdate": 1753303483348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9682,6 +9682,66 @@ window.BENCHMARK_DATA = {
             "value": 164.2265625,
             "unit": "median mem",
             "extra": "avg mem: 154.55939897833105, max mem: 174.98046875, count: 57767"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac",
+          "message": "perf: Lazily load bitpacked columns (#2894)\n\n## What\n\nIncorporates https://github.com/paradedb/tantivy/pull/56.\n\n## Why\n\nAs mentioned there:\n> We would like to be able to lazily load `BitpackedCodec` columns\n(similar to what\nhttps://github.com/paradedb/tantivy/commit/020bdffd61365a140218643c49ba01c5043b2966\ndid for `BlockwiseLinearCodec`), because in the context of `pg_search`,\nimmediately constructing `OwnedBytes` means copying the entire content\nof the column into memory.\n\n## Tests\n\nThere are a few 2x speedups in the benchmark suite, as well as a 1.8x\nspeedup on a representative customer query.\n\nUnfortunately there are also some 13-19% slowdowns on aggregates with\n`solve_mvcc=false`: it looks like that is because aggregates use\n`get_vals`, for which the default implementation is to just call\n`get_val` in a loop. After discussion, we think that getting back that\nperformance might require wider API changes to make batching more\ninherent.",
+          "timestamp": "2025-07-23T13:06:17-07:00",
+          "tree_id": "f25d5227041b7df9d6e6841c1cdedccb09c977b9",
+          "url": "https://github.com/paradedb/paradedb/commit/80e2a75d66c80e4d66557ef46e4402b9d0c1a3ac"
+        },
+        "date": 1753303482302,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.536639050636737, max cpu: 60.523766, count: 57731"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 174.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 173.7470327088133, max mem: 180.7578125, count: 57731"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17863,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16598.737212242988, max block_count: 21930.0, count: 57731"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 41,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.672948675754796, max segment_count: 118.0, count: 57731"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.389914524955604, max cpu: 32.589718, count: 57731"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.57421875,
+            "unit": "median mem",
+            "extra": "avg mem: 153.93862868573643, max mem: 170.2109375, count: 57731"
           }
         ]
       }

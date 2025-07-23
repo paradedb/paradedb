@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753288814702,
+  "lastUpdate": 1753289440599,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7524,6 +7524,42 @@ window.BENCHMARK_DATA = {
             "value": 136.63278988451967,
             "unit": "median tps",
             "extra": "avg tps: 136.1532840704618, max tps: 140.4793490341162, count: 57904"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53fa29a57e7daa2bdec9bf05f86d8db50088fd51",
+          "message": "perf: Avoid a re-query when a top-n query is exhausted (#2888)\n\n## What\n\nSplit the iterators consumed by the `TopN` exec method and by the\n`Normal`/`FF` exec methods into two separate implementations.\n\nAfter splitting them, use the known exact size of the `TopN` iterator to\nexit early (as `exhausted: bool`) if we had fewer matches than were\nrequested. This avoids re-querying an iterator (and re-scanning its\ncolumns) that we know has no more results.\n\n## Why\n\nThe two types of consumers of these iterators have very different\nconsumption patterns and constraints:\n* TopN knows exactly how many results there will be, and already buffers\nthem all in memory. It would like to be able to know the precise count\nof results.\n* `Normal` and `FF` exec methods do not know the total number of results\nto expect, and in some cases would like to be able to consume in a\nsegment-aware fashion in order to be able to late-fetch fast field\ncolumns (see #2623).\n\n## Tests\n\nAdded a test to cement the change in query count.\n\nBenchmarks show a 1.5x speedup for `paging-string-max`, and no change\nfor other queries.",
+          "timestamp": "2025-07-23T09:13:45-07:00",
+          "tree_id": "c162e59fb9a6b4523c0ff39e10d9d54d92761460",
+          "url": "https://github.com/paradedb/paradedb/commit/53fa29a57e7daa2bdec9bf05f86d8db50088fd51"
+        },
+        "date": 1753289439584,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.736037194702345,
+            "unit": "median tps",
+            "extra": "avg tps: 28.62591646989888, max tps: 28.898146120364817, count: 57616"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 138.83721228847457,
+            "unit": "median tps",
+            "extra": "avg tps: 138.22258104805857, max tps: 141.43269600911353, count: 57616"
           }
         ]
       }

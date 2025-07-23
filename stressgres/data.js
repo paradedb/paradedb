@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753281703759,
+  "lastUpdate": 1753281705889,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4128,6 +4128,126 @@ window.BENCHMARK_DATA = {
             "value": 59.4375,
             "unit": "median mem",
             "extra": "avg mem: 58.24563201664733, max mem: 83.02734375, count: 55159"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbd2e802901988c181281a9b7f772543e1df32d2",
+          "message": "chore: add `background-merge.toml` to CI (#2895)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis new stressgres file was instrumental in catching the bug fixed in\n#2845 and was used to test background merging, but has not been added to\nCI.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T10:26:09-04:00",
+          "tree_id": "bb8e3ca51c2d0de5e56be65f478f11096b0d410e",
+          "url": "https://github.com/paradedb/paradedb/commit/cbd2e802901988c181281a9b7f772543e1df32d2"
+        },
+        "date": 1753281704910,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.723666786486285, max cpu: 9.448819, count: 55205"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 59.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.97496179014582, max mem: 81.859375, count: 55205"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629144149309058, max cpu: 9.467456, count: 55205"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.35062975500408, max mem: 75.484375, count: 55205"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.723927866162107, max cpu: 9.4395275, count: 55205"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.04589371433747, max mem: 83.734375, count: 55205"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.447449667408074, max cpu: 4.655674, count: 55205"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 58.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.27575032832171, max mem: 82.984375, count: 55205"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.17782,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.289432838702109, max cpu: 23.59882, count: 110410"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 64.091796875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.30166853234535, max mem: 92.87890625, count: 110410"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3725,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3735.9671587718503, max block_count: 6715.0, count: 55205"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.93315822842134, max segment_count: 28.0, count: 55205"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.108100578514883, max cpu: 14.201183, count: 55205"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 77.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 77.60639979678018, max mem: 106.796875, count: 55205"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.523926904960996, max cpu: 4.6966734, count: 55205"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 59.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.66057662915497, max mem: 83.8671875, count: 55205"
           }
         ]
       }

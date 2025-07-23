@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753282980813,
+  "lastUpdate": 1753282983148,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8548,6 +8548,66 @@ window.BENCHMARK_DATA = {
             "value": 159.7109375,
             "unit": "median mem",
             "extra": "avg mem: 149.18621523711303, max mem: 167.15625, count: 57209"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbd2e802901988c181281a9b7f772543e1df32d2",
+          "message": "chore: add `background-merge.toml` to CI (#2895)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis new stressgres file was instrumental in catching the bug fixed in\n#2845 and was used to test background merging, but has not been added to\nCI.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T10:26:09-04:00",
+          "tree_id": "bb8e3ca51c2d0de5e56be65f478f11096b0d410e",
+          "url": "https://github.com/paradedb/paradedb/commit/cbd2e802901988c181281a9b7f772543e1df32d2"
+        },
+        "date": 1753282982138,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.805092,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.970735859310633, max cpu: 49.760765, count: 57904"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.99929807040533, max mem: 180.5, count: 57904"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18119,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16778.715943630836, max block_count: 21996.0, count: 57904"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.095641061066594, max segment_count: 114.0, count: 57904"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 11.294118,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.905509724933237, max cpu: 37.982197, count: 57904"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 150.70848516510085, max mem: 167.22265625, count: 57904"
           }
         ]
       }

@@ -288,6 +288,24 @@ impl From<SearchQueryInput> for *mut pg_sys::Const {
     }
 }
 
+/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
+/// in the current memory context.
+impl From<SearchQueryInput> for *mut pg_sys::Const {
+    fn from(value: SearchQueryInput) -> Self {
+        unsafe {
+            pg_sys::makeConst(
+                searchqueryinput_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                value.into_datum().unwrap(),
+                false,
+                false,
+            )
+        }
+    }
+}
+
 fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<OwnedValue>,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753304108664,
+  "lastUpdate": 1753309904033,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1700,6 +1700,72 @@ window.BENCHMARK_DATA = {
             "value": 27.115828160118358,
             "unit": "median tps",
             "extra": "avg tps: 30.03439819317569, max tps: 511.4085008366643, count: 55108"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9669e3ef733809d362c3f986470cabd1a906a1ac",
+          "message": "fix: add #[pg_guard] to extern C-unwind functions (#2899)\n\n## What\n\nAll `extern \"C-unwind\"` functions require the `#[pg_guard]` attribute.\nWe had a few that were missing it, which _could_ lead to a crash.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T18:16:06-04:00",
+          "tree_id": "dd4603085f3a81690187be0cc23d854ea10d0f03",
+          "url": "https://github.com/paradedb/paradedb/commit/9669e3ef733809d362c3f986470cabd1a906a1ac"
+        },
+        "date": 1753309902992,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1252.2567279984255,
+            "unit": "median tps",
+            "extra": "avg tps: 1249.269506224045, max tps: 1263.206345071596, count: 55229"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2861.7697504274424,
+            "unit": "median tps",
+            "extra": "avg tps: 2854.1541001673713, max tps: 2912.1637752705883, count: 55229"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1142.7027765750634,
+            "unit": "median tps",
+            "extra": "avg tps: 1143.6835745818566, max tps: 1225.951330533985, count: 55229"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1113.4110259110475,
+            "unit": "median tps",
+            "extra": "avg tps: 1103.666734927372, max tps: 1122.0492349805327, count: 55229"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 156.7159521443844,
+            "unit": "median tps",
+            "extra": "avg tps: 154.86970133847717, max tps: 160.02920620301865, count: 110458"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 139.69198310988406,
+            "unit": "median tps",
+            "extra": "avg tps: 139.12655046601074, max tps: 140.81101743345263, count: 55229"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 58.462333354397636,
+            "unit": "median tps",
+            "extra": "avg tps: 63.11709465803476, max tps: 740.605237412118, count: 55229"
           }
         ]
       }

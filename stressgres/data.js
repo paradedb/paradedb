@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753281705889,
+  "lastUpdate": 1753282354783,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5026,6 +5026,42 @@ window.BENCHMARK_DATA = {
             "value": 5.727330454936477,
             "unit": "median tps",
             "extra": "avg tps: 5.125484989699577, max tps: 6.457580610699357, count: 57332"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbd2e802901988c181281a9b7f772543e1df32d2",
+          "message": "chore: add `background-merge.toml` to CI (#2895)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis new stressgres file was instrumental in catching the bug fixed in\n#2845 and was used to test background merging, but has not been added to\nCI.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T10:26:09-04:00",
+          "tree_id": "bb8e3ca51c2d0de5e56be65f478f11096b0d410e",
+          "url": "https://github.com/paradedb/paradedb/commit/cbd2e802901988c181281a9b7f772543e1df32d2"
+        },
+        "date": 1753282353770,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.737143974914526,
+            "unit": "median tps",
+            "extra": "avg tps: 5.76481239017628, max tps: 8.6319738902815, count: 57272"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.80857458580108,
+            "unit": "median tps",
+            "extra": "avg tps: 5.199256166374755, max tps: 6.5951442859068425, count: 57272"
           }
         ]
       }

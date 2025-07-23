@@ -15,10 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::builder_fns::{parse, parse_with_field};
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::query::pdb_query::pdb;
+use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -48,12 +49,12 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
             |field, query_value| match query_value {
                 RHSValue::Text(query_string) => match field {
-                    Some(field) => crate::query::pdb_query::to_search_query_input(field, crate::api::pdb_builder_fns::parse_with_field(query_string, None, None)),
-                    None => crate::api::builder_fns::parse(query_string, None, None),
+                    Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
+                    None => parse(query_string, None, None),
                 }
                 RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());
-                    crate::query::pdb_query::to_search_query_input(field.unwrap(), query)
+                    to_search_query_input(field.unwrap(), query)
                 }
                 _ => {
                     unreachable!(

@@ -199,7 +199,8 @@ pub unsafe fn term_with_operator(
         };
     }
 
-    use crate::api::pdb_builder_fns::*;
+    use crate::api::builder_fns::*;
+    use crate::query::pdb_query::pdb;
     match value.oid() {
         pg_sys::CHAROID => make_query!(operator, field, term_i8, i8, value, false),
         pg_sys::INT2OID => make_query!(operator, field, term_i16, i16, value, false),

@@ -14,10 +14,10 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::builder_fns::match_disjunction;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::api::pdb_builder_fns::match_disjunction;
 use crate::query::pdb_query::to_search_query_input;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,

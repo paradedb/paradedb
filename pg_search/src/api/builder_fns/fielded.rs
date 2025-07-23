@@ -398,6 +398,7 @@ mod pdb {
 
     macro_rules! range_term_fn {
         ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
+            #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
             pub fn $func_name(term: $value_type) -> FieldedQueryInput {
                 FieldedQueryInput::RangeTerm {

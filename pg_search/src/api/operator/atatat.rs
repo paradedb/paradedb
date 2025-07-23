@@ -48,7 +48,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
             |field, query_value| match query_value {
                 RHSValue::Text(query_string) => match field {
-                    Some(field) => crate::query::fielded_query::to_search_query_input(field, crate::api::builder_fns::fielded::parse_with_field(query_string, None, None)),
+                    Some(field) => crate::query::fielded_query::to_search_query_input(field, crate::api::basic_builder_fns::parse_with_field(query_string, None, None)),
                     None => crate::api::builder_fns::parse(query_string, None, None),
                 }
                 RHSValue::FieldedQueryInput(query) => {

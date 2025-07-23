@@ -15,8 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-pub mod fielded;
-
 use pgrx::*;
 
 use crate::api::{FieldName, HashMap};
@@ -201,7 +199,7 @@ pub unsafe fn term_with_operator(
         };
     }
 
-    use crate::api::builder_fns::fielded::*;
+    use crate::api::basic_builder_fns::*;
     match value.oid() {
         pg_sys::CHAROID => make_query!(operator, field, term_i8, i8, value, false),
         pg_sys::INT2OID => make_query!(operator, field, term_i16, i16, value, false),

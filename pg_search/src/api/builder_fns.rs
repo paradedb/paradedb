@@ -380,15 +380,15 @@ pub fn term_set(
 ) -> SearchQueryInput {
     let terms: Vec<_> = terms
         .into_iter()
-        .filter_map(|input| match input {
+        .map(|input| match input {
             SearchQueryInput::FieldedQuery {
                 field,
                 query: FieldedQueryInput::Term { value, is_datetime },
-            } => Some(TermInput {
+            } => TermInput {
                 field,
                 value,
                 is_datetime,
-            }),
+            },
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

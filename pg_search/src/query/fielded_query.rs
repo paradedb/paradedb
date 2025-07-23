@@ -275,7 +275,7 @@ fn term(
     let is_datetime = search_field.is_datetime() || is_datetime;
     let term = value_to_term(
         search_field.field(),
-        &value,
+        value,
         field_type,
         field.path().as_deref(),
         is_datetime,
@@ -308,15 +308,15 @@ fn regex_phrase(
 fn regex(
     field: &FieldName,
     schema: &SearchIndexSchema,
-    pattern: &String,
+    pattern: &str,
 ) -> Result<Box<RegexQuery>, Box<dyn Error>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
 
     Ok(Box::new(
-        RegexQuery::from_pattern(&pattern, search_field.field())
-            .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+        RegexQuery::from_pattern(pattern, search_field.field())
+            .map_err(|err| QueryError::RegexError(err, pattern.to_string()))?,
     ))
 }
 
@@ -504,7 +504,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
+                                    .compare_lower_bound(value, Comparison::GreaterThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -519,7 +519,7 @@ fn range_term(
                         (
                             Occur::Must,
                             Box::new(
-                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
+                                range_field.compare_lower_bound(value, Comparison::GreaterThan)?,
                             ),
                         ),
                     ])),
@@ -547,7 +547,7 @@ fn range_term(
                             Occur::Must,
                             Box::new(
                                 range_field
-                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
+                                    .compare_upper_bound(value, Comparison::LessThanOrEqual)?,
                             ),
                         ),
                     ])),
@@ -561,9 +561,7 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(value, Comparison::LessThan)?),
                         ),
                     ])),
                 ),
@@ -935,18 +933,18 @@ fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
-    phrase: &String,
+    phrase: &str,
     slop: Option<u32>,
 ) -> Box<dyn Query> {
     let tantivy_field = schema
-        .search_field(&field)
+        .search_field(field)
         .unwrap_or_else(|| core::panic!("Field `{field}` not found in tantivy schema"))
         .field();
     let mut tokenizer = searcher
         .index()
         .tokenizer_for_field(tantivy_field)
         .unwrap_or_else(|e| core::panic!("{e}"));
-    let mut stream = tokenizer.token_stream(&phrase);
+    let mut stream = tokenizer.token_stream(phrase);
 
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
@@ -1069,11 +1067,12 @@ fn parse(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn match_query(
     field: &FieldName,
     schema: &SearchIndexSchema,
     searcher: &Searcher,
-    value: &String,
+    value: &str,
     tokenizer: Option<Value>,
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
@@ -1099,7 +1098,7 @@ fn match_query(
         }
         None => searcher.index().tokenizer_for_field(search_field.field())?,
     };
-    let mut stream = analyzer.token_stream(&value);
+    let mut stream = analyzer.token_stream(value);
     let mut terms = Vec::new();
 
     while stream.advance() {

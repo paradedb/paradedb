@@ -221,6 +221,7 @@ pub unsafe fn find_one_var_and_fieldname(
         let var = node.cast::<Var>();
         let (heaprelid, varattno) = context.var_relation(var);
         Some((var, fieldname_from_var(heaprelid, var, varattno)?))
+    // TODO: T_AggRef ...
     } else {
         None
     }

@@ -19,10 +19,9 @@ pub mod fielded;
 
 use pgrx::*;
 
-use crate::api::builder_fns::fielded::query_string;
 use crate::api::{FieldName, HashMap};
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::fielded_query::{to_search_query_input, FieldedQueryInput};
+use crate::query::fielded_query::FieldedQueryInput;
 use crate::query::{SearchQueryInput, TermInput};
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
@@ -172,19 +171,6 @@ pub fn parse(
         lenient,
         conjunction_mode,
     }
-}
-
-#[pg_extern(immutable, parallel_safe)]
-pub fn parse_with_field(
-    field: FieldName,
-    query_string: String,
-    lenient: default!(Option<bool>, "NULL"),
-    conjunction_mode: default!(Option<bool>, "NULL"),
-) -> SearchQueryInput {
-    to_search_query_input(
-        field,
-        fielded::query_string(query_string, lenient, conjunction_mode),
-    )
 }
 
 #[rustfmt::skip]

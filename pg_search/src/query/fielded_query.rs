@@ -41,33 +41,46 @@ pub enum FieldedQueryInput {
     },
     FuzzyTerm {
         value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         distance: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         transposition_cost_one: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         prefix: Option<bool>,
     },
     Match {
         value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tokenizer: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         distance: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         transposition_cost_one: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         prefix: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         conjunction_mode: Option<bool>,
     },
-    Parse {
+    ParseWithField {
         query_string: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         lenient: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         conjunction_mode: Option<bool>,
     },
     Phrase {
         phrases: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         slop: Option<u32>,
     },
     PhrasePrefix {
         phrases: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_expansions: Option<u32>,
     },
     TokenizedPhrase {
         phrase: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         slop: Option<u32>,
     },
     Range {
@@ -136,7 +149,9 @@ pub enum FieldedQueryInput {
     },
     RegexPhrase {
         regexes: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         slop: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_expansions: Option<u32>,
     },
     Term {
@@ -191,7 +206,7 @@ impl FieldedQueryInput {
                 prefix,
                 conjunction_mode,
             )?,
-            FieldedQueryInput::Parse {
+            FieldedQueryInput::ParseWithField {
                 query_string,
                 lenient,
                 conjunction_mode,

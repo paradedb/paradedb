@@ -35,7 +35,7 @@ use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
 use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
-use serde::de::Visitor;
+use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
@@ -84,19 +84,30 @@ pub enum SearchQueryInput {
     },
     DisjunctionMax {
         disjuncts: Vec<SearchQueryInput>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         tie_breaker: Option<f32>,
     },
     Empty,
     MoreLikeThis {
+        #[serde(skip_serializing_if = "Option::is_none")]
         min_doc_frequency: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_doc_frequency: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         min_term_frequency: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_query_terms: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         min_word_length: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         max_word_length: Option<usize>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         boost_factor: Option<f32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         stop_words: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         document_fields: Option<Vec<(String, OwnedValue)>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         document_id: Option<OwnedValue>,
     },
     Parse {
@@ -120,11 +131,93 @@ pub enum SearchQueryInput {
         field_filters: Vec<HeapFieldFilter>,
     },
 
+    #[serde(serialize_with = "serialize_fielded_query")]
+    #[serde(deserialize_with = "deserialize_fielded_query")]
+    #[serde(untagged)]
     FieldedQuery {
         field: FieldName,
-        #[serde(flatten)]
         query: FieldedQueryInput,
     },
+}
+
+fn serialize_fielded_query<S>(
+    field: &FieldName,
+    query: &FieldedQueryInput,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut query_json = serde_json::to_value(query).unwrap();
+
+    if let Some(map) = query_json.as_object_mut() {
+        let fielded_query_input_entry = map.values_mut().next().unwrap();
+        fielded_query_input_entry
+            .as_object_mut()
+            .unwrap()
+            .shift_insert(0, "field".into(), serde_json::to_value(field).unwrap());
+
+        query_json.serialize(serializer)
+    } else if let Some(variant_name) = query_json.as_str() {
+        let mut map = serde_json::Map::new();
+        map.insert("field".into(), serde_json::to_value(field).unwrap());
+
+        let mut object = serde_json::Map::new();
+        object.insert(variant_name.to_string(), serde_json::Value::Object(map));
+        object.serialize(serializer)
+    } else {
+        panic!("unsupported FieldedQueryInput structure: {query_json:?}");
+    }
+}
+
+fn deserialize_fielded_query<'de, D>(
+    deserializer: D,
+) -> Result<(FieldName, FieldedQueryInput), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = (FieldName, FieldedQueryInput);
+
+        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+            formatter.write_str("a map")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let Some((key, mut value)) = map.next_entry::<String, serde_json::Value>()? else {
+                panic!("serialized FieldedQueryInput is malformed")
+            };
+
+            if let Some(field_entry) = value.as_object_mut().unwrap().remove_entry("field") {
+                // pull the field out of the object that also contains the FieldedQueryInput
+                let field = field_entry.1;
+                let field = serde_json::from_value::<FieldName>(field).unwrap();
+
+                if value.as_object_mut().unwrap().is_empty() {
+                    let field_query_input =
+                        serde_json::from_value::<FieldedQueryInput>(serde_json::Value::String(key))
+                            .unwrap();
+                    Ok((field, field_query_input))
+                } else {
+                    let mut reconstructed = serde_json::Map::new();
+                    reconstructed.insert(key, value);
+
+                    let field_query_input = serde_json::from_value::<FieldedQueryInput>(
+                        serde_json::Value::Object(reconstructed),
+                    )
+                    .unwrap();
+                    Ok((field, field_query_input))
+                }
+            } else {
+                panic!("serialized FieldedQueryInput should not be malformed")
+            }
+        }
+    }
+    deserializer.deserialize_map(Visitor)
 }
 
 impl SearchQueryInput {

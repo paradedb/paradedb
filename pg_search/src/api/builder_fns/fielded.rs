@@ -56,13 +56,13 @@ mod pdb {
     }
 
     #[builder_fn]
-    #[pg_extern(immutable, parallel_safe, name = "parse")]
-    pub fn query_string(
+    #[pg_extern(immutable, parallel_safe, name = "parse_with_field")]
+    pub fn parse_with_field(
         query_string: String,
         lenient: default!(Option<bool>, "NULL"),
         conjunction_mode: default!(Option<bool>, "NULL"),
     ) -> FieldedQueryInput {
-        FieldedQueryInput::Parse {
+        FieldedQueryInput::ParseWithField {
             query_string,
             lenient,
             conjunction_mode,
@@ -398,7 +398,7 @@ mod pdb {
 
     macro_rules! range_term_fn {
         ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
-            #[pg_extern(name = "range_term", immutable, parallel_safe)]
+            #[pg_extern(immutable, parallel_safe, name = "range_term")]
             pub fn $func_name(term: $value_type) -> FieldedQueryInput {
                 FieldedQueryInput::RangeTerm {
                     value: TantivyValue::try_from(term)

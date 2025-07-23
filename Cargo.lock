@@ -2579,7 +2579,6 @@ name = "macros"
 version = "0.17.0"
 dependencies = [
  "proc-macro2",
- "regex",
  "syn 2.0.104",
  "uuid",
 ]

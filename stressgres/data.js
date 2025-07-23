@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753291266470,
+  "lastUpdate": 1753291268692,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6932,6 +6932,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.58313997103927, max segment_count: 94.0, count: 57319"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "880ee607618b7ffe12f2784d03be3110b4df6cdf",
+          "message": "feat: text search operators (#2877)\n\n## What\n\nThis is the implementation of 4 new operators designed around common\n\"text search\" patterns: `===` (exact token), `&&&` (tokenized term\nconjunction) `|||` (tokenized term disjunction), and `###` (phrase).\n\nFirst, `@@@` still exists and still does what it's always done, which is\nrun the right-hand-side through tantivy's \"query parser\".\n\nThese new operators have specific meanings. The spelling of these\noperators is both to maintain some kind of consistency in that they're\nall 3 of the same symbol and also to try and confer their meaning.\n\nIn all cases, the left-hand-side of the operator is required to be a\nreference to a Postgres `TEXT`/`VARCHAR` field and the right-hand-side\nis text. The operator definition defines how the right-hand-side input\nis applied to the left-hand-side field. These are \"text search\"\noperators and would be nonsensical applied to non-text fields.\n\n- `field === 'TEXT'` - this is the exact term match operator. The\nright-hand-side value is used, unmodified, to perform the equivalent of\nthe `paradedb.term()` function.\n\n- `field === ARRAY['...', '...', '...']` - similar to the above, but\nrewrites to the `paradedb.term_set()` function.\n\n- `field &&& 'TEXT'` - this is the \"match conjunction\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain **all** of\nthe tokenized terms. Think, \"find all documents that contain all terms\ntokenized from this text input\". This is the equivalent of the\n`paradedb.match` function with the `conjunction_mode => true`.\n\n- `field ||| 'TEXT'` - this is the \"match disjunction\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain **any** of\nthe tokenized terms. Think, \"find all documents that contain one or more\nof the terms tokenized from this text input\". This is the equivalent of\nthe `paradedb.match` function with the `conjunction_mode => false`.\n\n- `field ### 'TEXT'` - this is the \"phrase search\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain all the\ntokenized terms in the order written. Think, \"find all documents that\ncontain this tokenized phrase\". This is akin to the `paradedb.phrase()`\nfunction, except the `###` is transparently handling the tokenization.\n\nIf you wanted to find all documents that talk about bbq and chicken and\nmaybe hotdogs and happen on July 4th, you might write a query like this:\n\n```sql\nSELECT * \nFROM events \nWHERE (\n       description &&& 'bbq chicken' OR description ||| 'hot dog hotdogs'\n) AND description ### 'July 4th';\n```\n\n## Why\n\nThese operators are in furtherance of our\n[roadmap](https://github.com/orgs/paradedb/discussions/2041) --\nspecifically the \"Database UX improvements\" line item.\n\nOur overall goal with that roadmap item is to start moving users and ORM\ntools away from needing to use our \"builder functions\" in the common\ntext-search cases. What we're striving for is for users, and ORM tools,\nto write standard SQL WHERE clauses. In order to do that we need to make\ncommon things more accessible using custom operators.\n\n## How\n\nLargely just adding new `#[pg_operator]` functions and ensuring they all\nhave a SUPPORT function that can rewrite the expression to what we need.\n\n@rebasedming said he was going to tackle documentation, which can come\nin a separate PR.\n\n## Tests\n\nThere's a new regression test named `operators.sql` that validates\nEXPLAIN output and search results against our standard \"mock_items\"\ntable.",
+          "timestamp": "2025-07-23T12:54:32-04:00",
+          "tree_id": "f4a0dd94cd1e423e30c42103a8a23d86905d32e7",
+          "url": "https://github.com/paradedb/paradedb/commit/880ee607618b7ffe12f2784d03be3110b4df6cdf"
+        },
+        "date": 1753291267666,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.407990295030217, max cpu: 42.772278, count: 57349"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 227.24593157138747, max mem: 231.77734375, count: 57349"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.26806501742115, max cpu: 33.267326, count: 57349"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.15853923183056, max mem: 162.0546875, count: 57349"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22404,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20806.48503025336, max block_count: 23892.0, count: 57349"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.04678372770232, max segment_count: 97.0, count: 57349"
           }
         ]
       }

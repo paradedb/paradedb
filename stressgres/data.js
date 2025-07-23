@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753292526239,
+  "lastUpdate": 1753292528450,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9746,6 +9746,114 @@ window.BENCHMARK_DATA = {
             "value": 155.9140625,
             "unit": "median mem",
             "extra": "avg mem: 153.79799775957272, max mem: 157.50390625, count: 55235"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "880ee607618b7ffe12f2784d03be3110b4df6cdf",
+          "message": "feat: text search operators (#2877)\n\n## What\n\nThis is the implementation of 4 new operators designed around common\n\"text search\" patterns: `===` (exact token), `&&&` (tokenized term\nconjunction) `|||` (tokenized term disjunction), and `###` (phrase).\n\nFirst, `@@@` still exists and still does what it's always done, which is\nrun the right-hand-side through tantivy's \"query parser\".\n\nThese new operators have specific meanings. The spelling of these\noperators is both to maintain some kind of consistency in that they're\nall 3 of the same symbol and also to try and confer their meaning.\n\nIn all cases, the left-hand-side of the operator is required to be a\nreference to a Postgres `TEXT`/`VARCHAR` field and the right-hand-side\nis text. The operator definition defines how the right-hand-side input\nis applied to the left-hand-side field. These are \"text search\"\noperators and would be nonsensical applied to non-text fields.\n\n- `field === 'TEXT'` - this is the exact term match operator. The\nright-hand-side value is used, unmodified, to perform the equivalent of\nthe `paradedb.term()` function.\n\n- `field === ARRAY['...', '...', '...']` - similar to the above, but\nrewrites to the `paradedb.term_set()` function.\n\n- `field &&& 'TEXT'` - this is the \"match conjunction\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain **all** of\nthe tokenized terms. Think, \"find all documents that contain all terms\ntokenized from this text input\". This is the equivalent of the\n`paradedb.match` function with the `conjunction_mode => true`.\n\n- `field ||| 'TEXT'` - this is the \"match disjunction\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain **any** of\nthe tokenized terms. Think, \"find all documents that contain one or more\nof the terms tokenized from this text input\". This is the equivalent of\nthe `paradedb.match` function with the `conjunction_mode => false`.\n\n- `field ### 'TEXT'` - this is the \"phrase search\" operator. It\ntokenizes the right-hand-side using the index tokenizer defined by the\nleft-hand-side field and searches for documents that contain all the\ntokenized terms in the order written. Think, \"find all documents that\ncontain this tokenized phrase\". This is akin to the `paradedb.phrase()`\nfunction, except the `###` is transparently handling the tokenization.\n\nIf you wanted to find all documents that talk about bbq and chicken and\nmaybe hotdogs and happen on July 4th, you might write a query like this:\n\n```sql\nSELECT * \nFROM events \nWHERE (\n       description &&& 'bbq chicken' OR description ||| 'hot dog hotdogs'\n) AND description ### 'July 4th';\n```\n\n## Why\n\nThese operators are in furtherance of our\n[roadmap](https://github.com/orgs/paradedb/discussions/2041) --\nspecifically the \"Database UX improvements\" line item.\n\nOur overall goal with that roadmap item is to start moving users and ORM\ntools away from needing to use our \"builder functions\" in the common\ntext-search cases. What we're striving for is for users, and ORM tools,\nto write standard SQL WHERE clauses. In order to do that we need to make\ncommon things more accessible using custom operators.\n\n## How\n\nLargely just adding new `#[pg_operator]` functions and ensuring they all\nhave a SUPPORT function that can rewrite the expression to what we need.\n\n@rebasedming said he was going to tackle documentation, which can come\nin a separate PR.\n\n## Tests\n\nThere's a new regression test named `operators.sql` that validates\nEXPLAIN output and search results against our standard \"mock_items\"\ntable.",
+          "timestamp": "2025-07-23T12:54:32-04:00",
+          "tree_id": "f4a0dd94cd1e423e30c42103a8a23d86905d32e7",
+          "url": "https://github.com/paradedb/paradedb/commit/880ee607618b7ffe12f2784d03be3110b4df6cdf"
+        },
+        "date": 1753292527389,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.443804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.443460860160638, max cpu: 41.618496, count: 55284"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.04293864974494, max mem: 156.4765625, count: 55284"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.591251817957412, max cpu: 37.065636, count: 55284"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 145.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.39445734186202, max mem: 145.2265625, count: 55284"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.374913420985184, max cpu: 27.665707, count: 55284"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 147.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 122.99665053406049, max mem: 154.2734375, count: 55284"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 22916,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23205.58443672672, max block_count: 46607.0, count: 55284"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9622352305514674, max cpu: 4.6376815, count: 55284"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.43665493180667, max mem: 128.7265625, count: 55284"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.605799146226758, max segment_count: 47.0, count: 55284"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.819577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.513093055042267, max cpu: 46.332047, count: 110568"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 167.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.04266852468618, max mem: 170.28125, count: 110568"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.819577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.643333624321084, max cpu: 27.853, count: 55284"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 158.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 156.05717868472343, max mem: 160.4453125, count: 55284"
           }
         ]
       }

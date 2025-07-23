@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753288160348,
+  "lastUpdate": 1753288162486,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4314,6 +4314,126 @@ window.BENCHMARK_DATA = {
             "value": 59.953125,
             "unit": "median mem",
             "extra": "avg mem: 58.66057662915497, max mem: 83.8671875, count: 55205"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53fa29a57e7daa2bdec9bf05f86d8db50088fd51",
+          "message": "perf: Avoid a re-query when a top-n query is exhausted (#2888)\n\n## What\n\nSplit the iterators consumed by the `TopN` exec method and by the\n`Normal`/`FF` exec methods into two separate implementations.\n\nAfter splitting them, use the known exact size of the `TopN` iterator to\nexit early (as `exhausted: bool`) if we had fewer matches than were\nrequested. This avoids re-querying an iterator (and re-scanning its\ncolumns) that we know has no more results.\n\n## Why\n\nThe two types of consumers of these iterators have very different\nconsumption patterns and constraints:\n* TopN knows exactly how many results there will be, and already buffers\nthem all in memory. It would like to be able to know the precise count\nof results.\n* `Normal` and `FF` exec methods do not know the total number of results\nto expect, and in some cases would like to be able to consume in a\nsegment-aware fashion in order to be able to late-fetch fast field\ncolumns (see #2623).\n\n## Tests\n\nAdded a test to cement the change in query count.\n\nBenchmarks show a 1.5x speedup for `paging-string-max`, and no change\nfor other queries.",
+          "timestamp": "2025-07-23T09:13:45-07:00",
+          "tree_id": "c162e59fb9a6b4523c0ff39e10d9d54d92761460",
+          "url": "https://github.com/paradedb/paradedb/commit/53fa29a57e7daa2bdec9bf05f86d8db50088fd51"
+        },
+        "date": 1753288161443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714484220361027, max cpu: 9.628887, count: 55213"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 58.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.5160194949559, max mem: 81.83203125, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.579826378348073, max cpu: 4.738401, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.535016379747525, max mem: 75.83203125, count: 55213"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.722597005653521, max cpu: 13.806328, count: 55213"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 59.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 59.588097175936824, max mem: 82.95703125, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589408137404227, max cpu: 4.7058825, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 58.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.784488240427976, max mem: 82.20703125, count: 55213"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.186603,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.436629582476354, max cpu: 28.944725, count: 110426"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 70,
+            "unit": "median mem",
+            "extra": "avg mem: 70.20937313930823, max mem: 103.37890625, count: 110426"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3729,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3725.3542825059317, max block_count: 6690.0, count: 55213"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.874685309619112, max segment_count: 27.0, count: 55213"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.202789853575317, max cpu: 14.385615, count: 55213"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 81.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 79.49597934929274, max mem: 107.27734375, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.046897783479429, max cpu: 4.701273, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.153220326847844, max mem: 82.2578125, count: 55213"
           }
         ]
       }

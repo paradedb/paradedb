@@ -14,12 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::builder_fns::fielded::match_conjunction;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::api::FieldName;
-use crate::query::fielded_query::FieldedQueryInput;
-use crate::query::SearchQueryInput;
+use crate::query::fielded_query::to_search_query_input;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
     IntoDatum, PgList,
@@ -34,27 +33,17 @@ fn search_with_match_conjunction(_field: &str, terms_to_tokenize: &str) -> bool 
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn match_conjunction(field: FieldName, terms_to_tokenize: String) -> SearchQueryInput {
-    SearchQueryInput::FieldedQuery {
-        field,
-        query: FieldedQueryInput::Match {
-            value: terms_to_tokenize,
-            conjunction_mode: Some(true),
-            tokenizer: None,
-            distance: None,
-            transposition_cost_one: None,
-            prefix: None,
-        },
-    }
-}
-
-#[pg_extern(immutable, parallel_safe)]
 fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize| match_conjunction(field.expect("The left hand side of the `&&&(field, TEXT)` operator must be a field."), match to_tokenize {
-            RHSValue::Text(text) => text,
-            _ => panic!("The right-hand side of the `&&&(field, TEXT)` operator must be a text value."),
-        }), |field, rhs| {
+        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize| {
+            let field = field.expect("The left hand side of the `&&&(field, TEXT)` operator must be a field.");
+            let query = match to_tokenize {
+                RHSValue::Text(text) => text,
+                _ => panic!("The right-hand side of the `&&&(field, TEXT)` operator must be a text value."),
+            };
+
+            to_search_query_input(field, match_conjunction(query))
+        }, |field, rhs| {
             let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
             assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `|||(field, TEXT)` operator must be a text value");
             let mut args = PgList::<pg_sys::Node>::new();
@@ -79,7 +68,7 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
                 location: -1,
             }
         })
-        .unwrap_or(ReturnedNodePointer(None))
+            .unwrap_or(ReturnedNodePointer(None))
     }
 }
 

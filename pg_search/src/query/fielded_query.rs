@@ -12,7 +12,7 @@ use std::error::Error;
 use tantivy::query::{
     BooleanQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
     PhrasePrefixQuery, PhraseQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery,
-    TermQuery,
+    TermQuery, TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
 use tantivy::{Searcher, Term};
@@ -159,6 +159,9 @@ pub enum FieldedQueryInput {
         #[serde(default)]
         is_datetime: bool,
     },
+    TermSet {
+        terms: Vec<OwnedValue>,
+    },
 }
 
 impl FieldedQueryInput {
@@ -255,10 +258,38 @@ impl FieldedQueryInput {
             FieldedQueryInput::Term { value, is_datetime } => {
                 term(field, schema, &value, is_datetime)?
             }
+            FieldedQueryInput::TermSet { terms } => term_set(field, schema, terms)?,
         };
 
         Ok(query)
     }
+}
+
+fn term_set(
+    field: FieldName,
+    schema: &SearchIndexSchema,
+    terms: Vec<OwnedValue>,
+) -> anyhow::Result<Box<dyn Query>> {
+    let search_field = schema
+        .search_field(&field)
+        .expect("field should exist in schema");
+    let field_type = search_field.field_entry().field_type();
+    let tantivy_field = search_field.field();
+    let is_date_time = search_field.is_datetime();
+
+    let terms = terms
+        .into_iter()
+        .map(|term| {
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                is_date_time,
+            )
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(Box::new(TermSetQuery::new(terms)))
 }
 
 fn term(

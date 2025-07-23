@@ -183,13 +183,13 @@ pub unsafe fn term_with_operator(
     macro_rules! make_query {
         ($operator:expr, $field:expr, $eq_func_name:ident, $value_type:ty, $anyelement:expr, $is_datetime:literal) => {
             match $operator.as_str() {
-                "=" => Ok(SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false))}),
+                "=" => Ok(SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}),
                 "<>" => Ok(
                     SearchQueryInput::Boolean {
                         // ensure that we don't match NULL nulls as not being equal to whatever the user specified
                         must: vec![SearchQueryInput::FieldedQuery {field: $field.clone(), query: FieldedQueryInput::Exists}],
                         should: vec![],
-                        must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false))}]
+                        must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}]
                     }
                 ),
                 ">" => generic_range_query(Bound::Excluded($anyelement), Bound::Unbounded, $is_datetime).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
@@ -375,9 +375,7 @@ term_fn_unsupported!(
 );
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn term_set(
-    terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
-) -> SearchQueryInput {
+pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
     let terms: Vec<_> = terms
         .into_iter()
         .map(|input| match input {

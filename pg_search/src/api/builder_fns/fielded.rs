@@ -14,6 +14,38 @@ mod pdb {
     use tantivy::schema::{OwnedValue, Value};
 
     #[builder_fn]
+    #[pg_extern(immutable, parallel_safe)]
+    pub fn match_conjunction(terms_to_tokenize: String) -> FieldedQueryInput {
+        FieldedQueryInput::Match {
+            value: terms_to_tokenize,
+            conjunction_mode: Some(true),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+        }
+    }
+
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe)]
+    pub fn match_disjunction(terms_to_tokenize: String) -> FieldedQueryInput {
+        FieldedQueryInput::Match {
+            value: terms_to_tokenize,
+            conjunction_mode: Some(false),
+            tokenizer: None,
+            distance: None,
+            transposition_cost_one: None,
+            prefix: None,
+        }
+    }
+
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "phrase")]
+    pub fn phrase_string(phrase: String) -> FieldedQueryInput {
+        FieldedQueryInput::TokenizedPhrase { phrase, slop: None }
+    }
+
+    #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "exists")]
     pub fn exists() -> FieldedQueryInput {
         FieldedQueryInput::Exists
@@ -343,22 +375,18 @@ mod pdb {
         ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "term")]
-            pub fn $func_name(value: default!(Option<$value_type>, "NULL")) -> FieldedQueryInput {
-                if let Some(value) = value {
-                    let tantivy_value = TantivyValue::try_from(value)
-                        .expect("value should be a valid TantivyValue representation")
-                        .tantivy_schema_value();
-                    let is_datetime = match tantivy_value {
-                        OwnedValue::Date(_) => true,
-                        _ => false,
-                    };
+            pub fn $func_name(value: $value_type) -> FieldedQueryInput {
+                let tantivy_value = TantivyValue::try_from(value)
+                    .expect("value should be a valid TantivyValue representation")
+                    .tantivy_schema_value();
+                let is_datetime = match tantivy_value {
+                    OwnedValue::Date(_) => true,
+                    _ => false,
+                };
 
-                    FieldedQueryInput::Term {
-                        value: tantivy_value,
-                        is_datetime,
-                    }
-                } else {
-                    panic!("no value provided to term query")
+                FieldedQueryInput::Term {
+                    value: tantivy_value,
+                    is_datetime,
                 }
             }
         };
@@ -395,6 +423,46 @@ mod pdb {
     term_fn!(numeric, pgrx::AnyNumeric);
     term_fn!(uuid, pgrx::Uuid);
     term_fn!(inet, pgrx::Inet);
+
+    macro_rules! term_set_fn {
+        ($func_name:ident, $value_type:ty) => {
+            #[builder_fn]
+            #[pg_extern(immutable, parallel_safe, name = "term_set")]
+            pub fn $func_name(terms: Vec<$value_type>) -> FieldedQueryInput {
+                let terms = terms
+                    .into_iter()
+                    .map(|term| {
+                        TantivyValue::try_from(term)
+                            .expect("value should be a valid TantivyValue representation")
+                            .tantivy_schema_value()
+                    })
+                    .collect::<Vec<_>>();
+                FieldedQueryInput::TermSet { terms }
+            }
+        };
+    }
+
+    term_set_fn!(term_set_str, String);
+    term_set_fn!(term_set_i8, i8);
+    term_set_fn!(term_set_i16, i16);
+    term_set_fn!(term_set_i32, i32);
+    term_set_fn!(term_set_i64, i64);
+    term_set_fn!(term_set_f32, f32);
+    term_set_fn!(term_set_f64, f64);
+    term_set_fn!(term_set_bool, bool);
+    term_set_fn!(term_set_date, pgrx::datum::Date);
+    term_set_fn!(term_set_time, pgrx::datum::Time);
+    term_set_fn!(term_set_timestamp, pgrx::datum::Timestamp);
+    term_set_fn!(term_set_time_with_time_zone, pgrx::datum::TimeWithTimeZone);
+    term_set_fn!(
+        term_set_timestamp_with_time_zone,
+        pgrx::datum::TimestampWithTimeZone
+    );
+    term_set_fn!(term_set_numeric, pgrx::AnyNumeric);
+    term_set_fn!(term_set_uuid, pgrx::Uuid);
+
+    // TODO:  this requires `impl UnboxDatum for Inet` in pgrx
+    // term_set_fn!(term_set_inet, pgrx::Inet, false);
 
     macro_rules! range_term_fn {
         ($func_name:ident, $value_type:ty, $is_datetime:expr) => {

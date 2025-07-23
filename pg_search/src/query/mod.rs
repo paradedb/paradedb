@@ -166,7 +166,9 @@ where
         object.insert(variant_name.to_string(), serde_json::Value::Object(map));
         object.serialize(serializer)
     } else {
-        panic!("unsupported FieldedQueryInput structure: {query_json:?}");
+        Err(<S::Error as serde::ser::Error>::custom(
+            "this does not appear to be a FieldedQueryInput",
+        ))
     }
 }
 
@@ -189,7 +191,9 @@ where
             A: MapAccess<'de>,
         {
             let Some((key, mut value)) = map.next_entry::<String, serde_json::Value>()? else {
-                panic!("serialized FieldedQueryInput is malformed")
+                return Err(<A::Error as serde::de::Error>::custom(
+                    "this does not appear to be a FieldedQueryInput",
+                ));
             };
 
             if let Some(field_entry) = value.as_object_mut().unwrap().remove_entry("field") {
@@ -213,7 +217,9 @@ where
                     Ok((field, field_query_input))
                 }
             } else {
-                panic!("serialized FieldedQueryInput should not be malformed")
+                Err(<A::Error as serde::de::Error>::custom(
+                    "this does not appear to be a FieldedQueryInput",
+                ))
             }
         }
     }
@@ -268,24 +274,6 @@ pub struct TermInput {
     pub value: OwnedValue,
     #[serde(default)]
     pub is_datetime: bool,
-}
-
-/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
-/// in the current memory context.
-impl From<SearchQueryInput> for *mut pg_sys::Const {
-    fn from(value: SearchQueryInput) -> Self {
-        unsafe {
-            pg_sys::makeConst(
-                searchqueryinput_typoid(),
-                -1,
-                pg_sys::Oid::INVALID,
-                -1,
-                value.into_datum().unwrap(),
-                false,
-                false,
-            )
-        }
-    }
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -672,7 +660,7 @@ fn value_to_json_term(
     path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
-) -> Result<Term, Box<dyn std::error::Error>> {
+) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
@@ -719,7 +707,7 @@ pub fn value_to_term(
     field_type: &FieldType,
     path: Option<&str>,
     is_datetime: bool,
-) -> Result<Term, Box<dyn std::error::Error>> {
+) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
         _ => None,

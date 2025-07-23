@@ -235,12 +235,17 @@ fn single_queries(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
-    // Term with no field (should search all columns)
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ '{"term": {"value": "shoes"}}'::jsonb ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 3);
+    //
+    // NB:  This once worked, but the capability was removed when the new "pdb.*" builder functions
+    //      were added.  The general problem is that there's no longer a clean way to indicate
+    //      the desire to "search all column"
+    //
+    // // Term with no field (should search all columns)
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search
+    // WHERE bm25_search @@@ '{"term": {"value": "shoes"}}'::jsonb ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 3);
 
     // TermSet
     let columns: SimpleProductsTableVec = r#"
@@ -384,12 +389,17 @@ fn single_queries_jsonb_build_object(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
-    // Term with no field (should search all columns)
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
-    jsonb_build_object('term', jsonb_build_object('value', 'shoes')) ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 3);
+    //
+    // NB:  This once worked, but the capability was removed when the new "pdb.*" builder functions
+    //      were added.  The general problem is that there's no longer a clean way to indicate
+    //      the desire to "search all column"
+    //
+    // // Term with no field (should search all columns)
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@
+    // jsonb_build_object('term', jsonb_build_object('value', 'shoes')) ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 3);
 
     // TermSet
     let columns: SimpleProductsTableVec = r#"
@@ -1225,7 +1235,7 @@ fn parse_error(mut conn: PgConnection) {
     match result {
         Err(err) => assert_eq!(
             err.to_string(),
-            r#"error returned from database: error parsing search query input json at "all": invalid type: map, pass null as value for "all""#
+            r#"error returned from database: error parsing search query input json at ".": data did not match any variant of untagged enum SearchQueryInput"#
         ),
         _ => {
             panic!("search input query variant with no fields should not be able to receive a map")

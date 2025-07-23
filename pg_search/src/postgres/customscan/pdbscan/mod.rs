@@ -1524,6 +1524,7 @@ fn base_query_has_search_predicates(
             ..
         } if is_range_query_string(query_string) => true,
 
+        // These are search predicates that use the @@@ operator
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
         | SearchQueryInput::FieldedQuery { .. } => true,
@@ -1535,7 +1536,6 @@ fn base_query_has_search_predicates(
         SearchQueryInput::HeapFilter { indexed_query, .. } => {
             base_query_has_search_predicates(indexed_query, current_index_oid)
         }
-        SearchQueryInput::TokenizedPhrase { .. } => false,
     }
 }
 

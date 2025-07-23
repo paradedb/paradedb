@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753311180330,
+  "lastUpdate": 1753311804489,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10338,6 +10338,60 @@ window.BENCHMARK_DATA = {
             "value": 18.690782842413206,
             "unit": "median tps",
             "extra": "avg tps: 18.806581461634984, max tps: 20.810882206760645, count: 55209"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9669e3ef733809d362c3f986470cabd1a906a1ac",
+          "message": "fix: add #[pg_guard] to extern C-unwind functions (#2899)\n\n## What\n\nAll `extern \"C-unwind\"` functions require the `#[pg_guard]` attribute.\nWe had a few that were missing it, which _could_ lead to a crash.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T18:16:06-04:00",
+          "tree_id": "dd4603085f3a81690187be0cc23d854ea10d0f03",
+          "url": "https://github.com/paradedb/paradedb/commit/9669e3ef733809d362c3f986470cabd1a906a1ac"
+        },
+        "date": 1753311803429,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.89681568612897,
+            "unit": "median tps",
+            "extra": "avg tps: 38.1431734001745, max tps: 40.028036589876045, count: 55233"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 255.25000314670785,
+            "unit": "median tps",
+            "extra": "avg tps: 289.58538119469773, max tps: 2581.374627742979, count: 55233"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 145.72990369943753,
+            "unit": "median tps",
+            "extra": "avg tps: 144.16704828681765, max tps: 146.04024635711735, count: 55233"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 79.86075907776362,
+            "unit": "median tps",
+            "extra": "avg tps: 73.2769161742259, max tps: 117.33643091221036, count: 110466"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.17272126476682,
+            "unit": "median tps",
+            "extra": "avg tps: 18.30542234854975, max tps: 20.87206928491748, count: 55233"
           }
         ]
       }

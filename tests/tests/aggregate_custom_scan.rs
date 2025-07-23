@@ -121,10 +121,10 @@ fn test_group_by(mut conn: PgConnection) {
 
     "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
 
-    // Cannot use aggregate scan with GROUP BY yet.
+    // Supports GROUP BY with aggregate scan
     assert_uses_custom_scan(
         &mut conn,
-        false,
+        true,
         r#"
         SELECT rating, COUNT(*)
         FROM paradedb.bm25_search WHERE

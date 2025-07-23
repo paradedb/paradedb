@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753311178278,
+  "lastUpdate": 1753311180330,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10060,6 +10060,66 @@ window.BENCHMARK_DATA = {
             "value": 163.57421875,
             "unit": "median mem",
             "extra": "avg mem: 153.93862868573643, max mem: 170.2109375, count: 57731"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9669e3ef733809d362c3f986470cabd1a906a1ac",
+          "message": "fix: add #[pg_guard] to extern C-unwind functions (#2899)\n\n## What\n\nAll `extern \"C-unwind\"` functions require the `#[pg_guard]` attribute.\nWe had a few that were missing it, which _could_ lead to a crash.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T18:16:06-04:00",
+          "tree_id": "dd4603085f3a81690187be0cc23d854ea10d0f03",
+          "url": "https://github.com/paradedb/paradedb/commit/9669e3ef733809d362c3f986470cabd1a906a1ac"
+        },
+        "date": 1753311179276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.782022344951965, max cpu: 62.46246, count: 56511"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 173.45462332554723, max mem: 178.18359375, count: 56511"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17877,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16549.415653589567, max block_count: 21555.0, count: 56511"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.162552423421985, max segment_count: 117.0, count: 56511"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.984100780995147, max cpu: 38.63179, count: 56511"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 167.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.2935334907142, max mem: 176.13671875, count: 56511"
           }
         ]
       }

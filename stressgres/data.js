@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753309906165,
+  "lastUpdate": 1753310553792,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5914,6 +5914,42 @@ window.BENCHMARK_DATA = {
             "value": 5.6936963466610555,
             "unit": "median tps",
             "extra": "avg tps: 5.082201073134665, max tps: 6.4550600365875015, count: 57099"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9669e3ef733809d362c3f986470cabd1a906a1ac",
+          "message": "fix: add #[pg_guard] to extern C-unwind functions (#2899)\n\n## What\n\nAll `extern \"C-unwind\"` functions require the `#[pg_guard]` attribute.\nWe had a few that were missing it, which _could_ lead to a crash.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T18:16:06-04:00",
+          "tree_id": "dd4603085f3a81690187be0cc23d854ea10d0f03",
+          "url": "https://github.com/paradedb/paradedb/commit/9669e3ef733809d362c3f986470cabd1a906a1ac"
+        },
+        "date": 1753310552751,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.502069332326593,
+            "unit": "median tps",
+            "extra": "avg tps: 5.5725852597941286, max tps: 8.316742192351446, count: 57792"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.8484029610111765,
+            "unit": "median tps",
+            "extra": "avg tps: 5.235999264564484, max tps: 6.634552340277975, count: 57792"
           }
         ]
       }

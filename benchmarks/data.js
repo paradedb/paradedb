@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753288596623,
+  "lastUpdate": 1753289653489,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -7546,6 +7546,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 86.498,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53fa29a57e7daa2bdec9bf05f86d8db50088fd51",
+          "message": "perf: Avoid a re-query when a top-n query is exhausted (#2888)\n\n## What\n\nSplit the iterators consumed by the `TopN` exec method and by the\n`Normal`/`FF` exec methods into two separate implementations.\n\nAfter splitting them, use the known exact size of the `TopN` iterator to\nexit early (as `exhausted: bool`) if we had fewer matches than were\nrequested. This avoids re-querying an iterator (and re-scanning its\ncolumns) that we know has no more results.\n\n## Why\n\nThe two types of consumers of these iterators have very different\nconsumption patterns and constraints:\n* TopN knows exactly how many results there will be, and already buffers\nthem all in memory. It would like to be able to know the precise count\nof results.\n* `Normal` and `FF` exec methods do not know the total number of results\nto expect, and in some cases would like to be able to consume in a\nsegment-aware fashion in order to be able to late-fetch fast field\ncolumns (see #2623).\n\n## Tests\n\nAdded a test to cement the change in query count.\n\nBenchmarks show a 1.5x speedup for `paging-string-max`, and no change\nfor other queries.",
+          "timestamp": "2025-07-23T09:13:45-07:00",
+          "tree_id": "c162e59fb9a6b4523c0ff39e10d9d54d92761460",
+          "url": "https://github.com/paradedb/paradedb/commit/53fa29a57e7daa2bdec9bf05f86d8db50088fd51"
+        },
+        "date": 1753289652457,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1180.091,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 831.4065,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1452.9185000000002,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 903.0135,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 867.461,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 2664.99,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 21.339,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 61.985,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 83.494,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

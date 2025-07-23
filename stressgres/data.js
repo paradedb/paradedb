@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753311804489,
+  "lastUpdate": 1753311806508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10826,6 +10826,114 @@ window.BENCHMARK_DATA = {
             "value": 157.6875,
             "unit": "median mem",
             "extra": "avg mem: 155.3893536945969, max mem: 158.8359375, count: 55209"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9669e3ef733809d362c3f986470cabd1a906a1ac",
+          "message": "fix: add #[pg_guard] to extern C-unwind functions (#2899)\n\n## What\n\nAll `extern \"C-unwind\"` functions require the `#[pg_guard]` attribute.\nWe had a few that were missing it, which _could_ lead to a crash.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T18:16:06-04:00",
+          "tree_id": "dd4603085f3a81690187be0cc23d854ea10d0f03",
+          "url": "https://github.com/paradedb/paradedb/commit/9669e3ef733809d362c3f986470cabd1a906a1ac"
+        },
+        "date": 1753311805470,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.443804,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.622685413975905, max cpu: 37.795277, count: 55233"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 154.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.73477295898738, max mem: 155.32421875, count: 55233"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.576513604360176, max cpu: 27.853, count: 55233"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 144.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.5027474517046, max mem: 145.203125, count: 55233"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.702932640489776, max cpu: 23.552504, count: 55233"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 144.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 121.04109925508754, max mem: 152.13671875, count: 55233"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 22264,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22598.187134502925, max block_count: 45484.0, count: 55233"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.697092087797109, max cpu: 4.6376815, count: 55233"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 98.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 88.8422515185668, max mem: 127.953125, count: 55233"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.54787898538917, max segment_count: 48.0, count: 55233"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.819577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.914111555749539, max cpu: 41.578438, count: 110466"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.146484375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.62681083008573, max mem: 167.1328125, count: 110466"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.766731,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.308945837210722, max cpu: 27.826086, count: 55233"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 153.50603515731083, max mem: 157.7421875, count: 55233"
           }
         ]
       }

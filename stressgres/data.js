@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753282983148,
+  "lastUpdate": 1753283609919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8608,6 +8608,62 @@ window.BENCHMARK_DATA = {
             "value": 160.2578125,
             "unit": "median mem",
             "extra": "avg mem: 150.70848516510085, max mem: 167.22265625, count: 57904"
+          }
+        ]
+      }
+    ],
+    "pg_search background-merge.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cbd2e802901988c181281a9b7f772543e1df32d2",
+          "message": "chore: add `background-merge.toml` to CI (#2895)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis new stressgres file was instrumental in catching the bug fixed in\n#2845 and was used to test background merging, but has not been added to\nCI.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-23T10:26:09-04:00",
+          "tree_id": "bb8e3ca51c2d0de5e56be65f478f11096b0d410e",
+          "url": "https://github.com/paradedb/paradedb/commit/cbd2e802901988c181281a9b7f772543e1df32d2"
+        },
+        "date": 1753283608911,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.76488126750026,
+            "unit": "median tps",
+            "extra": "avg tps: 37.175937650243064, max tps: 39.120747245405454, count: 55371"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 250.53728920229037,
+            "unit": "median tps",
+            "extra": "avg tps: 285.05638061700535, max tps: 2564.6084796790014, count: 55371"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 140.75995583365787,
+            "unit": "median tps",
+            "extra": "avg tps: 141.1096455213053, max tps: 146.96560952660133, count: 55371"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 72.39408726599235,
+            "unit": "median tps",
+            "extra": "avg tps: 64.11955104369487, max tps: 112.87075964441861, count: 110742"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.685923715204176,
+            "unit": "median tps",
+            "extra": "avg tps: 17.867345026510524, max tps: 20.492187927134044, count: 55371"
           }
         ]
       }

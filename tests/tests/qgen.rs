@@ -17,6 +17,7 @@
 
 mod fixtures;
 
+use crate::fixtures::querygen::groupbygen::{arb_aggregates, arb_group_by};
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
@@ -28,7 +29,7 @@ use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 
 fn generated_queries_setup(conn: &mut PgConnection, tables: &[(&str, usize)]) -> String {
     "CREATE EXTENSION pg_search;".execute(conn);
@@ -214,6 +215,92 @@ async fn generated_single_relation(database: Db) {
                 rows
             }
         )?;
+    });
+}
+
+///
+/// Property test for GROUP BY aggregates - ensures equivalence between PostgreSQL and bm25 behavior
+///
+#[rstest]
+#[tokio::test]
+async fn generated_group_by_aggregates(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)]);
+    eprintln!("{setup_sql}");
+
+    // Columns that can be used for grouping (must have fast: true in index)
+    let grouping_columns = ["name", "color", "age"];
+
+    proptest!(|(
+        where_expr in arb_wheres(
+            vec![table_name],
+            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+        ),
+        group_by_expr in arb_group_by(grouping_columns.iter().map(|&s| s.to_string()).collect()),
+        aggregates in arb_aggregates(),
+        gucs in any::<PgGucs>(),
+    )| {
+        let select_list = group_by_expr.to_select_list(&aggregates);
+        let group_by_clause = group_by_expr.to_sql();
+
+        let pg_query = format!(
+            "SELECT {} FROM {} WHERE {} {}",
+            select_list,
+            table_name,
+            where_expr.to_sql(" = "),
+            group_by_clause
+        );
+
+        let bm25_query = format!(
+            "SELECT {} FROM {} WHERE {} {}",
+            select_list,
+            table_name,
+            where_expr.to_sql("@@@"),
+            group_by_clause
+        );
+
+        // Custom result comparator for GROUP BY results
+        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
+            // Fetch all rows as dynamic results and convert to string representation
+            let rows = query.fetch_dynamic(conn);
+            let mut string_rows: Vec<String> = rows
+                .into_iter()
+                .map(|row| {
+                    // Convert entire row to a string representation for comparison
+                    let mut row_string = String::new();
+                    for i in 0..row.len() {
+                        if i > 0 {
+                            row_string.push('|');
+                        }
+
+                        // Try to get value as different types, converting to string
+                        let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<String, _>(i) {
+                            val
+                        } else {
+                            "NULL".to_string()
+                        };
+
+                        row_string.push_str(&value_str);
+                    }
+                    row_string
+                })
+                .collect();
+
+            // Sort for consistent comparison
+            string_rows.sort();
+            string_rows
+        };
+
+        compare(pg_query, bm25_query, gucs, &mut pool.pull(), compare_results)?;
     });
 }
 

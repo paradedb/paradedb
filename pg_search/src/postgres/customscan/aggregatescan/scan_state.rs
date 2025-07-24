@@ -79,60 +79,57 @@ impl AggregateScanState {
     pub fn aggregates_to_json(&self) -> serde_json::Value {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - simple aggregation
-            serde_json::Value::Object(
+            return serde_json::Value::Object(
                 self.aggregate_types
                     .iter()
                     .enumerate()
                     .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
                     .collect(),
-            )
-        } else {
-            // GROUP BY - bucket aggregation
-            let mut root = serde_json::Map::new();
+            );
+        }
+        // GROUP BY - bucket aggregation
+        let mut root = serde_json::Map::new();
 
-            // Build nested bucket aggregations for each grouping column
-            let current_level = &mut root;
-            let _ = current_level; // Mark as used
+        // Build nested bucket aggregations for each grouping column
+        let current_level = &mut root;
+        let _ = current_level; // Mark as used
 
-            for (i, group_col) in self.grouping_columns.iter().enumerate() {
-                let bucket_name = format!("group_{i}");
-                let mut bucket_agg = serde_json::Map::new();
+        for (i, group_col) in self.grouping_columns.iter().enumerate() {
+            let bucket_name = format!("group_{i}");
+            let mut bucket_agg = serde_json::Map::new();
 
-                // Terms aggregation for grouping
-                let mut terms = serde_json::Map::new();
-                terms.insert(
-                    "field".to_string(),
-                    serde_json::Value::String(group_col.field_name.clone()),
-                );
-                terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
+            // Terms aggregation for grouping
+            let mut terms = serde_json::Map::new();
+            terms.insert(
+                "field".to_string(),
+                serde_json::Value::String(group_col.field_name.clone()),
+            );
+            terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
 
-                let mut terms_agg = serde_json::Map::new();
-                terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
+            let mut terms_agg = serde_json::Map::new();
+            terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
 
-                // If this is the last grouping column, add the metric aggregations
-                if i == self.grouping_columns.len() - 1 {
-                    let mut sub_aggs = serde_json::Map::new();
-                    for (j, aggregate) in self.aggregate_types.iter().enumerate() {
-                        let (name, agg) = aggregate.to_json_for_group(j);
-                        sub_aggs.insert(name, agg);
-                    }
-                    terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
+            // If this is the last grouping column, add the metric aggregations
+            if i == self.grouping_columns.len() - 1 {
+                let mut sub_aggs = serde_json::Map::new();
+                for (j, aggregate) in self.aggregate_types.iter().enumerate() {
+                    let (name, agg) = aggregate.to_json_for_group(j);
+                    sub_aggs.insert(name, agg);
                 }
-
-                bucket_agg.insert(bucket_name.clone(), serde_json::Value::Object(terms_agg));
-                current_level.insert("aggs".to_string(), serde_json::Value::Object(bucket_agg));
-
-                // For nested buckets, we'd need to traverse deeper, but for now we'll handle single-level
-                if i < self.grouping_columns.len() - 1 {
-                    // This should never happen since we reject multiple grouping columns at planning time
-                    unreachable!(
-                        "Multiple grouping columns should have been rejected during planning"
-                    );
-                }
+                terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
             }
 
-            serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
+            bucket_agg.insert(bucket_name.clone(), serde_json::Value::Object(terms_agg));
+            current_level.insert("aggs".to_string(), serde_json::Value::Object(bucket_agg));
+
+            // For nested buckets, we'd need to traverse deeper, but for now we'll handle single-level
+            if i < self.grouping_columns.len() - 1 {
+                // This should never happen since we reject multiple grouping columns at planning time
+                unreachable!("Multiple grouping columns should have been rejected during planning");
+            }
         }
+
+        serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
     }
 
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
@@ -161,65 +158,65 @@ impl AggregateScanState {
                 })
                 .collect::<AggregateRow>();
 
-            vec![GroupedAggregateRow {
+            return vec![GroupedAggregateRow {
                 group_keys: vec![],
                 aggregate_values: row,
-            }]
-        } else {
-            // GROUP BY - extract bucket results
-            let mut rows = Vec::new();
-
-            // Navigate to the bucket results
-            let bucket_name = "group_0"; // For now, we only support single grouping column
-            let bucket_results = result
-                .get(bucket_name)
-                .and_then(|v| v.get("buckets"))
-                .and_then(|v| v.as_array())
-                .expect("missing bucket results");
-
-            for bucket in bucket_results {
-                let bucket_obj = bucket.as_object().expect("bucket should be object");
-
-                // Extract the group key - can be either string or number
-                let key = bucket_obj
-                    .get("key")
-                    .map(|k| {
-                        // Handle both string and numeric keys
-                        match k {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            _ => panic!("unexpected bucket key type: {k:?}"),
-                        }
-                    })
-                    .expect("missing bucket key");
-
-                // Extract aggregate values
-                let aggregate_values = self
-                    .aggregate_types
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, aggregate)| {
-                        let agg_name = format!("agg_{idx}");
-                        let agg_result = bucket_obj
-                            .get(&agg_name)
-                            .and_then(|v| v.as_object())
-                            .and_then(|v| v.get("value"))
-                            .and_then(|v| v.as_number())
-                            .expect("missing aggregate result");
-
-                        aggregate.result_from_json(agg_result)
-                    })
-                    .collect::<AggregateRow>();
-
-                rows.push(GroupedAggregateRow {
-                    group_keys: vec![key],
-                    aggregate_values,
-                });
-            }
-
-            rows
+            }];
         }
+
+        // GROUP BY - extract bucket results
+        let mut rows = Vec::new();
+
+        // Navigate to the bucket results
+        let bucket_name = "group_0"; // For now, we only support single grouping column
+        let bucket_results = result
+            .get(bucket_name)
+            .and_then(|v| v.get("buckets"))
+            .and_then(|v| v.as_array())
+            .expect("missing bucket results");
+
+        for bucket in bucket_results {
+            let bucket_obj = bucket.as_object().expect("bucket should be object");
+
+            // Extract the group key - can be either string or number
+            let key = bucket_obj
+                .get("key")
+                .map(|k| {
+                    // Handle both string and numeric keys
+                    match k {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => panic!("unexpected bucket key type: {k:?}"),
+                    }
+                })
+                .expect("missing bucket key");
+
+            // Extract aggregate values
+            let aggregate_values = self
+                .aggregate_types
+                .iter()
+                .enumerate()
+                .map(|(idx, aggregate)| {
+                    let agg_name = format!("agg_{idx}");
+                    let agg_result = bucket_obj
+                        .get(&agg_name)
+                        .and_then(|v| v.as_object())
+                        .and_then(|v| v.get("value"))
+                        .and_then(|v| v.as_number())
+                        .expect("missing aggregate result");
+
+                    aggregate.result_from_json(agg_result)
+                })
+                .collect::<AggregateRow>();
+
+            rows.push(GroupedAggregateRow {
+                group_keys: vec![key],
+                aggregate_values,
+            });
+        }
+
+        rows
     }
 }
 

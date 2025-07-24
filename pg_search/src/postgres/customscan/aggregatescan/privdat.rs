@@ -35,10 +35,7 @@ impl AggregateType {
 
     pub fn to_json_for_group(&self, idx: usize) -> (String, serde_json::Value) {
         match self {
-            AggregateType::Count => (
-                format!("agg_{idx}"),
-                serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap(),
-            ),
+            AggregateType::Count => (format!("agg_{idx}"), self.to_json()),
         }
     }
 

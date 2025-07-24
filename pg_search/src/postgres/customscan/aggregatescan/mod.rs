@@ -78,7 +78,7 @@ impl CustomScan for AggregateScan {
         }
 
         // Are there any group (/distinct/order-by) or having clauses?
-        // We now support GROUP BY, but not HAVING yet
+        // We can't handle HAVING yet
         if args.root().hasHavingQual {
             // We can't handle HAVING yet
             return None;
@@ -379,29 +379,29 @@ fn extract_grouping_columns(
                 let expr = (*member).em_expr;
 
                 // We only support simple Var expressions for now
-                if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
-                        continue;
-                    }
+                let Some(var) = nodecast!(Var, T_Var, expr) else {
+                    continue;
+                };
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                if heaprelid == pg_sys::Oid::INVALID {
+                    continue;
+                }
 
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        let field_name = att.name();
+                let heaprel = PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                let tupdesc = heaprel.tuple_desc();
+                if let Some(att) = tupdesc.get(attno as usize - 1) {
+                    let field_name = att.name();
 
-                        // Check if this field exists in the index schema as a fast field
-                        if let Some(search_field) = schema.search_field(field_name) {
-                            let is_fast = search_field.is_fast();
-                            if is_fast {
-                                grouping_columns.push(GroupingColumn {
-                                    field_name: field_name.to_string(),
-                                    attno,
-                                });
-                                found_valid_column = true;
-                                break; // Found a valid grouping column for this pathkey
-                            }
+                    // Check if this field exists in the index schema as a fast field
+                    if let Some(search_field) = schema.search_field(field_name) {
+                        let is_fast = search_field.is_fast();
+                        if is_fast {
+                            grouping_columns.push(GroupingColumn {
+                                field_name: field_name.to_string(),
+                                attno,
+                            });
+                            found_valid_column = true;
+                            break; // Found a valid grouping column for this pathkey
                         }
                     }
                 }
@@ -413,17 +413,11 @@ fn extract_grouping_columns(
         }
     }
 
-    // We must be able to handle all grouping columns
-    let success = grouping_columns.len() == pathkeys.len();
-    if success {
-        // We currently only support single-column GROUP BY
-        if grouping_columns.len() > 1 {
-            None
-        } else {
-            Some(grouping_columns)
-        }
-    } else {
+    // We currently only support single-column GROUP BY
+    if grouping_columns.len() > 1 {
         None
+    } else {
+        Some(grouping_columns)
     }
 }
 

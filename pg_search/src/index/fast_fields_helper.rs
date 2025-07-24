@@ -176,19 +176,6 @@ impl FFType {
         value
     }
 
-    #[inline(always)]
-    pub fn string(&self, doc: DocId, value: &mut String) -> Option<()> {
-        match self {
-            FFType::Text(ff) => {
-                value.clear();
-                let ord = ff.term_ords(doc).next()?;
-                ff.ord_to_str(ord, value).ok()?;
-                Some(())
-            }
-            _ => None,
-        }
-    }
-
     /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we
     /// don't reconstruct the full string, and instead return the term ord as a u64
     #[inline(always)]

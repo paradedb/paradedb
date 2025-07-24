@@ -23,6 +23,7 @@ mod score;
 
 use heap_field_filter::HeapFieldFilter;
 
+use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
@@ -32,7 +33,7 @@ use crate::query::score::ScoreFilter;
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
 use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
+use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
 use range::{deserialize_bound, serialize_bound};
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -181,6 +182,11 @@ pub enum SearchQueryInput {
         field: FieldName,
         phrases: Vec<String>,
         max_expansions: Option<u32>,
+    },
+    TokenizedPhrase {
+        field: FieldName,
+        phrase: String,
+        slop: Option<u32>,
     },
     Range {
         field: FieldName,
@@ -494,6 +500,24 @@ impl TryFrom<SearchQueryInput> for TermInput {
                 is_datetime,
             }),
             _ => Err("Only Term variants can be converted to TermInput"),
+        }
+    }
+}
+
+/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
+/// in the current memory context.
+impl From<SearchQueryInput> for *mut pg_sys::Const {
+    fn from(value: SearchQueryInput) -> Self {
+        unsafe {
+            pg_sys::makeConst(
+                searchqueryinput_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                value.into_datum().unwrap(),
+                false,
+                false,
+            )
         }
     }
 }
@@ -1025,6 +1049,39 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
+
+            Self::TokenizedPhrase {
+                field,
+                phrase,
+                slop,
+            } => {
+                let tantivy_field = schema
+                    .search_field(&field)
+                    .unwrap_or_else(|| panic!("Field `{field}` not found in tantivy schema"))
+                    .field();
+                let mut tokenizer = searcher
+                    .index()
+                    .tokenizer_for_field(tantivy_field)
+                    .unwrap_or_else(|e| panic!("{e}"));
+                let mut stream = tokenizer.token_stream(&phrase);
+
+                let mut tokens = Vec::new();
+                while let Some(token) = stream.next() {
+                    tokens.push(Term::from_field_text(tantivy_field, &token.text));
+                }
+                if tokens.is_empty() {
+                    Ok(Box::new(EmptyQuery))
+                } else if tokens.len() == 1 {
+                    let query =
+                        TermQuery::new(tokens.remove(0), IndexRecordOption::WithFreqs.into());
+                    Ok(Box::new(query))
+                } else {
+                    let mut query = PhraseQuery::new(tokens);
+                    query.set_slop(slop.unwrap_or(0));
+                    Ok(Box::new(query))
+                }
+            }
+
             Self::Range {
                 field,
                 lower_bound,
@@ -2024,6 +2081,13 @@ pub struct PostgresExpression {
 }
 
 impl PostgresExpression {
+    pub fn new(node: *mut pg_sys::Node) -> Self {
+        Self {
+            node: PostgresPointer(node.cast()),
+            expr_state: PostgresPointer::default(),
+        }
+    }
+
     pub fn set_expr_state(&mut self, expr_state: *mut pg_sys::ExprState) {
         self.expr_state = PostgresPointer(expr_state.cast())
     }

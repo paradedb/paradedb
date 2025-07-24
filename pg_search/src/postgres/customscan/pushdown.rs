@@ -23,7 +23,7 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::var::{fieldname_from_var, find_var_relation};
 use crate::schema::{SearchField, SearchIndexSchema};
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
+use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
@@ -253,7 +253,11 @@ unsafe fn make_opexpr(
 }
 
 pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || nodecast!(Param, T_Param, node).is_some()
             || pg_sys::contain_volatile_functions(node)

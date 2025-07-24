@@ -727,6 +727,32 @@ fn top_n_exits_at_limit(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn top_n_is_exhausted(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE exhausted (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
+        CREATE INDEX exhausted_idx ON exhausted USING bm25 (id, message, severity) WITH (key_field = 'id');
+        INSERT INTO exhausted (message, severity) VALUES ('beer wine cheese a', 1);
+        SET max_parallel_workers = 0;
+    "#.execute(&mut conn);
+
+    let (plan,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT * FROM exhausted
+        WHERE message @@@ 'beer'
+        ORDER BY severity LIMIT 100;
+    "#
+    .fetch_one::<(Value,)>(&mut conn);
+    eprintln!("{plan:#?}");
+
+    // We have requested 100 results, but only 1 is available: we should detect during our first
+    // query that the search is exhausted, and not attempt to query again to find more.
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/   Queries"),
+        Some(&Value::Number(1.into()))
+    );
+}
+
+#[rstest]
 fn top_n_completes_issue2511(mut conn: PgConnection) {
     r#"
         drop table if exists loop;

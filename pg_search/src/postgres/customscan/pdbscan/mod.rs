@@ -1092,7 +1092,6 @@ impl CustomScan for PdbScan {
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
-        drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();
@@ -1550,6 +1549,7 @@ fn base_query_has_search_predicates(
         SearchQueryInput::HeapFilter { indexed_query, .. } => {
             base_query_has_search_predicates(indexed_query, current_index_oid)
         }
+        SearchQueryInput::TokenizedPhrase { .. } => false,
     }
 }
 

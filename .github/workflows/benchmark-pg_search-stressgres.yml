@@ -250,3 +250,15 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
           benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
+
+      - name: Benchmark background-merge.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: background-merge.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}

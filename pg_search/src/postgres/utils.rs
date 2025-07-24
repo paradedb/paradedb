@@ -15,13 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use super::expression::PG_SEARCH_PREFIX;
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
+use crate::PG_SEARCH_PREFIX;
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
@@ -328,5 +328,19 @@ pub fn resolve_base_type(oid: PgOid) -> Option<(PgOid, IsArray)> {
 
             Some((resolved_array_type.into(), true))
         }
+    }
+}
+
+pub trait ToPalloc: Sized {
+    fn palloc(self) -> *mut Self {
+        self.palloc_in(PgMemoryContexts::CurrentMemoryContext)
+    }
+
+    fn palloc_in(self, mcxt: PgMemoryContexts) -> *mut Self;
+}
+
+impl<T> ToPalloc for T {
+    fn palloc_in(mut self, mut mcxt: PgMemoryContexts) -> *mut Self {
+        unsafe { mcxt.copy_ptr_into((&mut self as *mut T).cast(), size_of::<T>()) }
     }
 }

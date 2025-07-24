@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::scorer_iter::DeferredScorer;
+use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
@@ -79,29 +79,65 @@ impl From<SortDirection> for Order {
 }
 
 pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
-/// An iterator of the different styles of search results we can return
-#[allow(clippy::large_enum_variant)]
-#[derive(Default)]
-pub enum SearchResults {
-    #[default]
-    None,
-    TopNByScore(
-        Searcher,
-        FastFieldCache,
-        std::vec::IntoIter<(Score, DocAddress)>,
-    ),
-    TopNByTweakedScore(
-        Searcher,
-        FastFieldCache,
-        std::vec::IntoIter<(TweakedScore, DocAddress)>,
-    ),
-    TopNByField(Searcher, FastFieldCache, std::vec::IntoIter<DocAddress>),
-    MultiSegment(
-        Searcher,
-        Option<FFType>,
-        Vec<scorer_iter::ScorerIter>,
-        usize,
-    ),
+
+/// A known-size iterator of results for Top-N.
+pub struct TopNSearchResults {
+    results_original_len: usize,
+    results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
+}
+
+impl TopNSearchResults {
+    pub fn empty() -> Self {
+        Self::new(vec![])
+    }
+
+    fn new(results: Vec<(SearchIndexScore, DocAddress)>) -> Self {
+        Self {
+            results_original_len: results.len(),
+            results: results.into_iter(),
+        }
+    }
+
+    fn new_for_score(
+        searcher: &Searcher,
+        results: impl Iterator<Item = (Score, DocAddress)>,
+    ) -> Self {
+        // TODO: Execute batch lookups for ctids?
+        let mut ff_lookup = FastFieldCache::default();
+        Self::new(
+            results
+                .map(|(score, doc_address)| {
+                    let ctid = ff_lookup
+                        .entry(doc_address.segment_ord)
+                        .or_insert_with(|| {
+                            FFType::new_ctid(
+                                searcher
+                                    .segment_reader(doc_address.segment_ord)
+                                    .fast_fields(),
+                            )
+                        })
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present");
+
+                    let scored = SearchIndexScore { ctid, bm25: score };
+                    (scored, doc_address)
+                })
+                .collect(),
+        )
+    }
+
+    pub fn original_len(&self) -> usize {
+        self.results_original_len
+    }
+}
+
+/// A set of search results across multiple segments.
+///
+/// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
+pub struct MultiSegmentSearchResults {
+    searcher: Searcher,
+    ctid_column: Option<FFType>,
+    iterators: Vec<ScorerIter>,
 }
 
 #[derive(PartialEq, Clone)]
@@ -121,106 +157,47 @@ impl PartialOrd for TweakedScore {
     }
 }
 
-impl Iterator for SearchResults {
+impl Iterator for TopNSearchResults {
     type Item = (SearchIndexScore, DocAddress);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let (searcher, ff_lookup, (score, doc_address)) = match self {
-            SearchResults::None => return None,
-            SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
-                (searcher, ff_lookup, iter.next()?)
-            }
-            SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
-                let (score, doc_id) = iter.next()?;
-                (searcher, ff_lookup, (score.score, doc_id))
-            }
-            SearchResults::TopNByField(searcher, ff_lookup, iter) => {
-                let doc_id = iter.next()?;
-                (searcher, ff_lookup, (1.0, doc_id))
-            }
-            SearchResults::MultiSegment(searcher, fftype, iters, offset) => loop {
-                let last = iters.last_mut()?;
-                match last.next() {
-                    Some((score, doc_address)) => {
-                        if *offset > 0 {
-                            *offset -= 1;
-                            continue;
-                        }
-
-                        let ctid_ff = fftype.get_or_insert_with(|| {
-                            FFType::new_ctid(
-                                searcher
-                                    .segment_reader(doc_address.segment_ord)
-                                    .fast_fields(),
-                            )
-                        });
-                        let scored = SearchIndexScore {
-                            ctid: ctid_ff
-                                .as_u64(doc_address.doc_id)
-                                .expect("ctid should be present"),
-                            bm25: score,
-                        };
-
-                        return Some((scored, doc_address));
-                    }
-                    None => {
-                        // last iterator is empty, so pop it off, clear the fast field type cache,
-                        // and loop back around to get the next one
-                        iters.pop();
-                        *fftype = None;
-                        continue;
-                    }
-                }
-            },
-        };
-
-        let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
-            FFType::new_ctid(
-                searcher
-                    .segment_reader(doc_address.segment_ord)
-                    .fast_fields(),
-            )
-        });
-        let scored = SearchIndexScore {
-            ctid: ctid_ff
-                .as_u64(doc_address.doc_id)
-                .expect("ctid should be present"),
-            bm25: score,
-        };
-        Some((scored, doc_address))
+        self.results.next()
     }
+}
+
+impl Iterator for MultiSegmentSearchResults {
+    type Item = (SearchIndexScore, DocAddress);
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            SearchResults::None => (0, Some(0)),
-            SearchResults::TopNByScore(_, _, iter) => iter.size_hint(),
-            SearchResults::TopNByTweakedScore(_, _, iter) => iter.size_hint(),
-            SearchResults::TopNByField(_, _, iter) => iter.size_hint(),
-            SearchResults::MultiSegment(_, _, iters, offset) => {
-                let hint = iters
-                    .first()
-                    .map(|iter| iter.size_hint())
-                    .unwrap_or((0, Some(0)));
-                let lower_bound = hint.0.saturating_sub(*offset);
-                (lower_bound, hint.1.map(|n| n * iters.len()))
-            }
-        }
-    }
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let last = self.iterators.last_mut()?;
+            match last.next() {
+                Some((score, doc_address)) => {
+                    let ctid_ff = self.ctid_column.get_or_insert_with(|| {
+                        FFType::new_ctid(
+                            self.searcher
+                                .segment_reader(doc_address.segment_ord)
+                                .fast_fields(),
+                        )
+                    });
+                    let scored = SearchIndexScore {
+                        ctid: ctid_ff
+                            .as_u64(doc_address.doc_id)
+                            .expect("ctid should be present"),
+                        bm25: score,
+                    };
 
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        match self {
-            SearchResults::None => 0,
-            SearchResults::TopNByScore(_, _, iter) => iter.count(),
-            SearchResults::TopNByTweakedScore(_, _, iter) => iter.count(),
-            SearchResults::TopNByField(_, _, iter) => iter.count(),
-            SearchResults::MultiSegment(_, _, iters, offset) => {
-                let total: usize = iters.into_iter().map(|iter| iter.count()).sum();
-                total.saturating_sub(offset)
+                    return Some((scored, doc_address));
+                }
+                None => {
+                    // last iterator is empty, so pop it off, clear the fast field type cache,
+                    // and loop back around to get the next one
+                    self.iterators.pop();
+                    self.ctid_column = None;
+                    continue;
+                }
             }
         }
     }
@@ -308,7 +285,7 @@ impl SearchIndexReader {
                     index_relation.oid(),
                     index_relation.rel_oid(),
                 )
-                .expect("must be able to parse query")
+                .unwrap_or_else(|e| panic!("{e}"))
         };
 
         Ok(Self {
@@ -372,7 +349,7 @@ impl SearchIndexReader {
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
             )
-            .expect("must be able to parse query")
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
@@ -434,27 +411,13 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search(&self, _estimated_rows: Option<usize>) -> SearchResults {
-        let iters = self
-            .searcher()
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .map(move |(segment_ord, segment_reader)| {
-                scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(
-                        self.query().box_clone(),
-                        self.need_scores,
-                        segment_reader.clone(),
-                        self.searcher.clone(),
-                    ),
-                    segment_ord as SegmentOrdinal,
-                    segment_reader.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, 0)
+    pub fn search(&self, _estimated_rows: Option<usize>) -> MultiSegmentSearchResults {
+        self.search_segments(
+            self.searcher()
+                .segment_readers()
+                .iter()
+                .map(|s| s.segment_id()),
+        )
     }
 
     /// Search specific index segments for matching documents.
@@ -466,10 +429,9 @@ impl SearchIndexReader {
     pub fn search_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        offset: usize,
-    ) -> SearchResults {
-        let iters = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            scorer_iter::ScorerIter::new(
+    ) -> MultiSegmentSearchResults {
+        let iterators = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
+            ScorerIter::new(
                 DeferredScorer::new(
                     self.query().box_clone(),
                     self.need_scores,
@@ -481,7 +443,11 @@ impl SearchIndexReader {
             )
         });
 
-        SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, offset)
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            ctid_column: Default::default(),
+            iterators,
+        }
     }
 
     /// Search the Tantivy index for the "top N" matching documents in specific segments.
@@ -499,7 +465,7 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> TopNSearchResults {
         if let Some(sort_field) = sort_field {
             let field = self
                 .schema
@@ -534,16 +500,13 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> TopNSearchResults {
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
             .order_by_u64_field(&sort_field, sortdir.into());
         let weight = self
             .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
@@ -555,17 +518,12 @@ impl SearchIndexReader {
         let top_docs = collector
             .merge_fruits(top_docs)
             .expect("should be able to merge top-n in segments");
-        SearchResults::TopNByField(
-            self.searcher.clone(),
-            Default::default(),
-            // TODO: We are discarding a u64-encoded numeric field value here.
-            // To actually fetch it, we might switch the `TopDocs::order_by_u64_field` call to
-            // `TopDocs::order_by_fast_field`, which handles the decoding.
-            top_docs
-                .into_iter()
-                .map(|(_, doc)| doc)
-                .collect::<Vec<_>>()
-                .into_iter(),
+        // TODO: We are discarding a u64-encoded numeric field value here.
+        // To actually fetch it, we might switch the `TopDocs::order_by_u64_field` call to
+        // `TopDocs::order_by_fast_field`, which handles the decoding.
+        TopNSearchResults::new_for_score(
+            &self.searcher,
+            top_docs.into_iter().map(|(_field_value, doc)| (1.0, doc)),
         )
     }
 
@@ -583,16 +541,13 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> TopNSearchResults {
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
             .order_by_string_fast_field(&sort_field, sortdir.into());
         let weight = self
             .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
@@ -604,16 +559,11 @@ impl SearchIndexReader {
         let top_docs = collector
             .merge_fruits(top_docs)
             .expect("should be able to merge top-n in segments");
-        SearchResults::TopNByField(
-            self.searcher.clone(),
-            Default::default(),
+        TopNSearchResults::new_for_score(
+            &self.searcher,
             // TODO: We are discarding a valid string field value here, but could in theory actually
             // render it using a virtual tuple for the right query shape.
-            top_docs
-                .into_iter()
-                .map(|(_, doc)| doc)
-                .collect::<Vec<_>>()
-                .into_iter(),
+            top_docs.into_iter().map(|(_, doc)| (1.0, doc)),
         )
     }
 
@@ -630,7 +580,7 @@ impl SearchIndexReader {
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> TopNSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
@@ -661,10 +611,11 @@ impl SearchIndexReader {
                     .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
-                SearchResults::TopNByTweakedScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
+                TopNSearchResults::new_for_score(
+                    &self.searcher,
+                    top_docs
+                        .into_iter()
+                        .map(|(score, doc_address)| (score.score, doc_address)),
                 )
             }
 
@@ -690,14 +641,15 @@ impl SearchIndexReader {
                     .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
-                SearchResults::TopNByScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
-                )
+                TopNSearchResults::new_for_score(&self.searcher, top_docs.into_iter())
             }
 
-            SortDirection::None => self.search_segments(segment_ids, offset),
+            SortDirection::None => TopNSearchResults::new(
+                self.search_segments(segment_ids)
+                    .skip(offset)
+                    .take(n)
+                    .collect(),
+            ),
         }
     }
 
@@ -751,147 +703,10 @@ impl SearchIndexReader {
     }
 }
 
-fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
+pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
     } else {
         EnableScoring::disabled_from_searcher(searcher)
-    }
-}
-
-mod scorer_iter {
-    use crate::index::reader::index::enable_scoring;
-    use std::sync::OnceLock;
-    use tantivy::query::{Query, Scorer};
-    use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
-
-    pub struct DeferredScorer {
-        query: Box<dyn Query>,
-        need_scores: bool,
-        segment_reader: SegmentReader,
-        searcher: Searcher,
-        scorer: OnceLock<Box<dyn Scorer>>,
-    }
-
-    impl DeferredScorer {
-        pub fn new(
-            query: Box<dyn Query>,
-            need_scores: bool,
-            segment_reader: SegmentReader,
-            searcher: Searcher,
-        ) -> Self {
-            Self {
-                query,
-                need_scores,
-                segment_reader,
-                searcher,
-                scorer: Default::default(),
-            }
-        }
-
-        #[track_caller]
-        #[inline(always)]
-        fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
-            self.scorer();
-            self.scorer
-                .get_mut()
-                .expect("deferred scorer should have been initialized")
-        }
-
-        #[track_caller]
-        #[inline(always)]
-        fn scorer(&self) -> &dyn Scorer {
-            self.scorer.get_or_init(|| {
-                let weight = self
-                    .query
-                    .weight(enable_scoring(self.need_scores, &self.searcher))
-                    .expect("weight should be constructable");
-
-                weight
-                    .scorer(&self.segment_reader, 1.0)
-                    .expect("scorer should be constructable")
-            })
-        }
-    }
-
-    impl DocSet for DeferredScorer {
-        #[inline(always)]
-        fn advance(&mut self) -> DocId {
-            self.scorer_mut().advance()
-        }
-
-        #[inline(always)]
-        fn doc(&self) -> DocId {
-            self.scorer().doc()
-        }
-
-        fn size_hint(&self) -> u32 {
-            self.scorer().size_hint()
-        }
-    }
-
-    impl Scorer for DeferredScorer {
-        #[inline(always)]
-        fn score(&mut self) -> Score {
-            self.scorer_mut().score()
-        }
-    }
-
-    pub struct ScorerIter {
-        deferred: DeferredScorer,
-        segment_ord: SegmentOrdinal,
-        segment_reader: SegmentReader,
-    }
-
-    impl ScorerIter {
-        pub fn new(
-            scorer: DeferredScorer,
-            segment_ord: SegmentOrdinal,
-            segment_reader: SegmentReader,
-        ) -> Self {
-            Self {
-                deferred: scorer,
-                segment_ord,
-                segment_reader,
-            }
-        }
-    }
-
-    impl Iterator for ScorerIter {
-        type Item = (Score, DocAddress);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            loop {
-                let doc_id = self.deferred.doc();
-
-                if doc_id == tantivy::TERMINATED {
-                    // we've read all the docs
-                    return None;
-                } else if self
-                    .segment_reader
-                    .alive_bitset()
-                    .map(|alive_bitset| alive_bitset.is_alive(doc_id))
-                    // if there's no alive_bitset, the doc is alive
-                    .unwrap_or(true)
-                {
-                    // this doc is alive
-                    let score = self.deferred.score();
-                    let this = (score, DocAddress::new(self.segment_ord, doc_id));
-
-                    // move to the next doc for the next iteration
-                    self.deferred.advance();
-
-                    // return the live doc
-                    return Some(this);
-                }
-
-                // this doc isn't alive, move to the next doc and loop around
-                self.deferred.advance();
-            }
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            (0, Some(self.deferred.size_hint() as usize))
-        }
     }
 }

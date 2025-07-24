@@ -26,7 +26,7 @@ use std::rc::Rc;
 
 use crate::api::HashMap;
 use crate::index::fast_fields_helper::{FFIndex, FFType, WhichFastField};
-use crate::index::reader::index::{SearchIndexReader, SearchIndexScore, SearchResults};
+use crate::index::reader::index::{SearchIndexReader, SearchIndexScore};
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
     non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState,
 };
@@ -154,7 +154,6 @@ impl ExecMethod for MixedFastFieldExecState {
 
             // No more segments to query in parallel mode
             self.mixed_results = MixedAggResults::new(self.inner.which_fast_fields.len(), vec![]);
-            self.inner.search_results = SearchResults::None;
             false
         } else if self.inner.did_query {
             // Not parallel and already queried

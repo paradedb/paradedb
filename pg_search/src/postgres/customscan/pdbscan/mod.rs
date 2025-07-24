@@ -419,7 +419,7 @@ impl CustomScan for PdbScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            let mut selectivity = if let Some(limit) = limit {
+            let selectivity = if let Some(limit) = limit {
                 // use the limit
                 limit
                     / table
@@ -478,63 +478,9 @@ impl CustomScan for PdbScan {
                 custom_private.set_sort_direction(Some(SortDirection::None));
             }
 
-            let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(limit, segment_count, custom_private.is_sorted())
-            } else {
-                0
-            };
-
-            // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
-            // as it should likely be checking for `is_mixed_fast_field_capable` as well, and
-            // should probably have different thresholds.
-            // See https://github.com/paradedb/paradedb/issues/2620
-            if pathkey.is_some()
-                && !is_topn
-                && fast_fields::is_string_fast_field_capable(&custom_private).is_some()
-            {
-                let pathkey = pathkey.as_ref().unwrap();
-
-                // we're going to do a StringAgg, and it may or may not be more efficient to use
-                // parallel queries, depending on the cardinality of what we're going to select
-                let parallel_scan_preferred = || -> bool {
-                    let cardinality = {
-                        let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
-                            // NB:  '4' is a magic number
-                            fast_fields::estimate_cardinality(&index, field).unwrap_or(0) * 4
-                        } else {
-                            0
-                        };
-                        estimate as f64 * selectivity
-                    };
-
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
-
-                    // if we only have 1 path key or if our estimated cardinality is over some
-                    // hardcoded value, it's seemingly more efficient to do a parallel scan
-                    pathkey_cnt == 1 || cardinality > 1_000_000.0
-                };
-
-                if nworkers > 0 && parallel_scan_preferred() {
-                    // If we use parallel workers, there is no point in sorting, because the
-                    // plan will already need to sort and merge the outputs from the workers.
-                    // See the TODO below about being able to claim sorting for parallel
-                    // workers.
-                    builder = builder.set_parallel(nworkers);
-                } else {
-                    // otherwise we'll do a regular scan
-                    custom_private.set_sort_info(pathkey);
-                }
-            } else if !quals.contains_external_var() && nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
-            }
-
+            // Choose the exec method type, and make claims about whether it is sorted.
             let exec_method_type = choose_exec_method(&custom_private);
             custom_private.set_exec_method_type(exec_method_type);
-
-            // Once we have chosen an execution method type, we have a final determination of the
-            // properties of the output, and can make claims about whether it is sorted.
             if custom_private.exec_method_type().is_sorted() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
@@ -542,23 +488,43 @@ impl CustomScan for PdbScan {
             }
 
             //
-            // finally, we have enough information to set the cost and estimation information
+            // finally, we have enough information to set the cost and estimation information, and
+            // to decide on parallelism
             //
 
-            if builder.is_parallel() {
-                // if we're likely to do a parallel scan, divide the selectivity up by the number of
-                // workers we're likely to use.  this lets Postgres make better decisions based on what
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let mut rows = (reltuples * selectivity).max(1.0);
+
+            let nworkers = if (*builder.args().rel).consider_parallel {
+                compute_nworkers(
+                    custom_private.exec_method_type(),
+                    limit,
+                    rows,
+                    segment_count,
+                    quals.contains_external_var(),
+                )
+            } else {
+                0
+            };
+
+            if nworkers > 0 {
+                builder = builder.set_parallel(nworkers);
+
+                // if we're likely to do a parallel scan, divide the rows by the number of workers
+                // we're likely to use.  this lets Postgres make better decisions based on what
                 // an individual parallel scan is actually going to return
-                selectivity /= (nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    }) as f64;
+                let processes = std::cmp::max(
+                    1,
+                    nworkers
+                        + if pg_sys::parallel_leader_participation {
+                            1
+                        } else {
+                            0
+                        },
+                );
+                rows /= processes as f64;
             }
 
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let rows = (reltuples * selectivity).max(1.0);
             let per_tuple_cost = {
                 if maybe_ff {
                     // returning fields from fast fields

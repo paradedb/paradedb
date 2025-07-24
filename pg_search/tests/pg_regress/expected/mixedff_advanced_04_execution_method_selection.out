@@ -568,10 +568,8 @@ ORDER BY text_field1;
          Fast Fields: text_field1
          String Agg Field: text_field1
          Scores: false
-            Sort Field: text_field1
-            Sort Direction: asc
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(10 rows)
 
 SELECT text_field1
 FROM exec_method_test

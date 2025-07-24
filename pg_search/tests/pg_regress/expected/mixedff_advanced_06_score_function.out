@@ -704,10 +704,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      Fast Fields: author
                      String Agg Field: author
                      Scores: false
-                        Sort Field: title
-                        Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(30 rows)
+(28 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (

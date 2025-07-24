@@ -144,7 +144,10 @@ impl ExecMethodType {
     ///
     pub fn is_sorted(&self) -> bool {
         match self {
-            ExecMethodType::TopN { .. } => true,
+            ExecMethodType::TopN {
+                sort_direction: SortDirection::Asc | SortDirection::Desc,
+                ..
+            } => true,
             // See https://github.com/paradedb/paradedb/issues/2623 about enabling sorted orders for
             // String and Mixed.
             _ => false,
@@ -302,10 +305,6 @@ impl<CS: CustomScan> CustomPathBuilder<CS> {
             nworkers.try_into().expect("nworkers should be a valid i32");
 
         self
-    }
-
-    pub fn is_parallel(&self) -> bool {
-        self.custom_path_node.path.parallel_workers > 0
     }
 
     /// Build a CustomPath using the given private data.

@@ -25,19 +25,17 @@ SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge
-   Workers Planned: 1
-   ->  Sort
-         Sort Key: (paradedb.score(id)) DESC
-         ->  Parallel Custom Scan (ParadeDB Scan) on partial_test
-               Table: partial_test
-               Index: partial_test_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on partial_test
+         Table: partial_test
+         Index: partial_test_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
 
 SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
@@ -234,7 +232,7 @@ ORDER BY rating LIMIT 20;
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx
@@ -270,7 +268,7 @@ ORDER BY rating LIMIT 20;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx

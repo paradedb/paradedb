@@ -26,7 +26,7 @@ use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
@@ -972,7 +972,11 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
 }
 
 unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         if let Some(param) = nodecast!(Param, T_Param, node) {
             if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
                 return true;
@@ -989,7 +993,11 @@ unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 }
 
 unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
@@ -1281,6 +1289,7 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
         return false;
     }
 
+    #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         context: *mut core::ffi::c_void,
@@ -1477,6 +1486,7 @@ unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
         return false;
     }
 
+    #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         _context: *mut core::ffi::c_void,

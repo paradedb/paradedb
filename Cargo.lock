@@ -374,7 +374,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
 name = "benchmarks"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -2804,7 +2804,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -2943,7 +2943,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4571,7 +4571,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4623,7 +4623,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "bitpacking",
 ]
@@ -4631,7 +4631,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4646,7 +4646,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -4679,7 +4679,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "nom",
 ]
@@ -4687,7 +4687,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -4700,7 +4700,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -4710,7 +4710,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=16740add9447330b133348448ce4988edcc8174f#16740add9447330b133348448ce4988edcc8174f"
+source = "git+https://github.com/paradedb/tantivy.git?rev=55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3#55bd31e3539e6d6df6a8b2a7e48a5c2342caeac3"
 dependencies = [
  "serde",
 ]
@@ -4756,7 +4756,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -4894,7 +4894,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "anyhow",
  "lindera",

@@ -41,7 +41,7 @@ body:
       required: true
   - type: input
     attributes:
-      label: "ParadeDB Version:"
+      label: "ParadeDB Version (e.g. output of `SELECT * FROM paradedb.version_info();`):"
       placeholder: e.g., v0.8.0
     validations:
       required: true

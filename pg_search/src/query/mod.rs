@@ -84,7 +84,6 @@ pub enum SearchQueryInput {
     },
     DisjunctionMax {
         disjuncts: Vec<SearchQueryInput>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         tie_breaker: Option<f32>,
     },
     Empty,

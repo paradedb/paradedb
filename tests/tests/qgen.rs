@@ -17,7 +17,7 @@
 
 mod fixtures;
 
-use crate::fixtures::querygen::groupbygen::{arb_aggregates, arb_group_by};
+use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
@@ -242,11 +242,10 @@ async fn generated_group_by_aggregates(database: Db) {
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec()),
-        aggregates in arb_aggregates(),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)"]),
         gucs in any::<PgGucs>(),
     )| {
-        let select_list = group_by_expr.to_select_list(&aggregates);
+        let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
         let pg_query = format!(

@@ -26,7 +26,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, PrivateData,
+    AggregateType, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
@@ -159,6 +159,7 @@ impl CustomScan for AggregateScan {
             heap_rti,
             query,
             grouping_columns,
+            target_list_mapping: vec![], // Will be filled in plan_custom_path
         }))
     }
 
@@ -170,18 +171,32 @@ impl CustomScan for AggregateScan {
         // them with.
         let mut targetlist = PgList::<pg_sys::TargetEntry>::new();
         let grouping_columns = &builder.custom_private().grouping_columns;
-
-        // For GROUP BY queries, we need to ensure grouping columns appear in the target list
-        // The target list should be: grouping_cols + aggregate_cols
+        let mut target_list_mapping = Vec::new();
+        let mut agg_idx = 0;
 
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
             let te = unsafe {
                 if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
                     // This is a Var - it should be a grouping column
+                    // Find which grouping column this is
+                    let mut found = false;
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        if (*var).varattno == gc.attno {
+                            target_list_mapping.push(TargetListEntry::GroupingColumn(i));
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        panic!("Var in target list not found in grouping columns");
+                    }
                     // Keep it as-is
                     pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
                     // This is an aggregate - replace with placeholder FuncExpr
+                    target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
+                    agg_idx += 1;
+
                     let te = pg_sys::flatCopyTargetEntry(input_te);
                     (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
                     te
@@ -196,6 +211,10 @@ impl CustomScan for AggregateScan {
 
             targetlist.push(te);
         }
+
+        // Update the private data with the target list mapping
+        builder.custom_private_mut().target_list_mapping = target_list_mapping;
+
         builder.set_targetlist(targetlist);
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
@@ -207,6 +226,8 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
+        builder.custom_state().target_list_mapping =
+            builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
@@ -275,15 +296,13 @@ impl CustomScan for AggregateScan {
                 &pg_sys::TTSOpsVirtual,
             );
 
-            // Calculate expected number of attributes (grouping cols + aggregate cols)
-            let n_grouping_cols = state.custom_state().grouping_columns.len();
-            let n_agg_cols = row.aggregate_values.len();
-            let expected_natts = n_grouping_cols + n_agg_cols;
             let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+            let target_list_mapping = &state.custom_state().target_list_mapping;
 
             assert_eq!(
-                natts, expected_natts,
-                "Mismatch between expected and actual tuple attributes"
+                natts,
+                target_list_mapping.len(),
+                "Target list mapping length mismatch"
             );
 
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
@@ -293,62 +312,66 @@ impl CustomScan for AggregateScan {
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-            // Fill in grouping column values
-            for (i, group_val) in row.group_keys.iter().enumerate() {
-                // Get the type of this grouping column from the tuple descriptor
-                let attr = tupdesc.get(i).expect("missing attribute");
-                let typoid = attr.type_oid().value();
+            // Fill in values according to the target list mapping
+            for (i, entry) in target_list_mapping.iter().enumerate() {
+                match entry {
+                    &TargetListEntry::GroupingColumn(gc_idx) => {
+                        let group_val = &row.group_keys[gc_idx];
 
-                // Convert the string value to the appropriate type
-                datums[i] = match typoid {
-                    t if t == pg_sys::TEXTOID
-                        || t == pg_sys::VARCHAROID
-                        || t == pg_sys::BPCHAROID =>
-                    {
-                        // Text types - use the string as-is
-                        group_val.clone().into_datum().unwrap()
-                    }
-                    t if t == pg_sys::INT2OID => {
-                        // smallint
-                        let val: i16 = group_val.parse().expect("invalid int2 value");
-                        val.into_datum().unwrap()
-                    }
-                    t if t == pg_sys::INT4OID => {
-                        // integer
-                        let val: i32 = group_val.parse().expect("invalid int4 value");
-                        val.into_datum().unwrap()
-                    }
-                    t if t == pg_sys::INT8OID => {
-                        // bigint
-                        let val: i64 = group_val.parse().expect("invalid int8 value");
-                        val.into_datum().unwrap()
-                    }
-                    t if t == pg_sys::FLOAT4OID => {
-                        // real
-                        let val: f32 = group_val.parse().expect("invalid float4 value");
-                        val.into_datum().unwrap()
-                    }
-                    t if t == pg_sys::FLOAT8OID => {
-                        // double precision
-                        let val: f64 = group_val.parse().expect("invalid float8 value");
-                        val.into_datum().unwrap()
-                    }
-                    t if t == pg_sys::BOOLOID => {
-                        // boolean
-                        let val: bool = group_val.parse().expect("invalid bool value");
-                        val.into_datum().unwrap()
-                    }
-                    _ => {
-                        panic!("Unsupported grouping column type: OID {typoid}");
-                    }
-                };
-                isnull[i] = false;
-            }
+                        // Get the type of this column from the tuple descriptor
+                        let attr = tupdesc.get(i).expect("missing attribute");
+                        let typoid = attr.type_oid().value();
 
-            // Fill in aggregate values
-            for (i, agg_val) in row.aggregate_values.into_iter().enumerate() {
-                datums[n_grouping_cols + i] = agg_val.into_datum().unwrap();
-                isnull[n_grouping_cols + i] = false;
+                        // Convert the string value to the appropriate type
+                        datums[i] = match typoid {
+                            t if t == pg_sys::TEXTOID
+                                || t == pg_sys::VARCHAROID
+                                || t == pg_sys::BPCHAROID =>
+                            {
+                                // Text types - use the string as-is
+                                group_val.clone().into_datum().unwrap()
+                            }
+                            t if t == pg_sys::INT2OID => {
+                                // smallint
+                                let val: i16 = group_val.parse().expect("invalid int2 value");
+                                val.into_datum().unwrap()
+                            }
+                            t if t == pg_sys::INT4OID => {
+                                // integer
+                                let val: i32 = group_val.parse().expect("invalid int4 value");
+                                val.into_datum().unwrap()
+                            }
+                            t if t == pg_sys::INT8OID => {
+                                // bigint
+                                let val: i64 = group_val.parse().expect("invalid int8 value");
+                                val.into_datum().unwrap()
+                            }
+                            t if t == pg_sys::FLOAT4OID => {
+                                // real
+                                let val: f32 = group_val.parse().expect("invalid float4 value");
+                                val.into_datum().unwrap()
+                            }
+                            t if t == pg_sys::FLOAT8OID => {
+                                // double precision
+                                let val: f64 = group_val.parse().expect("invalid float8 value");
+                                val.into_datum().unwrap()
+                            }
+                            t if t == pg_sys::BOOLOID => {
+                                // boolean
+                                let val: bool = group_val.parse().expect("invalid bool value");
+                                val.into_datum().unwrap()
+                            }
+                            _ => {
+                                panic!("Unsupported grouping column type: OID {typoid}");
+                            }
+                        };
+                        isnull[i] = false;
+                    }
+                    TargetListEntry::Aggregate(agg_idx) => {
+                        datums[i] = row.aggregate_values[*agg_idx].into_datum().unwrap();
+                        isnull[i] = false;
+                    }
+                }
             }
 
             slot

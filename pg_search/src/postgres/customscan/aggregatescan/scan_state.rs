@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, GroupingColumn};
+use crate::postgres::customscan::aggregatescan::privdat::{
+    AggregateType, GroupingColumn, TargetListEntry,
+};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -50,6 +52,8 @@ pub struct AggregateScanState {
     pub aggregate_types: Vec<AggregateType>,
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
+    // Maps target list position to data type
+    pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
     pub query: SearchQueryInput,
     // The index that will be scanned.

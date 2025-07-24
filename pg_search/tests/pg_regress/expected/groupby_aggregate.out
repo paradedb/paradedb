@@ -64,7 +64,21 @@ ORDER BY category;
  Electronics |     5
 (1 row)
 
--- Test 1.4: Verify execution plans
+-- Test 1.4: Test different column orders (COUNT(*) first vs last)
+-- Verify that both column orders work correctly
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+ count |  category   
+-------+-------------
+     3 | Electronics
+(1 row)
+
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
+  category   | count 
+-------------+-------
+ Electronics |     3
+(1 row)
+
+-- Test 1.5: Verify execution plans
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
                                                                       QUERY PLAN                                                                       

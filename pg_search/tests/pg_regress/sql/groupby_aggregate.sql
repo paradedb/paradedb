@@ -57,7 +57,12 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category 
 ORDER BY category;
 
--- Test 1.4: Verify execution plans
+-- Test 1.4: Test different column orders (COUNT(*) first vs last)
+-- Verify that both column orders work correctly
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
+
+-- Test 1.5: Verify execution plans
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753387539614,
+  "lastUpdate": 1753388190061,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6358,6 +6358,42 @@ window.BENCHMARK_DATA = {
             "value": 5.856370156077371,
             "unit": "median tps",
             "extra": "avg tps: 5.245378493960135, max tps: 6.622653094937561, count: 57060"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f36ed9f1b8d7197e7779506260fc5a2a354d60b0",
+          "message": "fix: Custom scan fails if partitioned table is empty (#2905)\n\n# Ticket(s) Closed\n\n- Closes #2904 \n\n## What\n\nBug fix for above GH issue.\n\n## Why\n\n## How\n\n## Tests\nAdded regression test.",
+          "timestamp": "2025-07-24T15:50:00-04:00",
+          "tree_id": "ddfade85873c38a4ad1a72f17b5b6be2065fb98f",
+          "url": "https://github.com/paradedb/paradedb/commit/f36ed9f1b8d7197e7779506260fc5a2a354d60b0"
+        },
+        "date": 1753388188956,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.873043071685709,
+            "unit": "median tps",
+            "extra": "avg tps: 5.883113494523296, max tps: 8.815682839091275, count: 57348"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.8890499630538695,
+            "unit": "median tps",
+            "extra": "avg tps: 5.276284298118599, max tps: 6.669275663508168, count: 57348"
           }
         ]
       }

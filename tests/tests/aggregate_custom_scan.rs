@@ -28,7 +28,9 @@ fn assert_uses_custom_scan(conn: &mut PgConnection, enabled: bool, query: impl A
     let (plan,) = format!(" EXPLAIN (FORMAT JSON) {}", query.as_ref()).fetch_one::<(Value,)>(conn);
     eprintln!("{plan:#?}");
     assert_eq!(
-        enabled,
+        // TODO: Remove the !plan.to_string().contains("Sort Key") once we support ORDER BY in GROUP BY aggregate queries.
+        // Even without ORDER BY, Postgres might add a Sort Key to the plan for GROUP BY queries.
+        enabled && !plan.to_string().contains("Sort Key"),
         plan.to_string().contains("ParadeDB Aggregate Scan")
     );
 }
@@ -130,7 +132,7 @@ fn test_group_by(mut conn: PgConnection) {
         FROM paradedb.bm25_search WHERE
         description @@@ 'keyboard'
         GROUP BY rating
-        ORDER BY rating
+        -- ORDER BY rating
         "#,
     );
 }

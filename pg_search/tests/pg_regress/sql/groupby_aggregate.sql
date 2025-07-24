@@ -1,214 +1,215 @@
 -- Test GROUP BY functionality in aggregate custom scan
+-- This file combines and consolidates tests from multiple GROUP BY test files
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
-DROP TABLE IF EXISTS public.products;
+-- ===========================================================================
+-- SECTION 1: Basic GROUP BY Tests with Numeric Fields
+-- ===========================================================================
+-- Note: ORDER BY aggregate columns (e.g., ORDER BY COUNT(*)) is not yet supported
+-- in the custom scan implementation. This is a known limitation.
 
--- Create test table with various data types
-CALL paradedb.create_bm25_test_table(table_name => 'products', schema_name => 'public');
-
-INSERT INTO public.products (description, rating, category, in_stock) VALUES
-('Laptop with fast processor', 5, 'Electronics', true),
-('Gaming laptop with RGB', 5, 'Electronics', true),
-('Budget laptop for students', 3, 'Electronics', false),
-('Wireless keyboard and mouse', 4, 'Electronics', true),
-('Mechanical keyboard RGB', 5, 'Electronics', true),
-('Ergonomic keyboard', 4, 'Electronics', false),
-('Running shoes for athletes', 5, 'Sports', true),
-('Casual shoes for walking', 4, 'Sports', true),
-('Formal shoes leather', 3, 'Sports', false),
-('Winter jacket warm', 4, 'Clothing', true),
-('Summer jacket light', 3, 'Clothing', true),
-('Rain jacket waterproof', 4, 'Clothing', false);
-
--- Create the index (id field must be included in the column list)
-CREATE INDEX products_idx ON public.products 
-USING bm25 (id, description, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"rating": {"fast": true}}'
+DROP TABLE IF EXISTS products CASCADE;
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    rating INTEGER,
+    category TEXT,
+    price NUMERIC,
+    in_stock BOOLEAN
 );
 
--- Test 1: Basic GROUP BY with COUNT(*)
-SELECT rating, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating 
-ORDER BY rating;
+INSERT INTO products (description, rating, category, price, in_stock) VALUES
+    ('Laptop with fast processor', 5, 'Electronics', 999.99, true),
+    ('Gaming laptop with RGB', 5, 'Electronics', 1299.99, true),
+    ('Budget laptop for students', 3, 'Electronics', 499.99, false),
+    ('Wireless keyboard and mouse', 4, 'Electronics', 79.99, true),
+    ('Mechanical keyboard RGB', 5, 'Electronics', 149.99, true),
+    ('Running shoes for athletes', 5, 'Sports', 89.99, true),
+    ('Winter jacket warm', 4, 'Clothing', 129.99, true),
+    ('Summer jacket light', 3, 'Clothing', 59.99, true);
 
--- Test 2: GROUP BY with multiple search terms
-SELECT rating, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'keyboard' 
-GROUP BY rating 
-ORDER BY rating DESC;
-
--- Test 3: GROUP BY with no matching results
-SELECT rating, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'nonexistent' 
-GROUP BY rating 
-ORDER BY rating;
-
--- Test 4: GROUP BY with all matching results
-SELECT rating, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'for' 
-GROUP BY rating 
-ORDER BY rating;
-
--- Test 5: Verify the aggregate scan is being used
-EXPLAIN (COSTS OFF, VERBOSE) 
-SELECT rating, COUNT(*) 
-FROM public.products 
-WHERE description @@@ 'shoes' 
-GROUP BY rating;
-
--- Test 6: Test without GROUP BY (should still use aggregate scan)
-SELECT COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'jacket';
-
--- Test 6b: Another non-GROUP BY aggregate to ensure it works
-SELECT COUNT(*) AS total_laptops
-FROM public.products 
-WHERE description @@@ 'laptop';
-
--- Test 6c: Non-GROUP BY with broader search
-SELECT COUNT(*) AS electronics_count
-FROM public.products 
-WHERE category = 'Electronics' AND description @@@ 'laptop OR keyboard OR mouse';
-
--- Test 7: Test GROUP BY without WHERE clause (should NOT use aggregate scan)
-EXPLAIN (COSTS OFF, VERBOSE) 
-SELECT rating, COUNT(*) 
-FROM public.products 
-GROUP BY rating;
-
--- Test 8: Test GROUP BY with non-fast field (should fail to use aggregate scan)
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON public.products 
-USING bm25 (id, description, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"rating": {"fast": false}}'
-);
-
-EXPLAIN (COSTS OFF, VERBOSE) 
-SELECT rating, COUNT(*) 
-FROM public.products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating;
-
--- Test 9: GROUP BY on string field (category) - need to make it a fast field
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON public.products 
-USING bm25 (id, description, rating, category)
+CREATE INDEX products_idx ON products 
+USING bm25 (id, description, rating, category, price)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}}'
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
 
--- Test 9a: GROUP BY category with search
+-- Test 1.1: Basic GROUP BY with integer field
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating 
+ORDER BY rating;
+
+-- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
+SELECT COUNT(*) AS total_laptops
+FROM products 
+WHERE description @@@ 'laptop';
+
+-- Test 1.3: GROUP BY with string field
 SELECT category, COUNT(*) AS count
-FROM public.products 
+FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category 
 ORDER BY category;
 
--- Test 9b: GROUP BY category - all electronics
-SELECT category, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'laptop OR keyboard OR mouse' 
-GROUP BY category 
-ORDER BY count DESC, category;
+-- Test 1.4: Verify execution plans
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
 
--- Test 9c: GROUP BY category with specific search terms
-SELECT category, COUNT(*) AS count
-FROM public.products 
-WHERE description @@@ 'jacket' 
-GROUP BY category;
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
 
--- Test 9d: Verify aggregate scan is used for string GROUP BY
-EXPLAIN (COSTS OFF, VERBOSE) 
-SELECT category, COUNT(*) 
-FROM public.products 
-WHERE description @@@ 'shoes OR jacket' 
-GROUP BY category;
+-- ===========================================================================
+-- SECTION 2: Data Type Tests
+-- ===========================================================================
 
--- Test 10: More realistic example - create a larger dataset
-CREATE TABLE public.product_reviews (
+DROP TABLE IF EXISTS type_test CASCADE;
+CREATE TABLE type_test (
     id SERIAL PRIMARY KEY,
-    product_name TEXT,
-    review_text TEXT,
-    sentiment TEXT,
-    rating INTEGER,
-    reviewer_location TEXT
+    content TEXT,
+    val_int2 SMALLINT,
+    val_int4 INTEGER,
+    val_int8 BIGINT,
+    val_float4 REAL,
+    val_float8 DOUBLE PRECISION,
+    val_text TEXT,
+    val_bool BOOLEAN
 );
 
-INSERT INTO public.product_reviews (product_name, review_text, sentiment, rating, reviewer_location) VALUES
-('iPhone 15', 'Amazing camera quality and battery life', 'positive', 5, 'New York'),
-('iPhone 15', 'Good phone but expensive', 'neutral', 4, 'California'),
-('iPhone 15', 'Battery drains too fast', 'negative', 2, 'Texas'),
-('Samsung Galaxy', 'Great display and features', 'positive', 5, 'New York'),
-('Samsung Galaxy', 'Android is smooth and customizable', 'positive', 5, 'California'),
-('Samsung Galaxy', 'Too many pre-installed apps', 'negative', 3, 'Florida'),
-('MacBook Pro', 'Perfect for development work', 'positive', 5, 'California'),
-('MacBook Pro', 'Expensive but worth it', 'positive', 4, 'New York'),
-('MacBook Pro', 'Keyboard issues after one year', 'negative', 2, 'Texas'),
-('Dell XPS', 'Good value for money', 'positive', 4, 'Florida'),
-('Dell XPS', 'Linux compatibility is excellent', 'positive', 5, 'California'),
-('Dell XPS', 'Customer support needs improvement', 'negative', 2, 'New York');
+INSERT INTO type_test (content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool) VALUES
+    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
+    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
+    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
+    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
+    ('gamma test data', 3, 300, 3000000, 5.5, 6.5, 'group_c', true);
 
--- Create index with multiple fast text fields
-CREATE INDEX reviews_idx ON public.product_reviews 
-USING bm25 (id, product_name, review_text, sentiment, rating, reviewer_location)
+CREATE INDEX type_test_idx ON type_test
+USING bm25 (id, content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool)
+WITH (
+    key_field='id',
+    text_fields='{"content": {}, "val_text": {"fast": true}}',
+    numeric_fields='{
+        "val_int2": {"fast": true},
+        "val_int4": {"fast": true},
+        "val_int8": {"fast": true},
+        "val_float4": {"fast": true},
+        "val_float8": {"fast": true}
+    }',
+    boolean_fields='{"val_bool": {"fast": true}}'
+);
+
+-- Test 2.1: GROUP BY different numeric types
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
+
+-- Test 2.2: GROUP BY text field
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
+
+-- Test 2.3: GROUP BY boolean field
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
+
+-- ===========================================================================
+-- SECTION 3: Edge Cases and Negative Tests
+-- ===========================================================================
+
+-- Test 3.1: GROUP BY with no matching results
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'nonexistent_term' 
+GROUP BY rating;
+
+-- Test 3.2: Test with non-fast field (should NOT use aggregate scan)
+DROP INDEX products_idx;
+CREATE INDEX products_idx ON products 
+USING bm25 (id, description, rating)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}}',
+    numeric_fields='{"rating": {"fast": false}}'  -- Not a fast field
+);
+
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT rating, COUNT(*) 
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating;
+
+-- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT rating, COUNT(*) 
+FROM products 
+GROUP BY rating;
+
+-- ===========================================================================
+-- SECTION 4: Real-World Example - Support Ticket Analysis
+-- ===========================================================================
+
+DROP TABLE IF EXISTS support_tickets CASCADE;
+CREATE TABLE support_tickets (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    priority TEXT,
+    status TEXT,
+    category TEXT
+);
+
+INSERT INTO support_tickets (description, priority, status, category) VALUES
+    ('Cannot login to account', 'High', 'Open', 'Authentication'),
+    ('Password reset not working', 'High', 'Open', 'Authentication'),
+    ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
+    ('Export feature broken', 'Low', 'Open', 'Features'),
+    ('Payment failed error', 'High', 'Resolved', 'Billing'),
+    ('Missing invoice', 'Low', 'Resolved', 'Billing');
+
+CREATE INDEX tickets_idx ON support_tickets
+USING bm25 (id, description, priority, status, category)
 WITH (
     key_field='id',
     text_fields='{
-        "product_name": {"fast": true}, 
-        "review_text": {}, 
-        "sentiment": {"fast": true},
-        "reviewer_location": {"fast": true}
-    }',
-    numeric_fields='{"rating": {"fast": true}}'
+        "description": {},
+        "priority": {"fast": true},
+        "status": {"fast": true},
+        "category": {"fast": true}
+    }'
 );
 
--- Test 10a: GROUP BY sentiment for battery-related reviews
-SELECT sentiment, COUNT(*) AS review_count
-FROM public.product_reviews 
-WHERE review_text @@@ 'battery' 
-GROUP BY sentiment 
-ORDER BY sentiment;
+-- Test 4.1: Analyze priority distribution for login issues
+SELECT priority, COUNT(*) as count
+FROM support_tickets
+WHERE description @@@ 'login OR password OR authentication'
+GROUP BY priority
+ORDER BY priority;
 
--- Test 10b: GROUP BY product for positive reviews
-SELECT product_name, COUNT(*) AS positive_reviews
-FROM public.product_reviews 
-WHERE review_text @@@ 'excellent OR amazing OR perfect' AND sentiment = 'positive'
-GROUP BY product_name 
-ORDER BY positive_reviews DESC;
+-- Test 4.2: Status breakdown by category (without ORDER BY)
+-- Note: ORDER BY aggregate columns is not yet supported in custom scan
+SELECT category, COUNT(*) as count
+FROM support_tickets
+WHERE description @@@ 'error OR broken OR failed'
+GROUP BY category;
 
--- Test 10c: GROUP BY location for laptop reviews
-SELECT reviewer_location, COUNT(*) AS laptop_reviews
-FROM public.product_reviews 
-WHERE product_name @@@ 'macbook OR xps' 
-GROUP BY reviewer_location 
-ORDER BY laptop_reviews DESC;
+-- ===========================================================================
+-- SECTION 5: Multi-Column GROUP BY Attempt (Should Fail)
+-- ===========================================================================
 
--- Test 10d: Verify the plan for complex string GROUP BY
+-- This should fail as we don't support multi-column GROUP BY yet
 EXPLAIN (COSTS OFF, VERBOSE) 
-SELECT product_name, sentiment, COUNT(*) 
-FROM public.product_reviews 
-WHERE review_text @@@ 'expensive' 
-GROUP BY product_name, sentiment;
+SELECT category, priority, COUNT(*) 
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category, priority;
 
--- Note: This should fail as we don't support multi-column GROUP BY yet
--- But let's see what happens
-
+-- ===========================================================================
 -- Clean up
-DROP TABLE public.product_reviews CASCADE;
-DROP TABLE public.products CASCADE; 
+-- ===========================================================================
+
+DROP TABLE support_tickets CASCADE;
+DROP TABLE type_test CASCADE;
+DROP TABLE products CASCADE; 

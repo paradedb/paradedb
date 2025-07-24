@@ -86,6 +86,9 @@ pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,
 
+    /// The batch size to use for this execution.
+    batch_size: usize,
+
     /// The segment(s) that we have queried.
     search_results: Option<MultiSegmentSearchResults>,
 
@@ -109,9 +112,15 @@ impl MixedFastFieldExecState {
     /// # Returns
     ///
     /// A new MixedFastFieldExecState instance
-    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
+    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>) -> Self {
+        // If there is a limit, then we use a batch size which is a small multiple of the limit, in
+        // case of dead tuples.
+        let batch_size = limit
+            .map(|limit| std::cmp::min(limit * 2, JOIN_BATCH_SIZE))
+            .unwrap_or(JOIN_BATCH_SIZE);
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
+            batch_size,
             search_results: None,
             batch: Batch::default(),
             num_visible: 0,
@@ -127,9 +136,9 @@ impl MixedFastFieldExecState {
             let segment_ord = scorer_iter.segment_ord();
 
             // Collect a batch of ids/scores for this segment.
-            let mut scores = Vec::with_capacity(JOIN_BATCH_SIZE);
-            let mut ids = Vec::with_capacity(JOIN_BATCH_SIZE);
-            while ids.len() < JOIN_BATCH_SIZE {
+            let mut scores = Vec::with_capacity(self.batch_size);
+            let mut ids = Vec::with_capacity(self.batch_size);
+            while ids.len() < self.batch_size {
                 let Some((score, id)) = scorer_iter.next() else {
                     // No more results for the current segment: remove it.
                     search_results.current_segment_pop();
@@ -151,8 +160,8 @@ impl MixedFastFieldExecState {
         }
     }
 
-    /// If our SearchResults iterator contains entries, take one batch of size JOIN_BATCH_SIZE, and
-    /// construct a new `joined_results` value which will lazily join them.
+    /// If our SearchResults iterator contains entries, take one batch, and construct a new
+    /// `joined_results` value which will lazily join them.
     fn try_join_batch(&mut self) -> bool {
         let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
             return false;

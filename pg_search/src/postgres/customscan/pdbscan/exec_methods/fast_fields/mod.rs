@@ -496,7 +496,9 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
                 .collect();
             explainer.add_text("Fast Fields", fields.join(", "));
         }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields, ..
+        } => {
             // Get all fast fields used
             let string_fields: Vec<_> = which_fast_fields
                 .iter()

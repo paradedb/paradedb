@@ -196,10 +196,10 @@ WHERE description @@@ 'error OR broken OR failed'
 GROUP BY category;
 
 -- ===========================================================================
--- SECTION 5: Multi-Column GROUP BY Attempt (Should Fail)
+-- SECTION 5: Multi-Column GROUP BY (Falls back to PostgreSQL)
 -- ===========================================================================
 
--- This should fail as we don't support multi-column GROUP BY yet
+-- This will fall back to PostgreSQL's standard GroupAggregate as we don't support multi-column GROUP BY yet
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, priority, COUNT(*) 
 FROM support_tickets 

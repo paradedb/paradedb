@@ -124,8 +124,10 @@ impl AggregateScanState {
 
                 // For nested buckets, we'd need to traverse deeper, but for now we'll handle single-level
                 if i < self.grouping_columns.len() - 1 {
-                    // TODO: Support multiple grouping columns with nested bucket aggregations
-                    todo!("Multiple grouping columns not yet supported");
+                    // This should never happen since we reject multiple grouping columns at planning time
+                    unreachable!(
+                        "Multiple grouping columns should have been rejected during planning"
+                    );
                 }
             }
 

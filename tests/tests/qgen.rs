@@ -234,6 +234,7 @@ async fn generated_group_by_aggregates(database: Db) {
     eprintln!("{setup_sql}");
 
     // Columns that can be used for grouping (must have fast: true in index)
+    // TODO(#2903): Add support for more data types (other than text)
     let grouping_columns = ["name", "color", "age"];
 
     proptest!(|(

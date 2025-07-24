@@ -47,7 +47,12 @@ impl GroupByExpr {
 }
 
 /// Generate arbitrary GROUP BY expressions for the given columns
-pub fn arb_group_by(columns: Vec<String>) -> impl Strategy<Value = GroupByExpr> {
+pub fn arb_group_by(columns: Vec<impl AsRef<str>>) -> impl Strategy<Value = GroupByExpr> {
+    let columns = columns
+        .into_iter()
+        .map(|c| c.as_ref().to_string())
+        .collect::<Vec<_>>();
+
     // Generate 0-3 grouping columns from the available columns
     (0..=3.min(columns.len())).prop_flat_map(move |group_size| {
         if group_size == 0 {

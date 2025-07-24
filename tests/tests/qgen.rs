@@ -241,7 +241,7 @@ async fn generated_group_by_aggregates(database: Db) {
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
-        group_by_expr in arb_group_by(grouping_columns.iter().map(|&s| s.to_string()).collect()),
+        group_by_expr in arb_group_by(grouping_columns.to_vec()),
         aggregates in arb_aggregates(),
         gucs in any::<PgGucs>(),
     )| {

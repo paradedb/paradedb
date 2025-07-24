@@ -1462,6 +1462,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     referenced_columns
 }
 
+#[rustfmt::skip]
 /// Check if the base query has search predicates for the current table's index
 fn base_query_has_search_predicates(
     query: &SearchQueryInput,
@@ -1516,18 +1517,35 @@ fn base_query_has_search_predicates(
             .any(|q| base_query_has_search_predicates(q, current_index_oid)),
 
         // These are NOT search predicates (they're range/exists/other predicates)
-        SearchQueryInput::MoreLikeThis { .. } => false,
-
-        // For ParseWithField, check if it's a text search or a range query
-        SearchQueryInput::FieldedQuery {
-            query: pdb::Query::ParseWithField { query_string, .. },
-            ..
-        } if is_range_query_string(query_string) => true,
+        SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeWithin { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Exists, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FastFieldRangeWeight { .. }, .. }
+        | SearchQueryInput::MoreLikeThis { .. } => false,
 
         // These are search predicates that use the @@@ operator
+        SearchQueryInput::FieldedQuery { query: pdb::Query::ParseWithField { query_string, .. }, .. } => {
+            // For ParseWithField, check if it's a text search or a range query
+            !is_range_query_string(query_string)
+        }
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
-        | SearchQueryInput::FieldedQuery { .. } => true,
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TermSet { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Term { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Phrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TokenizedPhrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::PhrasePrefix { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FuzzyTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Match { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Regex { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RegexPhrase { .. }, .. } => true,
+
+        // // Term with no field is not a search predicate
+        // NB:  We don't support unqualified term queries anymore
+        // SearchQueryInput::Term { field: None, .. } => false,
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,

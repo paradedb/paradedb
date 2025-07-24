@@ -1122,6 +1122,15 @@ CREATE  FUNCTION "search_with_fieled_query_input"(
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_fieled_query_input_wrapper';
+
+-- pg_search/src/api/operator/atatat.rs:39
+-- pg_search::api::operator::atatat::search_with_fieled_query_input
+CREATE OPERATOR pg_catalog.@@@ (
+    PROCEDURE="search_with_fieled_query_input",
+    LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
+    RIGHTARG=pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    );
+
 /* </end connected objects> */
 
 /* <begin connected objects> */

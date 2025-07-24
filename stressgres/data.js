@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753375273747,
+  "lastUpdate": 1753387537416,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1832,6 +1832,72 @@ window.BENCHMARK_DATA = {
             "value": 25.514029519310483,
             "unit": "median tps",
             "extra": "avg tps: 30.845609913349453, max tps: 685.7948568128918, count: 55200"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f36ed9f1b8d7197e7779506260fc5a2a354d60b0",
+          "message": "fix: Custom scan fails if partitioned table is empty (#2905)\n\n# Ticket(s) Closed\n\n- Closes #2904 \n\n## What\n\nBug fix for above GH issue.\n\n## Why\n\n## How\n\n## Tests\nAdded regression test.",
+          "timestamp": "2025-07-24T15:50:00-04:00",
+          "tree_id": "ddfade85873c38a4ad1a72f17b5b6be2065fb98f",
+          "url": "https://github.com/paradedb/paradedb/commit/f36ed9f1b8d7197e7779506260fc5a2a354d60b0"
+        },
+        "date": 1753387536346,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1240.5658768194517,
+            "unit": "median tps",
+            "extra": "avg tps: 1233.4148417659956, max tps: 1243.476850638039, count: 55161"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2798.616239714703,
+            "unit": "median tps",
+            "extra": "avg tps: 2792.142250744209, max tps: 2833.2984072588993, count: 55161"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1226.755335397775,
+            "unit": "median tps",
+            "extra": "avg tps: 1221.206671864781, max tps: 1228.6533468321475, count: 55161"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 964.1148463868361,
+            "unit": "median tps",
+            "extra": "avg tps: 961.622425232449, max tps: 1005.2328232307295, count: 55161"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 180.63642155705824,
+            "unit": "median tps",
+            "extra": "avg tps: 180.41291733877486, max tps: 184.29735092654414, count: 110322"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.53164235163686,
+            "unit": "median tps",
+            "extra": "avg tps: 157.74593586641126, max tps: 159.198790683043, count: 55161"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 26.566678139286207,
+            "unit": "median tps",
+            "extra": "avg tps: 28.386643336014828, max tps: 839.6030692529799, count: 55161"
           }
         ]
       }

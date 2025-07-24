@@ -176,7 +176,12 @@ SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_t
 
 -- Test 2.3: GROUP BY boolean field
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
-ERROR:  invalid bool value: ParseBoolError
+ val_bool | count 
+----------+-------
+ f        |     2
+ t        |     3
+(2 rows)
+
 -- ===========================================================================
 -- SECTION 3: Edge Cases and Negative Tests
 -- ===========================================================================
@@ -303,6 +308,128 @@ FROM support_tickets
 WHERE description @@@ 'error' 
 GROUP BY category, priority;
 ERROR:  not yet implemented: Multiple grouping columns not yet supported
+-- ===========================================================================
+-- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
+-- ===========================================================================
+-- Note: Our custom aggregate scan doesn't support ORDER BY yet, so these queries
+-- will use PostgreSQL's standard GroupAggregate + Sort approach. This is intentional
+-- and ensures the queries still work correctly.
+-- Test 6.1: ORDER BY COUNT(*) should NOT use aggregate custom scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY COUNT(*) DESC;
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (count(*))
+   Sort Key: (count(*)) DESC
+   ->  GroupAggregate
+         Output: category, count(*)
+         Group Key: support_tickets.category
+         ->  Gather Merge
+               Output: category
+               Workers Planned: 1
+               ->  Sort
+                     Output: category
+                     Sort Key: support_tickets.category
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
+                           Output: category
+                           Table: support_tickets
+                           Index: tickets_idx
+                           Exec Method: StringFastFieldExecState
+                           Fast Fields: category
+                           String Agg Field: category
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+                           Human Readable Query: description:(error)
+(22 rows)
+
+-- The query should still work, just not with our custom scan
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY COUNT(*) DESC;
+ category | count 
+----------+-------
+ Billing  |     1
+(1 row)
+
+-- Test 6.2: ORDER BY alias should also NOT use aggregate custom scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY count DESC;
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (count(*))
+   Sort Key: (count(*)) DESC
+   ->  GroupAggregate
+         Output: category, count(*)
+         Group Key: support_tickets.category
+         ->  Gather Merge
+               Output: category
+               Workers Planned: 1
+               ->  Sort
+                     Output: category
+                     Sort Key: support_tickets.category
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
+                           Output: category
+                           Table: support_tickets
+                           Index: tickets_idx
+                           Exec Method: StringFastFieldExecState
+                           Fast Fields: category
+                           String Agg Field: category
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+                           Human Readable Query: description:(error)
+(22 rows)
+
+-- The query should still work
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY count DESC;
+ category | count 
+----------+-------
+ Billing  |     1
+(1 row)
+
+-- Test 6.3: Verify GROUP BY without ORDER BY now uses our custom aggregate scan
+-- GROUP BY queries without ORDER BY can use our custom scan, while queries
+-- with ORDER BY fall back to PostgreSQL's standard execution
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
+   Output: category, now()
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Human Readable Query: description:(error)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+(6 rows)
+
+-- This uses our custom aggregate scan
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category;
+ category | count 
+----------+-------
+ Billing  |     1
+(1 row)
+
 -- ===========================================================================
 -- Clean up
 -- ===========================================================================

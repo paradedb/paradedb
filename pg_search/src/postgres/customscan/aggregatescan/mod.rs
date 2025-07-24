@@ -91,6 +91,20 @@ impl CustomScan for AggregateScan {
             Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
         };
 
+        // Check if there's an explicit ORDER BY clause in the query
+        // We check the parse tree's sortClause to detect explicit ORDER BY
+        let has_explicit_order_by = unsafe {
+            let parse = args.root().parse;
+            !parse.is_null()
+                && !(*parse).sortClause.is_null()
+                && !PgList::<pg_sys::Node>::from_pg((*parse).sortClause).is_empty()
+        };
+
+        if has_explicit_order_by && group_pathkeys.is_some() {
+            // We don't support ORDER BY in GROUP BY aggregate queries yet
+            return None;
+        }
+
         // Is the target list entirely aggregates?
         let aggregate_types = extract_aggregates(args)?;
 

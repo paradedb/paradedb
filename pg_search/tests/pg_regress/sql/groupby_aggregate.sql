@@ -207,6 +207,58 @@ WHERE description @@@ 'error'
 GROUP BY category, priority;
 
 -- ===========================================================================
+-- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
+-- ===========================================================================
+-- Note: Our custom aggregate scan doesn't support ORDER BY yet, so these queries
+-- will use PostgreSQL's standard GroupAggregate + Sort approach. This is intentional
+-- and ensures the queries still work correctly.
+
+-- Test 6.1: ORDER BY COUNT(*) should NOT use aggregate custom scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY COUNT(*) DESC;
+
+-- The query should still work, just not with our custom scan
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY COUNT(*) DESC;
+
+-- Test 6.2: ORDER BY alias should also NOT use aggregate custom scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY count DESC;
+
+-- The query should still work
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY count DESC;
+
+-- Test 6.3: Verify GROUP BY without ORDER BY uses our custom aggregate scan
+-- GROUP BY queries without ORDER BY can use our custom scan, while queries
+-- with ORDER BY fall back to PostgreSQL's standard execution
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category;
+
+-- This uses our custom aggregate scan
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category;
+
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 

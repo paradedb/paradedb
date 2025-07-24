@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753388818763,
+  "lastUpdate": 1753389445101,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11202,6 +11202,60 @@ window.BENCHMARK_DATA = {
             "value": 17.991860519267295,
             "unit": "median tps",
             "extra": "avg tps: 18.185128356888878, max tps: 20.426147585057766, count: 55316"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f36ed9f1b8d7197e7779506260fc5a2a354d60b0",
+          "message": "fix: Custom scan fails if partitioned table is empty (#2905)\n\n# Ticket(s) Closed\n\n- Closes #2904 \n\n## What\n\nBug fix for above GH issue.\n\n## Why\n\n## How\n\n## Tests\nAdded regression test.",
+          "timestamp": "2025-07-24T15:50:00-04:00",
+          "tree_id": "ddfade85873c38a4ad1a72f17b5b6be2065fb98f",
+          "url": "https://github.com/paradedb/paradedb/commit/f36ed9f1b8d7197e7779506260fc5a2a354d60b0"
+        },
+        "date": 1753389443982,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.00139646790766,
+            "unit": "median tps",
+            "extra": "avg tps: 37.97710842027385, max tps: 38.85928632443999, count: 55339"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 139.98208601025507,
+            "unit": "median tps",
+            "extra": "avg tps: 189.9223215746846, max tps: 2560.4686868100243, count: 55339"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 142.7183393416866,
+            "unit": "median tps",
+            "extra": "avg tps: 142.3950118977607, max tps: 146.58873051108935, count: 55339"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 72.05065263464927,
+            "unit": "median tps",
+            "extra": "avg tps: 63.22594248155079, max tps: 118.23116099809789, count: 110678"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.65084559870704,
+            "unit": "median tps",
+            "extra": "avg tps: 18.842813390096016, max tps: 20.218723870111063, count: 55339"
           }
         ]
       }

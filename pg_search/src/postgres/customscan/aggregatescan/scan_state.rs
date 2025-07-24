@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, GroupingColumn, OrderByColumn, SortDirection};
+use crate::postgres::customscan::aggregatescan::privdat::{
+    AggregateType, GroupingColumn, OrderByColumn, SortDirection,
+};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -167,7 +169,7 @@ impl AggregateScanState {
                 group_keys: vec![],
                 aggregate_values: row,
             }];
-            
+
             // Sort if needed (though for single aggregate this is usually not needed)
             self.sort_rows(&mut rows);
             rows
@@ -230,7 +232,7 @@ impl AggregateScanState {
         }
     }
 
-    fn sort_rows(&self, rows: &mut Vec<GroupedAggregateRow>) {
+    fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
         if self.order_by_columns.is_empty() {
             return;
         }
@@ -238,19 +240,28 @@ impl AggregateScanState {
         rows.sort_by(|a, b| {
             for order_col in &self.order_by_columns {
                 let cmp = match order_col {
-                    OrderByColumn::GroupingColumn { field_name, direction, .. } => {
+                    OrderByColumn::GroupingColumn {
+                        field_name,
+                        direction,
+                        ..
+                    } => {
                         // Find the index of this grouping column
-                        let col_index = self.grouping_columns
+                        let col_index = self
+                            .grouping_columns
                             .iter()
                             .position(|gc| gc.field_name == *field_name);
-                        
+
                         if let Some(idx) = col_index {
                             let val_a = a.group_keys.get(idx).map(|s| s.as_str()).unwrap_or("");
                             let val_b = b.group_keys.get(idx).map(|s| s.as_str()).unwrap_or("");
-                            
+
                             // Try to parse as numbers first, fall back to string comparison
-                            let cmp = if let (Ok(num_a), Ok(num_b)) = (val_a.parse::<f64>(), val_b.parse::<f64>()) {
-                                num_a.partial_cmp(&num_b).unwrap_or(std::cmp::Ordering::Equal)
+                            let cmp = if let (Ok(num_a), Ok(num_b)) =
+                                (val_a.parse::<f64>(), val_b.parse::<f64>())
+                            {
+                                num_a
+                                    .partial_cmp(&num_b)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
                             } else {
                                 val_a.cmp(val_b)
                             };
@@ -263,10 +274,13 @@ impl AggregateScanState {
                             std::cmp::Ordering::Equal
                         }
                     }
-                    OrderByColumn::AggregateColumn { aggregate_index, direction } => {
+                    OrderByColumn::AggregateColumn {
+                        aggregate_index,
+                        direction,
+                    } => {
                         let val_a = a.aggregate_values.get(*aggregate_index).unwrap_or(&0);
                         let val_b = b.aggregate_values.get(*aggregate_index).unwrap_or(&0);
-                        
+
                         let cmp = val_a.cmp(val_b);
                         match direction {
                             SortDirection::Asc => cmp,

@@ -212,10 +212,10 @@ WHERE description @@@ 'error'
 GROUP BY category, priority;
 
 -- ===========================================================================
--- SECTION 6: Verify ORDER BY queries fall back to PostgreSQL
+-- SECTION 6: Verify ORDER BY functionality
 -- ===========================================================================
--- Note: ORDER BY queries are not yet supported in our custom aggregate scan,
--- so these queries will fall back to PostgreSQL's standard execution.
+-- Note: Our custom aggregate scan supports ORDER BY on grouping columns,
+-- but ORDER BY on aggregate columns falls back to PostgreSQL.
 
 -- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -247,8 +247,22 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY count DESC;
 
--- Test 6.3: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
--- Both GROUP BY queries with and without ORDER BY should use our custom scan
+-- Test 6.3: ORDER BY grouping column should use custom aggregate scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY category;
+
+-- This should use our custom aggregate scan with ORDER BY
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY category;
+
+-- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 

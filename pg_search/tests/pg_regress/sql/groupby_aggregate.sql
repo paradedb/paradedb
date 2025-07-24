@@ -7,8 +7,6 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- ===========================================================================
 -- SECTION 1: Basic GROUP BY Tests with Numeric Fields
 -- ===========================================================================
--- Note: ORDER BY aggregate columns (e.g., ORDER BY COUNT(*)) is not yet supported
--- in the custom scan implementation. This is a known limitation.
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (
@@ -38,7 +36,7 @@ WITH (
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
 
--- Test 1.1: Basic GROUP BY with integer field
+-- Test 1.1: Basic GROUP BY with integer field (ORDER BY grouping column)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
@@ -50,14 +48,21 @@ SELECT COUNT(*) AS total_laptops
 FROM products 
 WHERE description @@@ 'laptop';
 
--- Test 1.3: GROUP BY with string field
+-- Test 1.3: GROUP BY with string field (ORDER BY grouping column)
 SELECT category, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category 
 ORDER BY category;
 
--- Test 1.4: Verify execution plans
+-- Test 1.4: GROUP BY with ORDER BY aggregate column (falls back to PostgreSQL)
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY rating 
+ORDER BY COUNT(*) DESC;
+
+-- Test 1.5: Verify execution plans
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
 
@@ -207,13 +212,12 @@ WHERE description @@@ 'error'
 GROUP BY category, priority;
 
 -- ===========================================================================
--- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
+-- SECTION 6: Verify ORDER BY queries fall back to PostgreSQL
 -- ===========================================================================
--- Note: Our custom aggregate scan doesn't support ORDER BY yet, so these queries
--- will use PostgreSQL's standard GroupAggregate + Sort approach. This is intentional
--- and ensures the queries still work correctly.
+-- Note: ORDER BY queries are not yet supported in our custom aggregate scan,
+-- so these queries will fall back to PostgreSQL's standard execution.
 
--- Test 6.1: ORDER BY COUNT(*) should NOT use aggregate custom scan
+-- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 
@@ -221,14 +225,14 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
--- The query should still work, just not with our custom scan
+-- The query should work with PostgreSQL's standard execution
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
--- Test 6.2: ORDER BY alias should also NOT use aggregate custom scan
+-- Test 6.2: ORDER BY alias should also fall back to PostgreSQL
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 
@@ -236,16 +240,15 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY count DESC;
 
--- The query should still work
+-- The query should work with PostgreSQL's standard execution
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY count DESC;
 
--- Test 6.3: Verify GROUP BY without ORDER BY uses our custom aggregate scan
--- GROUP BY queries without ORDER BY can use our custom scan, while queries
--- with ORDER BY fall back to PostgreSQL's standard execution
+-- Test 6.3: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
+-- Both GROUP BY queries with and without ORDER BY should use our custom scan
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 

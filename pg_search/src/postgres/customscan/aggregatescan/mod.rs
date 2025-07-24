@@ -26,7 +26,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, PrivateData,
+    AggregateType, GroupingColumn, OrderByColumn, PrivateData, SortDirection,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
@@ -91,20 +91,6 @@ impl CustomScan for AggregateScan {
             Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
         };
 
-        // Check if there's an explicit ORDER BY clause in the query
-        // We check the parse tree's sortClause to detect explicit ORDER BY
-        let has_explicit_order_by = unsafe {
-            let parse = args.root().parse;
-            !parse.is_null()
-                && !(*parse).sortClause.is_null()
-                && !PgList::<pg_sys::Node>::from_pg((*parse).sortClause).is_empty()
-        };
-
-        if has_explicit_order_by && group_pathkeys.is_some() {
-            // We don't support ORDER BY in GROUP BY aggregate queries yet
-            return None;
-        }
-
         // Is the target list entirely aggregates?
         let aggregate_types = extract_aggregates(args)?;
 
@@ -129,14 +115,29 @@ impl CustomScan for AggregateScan {
             .expect("aggregate_custom_scan: should have a schema");
 
         // Extract grouping columns and validate they are fast fields
-        let grouping_columns = if let Some(pathkeys) = group_pathkeys {
+        let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
             // This will return None if:
             // 1. Any grouping column is not a fast field
             // 2. There are multiple grouping columns (not yet supported)
-            extract_grouping_columns(&pathkeys, args.root, heap_rti, &schema)?
+            extract_grouping_columns(pathkeys, args.root, heap_rti, &schema)?
         } else {
             vec![]
         };
+
+        // Check if there's an explicit ORDER BY clause in the parse tree
+        let has_explicit_order_by = unsafe {
+            let parse = args.root().parse;
+            !parse.is_null()
+                && !(*parse).sortClause.is_null()
+                && !PgList::<pg_sys::Node>::from_pg((*parse).sortClause).is_empty()
+        };
+
+        if has_explicit_order_by {
+            // We don't support explicit ORDER BY yet
+            return None;
+        }
+
+        let order_by_columns = vec![];
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -159,6 +160,7 @@ impl CustomScan for AggregateScan {
             heap_rti,
             query,
             grouping_columns,
+            order_by_columns,
         }))
     }
 
@@ -207,6 +209,7 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
+        builder.custom_state().order_by_columns = builder.custom_private().order_by_columns.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
@@ -515,3 +518,74 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
+
+/// Extract ORDER BY information from query pathkeys
+fn extract_order_by_info(
+    root: *mut pg_sys::PlannerInfo,
+    grouping_columns: &[GroupingColumn],
+    aggregate_types: &[AggregateType],
+) -> Option<Vec<OrderByColumn>> {
+    let query_pathkeys = unsafe { PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys) };
+    if query_pathkeys.is_empty() {
+        return Some(vec![]);
+    }
+
+    let mut order_by_columns = Vec::new();
+
+    for pathkey in query_pathkeys.iter_ptr() {
+        unsafe {
+            let equivclass = (*pathkey).pk_eclass;
+            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+            // Determine sort direction
+            let direction = if (*pathkey).pk_strategy == pg_sys::BTLessStrategyNumber as i32 {
+                SortDirection::Asc
+            } else if (*pathkey).pk_strategy == pg_sys::BTGreaterStrategyNumber as i32 {
+                SortDirection::Desc
+            } else {
+                return None; // Unsupported sort strategy
+            };
+
+            let mut found_match = false;
+
+            // Check if this pathkey corresponds to a grouping column
+            for member in members.iter_ptr() {
+                if let Some(var) = nodecast!(Var, T_Var, (*member).em_expr) {
+                    // Check if this Var matches any of our grouping columns
+                    for grouping_col in grouping_columns {
+                        if (*var).varattno == grouping_col.attno {
+                            order_by_columns.push(OrderByColumn::GroupingColumn {
+                                field_name: grouping_col.field_name.clone(),
+                                attno: grouping_col.attno,
+                                direction: direction.clone(),
+                            });
+                            found_match = true;
+                            break;
+                        }
+                    }
+                    if found_match {
+                        break;
+                    }
+                } else if let Some(_aggref) = nodecast!(Aggref, T_Aggref, (*member).em_expr) {
+                    // This is an aggregate column
+                    // For now, assume it's the first (and only) aggregate
+                    if !aggregate_types.is_empty() {
+                        order_by_columns.push(OrderByColumn::AggregateColumn {
+                            aggregate_index: 0,
+                            direction: direction.clone(),
+                        });
+                        found_match = true;
+                        break;
+                    }
+                }
+            }
+
+            if !found_match {
+                // We can't handle this ORDER BY column
+                return None;
+            }
+        }
+    }
+
+    Some(order_by_columns)
+}

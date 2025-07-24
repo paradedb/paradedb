@@ -62,12 +62,32 @@ pub struct GroupingColumn {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum OrderByColumn {
+    GroupingColumn {
+        field_name: String,
+        attno: pg_sys::AttrNumber,
+        direction: SortDirection,
+    },
+    AggregateColumn {
+        aggregate_index: usize, // Index into the aggregate_types vec
+        direction: SortDirection,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
     pub aggregate_types: Vec<AggregateType>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
+    pub order_by_columns: Vec<OrderByColumn>,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

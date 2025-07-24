@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753388190061,
+  "lastUpdate": 1753388192264,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8060,6 +8060,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.5471784086926, max segment_count: 95.0, count: 57060"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f36ed9f1b8d7197e7779506260fc5a2a354d60b0",
+          "message": "fix: Custom scan fails if partitioned table is empty (#2905)\n\n# Ticket(s) Closed\n\n- Closes #2904 \n\n## What\n\nBug fix for above GH issue.\n\n## Why\n\n## How\n\n## Tests\nAdded regression test.",
+          "timestamp": "2025-07-24T15:50:00-04:00",
+          "tree_id": "ddfade85873c38a4ad1a72f17b5b6be2065fb98f",
+          "url": "https://github.com/paradedb/paradedb/commit/f36ed9f1b8d7197e7779506260fc5a2a354d60b0"
+        },
+        "date": 1753388191148,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.296419960559778, max cpu: 42.942345, count: 57348"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 227.56640938328277, max mem: 232.125, count: 57348"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.22752121705243, max cpu: 33.136093, count: 57348"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.73832375366186, max mem: 163.01171875, count: 57348"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22187,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20732.662307316732, max block_count: 23672.0, count: 57348"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.72963311710957, max segment_count: 97.0, count: 57348"
           }
         ]
       }

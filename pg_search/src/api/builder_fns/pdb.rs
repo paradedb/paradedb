@@ -24,10 +24,8 @@ mod pdb {
     use crate::schema::AnyEnum;
     use macros::builder_fn;
     use pgrx::datum::RangeBound;
-    use pgrx::{default, pg_extern, AnyElement, AnyNumeric, PostgresEnum, Range};
-    use serde::Serialize;
+    use pgrx::{default, pg_extern, AnyElement, AnyNumeric, Range};
     use std::collections::Bound;
-    use std::fmt::{Display, Formatter};
     use tantivy::schema::{OwnedValue, Value};
 
     #[builder_fn]
@@ -511,19 +509,26 @@ mod pdb {
         true
     );
 
-    #[derive(PostgresEnum, Serialize)]
-    pub enum RangeRelation {
-        Intersects,
-        Contains,
-        Within,
-    }
+    pub use paradedb::RangeRelation;
+    mod paradedb {
+        use pgrx::PostgresEnum;
+        use serde::Serialize;
+        use std::fmt::{Display, Formatter};
 
-    impl Display for RangeRelation {
-        fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-            match self {
-                RangeRelation::Intersects => write!(f, "Intersects"),
-                RangeRelation::Contains => write!(f, "Contains"),
-                RangeRelation::Within => write!(f, "Within"),
+        #[derive(PostgresEnum, Serialize)]
+        pub enum RangeRelation {
+            Intersects,
+            Contains,
+            Within,
+        }
+
+        impl Display for RangeRelation {
+            fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+                match self {
+                    RangeRelation::Intersects => write!(f, "Intersects"),
+                    RangeRelation::Contains => write!(f, "Contains"),
+                    RangeRelation::Within => write!(f, "Within"),
+                }
             }
         }
     }

@@ -56,9 +56,9 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
                 funcid: direct_function_call::<pg_sys::Oid>(
                     pg_sys::regprocedurein,
-                    &[c"paradedb.tokenized_phrase(paradedb.fieldname, text)".into_datum()],
+                    &[c"paradedb.phrase(paradedb.fieldname, text)".into_datum()],
                 )
-                    .expect("`paradedb.tokenized_phrase(paradedb.fieldname, text)` should exist"),
+                    .expect("`paradedb.phrase(paradedb.fieldname, text)` should exist"),
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,
                 funcvariadic: false,

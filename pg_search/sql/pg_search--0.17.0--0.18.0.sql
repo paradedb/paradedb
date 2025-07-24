@@ -144,9 +144,9 @@ AS 'MODULE_PATHNAME', 'match_query_bfn_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/pdb.rs:34
--- pg_search::api::builder_fns::pdb::pdb::_87032d::match_conjunction_bfn
-CREATE  FUNCTION "match_conjunction_bfn"(
+-- pg_search/src/api/builder_fns/pdb.rs:32
+-- pg_search::api::builder_fns::pdb::pdb::_297f0b::match_conjunction
+CREATE  FUNCTION "match_conjunction"(
     "field" FieldName, /* pg_search::api::FieldName */
     "terms_to_tokenize" TEXT /* alloc::string::String */
 ) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
@@ -156,9 +156,9 @@ AS 'MODULE_PATHNAME', 'match_conjunction_bfn_wrapper';
 /* </end connected objects> */
 
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/pdb.rs:47
--- pg_search::api::builder_fns::pdb::pdb::_0f1823::match_disjunction_bfn
-CREATE  FUNCTION "match_disjunction_bfn"(
+-- pg_search/src/api/builder_fns/pdb.rs:45
+-- pg_search::api::builder_fns::pdb::pdb::_58c718::match_disjunction
+CREATE  FUNCTION "match_disjunction"(
     "field" FieldName, /* pg_search::api::FieldName */
     "terms_to_tokenize" TEXT /* alloc::string::String */
 ) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */

@@ -29,7 +29,7 @@ mod pdb {
     use tantivy::schema::{OwnedValue, Value};
 
     #[builder_fn]
-    #[pg_extern(immutable, parallel_safe)]
+    #[pg_extern(immutable, parallel_safe, name = "match_conjunction")]
     pub fn match_conjunction(terms_to_tokenize: String) -> pdb::Query {
         pdb::Query::Match {
             value: terms_to_tokenize,
@@ -42,7 +42,7 @@ mod pdb {
     }
 
     #[builder_fn]
-    #[pg_extern(immutable, parallel_safe)]
+    #[pg_extern(immutable, parallel_safe, name = "match_disjunction")]
     pub fn match_disjunction(terms_to_tokenize: String) -> pdb::Query {
         pdb::Query::Match {
             value: terms_to_tokenize,

@@ -89,25 +89,15 @@ pub enum SearchQueryInput {
     },
     Empty,
     MoreLikeThis {
-        #[serde(skip_serializing_if = "Option::is_none")]
         min_doc_frequency: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         max_doc_frequency: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         min_term_frequency: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         max_query_terms: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         min_word_length: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         max_word_length: Option<usize>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         boost_factor: Option<f32>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         stop_words: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         document_fields: Option<Vec<(String, OwnedValue)>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
         document_id: Option<OwnedValue>,
     },
     Parse {

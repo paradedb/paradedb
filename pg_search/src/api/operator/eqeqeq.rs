@@ -65,15 +65,15 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 funcid: if is_array {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.string_term_array(paradedb.fieldname, text)".into_datum()],
+                        &[c"paradedb.term_set(paradedb.fieldname, text[])".into_datum()],
                     )
-                        .expect("`paradedb.string_term_array(paradedb.fieldname, text)` should exist")
+                        .expect("`paradedb.term_set(paradedb.fieldname, text[])` should exist")
                 } else {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.string_term(paradedb.fieldname, text)".into_datum()],
+                        &[c"paradedb.term(paradedb.fieldname, text)".into_datum()],
                     )
-                        .expect("`paradedb.string_term(paradedb.fieldname, text)` should exist")
+                        .expect("`paradedb.term(paradedb.fieldname, text)` should exist")
                 },
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,

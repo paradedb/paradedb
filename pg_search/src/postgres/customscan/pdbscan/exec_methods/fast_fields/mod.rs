@@ -17,7 +17,6 @@
 
 pub mod mixed;
 pub mod numeric;
-pub mod string;
 
 use crate::api::HashSet;
 use crate::gucs;
@@ -372,54 +371,6 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-/// Check if we can use the String fast field execution method
-///
-/// Using StringFF when there's a limit is always a loss, performance-wise, because it
-/// collects the full set of query results (as doc ids and term ordinals) before beginning
-/// to return rows. Meanwhile, Normal is fully lazy but unsorted, and TopN searches
-/// eagerly, but avoids actually emitting anything but the limit.
-pub fn is_string_fast_field_capable(privdata: &PrivateData) -> Option<String> {
-    if !gucs::is_fast_field_exec_enabled() {
-        return None;
-    }
-
-    if privdata.limit().is_some() {
-        // See the method doc with regard to limits/laziness.
-        return None;
-    }
-
-    if !fast_field_capable_prereqs(privdata) {
-        return None;
-    }
-
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-
-    let mut string_field = None;
-    // Count the number of string fields
-    let mut string_field_count = 0;
-    for ff in which_fast_fields.iter() {
-        if let WhichFastField::Named(name, field_type) = ff {
-            match field_type {
-                FastFieldType::String => {
-                    string_field_count += 1;
-                    string_field = Some(name.clone());
-                }
-                FastFieldType::Numeric => {
-                    return None;
-                }
-            }
-        }
-    }
-
-    if string_field_count != 1 {
-        // string_agg requires exactly one string field
-        return None;
-    }
-
-    // At this point, we've verified that we have exactly one string field
-    string_field
-}
-
 /// Check if we can use the Numeric fast field execution method
 pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
     if !gucs::is_fast_field_exec_enabled() {
@@ -480,13 +431,6 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
     match &state.custom_state().exec_method_type {
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields,
-        } => {
-            explainer.add_text("Fast Fields", field);
-            explainer.add_text("String Agg Field", field);
-        }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
             let fields: Vec<_> = which_fast_fields
                 .iter()

@@ -124,10 +124,6 @@ pub enum ExecMethodType {
         limit: usize,
         sort_direction: SortDirection,
     },
-    FastFieldString {
-        field: String,
-        which_fast_fields: HashSet<WhichFastField>,
-    },
     FastFieldNumeric {
         which_fast_fields: HashSet<WhichFastField>,
     },

@@ -529,9 +529,9 @@ ORDER BY COUNT(*) DESC;
                      Output: category
                      Table: support_tickets
                      Index: tickets_idx
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: category
-                     String Agg Field: category
+                     String Fast Fields: category
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (18 rows)
@@ -569,9 +569,9 @@ ORDER BY count DESC;
                      Output: category
                      Table: support_tickets
                      Index: tickets_idx
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: category
-                     String Agg Field: category
+                     String Fast Fields: category
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
 (18 rows)

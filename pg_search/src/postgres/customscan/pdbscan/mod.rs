@@ -1067,8 +1067,7 @@ impl CustomScan for PdbScan {
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
+/// We support [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
 /// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
 /// and numeric fast fields.
 ///
@@ -1091,11 +1090,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
         ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-        }
-    } else if let Some(field) = fast_fields::is_string_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldString {
-            field,
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
     } else if fast_fields::is_mixed_fast_field_capable(privdata) {
@@ -1129,27 +1123,6 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields,
-        } => {
-            if let Some(which_fast_fields) =
-                compute_exec_which_fast_fields(builder, which_fast_fields)
-            {
-                builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                        field,
-                        which_fast_fields,
-                    ),
-                    None,
-                )
-            } else {
-                builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
-                    Some(ExecMethodType::Normal),
-                )
-            }
-        }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)

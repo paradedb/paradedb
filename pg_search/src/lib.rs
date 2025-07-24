@@ -55,7 +55,7 @@ pgrx::pg_module_magic!();
 extension_sql!(
     r#"
         GRANT ALL ON SCHEMA paradedb TO PUBLIC;
-        DROP SCHEMA IF EXISTS paradedb_tmp;
+        GRANT ALL ON SCHEMA pdb TO PUBLIC;
     "#,
     name = "paradedb_grant_all",
     finalize

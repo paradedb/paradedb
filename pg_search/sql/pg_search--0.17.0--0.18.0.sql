@@ -1110,6 +1110,16 @@ CREATE  FUNCTION pdb."query_out"(
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'query_out_wrapper';
+
+-- pg_search/src/query/pdb_query.rs:33
+-- pg_search::query::pdb_query::pdb::Query
+CREATE TYPE pdb.Query (
+  INTERNALLENGTH = variable,
+  INPUT = pdb.query_in, /* pg_search::query::pdb_query::pdb::query_in */
+  OUTPUT = pdb.query_out, /* pg_search::query::pdb_query::pdb::query_out */
+  STORAGE = extended
+);
+
 /* </end connected objects> */
 
 /* <begin connected objects> */

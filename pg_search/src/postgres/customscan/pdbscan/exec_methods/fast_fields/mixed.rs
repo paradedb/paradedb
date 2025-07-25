@@ -15,12 +15,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::identity;
+use std::sync::Arc;
+
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState, NULL_TERM_ORDINAL,
+    non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
@@ -28,6 +31,12 @@ use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::types::TantivyValue;
 
+use arrow_array::builder::{
+    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
+};
+use arrow_array::cast::AsArray;
+use arrow_array::{Array, ArrayRef};
+use arrow_schema::DataType;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
@@ -44,21 +53,63 @@ const JOIN_BATCH_SIZE: usize = 128_000;
 
 /// A macro to fetch values for the given ids into a Vec<OwnedValue>.
 macro_rules! fetch_ff_column {
-    ($col:expr, $ids:ident, $($ff_type:ident => $owned_value:ident),* $(,)?) => {
+    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
         match $col {
             $(
                 FFType::$ff_type(col) => {
                     let mut column_results = Vec::with_capacity($ids.len());
                     column_results.resize($ids.len(), None);
                     col.first_vals(&$ids, &mut column_results);
-                    column_results.into_iter().map(|maybe_val| {
-                        TantivyValue(maybe_val.map(OwnedValue::$owned_value).unwrap_or(OwnedValue::Null))
-                    }).collect::<Vec<_>>()
+                    let mut builder = $builder::with_capacity($ids.len());
+                    for maybe_val in column_results {
+                        if let Some(val) = maybe_val {
+                            builder.append_value($conversion(val));
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish()) as ArrayRef
                 }
             )*
             x => panic!("Unhandled column type {x:?}"),
         }
     };
+}
+
+// TODO: Convert directly to Datum.
+fn arrow_array_to_tantivy_value(array: &dyn Array, index: usize) -> TantivyValue {
+    if array.is_null(index) {
+        return TantivyValue(OwnedValue::Null);
+    }
+
+    match array.data_type() {
+        DataType::Utf8View => {
+            let arr = array.as_string_view();
+            TantivyValue(OwnedValue::Str(arr.value(index).to_string()))
+        }
+        DataType::UInt64 => {
+            let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
+            TantivyValue(OwnedValue::U64(arr.value(index)))
+        }
+        DataType::Int64 => {
+            let arr = array.as_primitive::<arrow_array::types::Int64Type>();
+            TantivyValue(OwnedValue::I64(arr.value(index)))
+        }
+        DataType::Float64 => {
+            let arr = array.as_primitive::<arrow_array::types::Float64Type>();
+            TantivyValue(OwnedValue::F64(arr.value(index)))
+        }
+        DataType::Boolean => {
+            let arr = array.as_boolean();
+            TantivyValue(OwnedValue::Bool(arr.value(index)))
+        }
+        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
+            let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
+            let ts_nanos = arr.value(index);
+            TantivyValue(OwnedValue::Date(ts_nanos_to_date_time(ts_nanos)))
+        }
+        dt => panic!("Unsupported arrow data type for conversion to TantivyValue: {dt:?}"),
+    }
 }
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
@@ -194,31 +245,20 @@ impl MixedFastFieldExecState {
                         let mut term_ords = Vec::with_capacity(ids.len());
                         term_ords.resize(ids.len(), None);
                         str_column.ords().first_vals(&ids, &mut term_ords);
-                        // Then enumerate to preserve the id index, and look up in
-                        // the term dictionary.
-                        let sorted_terms = ords_to_sorted_terms(
+                        Some(ords_to_string_array(
                             str_column.clone(),
-                            term_ords.into_iter().enumerate().collect::<Vec<_>>(),
-                            |(_, maybe_ord)| maybe_ord.unwrap_or(NULL_TERM_ORDINAL),
-                        );
-                        // Re-arrange the resulting terms back to docid order.
-                        let mut terms = Vec::with_capacity(ids.len());
-                        terms.resize(ids.len(), TantivyValue(OwnedValue::Null));
-                        for ((index, _), term) in sorted_terms {
-                            if let Some(term) = term {
-                                // TODO: Immediately unwrapping the Rc after creation: should remove it.
-                                terms[index] = TantivyValue(OwnedValue::Str((*term).to_owned()));
-                            }
-                        }
-                        Some(terms)
+                            term_ords
+                                .into_iter()
+                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
+                        ))
                     }
                     FFType::Junk => None,
                     numeric_column => Some(fetch_ff_column!(numeric_column, ids,
-                        I64 => I64,
-                        F64 => F64,
-                        U64 => U64,
-                        Bool => Bool,
-                        Date => Date,
+                        I64  => identity => Int64Builder,
+                        F64  => identity => Float64Builder,
+                        U64  => identity => UInt64Builder,
+                        Bool => identity => BooleanBuilder,
+                        Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
                     )),
                 },
             )
@@ -240,6 +280,14 @@ impl MixedFastFieldExecState {
 
         true
     }
+}
+
+fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
+    tantivy::DateTime::from_timestamp_nanos(ts_nanos)
+}
+
+fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
+    date_time.into_timestamp_nanos()
 }
 
 impl ExecMethod for MixedFastFieldExecState {
@@ -439,8 +487,8 @@ struct Batch {
     ids: Vec<(SearchIndexScore, DocAddress)>,
 
     /// The current batch of fast field values, indexed by FFIndex, then by row.
-    /// TODO: Use Arrow here?
-    fields: Vec<Option<Vec<TantivyValue>>>,
+    /// This uses Arrow arrays for efficient columnar storage.
+    fields: Vec<Option<ArrayRef>>,
 }
 
 impl Batch {
@@ -471,8 +519,9 @@ impl Batch {
                 Some(column) => {
                     // We extracted this field: convert it into a datum.
                     let datum_res = unsafe {
-                        std::mem::take(&mut column[row_idx])
-                            .try_into_datum(PgOid::from(att.atttypid))
+                        // TODO: avoid the trip through `TantivyValue`.
+                        let tantivy_value = arrow_array_to_tantivy_value(column.as_ref(), row_idx);
+                        tantivy_value.try_into_datum(PgOid::from(att.atttypid))
                     };
                     match datum_res {
                         Ok(Some(datum)) => {

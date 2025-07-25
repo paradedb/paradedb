@@ -50,7 +50,7 @@ use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
-use pgrx::{pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::Index;
 
 #[derive(Default)]
@@ -564,7 +564,8 @@ fn extract_order_by_pathkeys(
                         continue;
                     }
 
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {

@@ -56,7 +56,6 @@ impl AggregateType {
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
-    pub pg_type_oid: pg_sys::Oid, // Preserve PostgreSQL type information
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

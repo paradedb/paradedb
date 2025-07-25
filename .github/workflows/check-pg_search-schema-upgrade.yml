@@ -156,21 +156,20 @@ jobs:
             });
 
             const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('A schema difference was detected.'));
+            const body = `A schema difference was detected.\n\n\`\`\`diff\n${{ steps.generate_schema_diff.outputs.diff }}\n\`\`\``;
 
             if (botComment) {
-              // Update the existing comment
               await github.rest.issues.updateComment({
                 comment_id: botComment.id,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: process.env.DIFF
+                body
               });
             } else {
-              // Create a new comment if none exists
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: process.env.DIFF
+                body
               });
             }

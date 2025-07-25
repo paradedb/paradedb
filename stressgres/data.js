@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753474874342,
+  "lastUpdate": 1753474876576,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12632,6 +12632,114 @@ window.BENCHMARK_DATA = {
             "value": 155.03125,
             "unit": "median mem",
             "extra": "avg mem: 152.75205445357253, max mem: 157.8203125, count: 55339"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "793858646fca67360d59d9237575b658482f960d",
+          "message": "feat: initial group-by aggregate implementation (for single group and COUNT(*) aggregation) (#2893)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nImplemented GROUP BY functionality for aggregate CustomScan, enabling\nefficient grouping aggregations using Tantivy's bucket aggregations.\nAdded proper rejection handling for unsupported scenarios like\nmulti-column GROUP BY and ORDER BY on aggregate columns.\n\n## Why\n\nParadeDB's aggregate CustomScan previously only supported simple\n`COUNT(*)` queries without grouping capabilities. This limited users\nfrom performing common analytical queries like:\n- `SELECT category, COUNT(*) FROM products WHERE description @@@\n'laptop' GROUP BY category`\n- Grouping by different data types (integers, floats, text, booleans)\n\n## How\n\n- **Grouping Column Extraction**: Added `extract_grouping_columns()`\nfunction to validate that grouping columns are fast fields\n- **Tantivy Integration**: Implemented bucket aggregations in\n`scan_state.rs` using Tantivy's terms aggregation\n- **Type Conversion**: Added proper type handling for INT2, INT4, INT8,\nFLOAT4, FLOAT8, TEXT, and BOOL grouping columns\n- **Result Processing**: Added tuple generation to include both grouping\ncolumn values and aggregate results\n\n## Tests\n\n### Regression Tests\n- **Data type coverage**: Tests for all supported grouping column types\n(numeric, text, boolean)\n\n### Property-based Tests\n- **Equivalence guarantee**: Existing property tests in `qgen.rs` ensure\naggregate CustomScan results match PostgreSQL exactly",
+          "timestamp": "2025-07-25T12:34:00-07:00",
+          "tree_id": "ea5243f744ac5666e4761efb502c582bae7eafb9",
+          "url": "https://github.com/paradedb/paradedb/commit/793858646fca67360d59d9237575b658482f960d"
+        },
+        "date": 1753474875461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.461538,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.57094329412768, max cpu: 42.39451, count: 55216"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 154.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.03253133149812, max mem: 154.9375, count: 55216"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.173659097594898, max cpu: 37.684006, count: 55216"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 145.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2603695034048, max mem: 145.5625, count: 55216"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.869561083155055, max cpu: 27.639154, count: 55216"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 145.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 117.79761676020085, max mem: 155.8359375, count: 55216"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20400,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21203.823330194147, max block_count: 43497.0, count: 55216"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.239957522039455, max cpu: 4.6421666, count: 55216"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 83.21169362141408, max mem: 126.8125, count: 55216"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.371395972181976, max segment_count: 47.0, count: 55216"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.409755014411305, max cpu: 37.684006, count: 110432"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.30463203600405, max mem: 163.43359375, count: 110432"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.779904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.465734605129137, max cpu: 27.853, count: 55216"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.58706729593777, max mem: 158.46875, count: 55216"
           }
         ]
       }

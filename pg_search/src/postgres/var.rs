@@ -2,8 +2,8 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
 use crate::nodecast;
-use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, Const, OpExpr, Var};
+use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_Var};
+use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, Var};
 use pgrx::PgOid;
 use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
 use std::ffi::CStr;
@@ -221,6 +221,10 @@ pub unsafe fn find_one_var_and_fieldname(
         let var = node.cast::<Var>();
         let (heaprelid, varattno) = context.var_relation(var);
         Some((var, fieldname_from_var(heaprelid, var, varattno)?))
+    } else if is_a(node, T_CoerceViaIO) {
+        let expr = node.cast::<CoerceViaIO>();
+        let arg = (*expr).arg;
+        find_one_var_and_fieldname(context, arg as *mut pg_sys::Node)
     // TODO: T_AggRef ...
     } else {
         None

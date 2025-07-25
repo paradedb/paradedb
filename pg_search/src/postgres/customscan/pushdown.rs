@@ -21,13 +21,16 @@ use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::qual_inspect::Qual;
-use crate::postgres::var::{fieldname_from_var, find_var_relation};
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
-pub struct PushdownField(FieldName);
+pub struct PushdownField {
+    field_name: FieldName,
+    varno: pg_sys::Index,
+}
 
 impl PushdownField {
     /// Given a Postgres [`pg_sys::Var`] and a [`SearchIndexSchema`], try to create a [`PushdownField`].
@@ -37,30 +40,36 @@ impl PushdownField {
     /// If `None` is returned, a helpful warning is logged.
     pub unsafe fn try_new(
         root: *mut pg_sys::PlannerInfo,
-        var: *mut pg_sys::Var,
+        var: *mut pg_sys::Node,
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
-        let (heaprelid, varattno, _) = find_var_relation(var, root);
-        if heaprelid == pg_sys::Oid::INVALID {
-            return None;
-        }
-        let field = fieldname_from_var(heaprelid, var, varattno)?;
-        schema.search_field(&field).map(|_| Self(field))
+        let (var, field) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
+        schema.search_field(field.root()).map(|_| Self {
+            field_name: field,
+            varno: (*var).varno as pg_sys::Index,
+        })
     }
 
     /// Create a new [`PushdownField`] from an attribute name.
     ///
     /// This does not verify if field can be pushed down and is intended to be used for testing.
-    pub fn new(attname: &str) -> Self {
-        Self(attname.into())
+    pub fn new(field_name: &str) -> Self {
+        Self {
+            field_name: field_name.into(),
+            varno: Default::default(),
+        }
     }
 
-    pub fn attname(&self) -> FieldName {
-        self.0.clone()
+    pub fn field_name(&self) -> FieldName {
+        self.field_name.clone()
     }
 
     pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<SearchField> {
-        schema.search_field(&self.0)
+        schema.search_field(self.field_name.root())
+    }
+
+    pub fn varno(&self) -> pg_sys::Index {
+        self.varno
     }
 }
 
@@ -137,7 +146,7 @@ pub unsafe fn try_pushdown_inner(
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
     let args = opexpr.args();
-    let var = {
+    let lhs = {
         // inspect the left-hand-side of the operator expression...
         let mut lhs = args.get_ptr(0)?;
 
@@ -146,11 +155,10 @@ pub unsafe fn try_pushdown_inner(
             let relabel_type = lhs as *mut pg_sys::RelabelType;
             lhs = (*relabel_type).arg as _;
         }
-        nodecast!(Var, T_Var, lhs)?
+        lhs
     };
     let rhs = args.get_ptr(1)?;
-
-    let pushdown = PushdownField::try_new(root, var, schema)?;
+    let pushdown = PushdownField::try_new(root, lhs, schema)?;
     let field = pushdown.search_field(schema)?;
     if field.is_text() && !field.is_keyword() {
         return None;
@@ -160,8 +168,8 @@ pub unsafe fn try_pushdown_inner(
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
             // the `opexpr` is one we can pushdown
-            if (*var).varno as pg_sys::Index == rti {
-                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);
+            if pushdown.varno() == rti {
+                let pushed_down_qual = pushdown!(&pushdown.field_name(), opexpr, pgsearch_operator, rhs);
                 // and it's in this RTI, so we can use it directly
                 Some(pushed_down_qual)
             } else {

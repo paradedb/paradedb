@@ -273,27 +273,27 @@ impl From<&Qual> for SearchQueryInput {
                     .expect("pushdown expression should not evaluate to NULL")
             },
             Qual::PushdownVarEqTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
+                field: Some(field.field_name()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
+                field: Some(field.field_name()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
+                field: Some(field.field_name()),
                 value: OwnedValue::Bool(true),
                 is_datetime: false,
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
+                field: Some(field.field_name()),
                 value: OwnedValue::Bool(false),
                 is_datetime: false,
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::Exists {
-                field: field.attname(),
+                field: field.field_name(),
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -563,13 +563,14 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_Var => {
             let var_node = nodecast!(Var, T_Var, node)?;
 
-            // Check if this is a boolean field reference to our relation
-            if (*var_node).varno as pg_sys::Index != rti {
-                return None;
-            }
             // First, try to create a PushdownField to see if this is an indexed boolean field
-            if let Some(field) = PushdownField::try_new(root, var_node, schema) {
-                if let Some(search_field) = schema.search_field(field.attname()) {
+            if let Some(field) = PushdownField::try_new(root, node, schema) {
+                // Check if this is a boolean field reference to our relation
+                if field.varno() != rti {
+                    return None;
+                }
+
+                if let Some(search_field) = schema.search_field(field.field_name()) {
                     if search_field.is_fast() {
                         // This is an indexed boolean field, create proper pushdown qual
                         // T_Var alone represents "field = true"
@@ -590,7 +591,7 @@ pub unsafe fn extract_quals(
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             // TODO(@mdashti): we can use if-let chains here
             if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if let Some(search_field) = schema.search_field(field.attname()) {
+                if let Some(search_field) = schema.search_field(field.field_name()) {
                     if search_field.is_fast() {
                         if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                             return Some(Qual::PushdownIsNotNull { field });
@@ -1016,8 +1017,7 @@ unsafe fn booltest(
 
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
-    let arg_var = nodecast!(Var, T_Var, arg)?;
-    let field = PushdownField::try_new(root, arg_var, schema)?;
+    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, schema)?;
 
     // It's a simple field reference, handle as specific cases
     let qual = match (*booltest).booltesttype {
@@ -1614,7 +1614,7 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
+            ) => field.field_name() == *f && matches!(value, OwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
@@ -1624,11 +1624,11 @@ mod tests {
                     value,
                     ..
                 },
-            ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
+            ) => field.field_name() == *f && matches!(value, OwnedValue::Bool(false)),
 
             // Match IS NOT NULL
             (Qual::PushdownIsNotNull { field }, SearchQueryInput::Exists { field: f }) => {
-                field.attname() == *f
+                field.field_name() == *f
             }
 
             // Match AND clauses
@@ -1669,7 +1669,7 @@ mod tests {
                     value: OwnedValue::Bool(false),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == *f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.field_name() == *f) => {
                 true
             }
 
@@ -1681,7 +1681,7 @@ mod tests {
                     value: OwnedValue::Bool(true),
                     ..
                 },
-            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
+            ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.field_name() == *f) => {
                 true
             }
 

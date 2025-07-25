@@ -19,7 +19,8 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
-use crate::postgres::types::TantivyValue;
+
+use crate::index::fast_fields_helper::FFValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
@@ -33,7 +34,7 @@ pub type AggregateRow = TinyVec<[i64; 4]>;
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
 pub struct GroupedAggregateRow {
-    pub group_keys: Vec<TantivyValue>, // The values of the grouping columns
+    pub group_keys: Vec<FFValue>, // The values of the grouping columns
     pub aggregate_values: AggregateRow,
 }
 
@@ -137,6 +138,56 @@ impl AggregateScanState {
         serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
     }
 
+    /// Convert a JSON value to an FFValue based on the field type from the schema
+    fn json_value_to_ffvalue(&self, json_value: &serde_json::Value, field_name: &str) -> FFValue {
+        // Get the search field from the schema to determine the type
+        let indexrel = self.indexrel();
+        let schema = indexrel.schema().expect("indexrel should have a schema");
+
+        if let Some(search_field) = schema.search_field(field_name) {
+            match search_field.field_type() {
+                crate::schema::SearchFieldType::Text(_) => {
+                    FFValue::Text(json_value.as_str().unwrap_or("").to_string())
+                }
+                crate::schema::SearchFieldType::I64(_) => {
+                    FFValue::I64(json_value.as_i64().unwrap_or(0))
+                }
+                crate::schema::SearchFieldType::U64(_) => {
+                    FFValue::U64(json_value.as_u64().unwrap_or(0))
+                }
+                crate::schema::SearchFieldType::F64(_) => {
+                    FFValue::F64(json_value.as_f64().unwrap_or(0.0))
+                }
+                crate::schema::SearchFieldType::Bool(_) => {
+                    // Handle both boolean JSON values and numeric representations (0/1)
+                    if let Some(b) = json_value.as_bool() {
+                        FFValue::Bool(b)
+                    } else if let Some(n) = json_value.as_i64() {
+                        FFValue::Bool(n != 0)
+                    } else if let Some(n) = json_value.as_u64() {
+                        FFValue::Bool(n != 0)
+                    } else {
+                        FFValue::Bool(false) // Default fallback
+                    }
+                }
+                crate::schema::SearchFieldType::Date(_) => {
+                    // Dates typically come as timestamps (convert to microseconds)
+                    let timestamp = json_value.as_i64().unwrap_or(0);
+                    let micros = timestamp * 1_000_000; // Convert seconds to microseconds
+                    let date = tantivy::DateTime::from_timestamp_micros(micros);
+                    FFValue::Date(date)
+                }
+                _ => {
+                    // Fallback to string representation
+                    FFValue::Text(json_value.to_string())
+                }
+            }
+        } else {
+            // Fallback if field not found in schema
+            FFValue::Text(json_value.to_string())
+        }
+    }
+
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row
@@ -184,11 +235,12 @@ impl AggregateScanState {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
             // Extract the group key - can be either string or number
+            let grouping_column = &self.grouping_columns[0]; // We only support single grouping column for now
             let key = bucket_obj
                 .get("key")
                 .map(|k| {
-                    // Create TantivyValue directly from JSON value to preserve type information
-                    TantivyValue(tantivy::schema::OwnedValue::from(k.clone()))
+                    // Create FFValue from JSON value based on the field type
+                    self.json_value_to_ffvalue(k, &grouping_column.field_name)
                 })
                 .expect("missing bucket key");
 

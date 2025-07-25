@@ -322,7 +322,7 @@ impl CustomScan for AggregateScan {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
-                        // Convert the TantivyValue directly to the appropriate type
+                        // Convert the FFValue directly to the appropriate type
                         let oid = pgrx::PgOid::from(typoid);
                         match group_val.clone().try_into_datum(oid) {
                             Ok(Some(datum)) => {

@@ -32,7 +32,7 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, RestrictInfoType,
+    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -49,7 +49,7 @@ use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, IntoDatum, PgList, PgRelation, PgTupleDesc};
 use tantivy::Index;
 
 #[derive(Default)]
@@ -141,6 +141,21 @@ impl CustomScan for AggregateScan {
                 &mut QualExtractState::default(),
             );
             SearchQueryInput::from(&result?)
+        };
+
+        // Extract pathkeys for ORDER BY if present
+        let builder = if !order_by_columns.is_empty() {
+            if let Some(order_pathkeys) = extract_order_by_pathkeys(args.root, heap_rti, &schema) {
+                let mut builder = builder;
+                for pathkey_style in order_pathkeys {
+                    builder = builder.add_path_key(&pathkey_style);
+                }
+                builder
+            } else {
+                builder
+            }
+        } else {
+            builder
         };
 
         Some(builder.build(PrivateData {
@@ -534,4 +549,55 @@ fn extract_order_by_info(
     }
 
     Some(vec![])
+}
+
+/// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
+fn extract_order_by_pathkeys(
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+) -> Option<Vec<OrderByStyle>> {
+    unsafe {
+        let query_pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+        if query_pathkeys.is_empty() {
+            return None;
+        }
+
+        let mut pathkey_styles = Vec::new();
+
+        for pathkey_ptr in query_pathkeys.iter_ptr() {
+            let pathkey = pathkey_ptr;
+            let equivclass = (*pathkey).pk_eclass;
+            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+            for member in members.iter_ptr() {
+                let expr = (*member).em_expr;
+
+                // Check if this is a Var (column reference)
+                if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
+                    
+                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if search_field.is_fast() {
+                                pathkey_styles.push(OrderByStyle::Field(pathkey, att.name().into()));
+                                break; // Found a valid pathkey for this equivalence class
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if pathkey_styles.is_empty() {
+            None
+        } else {
+            Some(pathkey_styles)
+        }
+    }
 }

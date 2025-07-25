@@ -115,7 +115,7 @@ jobs:
             {
               echo 'A schema difference was detected.'
               echo
-              echo 'A suggested "upgrade.sql" script entry might be:'
+              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
               echo
               echo '```sql'
               cat ~/diff.sql
@@ -161,7 +161,7 @@ jobs:
               comment.body.includes('A schema difference was detected.')
             );
 
-            const body = `A schema difference was detected.\n\n${commit_message}`;
+            const body = `${commit_message}`;
 
             if (botComment) {
               await github.rest.issues.updateComment({

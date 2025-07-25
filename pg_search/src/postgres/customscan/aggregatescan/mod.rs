@@ -128,12 +128,6 @@ impl CustomScan for AggregateScan {
         let order_by_columns =
             extract_order_by_info(args.root, &grouping_columns, &aggregate_types)?;
 
-        // For now, fall back to PostgreSQL if we have any ORDER BY
-        // The pathkey handling is complex and requires deeper integration with PostgreSQL
-        if !order_by_columns.is_empty() {
-            return None;
-        }
-
         // Can we handle all of the quals?
         let query = unsafe {
             let result = extract_quals(

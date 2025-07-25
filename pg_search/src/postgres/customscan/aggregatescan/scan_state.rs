@@ -233,52 +233,48 @@ impl AggregateScanState {
 
         rows.sort_by(|a, b| {
             for order_col in &self.order_by_columns {
-                let cmp =
-                    match order_col {
-                        OrderByColumn::GroupingColumn {
-                            field_name,
-                            direction,
-                            ..
-                        } => {
-                            // Find the index of this grouping column
-                            let col_index = self
-                                .grouping_columns
-                                .iter()
-                                .position(|gc| gc.field_name == *field_name);
+                let cmp = match order_col {
+                    OrderByColumn::GroupingColumn {
+                        field_name,
+                        direction,
+                        ..
+                    } => {
+                        // Find the index of this grouping column
+                        let col_index = self
+                            .grouping_columns
+                            .iter()
+                            .position(|gc| gc.field_name == *field_name);
 
-                            if let Some(idx) = col_index {
-                                let val_a = a.group_keys.get(idx).map(|s| s).unwrap_or(
-                                    &TantivyValue(tantivy::schema::OwnedValue::from("")),
-                                );
-                                let val_b = b.group_keys.get(idx).map(|s| s).unwrap_or(
-                                    &TantivyValue(tantivy::schema::OwnedValue::from("")),
-                                );
+                        if let Some(idx) = col_index {
+                            let default_value = TantivyValue(tantivy::schema::OwnedValue::from(""));
+                            let val_a = a.group_keys.get(idx).unwrap_or(&default_value);
+                            let val_b = b.group_keys.get(idx).unwrap_or(&default_value);
 
-                                // Try to parse as numbers first, fall back to string comparison
-                                let cmp = val_a.cmp(val_b);
-
-                                match direction {
-                                    SortDirection::Asc => cmp,
-                                    SortDirection::Desc => cmp.reverse(),
-                                }
-                            } else {
-                                std::cmp::Ordering::Equal
-                            }
-                        }
-                        OrderByColumn::AggregateColumn {
-                            aggregate_index,
-                            direction,
-                        } => {
-                            let val_a = a.aggregate_values.get(*aggregate_index).unwrap_or(&0);
-                            let val_b = b.aggregate_values.get(*aggregate_index).unwrap_or(&0);
-
+                            // Try to parse as numbers first, fall back to string comparison
                             let cmp = val_a.cmp(val_b);
+
                             match direction {
                                 SortDirection::Asc => cmp,
                                 SortDirection::Desc => cmp.reverse(),
                             }
+                        } else {
+                            std::cmp::Ordering::Equal
                         }
-                    };
+                    }
+                    OrderByColumn::AggregateColumn {
+                        aggregate_index,
+                        direction,
+                    } => {
+                        let val_a = a.aggregate_values.get(*aggregate_index).unwrap_or(&0);
+                        let val_b = b.aggregate_values.get(*aggregate_index).unwrap_or(&0);
+
+                        let cmp = val_a.cmp(val_b);
+                        match direction {
+                            SortDirection::Asc => cmp,
+                            SortDirection::Desc => cmp.reverse(),
+                        }
+                    }
+                };
 
                 if cmp != std::cmp::Ordering::Equal {
                     return cmp;

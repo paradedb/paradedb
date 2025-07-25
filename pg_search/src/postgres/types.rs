@@ -327,6 +327,7 @@ impl Hash for TantivyValue {
     }
 }
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.tantivy_schema_value() {
@@ -378,6 +379,53 @@ impl PartialOrd for TantivyValue {
             }
             _ => None,
         }
+    }
+}
+
+impl Ord for TantivyValue {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use tantivy::schema::OwnedValue;
+
+        // First, try partial_cmp - if it returns Some(ordering), use that
+        if let Some(ordering) = self.partial_cmp(other) {
+            return ordering;
+        }
+
+        // If partial_cmp returns None, we need to define a total ordering
+        // for different types. We'll order them by type discriminant.
+        let self_type_priority = match self.tantivy_schema_value() {
+            OwnedValue::Null => 0,
+            OwnedValue::Str(_) => 1,
+            OwnedValue::U64(_) => 2,
+            OwnedValue::I64(_) => 3,
+            OwnedValue::F64(_) => 4,
+            OwnedValue::Bool(_) => 5,
+            OwnedValue::Date(_) => 6,
+            OwnedValue::Facet(_) => 7,
+            OwnedValue::Bytes(_) => 8,
+            OwnedValue::IpAddr(_) => 9,
+            OwnedValue::PreTokStr(_) => 10,
+            OwnedValue::Object(_) => 11,
+            OwnedValue::Array(_) => 12,
+        };
+
+        let other_type_priority = match other.tantivy_schema_value() {
+            OwnedValue::Null => 0,
+            OwnedValue::Str(_) => 1,
+            OwnedValue::U64(_) => 2,
+            OwnedValue::I64(_) => 3,
+            OwnedValue::F64(_) => 4,
+            OwnedValue::Bool(_) => 5,
+            OwnedValue::Date(_) => 6,
+            OwnedValue::Facet(_) => 7,
+            OwnedValue::Bytes(_) => 8,
+            OwnedValue::IpAddr(_) => 9,
+            OwnedValue::PreTokStr(_) => 10,
+            OwnedValue::Object(_) => 11,
+            OwnedValue::Array(_) => 12,
+        };
+
+        self_type_priority.cmp(&other_type_priority)
     }
 }
 

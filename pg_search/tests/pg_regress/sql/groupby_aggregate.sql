@@ -41,14 +41,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating;
--- ORDER BY rating;
+GROUP BY rating
+ORDER BY rating;
 
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating;
--- ORDER BY rating;
+GROUP BY rating
+ORDER BY rating;
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -64,15 +64,15 @@ WHERE description @@@ 'laptop';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT category, COUNT(*) AS count
 FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category;
--- ORDER BY category;
+WHERE description @@@ 'laptop OR keyboard OR shoes' 
+GROUP BY category
+ORDER BY category DESC;
 
 SELECT category, COUNT(*) AS count
 FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category;
--- ORDER BY category;
+WHERE description @@@ 'laptop OR keyboard OR shoes' 
+GROUP BY category
+ORDER BY category DESC;
 
 -- Test 1.4: Test different column orders (COUNT(*) first vs last)
 -- Verify that both column orders work correctly
@@ -134,41 +134,41 @@ WITH (
 
 -- Test 2.1: GROUP BY different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
-
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
-
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
 
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
+
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
+
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
 
 -- Test 2.2: GROUP BY text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
 -- Test 2.3: GROUP BY boolean field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
 
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
 
 -- ===========================================================================
 -- SECTION 3: Edge Cases and Negative Tests
@@ -247,13 +247,13 @@ SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
 GROUP BY priority;
--- ORDER BY priority;
+ORDER BY priority;
 
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
 GROUP BY priority;
--- ORDER BY priority;
+ORDER BY priority;
 
 -- Test 4.2: Status breakdown by category (without ORDER BY)
 -- Note: ORDER BY aggregate columns is not yet supported in custom scan

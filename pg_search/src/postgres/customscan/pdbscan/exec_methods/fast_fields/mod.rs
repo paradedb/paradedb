@@ -18,6 +18,8 @@
 pub mod mixed;
 pub mod numeric;
 
+use std::sync::Arc;
+
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
@@ -31,10 +33,12 @@ use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
+
+use arrow_array::builder::StringViewBuilder;
+use arrow_array::ArrayRef;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
-use std::rc::Rc;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
 use tantivy::DocAddress;
@@ -471,17 +475,32 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     }
 }
 
-/// Given a collection of values containing TermOrdinals for the given StrColumn, return an iterator
-/// which zips each value with the term for the TermOrdinal in ascending sorted order.
+/// Given an unordered collection of TermOrdinals for the given StrColumn, return a
+/// `StringViewArray` with one row per input term ordinal (in the input order).
+///
+/// A `StringViewArray` contains a series of buffers containing arbitrarily concatenated bytes data,
+/// and then a series of (buffer, offset, len) entries representing views into those buffers. This
+/// method creates a single buffer containing the concatenated data for the given term ordinals in
+/// term sorted order, and then a view per input row in input order. A caller can ignore those
+/// details and just consume the array as if it were an array of strings.
 ///
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-pub fn ords_to_sorted_terms<T>(
+pub fn ords_to_string_array(
     str_ff: StrColumn,
-    mut items: Vec<T>,
-    ordinal_fn: impl Fn(&T) -> TermOrdinal,
-) -> impl Iterator<Item = (T, Option<Rc<str>>)> {
-    items.sort_unstable_by_key(&ordinal_fn);
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
+    // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
+    // term to a StringViewBuilder's data buffer, and record a view to be appended later in sorted
+    // order.
+    let mut builder = StringViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
     let mut bytes = Vec::new();
     let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
     let mut current_sstable_delta_reader = str_ff
@@ -489,26 +508,29 @@ pub fn ords_to_sorted_terms<T>(
         .sstable_delta_reader_block(current_block_addr.clone())
         .expect("Failed to open term dictionary.");
     let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, Option<Rc<str>>)> = None;
-    let mut items = items.into_iter();
-    std::iter::from_fn(move || {
-        let item = items.next()?;
-        let ord = ordinal_fn(&item);
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
+            // be appended to the builder as null.
+            break;
+        }
 
         // only advance forward if the new ord is different than the one we just processed
         //
         // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
         // it's still sorted
         match &previous_term {
-            Some((previous_ord, term)) if *previous_ord == ord => {
-                // This is the same term ordinal: reuse the previous term value.
-                return Some((item, term.clone()));
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                // This is the same term ordinal: reuse the previous view.
+                views[row_idx] = Some(*previous_view);
+                continue;
             }
             // Fall through.
             _ => {}
         }
 
-        // This is a new term ordinal: decode and allocate it.
+        // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
         let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
@@ -522,15 +544,10 @@ pub fn ords_to_sorted_terms<T>(
             bytes.clear();
         }
 
-        // move to ord inside that block
+        // Move to ord inside that block
         for _ in current_ordinal..=ord {
             match current_sstable_delta_reader.advance() {
                 Ok(true) => {}
-                Ok(false) if ord == NULL_TERM_ORDINAL => {
-                    // NULL_TERM_ORDINAL sorts highest, so all remaining terms are None.
-                    previous_term = Some((ord, None));
-                    return Some((item, None));
-                }
                 Ok(false) => {
                     panic!("Term ordinal {ord} did not exist in the dictionary.");
                 }
@@ -543,12 +560,31 @@ pub fn ords_to_sorted_terms<T>(
         }
         current_ordinal = ord + 1;
 
-        let term: Option<Rc<str>> = Some(
-            std::str::from_utf8(&bytes)
-                .expect("term should be valid utf8")
-                .into(),
-        );
-        previous_term = Some((ord, term.clone()));
-        Some((item, term))
-    })
+        // Set the view for this row_idx.
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_string_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_string_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    // Append all the rows' views to the builder.
+    let block_no = builder.append_block(arrow_buffer::Buffer::from(buffer));
+    for view in views {
+        // Each view is an offset and len in our single block, or None for a null.
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    Arc::new(builder.finish())
 }

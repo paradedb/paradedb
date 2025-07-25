@@ -67,11 +67,12 @@ SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@
          ->  Custom Scan (ParadeDB Scan) on mock_items
                Table: mock_items
                Index: mock_items_id_description_rating_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: id, paradedb.score()
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id
+               Numeric Fast Fields: id
                Scores: true
                   Top N Limit: 3
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 DROP TABLE mock_items;

@@ -94,50 +94,6 @@ ORDER BY numeric_field1;
             100 |              0 |         100.00
 (7 rows)
 
--- Then, run with NumericFastFieldExec
-SET paradedb.enable_fast_field_exec = true;
-SET paradedb.enable_mixed_fast_field_exec = false;
--- Get query plan to verify we're using NumericFastFieldExec
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    numeric_field1, numeric_field2, numeric_field3
-FROM benchmark_data
-WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1;
-                                                                                                                                                                              QUERY PLAN                                                                                                                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Sort
-   Sort Key: numeric_field1
-   ->  Custom Scan (ParadeDB Scan) on benchmark_data
-         Table: benchmark_data
-         Index: benchmark_data_idx
-         Exec Method: NumericFastFieldExecState
-         Fast Fields: numeric_field1, numeric_field2, numeric_field3
-         Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
-(9 rows)
-
--- Run the query with NumericFastFieldExec (should return same data)
-SELECT
-    numeric_field1, numeric_field2, numeric_field3
-FROM benchmark_data
-WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1;
- numeric_field1 | numeric_field2 | numeric_field3 
-----------------+----------------+----------------
-              3 |              3 |           3.00
-              4 |              4 |           4.00
-             24 |             24 |          24.00
-             50 |             50 |          50.00
-             73 |             73 |          73.00
-             74 |             74 |          74.00
-            100 |              0 |         100.00
-(7 rows)
-
 -- Now enable MixedFastFieldExec
 SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = true;

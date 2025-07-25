@@ -1066,9 +1066,7 @@ impl CustomScan for PdbScan {
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
-/// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
-/// and numeric fast fields.
+/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
@@ -1085,11 +1083,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
             heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
             limit,
             sort_direction,
-        }
-    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
-        // Check for numeric-only fast fields first because they're more selective
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
     } else if fast_fields::is_mixed_fast_field_capable(privdata) {
         ExecMethodType::FastFieldMixed {
@@ -1122,23 +1115,6 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            if let Some(which_fast_fields) =
-                compute_exec_which_fast_fields(builder, which_fast_fields)
-            {
-                builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                        which_fast_fields,
-                    ),
-                    None,
-                )
-            } else {
-                builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
-                    Some(ExecMethodType::Normal),
-                )
-            }
-        }
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,

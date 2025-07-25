@@ -80,29 +80,6 @@ WHERE
     string_field2 @@@ 'IN [red blue green]'
 ORDER BY numeric_field1;
 
--- Then, run with NumericFastFieldExec
-SET paradedb.enable_fast_field_exec = true;
-SET paradedb.enable_mixed_fast_field_exec = false;
-
--- Get query plan to verify we're using NumericFastFieldExec
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT
-    numeric_field1, numeric_field2, numeric_field3
-FROM benchmark_data
-WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1;
-
--- Run the query with NumericFastFieldExec (should return same data)
-SELECT
-    numeric_field1, numeric_field2, numeric_field3
-FROM benchmark_data
-WHERE
-    string_field1 @@@ 'IN [alpha beta gamma delta epsilon]' AND
-    string_field2 @@@ 'IN [red blue green]'
-ORDER BY numeric_field1;
-
 -- Now enable MixedFastFieldExec
 SET paradedb.enable_fast_field_exec = false;
 SET paradedb.enable_mixed_fast_field_exec = true;

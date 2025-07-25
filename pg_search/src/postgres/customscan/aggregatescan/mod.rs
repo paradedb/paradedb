@@ -318,9 +318,9 @@ impl CustomScan for AggregateScan {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
                         let group_val = &row.group_keys[gc_idx];
 
-                        // Get the type of this column from the tuple descriptor
-                        let attr = tupdesc.get(i).expect("missing attribute");
-                        let typoid = attr.type_oid().value();
+                        // Use the preserved PostgreSQL type from planning stage
+                        let grouping_column = &state.custom_state().grouping_columns[gc_idx];
+                        let typoid = grouping_column.pg_type_oid;
 
                         // Convert the TantivyValue directly to the appropriate type
                         let oid = pgrx::PgOid::from(typoid);
@@ -395,6 +395,7 @@ fn extract_grouping_columns(
                             grouping_columns.push(GroupingColumn {
                                 field_name: field_name.to_string(),
                                 attno,
+                                pg_type_oid: att.type_oid().value(), // Store PostgreSQL type OID
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey

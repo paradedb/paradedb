@@ -674,29 +674,12 @@ impl TryFrom<TantivyValue> for bool {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        match value.0 {
-            tantivy::schema::OwnedValue::Bool(val) => Ok(val),
-            tantivy::schema::OwnedValue::Str(ref s) => {
-                // Handle string representations of booleans from aggregation results
-                match s.to_lowercase().as_str() {
-                    "true" | "t" | "1" => Ok(true),
-                    "false" | "f" | "0" => Ok(false),
-                    _ => Err(TantivyValueError::UnsupportedIntoConversion(
-                        "bool".to_string(),
-                    )),
-                }
-            }
-            tantivy::schema::OwnedValue::U64(val) => {
-                // Handle numeric representations (0 = false, non-zero = true)
-                Ok(val != 0)
-            }
-            tantivy::schema::OwnedValue::I64(val) => {
-                // Handle numeric representations (0 = false, non-zero = true)
-                Ok(val != 0)
-            }
-            _ => Err(TantivyValueError::UnsupportedIntoConversion(
+        if let tantivy::schema::OwnedValue::Bool(val) = value.0 {
+            Ok(val)
+        } else {
+            Err(TantivyValueError::UnsupportedIntoConversion(
                 "bool".to_string(),
-            )),
+            ))
         }
     }
 }

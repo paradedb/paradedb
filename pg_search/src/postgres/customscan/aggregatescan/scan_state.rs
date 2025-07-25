@@ -19,10 +19,10 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, OrderByInfo, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
-
-use crate::index::fast_fields_helper::FFValue;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
@@ -34,7 +34,7 @@ pub type AggregateRow = TinyVec<[i64; 4]>;
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
 pub struct GroupedAggregateRow {
-    pub group_keys: Vec<FFValue>, // The values of the grouping columns
+    pub group_keys: Vec<OwnedValue>, // The values of the grouping columns
     pub aggregate_values: AggregateRow,
 }
 
@@ -140,8 +140,12 @@ impl AggregateScanState {
         serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
     }
 
-    /// Convert a JSON value to an FFValue based on the field type from the schema
-    fn json_value_to_ffvalue(&self, json_value: &serde_json::Value, field_name: &str) -> FFValue {
+    /// Convert a JSON value to an OwnedValue based on the field type from the schema
+    fn json_value_to_owned_value(
+        &self,
+        json_value: &serde_json::Value,
+        field_name: &str,
+    ) -> OwnedValue {
         // Get the search field from the schema to determine the type
         let indexrel = self.indexrel();
         let schema = indexrel.schema().expect("indexrel should have a schema");
@@ -149,27 +153,27 @@ impl AggregateScanState {
         if let Some(search_field) = schema.search_field(field_name) {
             match search_field.field_type() {
                 crate::schema::SearchFieldType::Text(_) => {
-                    FFValue::Text(json_value.as_str().unwrap_or("").to_string())
+                    OwnedValue::Str(json_value.as_str().unwrap_or("").to_string())
                 }
                 crate::schema::SearchFieldType::I64(_) => {
-                    FFValue::I64(json_value.as_i64().unwrap_or(0))
+                    OwnedValue::I64(json_value.as_i64().unwrap_or(0))
                 }
                 crate::schema::SearchFieldType::U64(_) => {
-                    FFValue::U64(json_value.as_u64().unwrap_or(0))
+                    OwnedValue::U64(json_value.as_u64().unwrap_or(0))
                 }
                 crate::schema::SearchFieldType::F64(_) => {
-                    FFValue::F64(json_value.as_f64().unwrap_or(0.0))
+                    OwnedValue::F64(json_value.as_f64().unwrap_or(0.0))
                 }
                 crate::schema::SearchFieldType::Bool(_) => {
                     // Handle both boolean JSON values and numeric representations (0/1)
                     if let Some(b) = json_value.as_bool() {
-                        FFValue::Bool(b)
+                        OwnedValue::Bool(b)
                     } else if let Some(n) = json_value.as_i64() {
-                        FFValue::Bool(n != 0)
+                        OwnedValue::Bool(n != 0)
                     } else if let Some(n) = json_value.as_u64() {
-                        FFValue::Bool(n != 0)
+                        OwnedValue::Bool(n != 0)
                     } else {
-                        FFValue::Bool(false) // Default fallback
+                        OwnedValue::Bool(false) // Default fallback
                     }
                 }
                 crate::schema::SearchFieldType::Date(_) => {
@@ -177,16 +181,16 @@ impl AggregateScanState {
                     let timestamp = json_value.as_i64().unwrap_or(0);
                     let micros = timestamp * 1_000_000; // Convert seconds to microseconds
                     let date = tantivy::DateTime::from_timestamp_micros(micros);
-                    FFValue::Date(date)
+                    OwnedValue::Date(date)
                 }
                 _ => {
                     // Fallback to string representation
-                    FFValue::Text(json_value.to_string())
+                    OwnedValue::Str(json_value.to_string())
                 }
             }
         } else {
             // Fallback if field not found in schema
-            FFValue::Text(json_value.to_string())
+            OwnedValue::Str(json_value.to_string())
         }
     }
 
@@ -244,8 +248,8 @@ impl AggregateScanState {
             let key = bucket_obj
                 .get("key")
                 .map(|k| {
-                    // Create FFValue from JSON value based on the field type
-                    self.json_value_to_ffvalue(k, &grouping_column.field_name)
+                    // Create OwnedValue from JSON value based on the field type
+                    self.json_value_to_owned_value(k, &grouping_column.field_name)
                 })
                 .expect("missing bucket key");
 
@@ -292,11 +296,14 @@ impl AggregateScanState {
                     .position(|gc| gc.field_name == order_info.field_name);
 
                 let cmp = if let Some(idx) = col_index {
-                    let default_value = FFValue::Text("".to_string());
+                    let default_value = OwnedValue::Str("".to_string());
                     let val_a = a.group_keys.get(idx).unwrap_or(&default_value);
                     let val_b = b.group_keys.get(idx).unwrap_or(&default_value);
 
-                    let base_cmp = val_a.cmp(val_b);
+                    // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
+                    let tantivy_a = TantivyValue(val_a.clone());
+                    let tantivy_b = TantivyValue(val_b.clone());
+                    let base_cmp = tantivy_a.cmp(&tantivy_b);
 
                     if order_info.is_desc {
                         base_cmp.reverse()

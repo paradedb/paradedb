@@ -52,8 +52,8 @@ GROUP BY rating
 ORDER BY rating;
  rating | count 
 --------+-------
-      5 |     2
       3 |     1
+      5 |     2
 (2 rows)
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
@@ -99,8 +99,8 @@ GROUP BY category
 ORDER BY category DESC;
   category   | count 
 -------------+-------
- Electronics |     5
  Sports      |     1
+ Electronics |     5
 (2 rows)
 
 -- Test 1.4: Test different column orders (COUNT(*) first vs last)
@@ -211,8 +211,8 @@ SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
 SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
  val_int2 | count 
 ----------+-------
-        2 |     2
         1 |     2
+        2 |     2
         3 |     1
 (3 rows)
 
@@ -247,8 +247,8 @@ SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
 SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
  val_int8 | count 
 ----------+-------
-  2000000 |     2
   1000000 |     2
+  2000000 |     2
   3000000 |     1
 (3 rows)
 
@@ -302,8 +302,8 @@ SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_t
 SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
  val_text | count 
 ----------+-------
- group_b  |     2
  group_a  |     2
+ group_b  |     2
  group_c  |     1
 (3 rows)
 
@@ -321,8 +321,8 @@ SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_b
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
  val_bool | count 
 ----------+-------
- t        |     3
  f        |     2
+ t        |     3
 (2 rows)
 
 -- ===========================================================================

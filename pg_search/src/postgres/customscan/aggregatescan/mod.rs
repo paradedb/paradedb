@@ -33,6 +33,7 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
 };
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
+    SortDirection as PathkeySortDirection,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -525,30 +526,62 @@ fn extract_order_by_info(
     grouping_columns: &[GroupingColumn],
     aggregate_types: &[AggregateType],
 ) -> Option<Vec<OrderByColumn>> {
-    // Check if there's an explicit ORDER BY clause
-    let has_explicit_order_by = unsafe {
-        let parse = (*root).parse;
-        !parse.is_null()
-            && !(*parse).sortClause.is_null()
-            && !PgList::<pg_sys::Node>::from_pg((*parse).sortClause).is_empty()
-    };
+    // Check if there's an explicit ORDER BY clause by looking at query_pathkeys
+    let query_pathkeys = unsafe { PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys) };
 
-    if !has_explicit_order_by {
+    if query_pathkeys.is_empty() {
         return Some(vec![]);
     }
 
-    // For now, if there's any explicit ORDER BY, return a non-empty vector
-    // to signal that ORDER BY is present. The actual parsing is complex and
-    // would require deep integration with PostgreSQL's pathkey system.
-    if has_explicit_order_by {
-        // Return a dummy ORDER BY to signal presence
-        return Some(vec![OrderByColumn::AggregateColumn {
-            aggregate_index: 0,
-            direction: SortDirection::Desc,
-        }]);
+    // Try to extract ORDER BY information from pathkeys
+    // This is a simplified version - we can enhance it later
+    let mut order_by_columns = Vec::new();
+
+    unsafe {
+        for pathkey_ptr in query_pathkeys.iter_ptr() {
+            let pathkey = pathkey_ptr;
+            let equivclass = (*pathkey).pk_eclass;
+            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+            for member in members.iter_ptr() {
+                let expr = (*member).em_expr;
+
+                // Check if this is a Var (column reference)
+                if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
+
+                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        // Check if this is a grouping column
+                        if let Some(gc) = grouping_columns
+                            .iter()
+                            .find(|gc| gc.field_name == att.name())
+                        {
+                            let pathkey_style = OrderByStyle::Field(pathkey, att.name().into());
+                            let direction = match pathkey_style.direction() {
+                                PathkeySortDirection::Asc => SortDirection::Asc,
+                                PathkeySortDirection::Desc => SortDirection::Desc,
+                                _ => SortDirection::Asc, // Default to ascending for other cases
+                            };
+
+                            order_by_columns.push(OrderByColumn::GroupingColumn {
+                                field_name: gc.field_name.clone(),
+                                attno: gc.attno,
+                                direction,
+                            });
+                            break; // Found a valid ORDER BY column
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    Some(vec![])
+    Some(order_by_columns)
 }
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
@@ -579,13 +612,14 @@ fn extract_order_by_pathkeys(
                     if heaprelid == pg_sys::Oid::INVALID {
                         continue;
                     }
-                    
+
                     let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {
                             if search_field.is_fast() {
-                                pathkey_styles.push(OrderByStyle::Field(pathkey, att.name().into()));
+                                pathkey_styles
+                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
                                 break; // Found a valid pathkey for this equivalence class
                             }
                         }

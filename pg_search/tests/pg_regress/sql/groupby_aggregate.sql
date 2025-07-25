@@ -246,13 +246,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
+GROUP BY priority
 ORDER BY priority;
 
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
+GROUP BY priority
 ORDER BY priority;
 
 -- Test 4.2: Status breakdown by category (without ORDER BY)

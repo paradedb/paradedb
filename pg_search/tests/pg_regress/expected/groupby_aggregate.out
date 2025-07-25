@@ -436,7 +436,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
+GROUP BY priority
+ORDER BY priority;
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
@@ -445,19 +446,16 @@ GROUP BY priority;
    Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
 (4 rows)
 
-ORDER BY priority;
-ERROR:  syntax error at or near "ORDER" at character 1
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
+GROUP BY priority
+ORDER BY priority;
  priority | count 
 ----------+-------
  High     |     2
 (1 row)
 
-ORDER BY priority;
-ERROR:  syntax error at or near "ORDER" at character 1
 -- Test 4.2: Status breakdown by category (without ORDER BY)
 -- Note: ORDER BY aggregate columns is not yet supported in custom scan
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

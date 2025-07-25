@@ -361,12 +361,12 @@ impl SearchField {
         &self.field_config
     }
 
-    pub fn is_raw_sortable(&self) -> bool {
-        self.is_sortable(SearchNormalizer::Raw)
+    pub fn is_raw_sortable(&self, sort_type: PgOid) -> bool {
+        self.is_sortable(SearchNormalizer::Raw, sort_type)
     }
 
-    pub fn is_lower_sortable(&self) -> bool {
-        self.is_sortable(SearchNormalizer::Lowercase)
+    pub fn is_lower_sortable(&self, sort_type: PgOid) -> bool {
+        self.is_sortable(SearchNormalizer::Lowercase, sort_type)
     }
 
     pub fn is_fast(&self) -> bool {
@@ -384,7 +384,17 @@ impl SearchField {
         }
     }
 
-    fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+    fn is_sortable(&self, desired_normalizer: SearchNormalizer, sort_type: PgOid) -> bool {
+        if let Some(_expected_type) = SearchFieldType::try_from(sort_type).ok() {
+            pgrx::info!("expected_type: {:?}", _expected_type);
+            pgrx::info!("field_type: {:?}", self.field_type);
+            if !matches!(self.field_type, _expected_type) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
         match self.field_entry.field_type() {
             FieldType::Str(options) => {
                 options.is_fast()

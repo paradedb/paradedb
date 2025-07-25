@@ -69,7 +69,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgOid, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
@@ -1339,6 +1339,7 @@ unsafe fn pullup_orderby_pathkey(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
+            let sort_type = PgOid::from((*member).em_datatype);
 
             if is_score_func(expr.cast(), rti as _) {
                 return Some(OrderByStyle::Score(first_pathkey));
@@ -1348,17 +1349,18 @@ unsafe fn pullup_orderby_pathkey(
                     var as *mut pg_sys::Node,
                 )?;
                 if let Some(search_field) = schema.search_field(field.root()) {
-                    if search_field.is_lower_sortable() {
+                    if search_field.is_lower_sortable(sort_type) {
                         return Some(OrderByStyle::Field(first_pathkey, field));
                     }
                 }
             } else {
-                let (_, field) = find_one_var_and_fieldname(
+                pgrx::info!("{:?}", (*expr).type_);
+                let (var, field) = find_one_var_and_fieldname(
                     VarContext::from_planner(root),
                     expr as *mut pg_sys::Node,
                 )?;
                 if let Some(search_field) = schema.search_field(field.root()) {
-                    if search_field.is_raw_sortable() {
+                    if search_field.is_raw_sortable(sort_type) {
                         return Some(OrderByStyle::Field(first_pathkey, field));
                     }
                 }

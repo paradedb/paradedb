@@ -547,8 +547,7 @@ impl SearchIndexReader {
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            collector
-                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+            collector.collect_segment(weight.as_ref(), segment_ord, segment_reader)
         });
 
         let top_docs = collector
@@ -595,8 +594,7 @@ impl SearchIndexReader {
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            collector
-                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+            collector.collect_segment(weight.as_ref(), segment_ord, segment_reader)
         });
 
         let top_docs = collector
@@ -650,8 +648,7 @@ impl SearchIndexReader {
                 );
 
                 let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-                    collector
-                        .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+                    collector.collect_segment(weight.as_ref(), segment_ord, segment_reader)
                 });
 
                 let top_docs = collector
@@ -678,8 +675,7 @@ impl SearchIndexReader {
                 let collector = TopDocs::with_limit(n).and_offset(offset);
 
                 let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-                    collector
-                        .collect_segment(weight.as_ref(), segment_ord, segment_reader)
+                    collector.collect_segment(weight.as_ref(), segment_ord, segment_reader)
                 });
 
                 let top_docs = collector

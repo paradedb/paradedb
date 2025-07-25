@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753473625027,
+  "lastUpdate": 1753474247727,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9432,6 +9432,42 @@ window.BENCHMARK_DATA = {
             "value": 133.24779704688518,
             "unit": "median tps",
             "extra": "avg tps: 132.62392511290713, max tps: 135.9459216743121, count: 56444"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "793858646fca67360d59d9237575b658482f960d",
+          "message": "feat: initial group-by aggregate implementation (for single group and COUNT(*) aggregation) (#2893)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nImplemented GROUP BY functionality for aggregate CustomScan, enabling\nefficient grouping aggregations using Tantivy's bucket aggregations.\nAdded proper rejection handling for unsupported scenarios like\nmulti-column GROUP BY and ORDER BY on aggregate columns.\n\n## Why\n\nParadeDB's aggregate CustomScan previously only supported simple\n`COUNT(*)` queries without grouping capabilities. This limited users\nfrom performing common analytical queries like:\n- `SELECT category, COUNT(*) FROM products WHERE description @@@\n'laptop' GROUP BY category`\n- Grouping by different data types (integers, floats, text, booleans)\n\n## How\n\n- **Grouping Column Extraction**: Added `extract_grouping_columns()`\nfunction to validate that grouping columns are fast fields\n- **Tantivy Integration**: Implemented bucket aggregations in\n`scan_state.rs` using Tantivy's terms aggregation\n- **Type Conversion**: Added proper type handling for INT2, INT4, INT8,\nFLOAT4, FLOAT8, TEXT, and BOOL grouping columns\n- **Result Processing**: Added tuple generation to include both grouping\ncolumn values and aggregate results\n\n## Tests\n\n### Regression Tests\n- **Data type coverage**: Tests for all supported grouping column types\n(numeric, text, boolean)\n\n### Property-based Tests\n- **Equivalence guarantee**: Existing property tests in `qgen.rs` ensure\naggregate CustomScan results match PostgreSQL exactly",
+          "timestamp": "2025-07-25T12:34:00-07:00",
+          "tree_id": "ea5243f744ac5666e4761efb502c582bae7eafb9",
+          "url": "https://github.com/paradedb/paradedb/commit/793858646fca67360d59d9237575b658482f960d"
+        },
+        "date": 1753474246615,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.597732781977346,
+            "unit": "median tps",
+            "extra": "avg tps: 27.47793175654744, max tps: 27.759428231864366, count: 56448"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 128.19898329404404,
+            "unit": "median tps",
+            "extra": "avg tps: 127.80377581431101, max tps: 130.42051192905203, count: 56448"
           }
         ]
       }

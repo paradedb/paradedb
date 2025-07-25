@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753389447818,
+  "lastUpdate": 1753472974428,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1898,6 +1898,72 @@ window.BENCHMARK_DATA = {
             "value": 26.566678139286207,
             "unit": "median tps",
             "extra": "avg tps: 28.386643336014828, max tps: 839.6030692529799, count: 55161"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "793858646fca67360d59d9237575b658482f960d",
+          "message": "feat: initial group-by aggregate implementation (for single group and COUNT(*) aggregation) (#2893)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nImplemented GROUP BY functionality for aggregate CustomScan, enabling\nefficient grouping aggregations using Tantivy's bucket aggregations.\nAdded proper rejection handling for unsupported scenarios like\nmulti-column GROUP BY and ORDER BY on aggregate columns.\n\n## Why\n\nParadeDB's aggregate CustomScan previously only supported simple\n`COUNT(*)` queries without grouping capabilities. This limited users\nfrom performing common analytical queries like:\n- `SELECT category, COUNT(*) FROM products WHERE description @@@\n'laptop' GROUP BY category`\n- Grouping by different data types (integers, floats, text, booleans)\n\n## How\n\n- **Grouping Column Extraction**: Added `extract_grouping_columns()`\nfunction to validate that grouping columns are fast fields\n- **Tantivy Integration**: Implemented bucket aggregations in\n`scan_state.rs` using Tantivy's terms aggregation\n- **Type Conversion**: Added proper type handling for INT2, INT4, INT8,\nFLOAT4, FLOAT8, TEXT, and BOOL grouping columns\n- **Result Processing**: Added tuple generation to include both grouping\ncolumn values and aggregate results\n\n## Tests\n\n### Regression Tests\n- **Data type coverage**: Tests for all supported grouping column types\n(numeric, text, boolean)\n\n### Property-based Tests\n- **Equivalence guarantee**: Existing property tests in `qgen.rs` ensure\naggregate CustomScan results match PostgreSQL exactly",
+          "timestamp": "2025-07-25T12:34:00-07:00",
+          "tree_id": "ea5243f744ac5666e4761efb502c582bae7eafb9",
+          "url": "https://github.com/paradedb/paradedb/commit/793858646fca67360d59d9237575b658482f960d"
+        },
+        "date": 1753472973308,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1234.4100534183406,
+            "unit": "median tps",
+            "extra": "avg tps: 1230.8500595782682, max tps: 1238.0153682746184, count: 55107"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2829.0254851645254,
+            "unit": "median tps",
+            "extra": "avg tps: 2814.8638304958454, max tps: 2851.618999770379, count: 55107"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1192.754252482914,
+            "unit": "median tps",
+            "extra": "avg tps: 1189.1415569692738, max tps: 1198.9740542245322, count: 55107"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1056.9409621156656,
+            "unit": "median tps",
+            "extra": "avg tps: 1048.6374987448025, max tps: 1063.1850928737374, count: 55107"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 170.1818900147396,
+            "unit": "median tps",
+            "extra": "avg tps: 169.72540248979723, max tps: 174.51143281810874, count: 110214"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.47310371960867,
+            "unit": "median tps",
+            "extra": "avg tps: 158.71738791870166, max tps: 160.45342108666296, count: 55107"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 32.890227071108846,
+            "unit": "median tps",
+            "extra": "avg tps: 44.365017018379675, max tps: 860.5437259478028, count: 55107"
           }
         ]
       }

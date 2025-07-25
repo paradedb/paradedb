@@ -33,6 +33,12 @@ impl AggregateType {
         serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
     }
 
+    pub fn to_json_for_group(&self, idx: usize) -> (String, serde_json::Value) {
+        match self {
+            AggregateType::Count => (format!("agg_{idx}"), self.to_json()),
+        }
+    }
+
     pub fn result_from_json(&self, result: &serde_json::Number) -> i64 {
         let f64_val = result.as_f64().expect("invalid aggregate result size");
 
@@ -47,11 +53,25 @@ impl AggregateType {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GroupingColumn {
+    pub field_name: String,
+    pub attno: pg_sys::AttrNumber,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum TargetListEntry {
+    GroupingColumn(usize), // Index into grouping_columns vec
+    Aggregate(usize),      // Index into aggregate_types vec
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PrivateData {
     pub aggregate_types: Vec<AggregateType>,
     pub indexrelid: pg_sys::Oid,
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
+    pub grouping_columns: Vec<GroupingColumn>,
+    pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

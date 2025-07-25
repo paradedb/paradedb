@@ -21,6 +21,48 @@ use syn::__private::{quote, ToTokens};
 use syn::spanned::Spanned;
 use syn::{parse_macro_input, FnArg, ItemFn, Pat};
 
+/// A macro that transforms search-related functions into builder functions for ParadeDB's search functionality.
+///
+/// This macro is used in pg_search to generate builder functions that convert simple non-fielded search
+/// functions into ones that return a `SearchQueryInput`, which requires a `FieldName`.
+///
+/// It must be used in conjunction with `#[pg_extern]`.
+///
+/// # Example
+///
+/// ```rust,no_run,compile_fail
+/// #[builder_fn]
+/// #[pg_extern(name = "foo_bar")]  // name= is required here
+/// fn foo_bar(input: String) -> pdb::Query {
+///     pdb::Query::FooBar { input }
+/// }
+/// ```
+///
+/// This will generate an additional function `match_query_bfn` that takes a field name as the first
+/// parameter and converts the Query result into a SearchQueryInput for ParadeDB's search system.
+///
+/// That generated function will look like:
+///
+/// ```rust,no_run,compile_fail
+/// #[pg_extern]
+/// fn foo_bar(field: FieldName, input: String) -> SearchQueryInput {
+///     to_search_query_input(field, foo_bar(input))
+/// }
+/// ```
+///
+/// From the SQL side of things, the programmer makes `foo_bar(input: String)` and it can be called
+/// as
+///
+/// ```sql
+/// SELECT * FROM t WHERE field @@@ pdb.foo_bar('hi mom');
+/// ```
+///
+/// And this macro generates the fielded version, which allows pg_search (or the user) to write the
+/// same query as:
+///
+/// ```sql
+/// SELECT * FROM t WHERE key_field @@@ paradedb.foo_bar('field', 'hi mom');
+/// ```
 #[proc_macro_attribute]
 pub fn builder_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut stream = proc_macro2::TokenStream::new();

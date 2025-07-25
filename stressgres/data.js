@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753474247727,
+  "lastUpdate": 1753474249866,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11194,6 +11194,66 @@ window.BENCHMARK_DATA = {
             "value": 158.03125,
             "unit": "median mem",
             "extra": "avg mem: 148.4590905366381, max mem: 165.90625, count: 56444"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "793858646fca67360d59d9237575b658482f960d",
+          "message": "feat: initial group-by aggregate implementation (for single group and COUNT(*) aggregation) (#2893)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nImplemented GROUP BY functionality for aggregate CustomScan, enabling\nefficient grouping aggregations using Tantivy's bucket aggregations.\nAdded proper rejection handling for unsupported scenarios like\nmulti-column GROUP BY and ORDER BY on aggregate columns.\n\n## Why\n\nParadeDB's aggregate CustomScan previously only supported simple\n`COUNT(*)` queries without grouping capabilities. This limited users\nfrom performing common analytical queries like:\n- `SELECT category, COUNT(*) FROM products WHERE description @@@\n'laptop' GROUP BY category`\n- Grouping by different data types (integers, floats, text, booleans)\n\n## How\n\n- **Grouping Column Extraction**: Added `extract_grouping_columns()`\nfunction to validate that grouping columns are fast fields\n- **Tantivy Integration**: Implemented bucket aggregations in\n`scan_state.rs` using Tantivy's terms aggregation\n- **Type Conversion**: Added proper type handling for INT2, INT4, INT8,\nFLOAT4, FLOAT8, TEXT, and BOOL grouping columns\n- **Result Processing**: Added tuple generation to include both grouping\ncolumn values and aggregate results\n\n## Tests\n\n### Regression Tests\n- **Data type coverage**: Tests for all supported grouping column types\n(numeric, text, boolean)\n\n### Property-based Tests\n- **Equivalence guarantee**: Existing property tests in `qgen.rs` ensure\naggregate CustomScan results match PostgreSQL exactly",
+          "timestamp": "2025-07-25T12:34:00-07:00",
+          "tree_id": "ea5243f744ac5666e4761efb502c582bae7eafb9",
+          "url": "https://github.com/paradedb/paradedb/commit/793858646fca67360d59d9237575b658482f960d"
+        },
+        "date": 1753474248760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.694950399624545, max cpu: 54.7651, count: 56448"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 179.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.0861187370456, max mem: 182.0234375, count: 56448"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17727,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16369.363360969388, max block_count: 21470.0, count: 56448"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.63658588435374, max segment_count: 113.0, count: 56448"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.231570842573081, max cpu: 37.2093, count: 56448"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 149.91009473043775, max mem: 172.11328125, count: 56448"
           }
         ]
       }

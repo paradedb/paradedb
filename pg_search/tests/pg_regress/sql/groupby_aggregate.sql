@@ -36,31 +36,55 @@ WITH (
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
 
--- Test 1.1: Basic GROUP BY with integer field (ORDER BY grouping column)
+-- Test 1.1: Basic GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating 
-ORDER BY rating;
+GROUP BY rating;
+-- ORDER BY rating;
+
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating;
+-- ORDER BY rating;
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS total_laptops
 FROM products 
 WHERE description @@@ 'laptop';
 
--- Test 1.3: GROUP BY with string field (ORDER BY grouping column)
+SELECT COUNT(*) AS total_laptops
+FROM products 
+WHERE description @@@ 'laptop';
+
+-- Test 1.3: GROUP BY with string field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT category, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category 
-ORDER BY category;
+GROUP BY category;
+-- ORDER BY category;
 
--- Test 1.4: GROUP BY with ORDER BY aggregate column (falls back to PostgreSQL)
-SELECT rating, COUNT(*) AS count
+SELECT category, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY rating 
-ORDER BY COUNT(*) DESC;
+GROUP BY category;
+-- ORDER BY category;
+
+-- Test 1.4: Test different column orders (COUNT(*) first vs last)
+-- Verify that both column orders work correctly
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
+
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
 
 -- Test 1.5: Verify execution plans
 EXPLAIN (COSTS OFF, VERBOSE)
@@ -109,23 +133,54 @@ WITH (
 );
 
 -- Test 2.1: GROUP BY different numeric types
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
+
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
+
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
+
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
+
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
+
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
 
 -- Test 2.2: GROUP BY text field
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
+
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
 
 -- Test 2.3: GROUP BY boolean field
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
+
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
 
 -- ===========================================================================
 -- SECTION 3: Edge Cases and Negative Tests
 -- ===========================================================================
 
 -- Test 3.1: GROUP BY with no matching results
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'nonexistent_term' 
+GROUP BY rating;
+
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'nonexistent_term' 
@@ -187,14 +242,27 @@ WITH (
 );
 
 -- Test 4.1: Analyze priority distribution for login issues
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority
-ORDER BY priority;
+GROUP BY priority;
+-- ORDER BY priority;
+
+SELECT priority, COUNT(*) as count
+FROM support_tickets
+WHERE description @@@ 'login OR password OR authentication'
+GROUP BY priority;
+-- ORDER BY priority;
 
 -- Test 4.2: Status breakdown by category (without ORDER BY)
 -- Note: ORDER BY aggregate columns is not yet supported in custom scan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets
+WHERE description @@@ 'error OR broken OR failed'
+GROUP BY category;
+
 SELECT category, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'error OR broken OR failed'

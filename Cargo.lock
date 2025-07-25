@@ -377,6 +377,7 @@ version = "0.17.2"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
  "pretty_assertions",
  "serde",
  "serde_json",

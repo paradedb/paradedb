@@ -15,13 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Instant;
+
 use crate::median;
 use crate::micro_benchmarks::setup_benchmark_database;
+
 use anyhow::Result;
+use futures::StreamExt;
 use pretty_assertions::{assert_eq, assert_ne};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
-use std::time::Instant;
 
 pub const ASSERT_HEAP_VIRTUAL_TUPLES: bool = false;
 
@@ -181,7 +184,7 @@ pub async fn run_benchmark(
 
     // Warmup runs to ensure caches are primed
     for _ in 0..config.warmup_iterations {
-        let _ = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
+        fetch_and_discard(conn, &query_to_run).await?;
     }
 
     // Get the execution plan to determine which execution method is used
@@ -200,7 +203,7 @@ pub async fn run_benchmark(
     let mut timings = Vec::with_capacity(config.iterations);
     for _i in 0..config.iterations {
         let start = Instant::now();
-        let _res = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
+        fetch_and_discard(conn, &query_to_run).await?;
         let elapsed = start.elapsed();
         let time_ms = elapsed.as_secs_f64() * 1000.0;
 
@@ -306,6 +309,14 @@ pub fn display_results(results: &[BenchmarkResult]) {
             );
         }
     }
+}
+
+async fn fetch_and_discard(conn: &mut PgConnection, query: &str) -> sqlx::Result<()> {
+    let mut query = sqlx::query(query).fetch(conn);
+    while let Some(row) = query.next().await {
+        let _ = row?;
+    }
+    Ok(())
 }
 
 /// Helper function to run benchmarks with multiple execution methods

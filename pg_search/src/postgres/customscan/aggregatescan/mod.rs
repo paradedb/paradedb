@@ -144,7 +144,8 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
-        // Set pathkeys for ORDER BY if present
+        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
+        // To do this, we set pathkeys for ORDER BY if present.
         let builder = if let Some(ref pathkeys) = order_pathkeys {
             let mut builder = builder;
             for pathkey_style in pathkeys {
@@ -220,12 +221,6 @@ impl CustomScan for AggregateScan {
 
         builder.set_targetlist(targetlist);
         builder.set_scanrelid(builder.custom_private().heap_rti);
-
-        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted
-        if !builder.custom_private().order_by_info.is_empty() {
-            // For now, just indicate that the scan produces sorted output
-            // PostgreSQL will handle the pathkeys from the original path
-        }
 
         builder.build()
     }

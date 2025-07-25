@@ -29,7 +29,7 @@ use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::builder::{
     BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
@@ -39,8 +39,7 @@ use arrow_array::{Array, ArrayRef};
 use arrow_schema::DataType;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
-use pgrx::PgOid;
-use tantivy::schema::document::OwnedValue;
+use pgrx::{datum, AnyNumeric, IntoDatum, PgBuiltInOids, PgOid};
 use tantivy::DocAddress;
 use tantivy::SegmentOrdinal;
 
@@ -51,7 +50,7 @@ use tantivy::SegmentOrdinal;
 /// be held in memory at a time.
 const JOIN_BATCH_SIZE: usize = 128_000;
 
-/// A macro to fetch values for the given ids into a Vec<OwnedValue>.
+/// A macro to fetch values for the given ids into an Arrow array.
 macro_rules! fetch_ff_column {
     ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
         match $col {
@@ -76,40 +75,156 @@ macro_rules! fetch_ff_column {
     };
 }
 
-// TODO: Convert directly to Datum.
-fn arrow_array_to_tantivy_value(array: &dyn Array, index: usize) -> TantivyValue {
+/// Get a value of the given type from the given index/row of the given array.
+///
+/// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
+/// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
+fn arrow_array_to_datum(
+    array: &dyn Array,
+    index: usize,
+    oid: PgOid,
+) -> Result<Option<pg_sys::Datum>, String> {
     if array.is_null(index) {
-        return TantivyValue(OwnedValue::Null);
+        return Ok(None);
     }
 
-    match array.data_type() {
+    let datum = match array.data_type() {
         DataType::Utf8View => {
             let arr = array.as_string_view();
-            TantivyValue(OwnedValue::Str(arr.value(index).to_string()))
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID)
+                | PgOid::BuiltIn(PgBuiltInOids::JSONOID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
+                    serde_json::from_str(s)
+                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
+                )
+                .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid = uuid::Uuid::parse_str(s)
+                        .map_err(|e| format!("Failed to decode as UUID: {e}"))?;
+                    datum::Uuid::from_slice(uuid.as_bytes())?.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
+                    datum::Inet::from(s.to_string()).into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
         }
         DataType::UInt64 => {
             let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
-            TantivyValue(OwnedValue::U64(arr.value(index)))
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(), // Convert u64 to i64 for INT8OID
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
+                    pgrx::pg_sys::Oid::from(val as u32).into_datum()
+                } // Cast u64 to u32 for OID
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
+                // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
+                _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
+            }
         }
         DataType::Int64 => {
             let arr = array.as_primitive::<arrow_array::types::Int64Type>();
-            TantivyValue(OwnedValue::I64(arr.value(index)))
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
+                _ => return Err(format!("Unsupported OID for Int64 Arrow type: {oid:?}")),
+            }
         }
         DataType::Float64 => {
             let arr = array.as_primitive::<arrow_array::types::Float64Type>();
-            TantivyValue(OwnedValue::F64(arr.value(index)))
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::try_from(val)
+                    .map_err(|e| format!("Failed to encode: {e}"))?
+                    .into_datum(),
+                _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
+            }
         }
         DataType::Boolean => {
             let arr = array.as_boolean();
-            TantivyValue(OwnedValue::Bool(arr.value(index)))
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BOOLOID) => val.into_datum(),
+                _ => return Err(format!("Unsupported OID for Boolean Arrow type: {oid:?}")),
+            }
         }
         DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
             let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
             let ts_nanos = arr.value(index);
-            TantivyValue(OwnedValue::Date(ts_nanos_to_date_time(ts_nanos)))
+            let dt = ts_nanos_to_date_time(ts_nanos);
+            let prim_dt = dt.into_primitive();
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::TimestampWithTimeZone::with_timezone(
+                        prim_dt.year(),
+                        prim_dt.month().into(),
+                        prim_dt.day(),
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                        "UTC",
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::Timestamp::new(
+                        prim_dt.year(),
+                        prim_dt.month().into(),
+                        prim_dt.day(),
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::DATEOID) => {
+                    datum::Date::new(prim_dt.year(), prim_dt.month().into(), prim_dt.day())
+                        .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                        .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::Time::new(
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::TimeWithTimeZone::with_timezone(
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                        "UTC",
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
+                    ))
+                }
+            }
         }
-        dt => panic!("Unsupported arrow data type for conversion to TantivyValue: {dt:?}"),
-    }
+        dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
+    };
+    Ok(datum)
 }
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
@@ -518,12 +633,8 @@ impl Batch {
             match &mut self.fields[i] {
                 Some(column) => {
                     // We extracted this field: convert it into a datum.
-                    let datum_res = unsafe {
-                        // TODO: avoid the trip through `TantivyValue`.
-                        let tantivy_value = arrow_array_to_tantivy_value(column.as_ref(), row_idx);
-                        tantivy_value.try_into_datum(PgOid::from(att.atttypid))
-                    };
-                    match datum_res {
+                    match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid))
+                    {
                         Ok(Some(datum)) => {
                             datums[i] = datum;
                             isnull[i] = false;

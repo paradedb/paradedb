@@ -18,7 +18,6 @@
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
-use pgrx::pg_sys::Datum;
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 use tantivy::columnar::StrColumn;
@@ -102,121 +101,6 @@ pub enum FFType {
     U64(Column<u64>),
     Bool(Column<bool>),
     Date(Column<tantivy::DateTime>),
-}
-
-/// Individual fast field values (complement to FFType which works with columns)
-#[derive(Debug, Clone, PartialEq)]
-pub enum FFValue {
-    Text(String),
-    I64(i64),
-    F64(f64),
-    U64(u64),
-    Bool(bool),
-    Date(tantivy::DateTime),
-}
-
-impl Eq for FFValue {}
-
-impl PartialOrd for FFValue {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for FFValue {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-
-        match (self, other) {
-            (FFValue::Text(a), FFValue::Text(b)) => a.cmp(b),
-            (FFValue::I64(a), FFValue::I64(b)) => a.cmp(b),
-            (FFValue::F64(a), FFValue::F64(b)) => {
-                // Handle NaN and special float cases
-                a.partial_cmp(b).unwrap_or(Ordering::Equal)
-            }
-            (FFValue::U64(a), FFValue::U64(b)) => a.cmp(b),
-            (FFValue::Bool(a), FFValue::Bool(b)) => a.cmp(b),
-            (FFValue::Date(a), FFValue::Date(b)) => a.cmp(b),
-            // Cross-type comparisons: order by variant index
-            _ => {
-                let self_idx = match self {
-                    FFValue::Text(_) => 0,
-                    FFValue::I64(_) => 1,
-                    FFValue::F64(_) => 2,
-                    FFValue::U64(_) => 3,
-                    FFValue::Bool(_) => 4,
-                    FFValue::Date(_) => 5,
-                };
-                let other_idx = match other {
-                    FFValue::Text(_) => 0,
-                    FFValue::I64(_) => 1,
-                    FFValue::F64(_) => 2,
-                    FFValue::U64(_) => 3,
-                    FFValue::Bool(_) => 4,
-                    FFValue::Date(_) => 5,
-                };
-                self_idx.cmp(&other_idx)
-            }
-        }
-    }
-}
-
-impl FFValue {
-    /// Convert this FFValue to a TantivyValue
-    pub fn to_tantivy_value(self) -> TantivyValue {
-        let owned_value = match self {
-            FFValue::Text(s) => OwnedValue::Str(s),
-            FFValue::I64(v) => OwnedValue::I64(v),
-            FFValue::F64(v) => OwnedValue::F64(v),
-            FFValue::U64(v) => OwnedValue::U64(v),
-            FFValue::Bool(v) => OwnedValue::Bool(v),
-            FFValue::Date(v) => OwnedValue::Date(v),
-        };
-        TantivyValue(owned_value)
-    }
-
-    /// Create an FFValue from a JSON value, knowing the expected field type
-    pub fn from_json_with_type(
-        json_value: &serde_json::Value,
-        field_type: &FFType,
-    ) -> Option<Self> {
-        match field_type {
-            FFType::Text(_) => json_value.as_str().map(|s| FFValue::Text(s.to_string())),
-            FFType::I64(_) => json_value.as_i64().map(FFValue::I64),
-            FFType::F64(_) => json_value.as_f64().map(FFValue::F64),
-            FFType::U64(_) => json_value.as_u64().map(FFValue::U64),
-            FFType::Bool(_) => {
-                // Handle both boolean JSON values and numeric representations
-                if let Some(b) = json_value.as_bool() {
-                    Some(FFValue::Bool(b))
-                } else if let Some(n) = json_value.as_i64() {
-                    // Boolean fast fields may come back as 0/1 from aggregations
-                    Some(FFValue::Bool(n != 0))
-                } else if let Some(n) = json_value.as_u64() {
-                    Some(FFValue::Bool(n != 0))
-                } else {
-                    None
-                }
-            }
-            FFType::Date(_) => {
-                // Dates are typically represented as timestamps (convert to micros)
-                json_value.as_i64().map(|ts| {
-                    let micros = ts * 1_000_000; // Convert seconds to microseconds
-                    FFValue::Date(tantivy::DateTime::from_timestamp_micros(micros))
-                })
-            }
-            FFType::Junk => None,
-        }
-    }
-
-    /// Convert this FFValue to a PostgreSQL Datum given the target type
-    pub unsafe fn try_into_datum(
-        self,
-        oid: pgrx::PgOid,
-    ) -> Result<Option<Datum>, crate::postgres::types::TantivyValueError> {
-        // Use the existing TantivyValue conversion logic
-        self.to_tantivy_value().try_into_datum(oid)
-    }
 }
 
 impl FFType {

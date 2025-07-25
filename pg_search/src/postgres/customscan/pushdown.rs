@@ -146,17 +146,7 @@ pub unsafe fn try_pushdown_inner(
     schema: &SearchIndexSchema
 ) -> Option<Qual> {
     let args = opexpr.args();
-    let lhs = {
-        // inspect the left-hand-side of the operator expression...
-        let mut lhs = args.get_ptr(0)?;
-
-        while (*lhs).type_ == pg_sys::NodeTag::T_RelabelType {
-            // and keep following it as long as it's still a RelabelType
-            let relabel_type = lhs as *mut pg_sys::RelabelType;
-            lhs = (*relabel_type).arg as _;
-        }
-        lhs
-    };
+    let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
     let pushdown = PushdownField::try_new(root, lhs, schema)?;
     let field = pushdown.search_field(schema)?;

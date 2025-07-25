@@ -62,7 +62,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::{find_one_var, find_var_relation};
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -1343,41 +1343,23 @@ unsafe fn pullup_orderby_pathkey(
             if is_score_func(expr.cast(), rti as _) {
                 return Some(OrderByStyle::Score(first_pathkey));
             } else if let Some(var) = is_lower_func(expr.cast(), rti as _) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_lower_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
-                        }
+                let (_, field) = find_one_var_and_fieldname(
+                    VarContext::from_planner(root),
+                    var as *mut pg_sys::Node,
+                )?;
+                if let Some(search_field) = schema.search_field(field.root()) {
+                    if search_field.is_lower_sortable() {
+                        return Some(OrderByStyle::Field(first_pathkey, field));
                     }
                 }
-            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if search_field.is_raw_sortable() {
-                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
-                            }
-                        }
-                    }
-                }
-            } else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid == pg_sys::Oid::INVALID {
-                    return None;
-                }
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_raw_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
-                        }
+            } else {
+                let (_, field) = find_one_var_and_fieldname(
+                    VarContext::from_planner(root),
+                    expr as *mut pg_sys::Node,
+                )?;
+                if let Some(search_field) = schema.search_field(field.root()) {
+                    if search_field.is_raw_sortable() {
+                        return Some(OrderByStyle::Field(first_pathkey, field));
                     }
                 }
             }

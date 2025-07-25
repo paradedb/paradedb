@@ -469,7 +469,7 @@ impl SearchIndexReader {
         offset: usize,
     ) -> SearchResults {
         let iters = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            scorer_iter::ScorerIter::new(
+            Ok(scorer_iter::ScorerIter::new(
                 DeferredScorer::new(
                     self.query().box_clone(),
                     self.need_scores,
@@ -478,7 +478,7 @@ impl SearchIndexReader {
                 ),
                 segment_ord,
                 segment_reader.clone(),
-            )
+            ))
         });
 
         SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, offset)
@@ -503,7 +503,7 @@ impl SearchIndexReader {
         if let Some(sort_field) = sort_field {
             let field = self
                 .schema
-                .search_field(&sort_field)
+                .search_field(&sort_field.root())
                 .expect("sort field should exist in index schema");
             match field.field_entry().field_type().value_type() {
                 tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
@@ -549,7 +549,6 @@ impl SearchIndexReader {
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
             collector
                 .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                .expect("should be able to collect top-n in segment")
         });
 
         let top_docs = collector
@@ -598,7 +597,6 @@ impl SearchIndexReader {
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
             collector
                 .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                .expect("should be able to collect top-n in segment")
         });
 
         let top_docs = collector
@@ -654,7 +652,6 @@ impl SearchIndexReader {
                 let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
                     collector
                         .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                        .expect("should be able to collect top-n in segment")
                 });
 
                 let top_docs = collector
@@ -683,7 +680,6 @@ impl SearchIndexReader {
                 let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
                     collector
                         .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                        .expect("should be able to collect top-n in segment")
                 });
 
                 let top_docs = collector
@@ -734,7 +730,7 @@ impl SearchIndexReader {
     fn collect_segments<T>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        mut collect: impl FnMut(SegmentOrdinal, &SegmentReader) -> T,
+        mut collect: impl FnMut(SegmentOrdinal, &SegmentReader) -> tantivy::Result<T>,
     ) -> Vec<T> {
         segment_ids
             .map(|segment_id| {
@@ -745,8 +741,9 @@ impl SearchIndexReader {
                     .enumerate()
                     .find(|(_, reader)| reader.segment_id() == segment_id)
                     .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-                collect(segment_ord as SegmentOrdinal, segment_reader)
+                collect(segment_ord as SegmentOrdinal, segment_reader).ok()
             })
+            .flatten()
             .collect()
     }
 }

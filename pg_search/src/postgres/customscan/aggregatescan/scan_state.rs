@@ -19,6 +19,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 
@@ -32,7 +33,7 @@ pub type AggregateRow = TinyVec<[i64; 4]>;
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
 pub struct GroupedAggregateRow {
-    pub group_keys: Vec<String>, // The values of the grouping columns
+    pub group_keys: Vec<TantivyValue>, // The values of the grouping columns
     pub aggregate_values: AggregateRow,
 }
 
@@ -186,13 +187,8 @@ impl AggregateScanState {
             let key = bucket_obj
                 .get("key")
                 .map(|k| {
-                    // Handle both string and numeric keys
-                    match k {
-                        serde_json::Value::String(s) => s.clone(),
-                        serde_json::Value::Number(n) => n.to_string(),
-                        serde_json::Value::Bool(b) => b.to_string(),
-                        _ => panic!("unexpected bucket key type: {k:?}"),
-                    }
+                    // Create TantivyValue directly from JSON value to preserve type information
+                    TantivyValue(tantivy::schema::OwnedValue::from(k.clone()))
                 })
                 .expect("missing bucket key");
 

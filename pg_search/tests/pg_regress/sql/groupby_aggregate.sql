@@ -49,7 +49,7 @@ GROUP BY rating;
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating 
+GROUP BY rating;
 -- ORDER BY rating;
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)

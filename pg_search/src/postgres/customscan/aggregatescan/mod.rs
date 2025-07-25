@@ -322,49 +322,22 @@ impl CustomScan for AggregateScan {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
-                        // Convert the string value to the appropriate type
-                        datums[i] = match typoid {
-                            t if t == pg_sys::TEXTOID
-                                || t == pg_sys::VARCHAROID
-                                || t == pg_sys::BPCHAROID =>
-                            {
-                                // Text types - use the string as-is
-                                group_val.clone().into_datum().unwrap()
+                        // Convert the TantivyValue directly to the appropriate type
+                        let oid = pgrx::PgOid::from(typoid);
+                        match group_val.clone().try_into_datum(oid) {
+                            Ok(Some(datum)) => {
+                                datums[i] = datum;
                             }
-                            t if t == pg_sys::INT2OID => {
-                                // smallint
-                                let val: i16 = group_val.parse().expect("invalid int2 value");
-                                val.into_datum().unwrap()
+                            Ok(None) => {
+                                // NULL value
+                                datums[i] = pg_sys::Datum::from(0);
+                                isnull[i] = true;
+                                continue;
                             }
-                            t if t == pg_sys::INT4OID => {
-                                // integer
-                                let val: i32 = group_val.parse().expect("invalid int4 value");
-                                val.into_datum().unwrap()
+                            Err(e) => {
+                                panic!("Failed to convert TantivyValue to datum: {e:?}");
                             }
-                            t if t == pg_sys::INT8OID => {
-                                // bigint
-                                let val: i64 = group_val.parse().expect("invalid int8 value");
-                                val.into_datum().unwrap()
-                            }
-                            t if t == pg_sys::FLOAT4OID => {
-                                // real
-                                let val: f32 = group_val.parse().expect("invalid float4 value");
-                                val.into_datum().unwrap()
-                            }
-                            t if t == pg_sys::FLOAT8OID => {
-                                // double precision
-                                let val: f64 = group_val.parse().expect("invalid float8 value");
-                                val.into_datum().unwrap()
-                            }
-                            t if t == pg_sys::BOOLOID => {
-                                // boolean
-                                let val: bool = group_val.parse().expect("invalid bool value");
-                                val.into_datum().unwrap()
-                            }
-                            _ => {
-                                panic!("Unsupported grouping column type: OID {typoid}");
-                            }
-                        };
+                        }
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {

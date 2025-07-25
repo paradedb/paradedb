@@ -3,7 +3,7 @@
 # Check pg_search Schema Upgrade
 # Determine if a commit introduces an extension schema change for pg_search.
 
-name: Check pg_search Schema Upgrade
+name: SchemaBot
 
 on:
   pull_request:
@@ -113,7 +113,6 @@ jobs:
           if test -s ~/diff.sql; then
             echo "Generating GitHub comment message"
             {
-              echo 'DIFF<<EOF'
               echo 'A schema difference was detected.'
               echo
               echo 'A suggested "upgrade.sql" script entry might be:'
@@ -134,7 +133,6 @@ jobs:
               cat ~/diff.patch
               echo '```'
               echo '</details>'
-              echo EOF
             } >> commit-message.md
 
             # Set a flag to indicate a schema difference was detected
@@ -150,7 +148,7 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const diff = fs.readFileSync('commit-message.md', 'utf8');
+            const commit_message = fs.readFileSync('commit-message.md', 'utf8');
 
             const comments = await github.rest.issues.listComments({
               issue_number: context.issue.number,
@@ -163,7 +161,7 @@ jobs:
               comment.body.includes('A schema difference was detected.')
             );
 
-            const body = `A schema difference was detected.\n\n\`\`\`diff\n${diff}\n\`\`\``;
+            const body = `A schema difference was detected.\n\n${commit_message}`;
 
             if (botComment) {
               await github.rest.issues.updateComment({

@@ -83,7 +83,7 @@ jobs:
 
       # This is the pgrx version compatible with ParadeDB $PRIOR_PG_SEARCH_VERSION
       - name: Install cargo-pgrx for ParadeDB $PRIOR_PG_SEARCH_VERSION
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.14.3 --debug
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.15.0 --debug
 
       - name: Initialize cargo-pgrx environment for ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"

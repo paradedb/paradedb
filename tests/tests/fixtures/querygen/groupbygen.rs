@@ -64,8 +64,8 @@ pub fn arb_group_by(
         .collect::<Vec<_>>();
 
     // Generate 0-3 grouping columns from the available columns
-    (0..=3.min(columns.len())).prop_flat_map(move |group_size| {
-        if group_size == 0 {
+    proptest::sample::subsequence(columns, 0..3).prop_flat_map(move |selected_columns| {
+        if selected_columns.is_empty() {
             // No GROUP BY - just aggregates
             let target_list = aggregates
                 .iter()
@@ -80,48 +80,25 @@ pub fn arb_group_by(
         } else {
             // Choose a subset of columns for grouping
             let aggregates_clone = aggregates.clone();
-            proptest::sample::subsequence(columns.clone(), group_size)
-                .prop_flat_map(move |selected_columns| {
-                    // Create select items for columns and aggregates
-                    let mut select_items = Vec::new();
+            // Create select items for columns and aggregates
+            let mut select_items = Vec::new();
 
-                    // Add all selected columns as SelectItem::Column
-                    for col in &selected_columns {
-                        select_items.push(SelectItem::Column(col.clone()));
-                    }
+            // Add all selected columns as SelectItem::Column
+            for col in &selected_columns {
+                select_items.push(SelectItem::Column(col.clone()));
+            }
 
-                    // Add all aggregates as SelectItem::Aggregate
-                    for &agg in &aggregates_clone {
-                        select_items.push(SelectItem::Aggregate(agg.to_string()));
-                    }
+            // Add all aggregates as SelectItem::Aggregate
+            for &agg in &aggregates_clone {
+                select_items.push(SelectItem::Aggregate(agg.to_string()));
+            }
 
-                    // Generate a random permutation of the target list
-                    let n_items = select_items.len();
-                    let selected_columns_clone = selected_columns.clone();
-                    proptest::collection::vec(0..n_items, n_items).prop_filter_map(
-                        "unique permutation",
-                        move |indices| {
-                            // Check if all indices are unique (valid permutation)
-                            let mut sorted = indices.clone();
-                            sorted.sort();
-                            sorted.dedup();
-                            if sorted.len() == n_items {
-                                // Use indices to reorder select_items
-                                let shuffled: Vec<_> = indices
-                                    .into_iter()
-                                    .map(|i| select_items[i].clone())
-                                    .collect();
-                                Some(GroupByExpr {
-                                    group_by_columns: selected_columns_clone.clone(),
-                                    target_list: shuffled,
-                                })
-                            } else {
-                                None
-                            }
-                        },
-                    )
-                })
-                .boxed()
+            // Generate a random permutation of the target list
+            Just(GroupByExpr {
+                group_by_columns: selected_columns,
+                target_list: select_items,
+            })
+            .boxed()
         }
     })
 }

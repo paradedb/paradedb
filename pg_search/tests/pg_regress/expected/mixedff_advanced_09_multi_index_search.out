@@ -765,11 +765,12 @@ ORDER BY p.price;
                      ->  Custom Scan (ParadeDB Scan) on categories c
                            Table: categories
                            Index: categories_idx
-                           Exec Method: NumericFastFieldExecState
+                           Exec Method: MixedFastFieldExecState
                            Fast Fields: id
+                           Numeric Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+(20 rows)
 
 SELECT p.name, p.price, p.stock_count
 FROM products p

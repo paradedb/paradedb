@@ -157,9 +157,6 @@ pub enum ExecMethodType {
         limit: usize,
         sort_direction: SortDirection,
     },
-    FastFieldNumeric {
-        which_fast_fields: HashSet<WhichFastField>,
-    },
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
         limit: Option<usize>,

@@ -319,7 +319,12 @@ SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_b
 (4 rows)
 
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
-ERROR:  Failed to convert TantivyValue to datum: UnsupportedIntoConversion("bool")
+ val_bool | count 
+----------+-------
+ f        |     2
+ t        |     3
+(2 rows)
+
 -- ===========================================================================
 -- SECTION 3: Edge Cases and Negative Tests
 -- ===========================================================================

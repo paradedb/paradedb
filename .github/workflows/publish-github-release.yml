@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to release, in semver format. This must match the version in Cargo.toml."
+        description: "The version to release, in semver format (e.g. 0.15.0). This must match the version in Cargo.toml."
         type: string
         required: true
         default: ""

@@ -1,5 +1,10 @@
 # workflows/benchmark-backfill-auto.yml
-name: Automatically backfill benchmarks using existing commit hashes
+#
+# Benchmark Backfill Auto
+# Automatically backfill benchmarks results using existing commit hashes. This
+# workflow is triggered by the `benchmark-backfill` workflow.
+
+name: Benchmark Backfill Auto
 
 on:
   workflow_dispatch:

@@ -26,7 +26,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, OrderByColumn, PrivateData, SortDirection, TargetListEntry,
+    AggregateType, GroupingColumn, OrderByInfo, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
@@ -125,9 +125,9 @@ impl CustomScan for AggregateScan {
             vec![]
         };
 
-        // Extract ORDER BY information if present
-        let order_by_columns =
-            extract_order_by_info(args.root, &grouping_columns, &aggregate_types)?;
+        // Extract ORDER BY pathkeys if present
+        let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
+        let order_by_info = extract_order_by_info(args.root, &order_pathkeys);
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -144,17 +144,13 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
-        // Extract pathkeys for ORDER BY if present
-        let builder = if !order_by_columns.is_empty() {
-            if let Some(order_pathkeys) = extract_order_by_pathkeys(args.root, heap_rti, &schema) {
-                let mut builder = builder;
-                for pathkey_style in order_pathkeys {
-                    builder = builder.add_path_key(&pathkey_style);
-                }
-                builder
-            } else {
-                builder
+        // Set pathkeys for ORDER BY if present
+        let builder = if let Some(ref pathkeys) = order_pathkeys {
+            let mut builder = builder;
+            for pathkey_style in pathkeys {
+                builder = builder.add_path_key(pathkey_style);
             }
+            builder
         } else {
             builder
         };
@@ -165,7 +161,7 @@ impl CustomScan for AggregateScan {
             heap_rti,
             query,
             grouping_columns,
-            order_by_columns,
+            order_by_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
         }))
     }
@@ -226,7 +222,7 @@ impl CustomScan for AggregateScan {
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted
-        if !builder.custom_private().order_by_columns.is_empty() {
+        if !builder.custom_private().order_by_info.is_empty() {
             // For now, just indicate that the scan produces sorted output
             // PostgreSQL will handle the pathkeys from the original path
         }
@@ -239,7 +235,7 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
-        builder.custom_state().order_by_columns = builder.custom_private().order_by_columns.clone();
+        builder.custom_state().order_by_info = builder.custom_private().order_by_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
@@ -521,67 +517,27 @@ impl ExecMethod for AggregateScan {
 impl PlainExecCapable for AggregateScan {}
 
 /// Extract ORDER BY information from query pathkeys
+/// In this case, we convert OrderByStyle to OrderByInfo for serialization.
 fn extract_order_by_info(
     root: *mut pg_sys::PlannerInfo,
-    grouping_columns: &[GroupingColumn],
-    aggregate_types: &[AggregateType],
-) -> Option<Vec<OrderByColumn>> {
-    // Check if there's an explicit ORDER BY clause by looking at query_pathkeys
-    let query_pathkeys = unsafe { PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys) };
-
-    if query_pathkeys.is_empty() {
-        return Some(vec![]);
-    }
-
-    // Try to extract ORDER BY information from pathkeys
-    // This is a simplified version - we can enhance it later
-    let mut order_by_columns = Vec::new();
-
-    unsafe {
-        for pathkey_ptr in query_pathkeys.iter_ptr() {
-            let pathkey = pathkey_ptr;
-            let equivclass = (*pathkey).pk_eclass;
-            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-            for member in members.iter_ptr() {
-                let expr = (*member).em_expr;
-
-                // Check if this is a Var (column reference)
-                if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
-                        continue;
-                    }
-
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        // Check if this is a grouping column
-                        if let Some(gc) = grouping_columns
-                            .iter()
-                            .find(|gc| gc.field_name == att.name())
-                        {
-                            let pathkey_style = OrderByStyle::Field(pathkey, att.name().into());
-                            let direction = match pathkey_style.direction() {
-                                PathkeySortDirection::Asc => SortDirection::Asc,
-                                PathkeySortDirection::Desc => SortDirection::Desc,
-                                _ => SortDirection::Asc, // Default to ascending for other cases
-                            };
-
-                            order_by_columns.push(OrderByColumn::GroupingColumn {
-                                field_name: gc.field_name.clone(),
-                                attno: gc.attno,
-                                direction,
-                            });
-                            break; // Found a valid ORDER BY column
-                        }
-                    }
-                }
+    order_pathkeys: &Option<Vec<OrderByStyle>>,
+) -> Vec<OrderByInfo> {
+    order_pathkeys
+        .as_ref()
+        .unwrap_or(&vec![])
+        .iter()
+        .map(|style| {
+            let field_name = match style {
+                OrderByStyle::Field(_, name) => name.to_string(),
+                OrderByStyle::Score(_) => "score".to_string(),
+            };
+            let is_desc = matches!(style.direction(), PathkeySortDirection::Desc);
+            OrderByInfo {
+                field_name,
+                is_desc,
             }
-        }
-    }
-
-    Some(order_by_columns)
+        })
+        .collect()
 }
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output

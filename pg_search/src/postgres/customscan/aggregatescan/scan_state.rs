@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, OrderByColumn, SortDirection, TargetListEntry,
+    AggregateType, GroupingColumn, OrderByInfo, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
@@ -53,8 +53,8 @@ pub struct AggregateScanState {
     pub aggregate_types: Vec<AggregateType>,
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
-    // The ORDER BY columns for sorting
-    pub order_by_columns: Vec<OrderByColumn>,
+    // The ORDER BY information for sorting
+    pub order_by_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -227,53 +227,32 @@ impl AggregateScanState {
     }
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.order_by_columns.is_empty() {
+        if self.order_by_info.is_empty() {
             return;
         }
 
         rows.sort_by(|a, b| {
-            for order_col in &self.order_by_columns {
-                let cmp = match order_col {
-                    OrderByColumn::GroupingColumn {
-                        field_name,
-                        direction,
-                        ..
-                    } => {
-                        // Find the index of this grouping column
-                        let col_index = self
-                            .grouping_columns
-                            .iter()
-                            .position(|gc| gc.field_name == *field_name);
+            for order_info in &self.order_by_info {
+                // Find the index of this grouping column
+                let col_index = self
+                    .grouping_columns
+                    .iter()
+                    .position(|gc| gc.field_name == order_info.field_name);
 
-                        if let Some(idx) = col_index {
-                            let default_value = TantivyValue(tantivy::schema::OwnedValue::from(""));
-                            let val_a = a.group_keys.get(idx).unwrap_or(&default_value);
-                            let val_b = b.group_keys.get(idx).unwrap_or(&default_value);
+                let cmp = if let Some(idx) = col_index {
+                    let default_value = TantivyValue(tantivy::schema::OwnedValue::from(""));
+                    let val_a = a.group_keys.get(idx).unwrap_or(&default_value);
+                    let val_b = b.group_keys.get(idx).unwrap_or(&default_value);
 
-                            // Try to parse as numbers first, fall back to string comparison
-                            let cmp = val_a.cmp(val_b);
+                    let base_cmp = val_a.cmp(val_b);
 
-                            match direction {
-                                SortDirection::Asc => cmp,
-                                SortDirection::Desc => cmp.reverse(),
-                            }
-                        } else {
-                            std::cmp::Ordering::Equal
-                        }
+                    if order_info.is_desc {
+                        base_cmp.reverse()
+                    } else {
+                        base_cmp
                     }
-                    OrderByColumn::AggregateColumn {
-                        aggregate_index,
-                        direction,
-                    } => {
-                        let val_a = a.aggregate_values.get(*aggregate_index).unwrap_or(&0);
-                        let val_b = b.aggregate_values.get(*aggregate_index).unwrap_or(&0);
-
-                        let cmp = val_a.cmp(val_b);
-                        match direction {
-                            SortDirection::Asc => cmp,
-                            SortDirection::Desc => cmp.reverse(),
-                        }
-                    }
+                } else {
+                    std::cmp::Ordering::Equal
                 };
 
                 if cmp != std::cmp::Ordering::Equal {

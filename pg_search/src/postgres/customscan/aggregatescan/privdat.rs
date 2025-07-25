@@ -58,23 +58,11 @@ pub struct GroupingColumn {
     pub attno: pg_sys::AttrNumber,
 }
 
+/// Simple ORDER BY information for serialization in PrivateData
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum OrderByColumn {
-    GroupingColumn {
-        field_name: String,
-        attno: pg_sys::AttrNumber,
-        direction: SortDirection,
-    },
-    AggregateColumn {
-        aggregate_index: usize, // Index into the aggregate_types vec
-        direction: SortDirection,
-    },
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum SortDirection {
-    Asc,
-    Desc,
+pub struct OrderByInfo {
+    pub field_name: String,
+    pub is_desc: bool, // true for descending, false for ascending
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -90,7 +78,7 @@ pub struct PrivateData {
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
-    pub order_by_columns: Vec<OrderByColumn>,
+    pub order_by_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 

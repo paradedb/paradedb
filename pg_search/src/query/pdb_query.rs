@@ -1066,7 +1066,7 @@ fn phrase(
         }
     }
 
-    // When tokeniser produce more than one token per phrase, their position may not
+    // When tokenizers produce more than one token per phrase, their position may not
     // correctly represent the original query.
     // For example, NgramTokenizer can produce many tokens per word and all of them will
     // have position=0 which won't be correctly interpreted when processing slop

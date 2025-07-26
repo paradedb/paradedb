@@ -120,8 +120,9 @@ impl TantivyValue {
         json_value: &Value,
     ) -> OwnedValue {
         if let Some(search_field) = search_field {
-            // We nned to do special handling for boolean values, as we store them as numbers
-            // in the index.
+            // We need to do special handling for boolean values, as we store them as numbers
+            // in the index. Thus, the schema type (bool) might not match the JSON value type (i.e.
+            // number).
             match search_field.field_type() {
                 crate::schema::SearchFieldType::Bool(_) => {
                     // Handle both boolean JSON values and numeric representations (0/1)

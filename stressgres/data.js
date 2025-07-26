@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753507158990,
+  "lastUpdate": 1753507161058,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11950,6 +11950,66 @@ window.BENCHMARK_DATA = {
             "value": 162.7265625,
             "unit": "median mem",
             "extra": "avg mem: 153.15410461806036, max mem: 172.22265625, count: 57784"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b43d36b4239942ef7054b3bacdc82fb01f938e9",
+          "message": "perf: Reduce buffering during mixed fast field scans (#2887)\n\n# Ticket(s) Closed\n\n- Closes #2715\n- Closes #2623\n\n## What\n\nAdjust the `MixedFastField` executor to stream results, and only buffer\nup to a hard coded batch size in memory.\n\nAdditionally, avoid creating the intermediate tuple-like `FieldValues`\nstructure, and directly consume the column values to produce a tuple in\na postgres `Slot`.\n\n## Why\n\nCurrently, the `MixedFastField` and `StringFastField` executors buffer\nentire columns in memory: that implementation will not scale to larger\ndatasets. Moving to streaming allows them to be used with arbitrarily\nlarge datasets.\n\nRemoving the intermediate `FieldValues` creation also makes\n`MixedFastField` ~equivalent to `StringFastField` in terms of overhead:\na followup change will remove `StringFastField`.\n\n#2623 discussed potentially continuing to buffer entire columns and then\ndeclaring them sorted: but doing so efficiently (i.e., without buffering\nthe entire column) would require a completely different implementation\nof the method which started by consuming the dictionary, and then\nexecuted a series of range queries for manageable chunks.\n\n## Tests\n\nPerformance improves by ~15% on some of our join queries for the `docs`\ndataset.",
+          "timestamp": "2025-07-25T21:42:17-07:00",
+          "tree_id": "a35ec65315a7cc9898747eef7c189bc3704a978f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b43d36b4239942ef7054b3bacdc82fb01f938e9"
+        },
+        "date": 1753507159922,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.71482195445279, max cpu: 49.80048, count: 56469"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 170.70593053544866, max mem: 178.71875, count: 56469"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18054,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16597.529104464396, max block_count: 21685.0, count: 56469"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 39,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.35894030352937, max segment_count: 112.0, count: 56469"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.806328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.887717894913273, max cpu: 37.83251, count: 56469"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 152.53406805614586, max mem: 169.3984375, count: 56469"
           }
         ]
       }

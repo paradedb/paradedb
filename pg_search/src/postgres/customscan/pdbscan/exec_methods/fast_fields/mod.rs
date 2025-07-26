@@ -442,16 +442,8 @@ pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
 }
 
 /// Check if we can use the Mixed fast field execution method
-///
-/// MixedFF is subject to the same constraints around limits and laziness as StringFF: see
-/// `is_string_fast_field_capable`.
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     if !gucs::is_mixed_fast_field_exec_enabled() {
-        return false;
-    }
-
-    if privdata.limit().is_some() {
-        // See the method doc with regard to limits/laziness.
         return false;
     }
 
@@ -504,7 +496,9 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
                 .collect();
             explainer.add_text("Fast Fields", fields.join(", "));
         }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields, ..
+        } => {
             // Get all fast fields used
             let string_fields: Vec<_> = which_fast_fields
                 .iter()

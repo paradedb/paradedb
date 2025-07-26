@@ -1138,6 +1138,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     } else if fast_fields::is_mixed_fast_field_capable(privdata) {
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            limit: privdata.limit(),
         }
     } else {
         // Fall back to normal execution
@@ -1203,13 +1204,17 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                 )
             }
         }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields,
+            limit,
+        } => {
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
+                        limit,
                     ),
                     None,
                 )

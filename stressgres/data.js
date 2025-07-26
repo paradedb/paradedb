@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753507161058,
+  "lastUpdate": 1753507789765,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12498,6 +12498,60 @@ window.BENCHMARK_DATA = {
             "value": 17.591369172305836,
             "unit": "median tps",
             "extra": "avg tps: 17.82202790732451, max tps: 20.503039616629245, count: 55195"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b43d36b4239942ef7054b3bacdc82fb01f938e9",
+          "message": "perf: Reduce buffering during mixed fast field scans (#2887)\n\n# Ticket(s) Closed\n\n- Closes #2715\n- Closes #2623\n\n## What\n\nAdjust the `MixedFastField` executor to stream results, and only buffer\nup to a hard coded batch size in memory.\n\nAdditionally, avoid creating the intermediate tuple-like `FieldValues`\nstructure, and directly consume the column values to produce a tuple in\na postgres `Slot`.\n\n## Why\n\nCurrently, the `MixedFastField` and `StringFastField` executors buffer\nentire columns in memory: that implementation will not scale to larger\ndatasets. Moving to streaming allows them to be used with arbitrarily\nlarge datasets.\n\nRemoving the intermediate `FieldValues` creation also makes\n`MixedFastField` ~equivalent to `StringFastField` in terms of overhead:\na followup change will remove `StringFastField`.\n\n#2623 discussed potentially continuing to buffer entire columns and then\ndeclaring them sorted: but doing so efficiently (i.e., without buffering\nthe entire column) would require a completely different implementation\nof the method which started by consuming the dictionary, and then\nexecuted a series of range queries for manageable chunks.\n\n## Tests\n\nPerformance improves by ~15% on some of our join queries for the `docs`\ndataset.",
+          "timestamp": "2025-07-25T21:42:17-07:00",
+          "tree_id": "a35ec65315a7cc9898747eef7c189bc3704a978f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b43d36b4239942ef7054b3bacdc82fb01f938e9"
+        },
+        "date": 1753507788639,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 41.459447855159205,
+            "unit": "median tps",
+            "extra": "avg tps: 41.32658029602039, max tps: 42.115851940167026, count: 55450"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 254.0463030686094,
+            "unit": "median tps",
+            "extra": "avg tps: 289.214141373912, max tps: 2572.7919074883002, count: 55450"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 138.8089983698414,
+            "unit": "median tps",
+            "extra": "avg tps: 138.63722307573414, max tps: 139.65519055409587, count: 55450"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 71.12376281991328,
+            "unit": "median tps",
+            "extra": "avg tps: 68.20664607469683, max tps: 121.29808052492866, count: 110900"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.88921020789518,
+            "unit": "median tps",
+            "extra": "avg tps: 19.080625446121303, max tps: 22.924944099816308, count: 55450"
           }
         ]
       }

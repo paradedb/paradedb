@@ -17,7 +17,7 @@
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::range::RangeToTantivyValue;
-use crate::schema::AnyEnum;
+use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -112,6 +112,39 @@ impl TantivyValue {
             _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
         }
         tantivy_values
+    }
+
+    /// Convert a JSON value to an OwnedValue based on the field type from the schema
+    pub fn json_value_to_owned_value(
+        search_field: &Option<SearchField>,
+        json_value: &Value,
+    ) -> OwnedValue {
+        if let Some(search_field) = search_field {
+            // We nned to do special handling for boolean values, as we store them as numbers
+            // in the index.
+            match search_field.field_type() {
+                crate::schema::SearchFieldType::Bool(_) => {
+                    // Handle both boolean JSON values and numeric representations (0/1)
+                    if let Some(b) = json_value.as_bool() {
+                        OwnedValue::Bool(b)
+                    } else if let Some(n) = json_value.as_i64() {
+                        OwnedValue::Bool(n != 0)
+                    } else if let Some(n) = json_value.as_u64() {
+                        OwnedValue::Bool(n != 0)
+                    } else {
+                        // Fallback to OwnedValue::from(serde_json::Value)
+                        OwnedValue::from(json_value.clone())
+                    }
+                }
+                _ => {
+                    // Fallback to OwnedValue::from(serde_json::Value)
+                    OwnedValue::from(json_value.clone())
+                }
+            }
+        } else {
+            // Fallback to OwnedValue::from(serde_json::Value)
+            OwnedValue::from(json_value.clone())
+        }
     }
 
     pub unsafe fn try_from_datum_array(

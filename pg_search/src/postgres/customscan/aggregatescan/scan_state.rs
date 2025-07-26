@@ -19,6 +19,7 @@ use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use tantivy::schema::OwnedValue;
@@ -146,31 +147,8 @@ impl AggregateScanState {
         // Get the search field from the schema to determine the type
         let indexrel = self.indexrel();
         let schema = indexrel.schema().expect("indexrel should have a schema");
-
-        if let Some(search_field) = schema.search_field(field_name) {
-            match search_field.field_type() {
-                crate::schema::SearchFieldType::Bool(_) => {
-                    // Handle both boolean JSON values and numeric representations (0/1)
-                    if let Some(b) = json_value.as_bool() {
-                        OwnedValue::Bool(b)
-                    } else if let Some(n) = json_value.as_i64() {
-                        OwnedValue::Bool(n != 0)
-                    } else if let Some(n) = json_value.as_u64() {
-                        OwnedValue::Bool(n != 0)
-                    } else {
-                        // Fallback to OwnedValue::from(serde_json::Value)
-                        OwnedValue::from(json_value.clone())
-                    }
-                }
-                _ => {
-                    // Fallback to OwnedValue::from(serde_json::Value)
-                    OwnedValue::from(json_value.clone())
-                }
-            }
-        } else {
-            // Fallback to OwnedValue::from(serde_json::Value)
-            OwnedValue::from(json_value.clone())
-        }
+        let search_field = schema.search_field(field_name);
+        TantivyValue::json_value_to_owned_value(&search_field, json_value)
     }
 
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {

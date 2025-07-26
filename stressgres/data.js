@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753476628373,
+  "lastUpdate": 1753505874811,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2030,6 +2030,72 @@ window.BENCHMARK_DATA = {
             "value": 38.30419649634657,
             "unit": "median tps",
             "extra": "avg tps: 46.04197472147255, max tps: 728.5454299073727, count: 55112"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b43d36b4239942ef7054b3bacdc82fb01f938e9",
+          "message": "perf: Reduce buffering during mixed fast field scans (#2887)\n\n# Ticket(s) Closed\n\n- Closes #2715\n- Closes #2623\n\n## What\n\nAdjust the `MixedFastField` executor to stream results, and only buffer\nup to a hard coded batch size in memory.\n\nAdditionally, avoid creating the intermediate tuple-like `FieldValues`\nstructure, and directly consume the column values to produce a tuple in\na postgres `Slot`.\n\n## Why\n\nCurrently, the `MixedFastField` and `StringFastField` executors buffer\nentire columns in memory: that implementation will not scale to larger\ndatasets. Moving to streaming allows them to be used with arbitrarily\nlarge datasets.\n\nRemoving the intermediate `FieldValues` creation also makes\n`MixedFastField` ~equivalent to `StringFastField` in terms of overhead:\na followup change will remove `StringFastField`.\n\n#2623 discussed potentially continuing to buffer entire columns and then\ndeclaring them sorted: but doing so efficiently (i.e., without buffering\nthe entire column) would require a completely different implementation\nof the method which started by consuming the dictionary, and then\nexecuted a series of range queries for manageable chunks.\n\n## Tests\n\nPerformance improves by ~15% on some of our join queries for the `docs`\ndataset.",
+          "timestamp": "2025-07-25T21:42:17-07:00",
+          "tree_id": "a35ec65315a7cc9898747eef7c189bc3704a978f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b43d36b4239942ef7054b3bacdc82fb01f938e9"
+        },
+        "date": 1753505873715,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1262.4352724990931,
+            "unit": "median tps",
+            "extra": "avg tps: 1256.9180093133273, max tps: 1265.8394460695488, count: 55066"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2857.589053398331,
+            "unit": "median tps",
+            "extra": "avg tps: 2841.518659360359, max tps: 2890.139889902185, count: 55066"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1159.7146184978524,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.0900635596356, max tps: 1195.2169874892768, count: 55066"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1001.8609731465967,
+            "unit": "median tps",
+            "extra": "avg tps: 991.7827774809571, max tps: 1011.0682415841151, count: 55066"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 173.07482488747087,
+            "unit": "median tps",
+            "extra": "avg tps: 172.38069422971336, max tps: 175.055272776385, count: 110132"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.31999904129196,
+            "unit": "median tps",
+            "extra": "avg tps: 161.0498124524514, max tps: 164.93309340182114, count: 55066"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.41554673900646,
+            "unit": "median tps",
+            "extra": "avg tps: 44.62989377196943, max tps: 797.4182785812652, count: 55066"
           }
         ]
       }

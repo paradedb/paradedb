@@ -94,11 +94,13 @@ pub fn arb_group_by(
             }
 
             // Generate a random permutation of the target list
-            Just(GroupByExpr {
-                group_by_columns: selected_columns,
-                target_list: select_items,
-            })
-            .boxed()
+            Just(select_items)
+                .prop_shuffle()
+                .prop_map(move |permuted_target_list| GroupByExpr {
+                    group_by_columns: selected_columns.clone(),
+                    target_list: permuted_target_list,
+                })
+                .boxed()
         }
     })
 }

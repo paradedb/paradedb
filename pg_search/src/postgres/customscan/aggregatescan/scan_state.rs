@@ -152,18 +152,6 @@ impl AggregateScanState {
 
         if let Some(search_field) = schema.search_field(field_name) {
             match search_field.field_type() {
-                crate::schema::SearchFieldType::Text(_) => {
-                    OwnedValue::Str(json_value.as_str().unwrap_or("").to_string())
-                }
-                crate::schema::SearchFieldType::I64(_) => {
-                    OwnedValue::I64(json_value.as_i64().unwrap_or(0))
-                }
-                crate::schema::SearchFieldType::U64(_) => {
-                    OwnedValue::U64(json_value.as_u64().unwrap_or(0))
-                }
-                crate::schema::SearchFieldType::F64(_) => {
-                    OwnedValue::F64(json_value.as_f64().unwrap_or(0.0))
-                }
                 crate::schema::SearchFieldType::Bool(_) => {
                     // Handle both boolean JSON values and numeric representations (0/1)
                     if let Some(b) = json_value.as_bool() {
@@ -173,24 +161,18 @@ impl AggregateScanState {
                     } else if let Some(n) = json_value.as_u64() {
                         OwnedValue::Bool(n != 0)
                     } else {
-                        OwnedValue::Bool(false) // Default fallback
+                        // Fallback to OwnedValue::from(serde_json::Value)
+                        OwnedValue::from(json_value.clone())
                     }
                 }
-                crate::schema::SearchFieldType::Date(_) => {
-                    // Dates typically come as timestamps (convert to microseconds)
-                    let timestamp = json_value.as_i64().unwrap_or(0);
-                    let micros = timestamp * 1_000_000; // Convert seconds to microseconds
-                    let date = tantivy::DateTime::from_timestamp_micros(micros);
-                    OwnedValue::Date(date)
-                }
                 _ => {
-                    // Fallback to string representation
-                    OwnedValue::Str(json_value.to_string())
+                    // Fallback to OwnedValue::from(serde_json::Value)
+                    OwnedValue::from(json_value.clone())
                 }
             }
         } else {
-            // Fallback if field not found in schema
-            OwnedValue::Str(json_value.to_string())
+            // Fallback to OwnedValue::from(serde_json::Value)
+            OwnedValue::from(json_value.clone())
         }
     }
 

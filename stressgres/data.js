@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753505874811,
+  "lastUpdate": 1753505876968,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5802,6 +5802,126 @@ window.BENCHMARK_DATA = {
             "value": 55.8359375,
             "unit": "median mem",
             "extra": "avg mem: 57.27868115439922, max mem: 81.5625, count: 55112"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b43d36b4239942ef7054b3bacdc82fb01f938e9",
+          "message": "perf: Reduce buffering during mixed fast field scans (#2887)\n\n# Ticket(s) Closed\n\n- Closes #2715\n- Closes #2623\n\n## What\n\nAdjust the `MixedFastField` executor to stream results, and only buffer\nup to a hard coded batch size in memory.\n\nAdditionally, avoid creating the intermediate tuple-like `FieldValues`\nstructure, and directly consume the column values to produce a tuple in\na postgres `Slot`.\n\n## Why\n\nCurrently, the `MixedFastField` and `StringFastField` executors buffer\nentire columns in memory: that implementation will not scale to larger\ndatasets. Moving to streaming allows them to be used with arbitrarily\nlarge datasets.\n\nRemoving the intermediate `FieldValues` creation also makes\n`MixedFastField` ~equivalent to `StringFastField` in terms of overhead:\na followup change will remove `StringFastField`.\n\n#2623 discussed potentially continuing to buffer entire columns and then\ndeclaring them sorted: but doing so efficiently (i.e., without buffering\nthe entire column) would require a completely different implementation\nof the method which started by consuming the dictionary, and then\nexecuted a series of range queries for manageable chunks.\n\n## Tests\n\nPerformance improves by ~15% on some of our join queries for the `docs`\ndataset.",
+          "timestamp": "2025-07-25T21:42:17-07:00",
+          "tree_id": "a35ec65315a7cc9898747eef7c189bc3704a978f",
+          "url": "https://github.com/paradedb/paradedb/commit/9b43d36b4239942ef7054b3bacdc82fb01f938e9"
+        },
+        "date": 1753505875860,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.699034658683517, max cpu: 9.448819, count: 55066"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 60.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.85615982412015, max mem: 83.40234375, count: 55066"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.597440027617207, max cpu: 9.266409, count: 55066"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 53.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.95821257388861, max mem: 77.02734375, count: 55066"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7100891876480375, max cpu: 9.60961, count: 55066"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.02716619318182, max mem: 83.40234375, count: 55066"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.416741620035754, max cpu: 4.7151275, count: 55066"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 59.02734375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.13715856313333, max mem: 83.02734375, count: 55066"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.398559942074117, max cpu: 23.904383, count: 110132"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 69.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 69.57873020415275, max mem: 104.0234375, count: 110132"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3670,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3706.8630734028256, max block_count: 6668.0, count: 55066"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.877692223876803, max segment_count: 28.0, count: 55066"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.07175980686561, max cpu: 14.159292, count: 55066"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 68.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 68.46593916845241, max mem: 96.0390625, count: 55066"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607631369260791, max cpu: 9.221902, count: 55066"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.690857192959356, max mem: 83.86328125, count: 55066"
           }
         ]
       }

@@ -24,7 +24,6 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -419,14 +418,7 @@ impl CustomScan for PdbScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            let selectivity = if let Some(limit) = limit {
-                // use the limit
-                limit
-                    / table
-                        .reltuples()
-                        .map(|n| n as Cardinality)
-                        .unwrap_or(UNKNOWN_SELECTIVITY)
-            } else if norm_selec != UNASSIGNED_SELECTIVITY {
+            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else if quals.contains_external_var() {
@@ -492,14 +484,18 @@ impl CustomScan for PdbScan {
             // to decide on parallelism
             //
 
+            // calculate the total number of rows that might match the query, and the number of
+            // rows that we expect that scan to return: these may be different in the case of a
+            // `limit`.
             let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let mut rows = (reltuples * selectivity).max(1.0);
+            let total_rows = (reltuples * selectivity).max(1.0);
+            let mut result_rows = total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0);
 
             let nworkers = if (*builder.args().rel).consider_parallel {
                 compute_nworkers(
                     custom_private.exec_method_type(),
                     limit,
-                    rows,
+                    total_rows,
                     segment_count,
                     quals.contains_external_var(),
                 )
@@ -510,7 +506,7 @@ impl CustomScan for PdbScan {
             if nworkers > 0 {
                 builder = builder.set_parallel(nworkers);
 
-                // if we're likely to do a parallel scan, divide the rows by the number of workers
+                // if we're likely to do a parallel scan, divide the result_rows by the number of workers
                 // we're likely to use.  this lets Postgres make better decisions based on what
                 // an individual parallel scan is actually going to return
                 let processes = std::cmp::max(
@@ -522,7 +518,7 @@ impl CustomScan for PdbScan {
                             0
                         },
                 );
-                rows /= processes as f64;
+                result_rows /= processes as f64;
             }
 
             let per_tuple_cost = {
@@ -536,9 +532,9 @@ impl CustomScan for PdbScan {
             };
 
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + (rows * per_tuple_cost);
+            let total_cost = startup_cost + (result_rows * per_tuple_cost);
 
-            builder = builder.set_rows(rows);
+            builder = builder.set_rows(result_rows);
             builder = builder.set_startup_cost(startup_cost);
             builder = builder.set_total_cost(total_cost);
 

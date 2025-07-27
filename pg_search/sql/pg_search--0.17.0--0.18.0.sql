@@ -255,7 +255,4 @@ CREATE  FUNCTION "tokenized_phrase"(
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'tokenized_phrase_wrapper';
 
-CREATE  FUNCTION "score"() RETURNS void
-STRICT 
-LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'score_invalid_signature_wrapper';
+

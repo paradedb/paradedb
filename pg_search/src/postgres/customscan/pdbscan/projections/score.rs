@@ -18,7 +18,9 @@
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoid;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList, PgLogLevel, PgSqlErrorCode};
+use pgrx::{
+    extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList, PgLogLevel, PgSqlErrorCode,
+};
 use std::ptr::addr_of_mut;
 
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]

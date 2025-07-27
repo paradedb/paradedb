@@ -254,5 +254,3 @@ CREATE  FUNCTION "tokenized_phrase"(
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'tokenized_phrase_wrapper';
-
-

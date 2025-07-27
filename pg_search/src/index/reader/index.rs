@@ -503,7 +503,7 @@ impl SearchIndexReader {
         if let Some(sort_field) = sort_field {
             let field = self
                 .schema
-                .search_field(&sort_field.root())
+                .search_field(&sort_field)
                 .expect("sort field should exist in index schema");
             match field.field_entry().field_type().value_type() {
                 tantivy::schema::Type::Str => self.top_by_string_field_in_segments(

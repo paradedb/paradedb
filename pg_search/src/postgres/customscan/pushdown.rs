@@ -44,7 +44,7 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (var, field) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
-        schema.search_field(field.root()).map(|_| Self {
+        schema.search_field(&field).map(|_| Self {
             field_name: field,
             varno: (*var).varno as pg_sys::Index,
         })

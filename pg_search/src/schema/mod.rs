@@ -30,6 +30,7 @@ use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use crate::index::fast_fields_helper::FFDynamic;
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
 use anyhow::Result;
@@ -160,6 +161,7 @@ pub struct CategorizedFieldData {
 pub struct SearchIndexSchema {
     #[into]
     schema: Schema,
+    indexrel: PgSearchRelation,
     bm25_options: BM25IndexOptions,
     categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
 }
@@ -169,11 +171,13 @@ impl SearchIndexSchema {
         Ok(load_index_schema(indexrel)?
             .map(|schema| Self {
                 schema,
+                indexrel: indexrel.clone(),
                 bm25_options: indexrel.options().clone(),
                 categorized: Default::default(),
             })
             .unwrap_or_else(|| Self {
                 schema: Schema::builder().build(),
+                indexrel: indexrel.clone(),
                 bm25_options: indexrel.options().clone(),
                 categorized: Default::default(),
             }))
@@ -203,8 +207,15 @@ impl SearchIndexSchema {
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
-        match self.schema.get_field(name.as_ref()) {
-            Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
+        let field_name: FieldName = name.as_ref().into();
+        match self.schema.get_field(&field_name.root()) {
+            Ok(field) => Some(SearchField::new(
+                field,
+                field_name,
+                &self.bm25_options,
+                &self.schema,
+                self.indexrel.clone(),
+            )),
             Err(_) => None,
         }
     }
@@ -307,6 +318,7 @@ pub struct SearchField {
     field_entry: FieldEntry,
     field_type: SearchFieldType,
     field_config: SearchFieldConfig,
+    indexrel: PgSearchRelation,
 }
 
 impl Hash for SearchField {
@@ -324,13 +336,20 @@ impl PartialEq for SearchField {
 }
 
 impl SearchField {
-    pub fn new(field: Field, options: &BM25IndexOptions, schema: &Schema) -> Self {
+    pub fn new(
+        field: Field,
+        field_name: FieldName,
+        options: &BM25IndexOptions,
+        schema: &Schema,
+        indexrel: PgSearchRelation,
+    ) -> Self {
         let field_entry = schema.get_field_entry(field).clone();
-        let field_name: FieldName = field_entry.name().into();
-        let field_config = options.field_config_or_default(&field_name);
-        let field_type = options.get_field_type(&field_name).unwrap_or_else(|| {
-            panic!("`{field_name}`'s configuration not found in index WITH options")
-        });
+        let field_config = options.field_config_or_default(&field_name.root().into());
+        let field_type = options
+            .get_field_type(&field_name.root().into())
+            .unwrap_or_else(|| {
+                panic!("`{field_name}`'s configuration not found in index WITH options")
+            });
 
         Self {
             field,
@@ -338,6 +357,7 @@ impl SearchField {
             field_entry,
             field_type,
             field_config,
+            indexrel,
         }
     }
 
@@ -361,12 +381,12 @@ impl SearchField {
         &self.field_config
     }
 
-    pub fn is_raw_sortable(&self, sort_type: PgOid) -> bool {
-        self.is_sortable(SearchNormalizer::Raw, sort_type)
+    pub fn is_raw_sortable(&self, sort_oid: pg_sys::Oid) -> bool {
+        self.is_sortable(SearchNormalizer::Raw, sort_oid)
     }
 
-    pub fn is_lower_sortable(&self, sort_type: PgOid) -> bool {
-        self.is_sortable(SearchNormalizer::Lowercase, sort_type)
+    pub fn is_lower_sortable(&self, sort_oid: pg_sys::Oid) -> bool {
+        self.is_sortable(SearchNormalizer::Lowercase, sort_oid)
     }
 
     pub fn is_fast(&self) -> bool {
@@ -384,17 +404,7 @@ impl SearchField {
         }
     }
 
-    fn is_sortable(&self, desired_normalizer: SearchNormalizer, sort_type: PgOid) -> bool {
-        if let Some(_expected_type) = SearchFieldType::try_from(sort_type).ok() {
-            pgrx::info!("expected_type: {:?}", _expected_type);
-            pgrx::info!("field_type: {:?}", self.field_type);
-            if !matches!(self.field_type, _expected_type) {
-                return false;
-            }
-        } else {
-            return false;
-        }
-
+    fn is_sortable(&self, desired_normalizer: SearchNormalizer, sort_oid: pg_sys::Oid) -> bool {
         match self.field_entry.field_type() {
             FieldType::Str(options) => {
                 options.is_fast()
@@ -406,13 +416,40 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::JsonObject(options) => {
-                if matches!(self.field_type, SearchFieldType::Json(_)) {
-                    options.is_fast()
-                        && options.get_fast_field_tokenizer_name()
-                            == Some(desired_normalizer.name())
-                } else {
-                    false
+                if !options.is_fast()
+                    || options.get_fast_field_tokenizer_name() != Some(desired_normalizer.name())
+                    || !matches!(self.field_type, SearchFieldType::Json(_))
+                {
+                    return false;
                 }
+
+                let ff_dynamic = FFDynamic::try_new(&self.indexrel, &self.field_name);
+                if let Some(ff_dynamic) = ff_dynamic {
+                    match ff_dynamic {
+                        FFDynamic::Text(_, _) => {
+                            let field_type = SearchFieldType::try_from(PgOid::from(sort_oid)).ok();
+                            return matches!(field_type, Some(SearchFieldType::Text(_)));
+                        }
+                        FFDynamic::I64(_, _) | FFDynamic::U64(_, _) | FFDynamic::F64(_, _) => {
+                            let field_type = SearchFieldType::try_from(PgOid::from(sort_oid)).ok();
+                            return matches!(
+                                field_type,
+                                Some(SearchFieldType::I64(_))
+                                    | Some(SearchFieldType::U64(_))
+                                    | Some(SearchFieldType::F64(_))
+                            );
+                        }
+                        FFDynamic::Bool(_, _) => {
+                            let field_type = SearchFieldType::try_from(PgOid::from(sort_oid)).ok();
+                            return matches!(field_type, Some(SearchFieldType::Bool(_)));
+                        }
+                        FFDynamic::Date(_, _) => {
+                            let field_type = SearchFieldType::try_from(PgOid::from(sort_oid)).ok();
+                            return matches!(field_type, Some(SearchFieldType::Date(_)));
+                        }
+                    }
+                }
+                false
             }
             _ => false,
         }

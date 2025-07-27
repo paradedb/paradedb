@@ -69,7 +69,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgOid, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgOid};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
@@ -1339,7 +1339,7 @@ unsafe fn pullup_orderby_pathkey(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let sort_type = PgOid::from((*member).em_datatype);
+            let sort_oid = (*member).em_datatype;
 
             if is_score_func(expr.cast(), rti as _) {
                 return Some(OrderByStyle::Score(first_pathkey));
@@ -1348,8 +1348,8 @@ unsafe fn pullup_orderby_pathkey(
                     VarContext::from_planner(root),
                     var as *mut pg_sys::Node,
                 )?;
-                if let Some(search_field) = schema.search_field(field.root()) {
-                    if search_field.is_lower_sortable(sort_type) {
+                if let Some(search_field) = schema.search_field(&field) {
+                    if search_field.is_lower_sortable(sort_oid) {
                         return Some(OrderByStyle::Field(first_pathkey, field));
                     }
                 }
@@ -1359,10 +1359,14 @@ unsafe fn pullup_orderby_pathkey(
                     VarContext::from_planner(root),
                     expr as *mut pg_sys::Node,
                 )?;
-                if let Some(search_field) = schema.search_field(field.root()) {
-                    if search_field.is_raw_sortable(sort_type) {
+                pgrx::info!("field: {:?}", field);
+                if let Some(search_field) = schema.search_field(&field) {
+                    pgrx::info!("search_field: {:?}", search_field);
+                    if search_field.is_raw_sortable(sort_oid) {
+                        pgrx::info!("returning");
                         return Some(OrderByStyle::Field(first_pathkey, field));
                     }
+                    pgrx::info!("not returning");
                 }
             }
         }

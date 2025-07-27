@@ -1,0 +1,97 @@
+---
+title: Filtering
+---
+
+Filters over numeric, boolean, or datetime fields that are indexed as [fast fields](/documentation/indexing/fast_fields) can be "pushed down" into the BM25 index using the `@@@` operator. For instance, the following
+two queries produce identical results, but the second query "pushes down" the `rating > 2` filter into the BM25 index.
+
+```sql
+-- Without BM25 pushdown
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating > 2;
+
+-- With BM25 pushdown
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '>2';
+```
+
+<Note>
+  Automatically executing the first type of query as the second query is on the
+  roadmap, but not yet supported.
+</Note>
+
+## Numeric Filter
+
+The following query returns all rows matching `description:shoes` where `rating` equals `4`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '4';
+```
+
+Comparison operators `>`, `>=`, `<`, and `<=` are supported.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '>=4';
+```
+
+## Datetime Filter
+
+RFC 3339 formatted dates wrapped in double quotes can be used to filter over datetime fields.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND created_at @@@ '"2023-04-20T16:38:02Z"';
+```
+
+## Boolean Filter
+
+Boolean fields can be filtered with `true` or `false`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND in_stock @@@ 'true';
+```
+
+## Range Filter
+
+The inclusive `[]` and exclusive `{}` bounds can be used for range filtering.
+
+```sql
+-- Numeric
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ '[1 TO 4]';
+
+-- Datetime
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND created_at @@@ '[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]';
+```
+
+Range filters can also be applied over text fields. The following query finds all documents where
+`description` contains a token that is lexicographically between `book` and `camera` (i.e. would come between
+`book` and `camera` in a dictionary).
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '[book TO camera]';
+```
+
+## Set Filter
+
+The `IN` operator finds documents that match at least one element in a set.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ 'shoes' AND rating @@@ 'IN [2 3 4]';
+```

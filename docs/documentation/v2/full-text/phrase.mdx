@@ -1,0 +1,39 @@
+---
+title: Phrase
+---
+
+Phrase queries work exactly like [match](/documentation/full-text/phrase) queries, but are more strict in that they require the
+order and position of tokens to be the same. For instance, suppose our query is `running shoes`, and we want to omit results like
+`running sleek shoes` or `shoes running` — these results contain the right tokens, but not in the exact order and position
+that the query specifies.
+
+Enter the `###` phrase operator:
+
+```sql
+INSERT INTO mock_items (description, rating, category) VALUES
+('running sleek shoes', 5, 'Footwear'),
+('shoes running', 5, 'Footwear');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes';
+```
+
+This query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
+`shoes` because they appear in the wrong order or with other words in between.
+
+## Slop
+
+Slop allows phrase queries to be relaxed a bit. It specifies how many changes — like extra words in between or swapped word positions — are allowed while still considering the phrase a match.
+
+For example, searching for `sleek shoes` with a slop of `1` would match `sleek running shoes` because there is one word, `running`, between
+`sleek` and `shoes`.

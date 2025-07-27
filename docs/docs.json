@@ -11,7 +11,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.17.2",
+        "version": "v2 (beta)",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -20,16 +20,7 @@
               {
                 "group": "Documentation",
                 "pages": [
-                  {
-                    "group": "Why ParadeDB?",
-                    "pages": [
-                      "welcome/introduction",
-                      "welcome/architecture",
-                      "welcome/guarantees",
-                      "welcome/limitations",
-                      "welcome/roadmap"
-                    ]
-                  },
+                  "documentation/v2/overview",
                   {
                     "group": "Getting Started",
                     "pages": [
@@ -44,51 +35,22 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "documentation/indexing/create_index",
-                          "documentation/indexing/inspect_index",
-                          {
-                            "group": "Index Tuning",
-                            "pages": [
-                              "documentation/configuration/overview",
-                              "documentation/configuration/index",
-                              "documentation/configuration/index_size",
-                              "documentation/configuration/segment_count",
-                              "documentation/configuration/segment_size",
-                              "documentation/configuration/write",
-                              "documentation/configuration/parallel"
-                            ]
-                          },
-                          {
-                            "group": "Index Settings",
-                            "pages": [
-                              "documentation/configuration/scan"
-                            ]
-                          }
-                        ]
-                      },
-                      {
-                        "group": "Field Configuration",
-                        "pages": [
-                          "documentation/indexing/field_options",
-                          "documentation/indexing/tokenizers",
-                          "documentation/indexing/token_filters",
-                          "documentation/indexing/fast_fields",
-                          "documentation/indexing/record"
+                          "documentation/v2/indexing/create_index"
                         ]
                       },
                       {
                         "group": "Full Text Search",
                         "pages": [
-                          "documentation/full-text/overview",
-                          "documentation/full-text/match",
-                          "documentation/full-text/phrase",
-                          "documentation/full-text/term",
-                          "documentation/full-text/filtering",
-                          "documentation/full-text/pagination",
-                          "documentation/full-text/scoring",
-                          "documentation/full-text/highlighting",
-                          "documentation/full-text/sorting",
-                          "documentation/full-text/boosting"
+                          "documentation/v2/full-text/overview",
+                          "documentation/v2/full-text/match",
+                          "documentation/v2/full-text/phrase",
+                          "documentation/v2/full-text/term",
+                          "documentation/v2/full-text/filtering",
+                          "documentation/v2/full-text/pagination",
+                          "documentation/v2/full-text/scoring",
+                          "documentation/v2/full-text/highlighting",
+                          "documentation/v2/full-text/sorting",
+                          "documentation/v2/full-text/boosting"
                         ]
                       },
                       {
@@ -188,7 +150,11 @@
                       "documentation/concepts/term"
                     ]
                   },
-                  "welcome/support"
+                  "welcome/support",
+                  {
+                    "group": "Latest Version: v0.17.2",
+                    "pages": []
+                  }
                 ]
               }
             ]
@@ -315,8 +281,9 @@
       }
     ],
     "primary": {
-      "type": "github",
-      "href": "https://github.com/paradedb/paradedb"
+      "type": "button",
+      "label": "Latest Version 0.17.2",
+      "href": "https://github.com/paradedb/paradedb/releases"
     }
   },
   "footer": {

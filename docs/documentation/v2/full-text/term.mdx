@@ -1,0 +1,67 @@
+---
+title: Term
+---
+
+Term queries look for exact token matches.
+
+Unlike [match](/documentation/full-text/match) or [phrase](/documentation/full-text/phrase) queries, term queries treat the query
+string as a finalized token. This means that the query string is taken as-is, without any further tokenization or processing,
+regardless of how the target column is tokenized.
+
+To understand exactly how this works, let's consider the following term query:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'running';
+```
+
+This query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+Under the hood, here's what `===` does:
+
+1. Retrieves the [tokenizer configuration](/documentation/indexing/tokenizers) of the `description` column. In this example,
+   let's assume `description` uses the [default](/documentation/indexing/tokenizers#default) tokenizer, which splits on whitespace
+   and punctuation.
+2. Finds all rows where `description` contains the exact token, `running`.
+
+When using the term query, it's important to remember that a result will only be considered a match if one of its tokens is a match.
+For instance, consider the following query:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'running shoes';
+```
+
+<Accordion title="Expected Response">
+  ```csv description | rating | category -------------+--------+---------- (0
+  rows) ```
+</Accordion>
+
+This query will **not** match the document `Sleek running shoes` because its tokens are `sleek`, `running`, and `shoes`, not
+`running shoes`.
+
+## Case Sensitivity
+
+Because term queries look for exact token matches, they are case sensitive. This means that the following two queries
+are **not** equivalent:
+
+```sql
+-- Looks for the token `running`
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'running';
+
+-- Looks for the token `RUNNING`
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'RUNNING';
+```

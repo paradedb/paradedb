@@ -1,0 +1,3 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SELECT paradedb.score();
+ERROR:  paradedb.score has an invalid signature.

@@ -17,12 +17,11 @@
 
 mod fixtures;
 
-use chrono::NaiveDate;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use serde_json::Value;
-use sqlx::{PgConnection, Row};
+use sqlx::PgConnection;
 
 fn field_sort_fixture(conn: &mut PgConnection) -> Value {
     // ensure our custom scan wins against our small test table
@@ -198,42 +197,39 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
 
 #[rstest]
 async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // Incremental Sort is only supported >=16.
+        return;
+    }
+    "SET max_parallel_workers to 0;".execute(&mut conn);
+
     // Create the partitioned sales table
     PartitionedTable::setup().execute(&mut conn);
 
-    // Enable debugging logs
-    sqlx::query("SET client_min_messages TO DEBUG1;")
-        .execute(&mut conn)
-        .await
-        .unwrap();
+    // Insert a good size amount of random data, and then analyze. Postgres will not choose an
+    // Incremental Sort for smaller result sets, and we won't report a useful estimate without
+    // statistics.
+    r#"
+    INSERT INTO sales (sale_date, amount, description)
+    SELECT
+        (DATE '2023-01-01' + (random() * 179)::integer) AS sale_date,
+        (random() * 1000)::real AS amount,
+        ('wine '::text || md5(random()::text)) AS description
+    FROM generate_series(1, 1000);
 
-    // Enable additional debug options
-    sqlx::query("SET debug_print_plan = true;")
-        .execute(&mut conn)
-        .await
-        .unwrap();
-
-    sqlx::query("SET debug_pretty_print = true;")
-        .execute(&mut conn)
-        .await
-        .unwrap();
-
-    // Check Postgres version - Incremental Sort only exists in PG 16+
-    let pg_version = pg_major_version(&mut conn);
-    let pg_supports_incremental_sort = pg_version >= 16;
+    ANALYZE;
+    "#
+    .execute(&mut conn);
 
     // Test BM25 with ORDER BY ... LIMIT to confirm sort optimization works
-    let (explain_bm25,) = sqlx::query_as::<_, (Value,)>(
-        "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) 
-        SELECT description, sale_date, paradedb.score(id) as score FROM sales 
-        WHERE description @@@ 'keyboard' 
-        ORDER BY score, sale_date, amount LIMIT 10;",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .unwrap();
+    let (explain_bm25,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id, sale_date, amount FROM sales
+        WHERE description @@@ 'wine'
+        ORDER BY sale_date, amount LIMIT 10;"#
+        .fetch_one(&mut conn);
 
-    println!("EXPLAIN OUTPUT: {explain_bm25}");
+    eprintln!("plan: {explain_bm25:#?}");
 
     let plan_json = explain_bm25.to_string();
 
@@ -246,89 +242,14 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
         }
     }
 
-    println!("Found {} Custom Scan nodes", custom_scan_nodes.len());
-    for (i, node) in custom_scan_nodes.iter().enumerate() {
-        println!("Custom Scan Node #{}: {}", i + 1, node);
-    }
-
-    // Additional debug query - check what happens with a simpler query
-    let (explain_simple,) = sqlx::query_as::<_, (String,)>(
-        "EXPLAIN (ANALYZE, VERBOSE) 
-        SELECT description, sale_date, paradedb.score(id) as score FROM sales 
-        WHERE description @@@ 'keyboard' 
-        ORDER BY score, sale_date LIMIT 10;",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .unwrap();
-
-    println!("SIMPLE QUERY EXPLAIN OUTPUT: {explain_simple}");
-
-    // Instead of checking for specific node types, check that:
-    // 1. A Sort node exists to handle the sorting (either regular Sort or Incremental Sort)
-    // 2. Custom Scan nodes exist that support our search
-    // 3. Scores are enabled in the Custom Scan
-
     // Check that we have a Sort node somewhere in the plan
-    let has_sort_node = if pg_supports_incremental_sort {
-        plan_json.contains("\"Node Type\":\"Incremental Sort\"")
-            || explain_simple.contains("Incremental Sort")
-    } else {
-        plan_json.contains("\"Node Type\":\"Sort\"")
-            || plan_json.contains("\"Node Type\":\"Incremental Sort\"")
-            || explain_simple.contains("Sort")
-            || explain_simple.contains("Incremental Sort")
-    };
-
     assert!(
-        has_sort_node,
+        plan_json.contains("\"Node Type\":\"Incremental Sort\""),
         "Plan should include an Incremental Sort node to handle ORDER BY"
     );
 
     // Check that we have Custom Scan nodes that handle our search
-    let has_custom_scan = plan_json.contains("\"Node Type\":\"Custom Scan\"")
-        || explain_simple.contains("Custom Scan");
-
-    assert!(
-        has_custom_scan,
-        "Plan should include Custom Scan nodes to perform our search"
-    );
-
-    // Check that the score is requested
-    let has_scores_enabled = !custom_scan_nodes.is_empty()
-        && custom_scan_nodes.iter().any(|node| {
-            node.get("Scores")
-                .is_some_and(|v| v.as_bool() == Some(true))
-        });
-
-    assert!(
-        has_scores_enabled,
-        "At least one Custom Scan node should have Scores enabled"
-    );
-
-    // Verify we get results and they're in the correct order
-    let results = sqlx::query(
-        "SELECT description, sale_date, paradedb.score(id) as score FROM sales 
-        WHERE description @@@ 'keyboard' 
-        ORDER BY score, sale_date, amount LIMIT 10;",
-    )
-    .fetch_all(&mut conn)
-    .await
-    .unwrap();
-
-    // Results might be empty since 'keyboard' is a specific term
-    // but if we get results, they should be properly sorted
-    if !results.is_empty() {
-        // Verify sort order - dates should be ascending
-        let mut prev_date = None;
-        for row in &results {
-            let date: NaiveDate = row.get("sale_date");
-            if let Some(prev) = prev_date {
-                assert!(date >= prev, "Results should be sorted by date");
-            }
-            prev_date = Some(date);
-        }
-    }
+    assert_eq!(custom_scan_nodes.len(), 2);
 }
 
 // Helper function to recursively collect Custom Scan nodes from a plan

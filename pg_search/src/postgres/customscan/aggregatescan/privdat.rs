@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
+use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -56,13 +57,6 @@ impl AggregateType {
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
-}
-
-/// Simple ORDER BY information for serialization in PrivateData
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OrderByInfo {
-    pub field_name: String,
-    pub is_desc: bool, // true for descending, false for ascending
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

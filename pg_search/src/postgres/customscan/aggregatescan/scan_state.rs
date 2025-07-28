@@ -16,8 +16,9 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, OrderByInfo, TargetListEntry,
+    AggregateType, GroupingColumn, TargetListEntry,
 };
+use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;

@@ -26,14 +26,13 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, OrderByInfo, PrivateData, TargetListEntry,
+    AggregateType, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
-    SortDirection as PathkeySortDirection,
+    restrict_info, CustomPathBuilder, OrderByInfo, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -129,7 +128,7 @@ impl CustomScan for AggregateScan {
 
         // Extract ORDER BY pathkeys if present
         let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let order_by_info = extract_order_by_info(args.root, &order_pathkeys);
+        let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -513,30 +512,6 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
-
-/// Extract ORDER BY information from query pathkeys
-/// In this case, we convert OrderByStyle to OrderByInfo for serialization.
-fn extract_order_by_info(
-    root: *mut pg_sys::PlannerInfo,
-    order_pathkeys: &Option<Vec<OrderByStyle>>,
-) -> Vec<OrderByInfo> {
-    order_pathkeys
-        .as_ref()
-        .unwrap_or(&vec![])
-        .iter()
-        .map(|style| {
-            let field_name = match style {
-                OrderByStyle::Field(_, name) => name.to_string(),
-                OrderByStyle::Score(_) => "score".to_string(),
-            };
-            let is_desc = matches!(style.direction(), PathkeySortDirection::Desc);
-            OrderByInfo {
-                field_name,
-                is_desc,
-            }
-        })
-        .collect()
-}
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(

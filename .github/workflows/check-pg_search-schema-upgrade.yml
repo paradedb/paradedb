@@ -30,7 +30,6 @@ jobs:
   check-pg_search-schema-upgrade:
     name: SchemaBot
     runs-on: ubicloud-standard-8
-    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [14] # pg_search's minimum supported Postgres version

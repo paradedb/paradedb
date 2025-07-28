@@ -1,3 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS prox;
 CREATE TABLE prox (
     id serial8,
@@ -11,21 +12,21 @@ INSERT INTO prox (text) VALUES ('ribs will be served at the party bbq');
 CREATE INDEX idxprox ON prox USING bm25 (id, text) WITH (key_field = 'id');
 
 -- no match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'a', 23, 'z');
+SELECT * FROM prox WHERE text @@@ pdb.proximity('a', 23, 'z');
 -- match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'a', 24, 'z');
+SELECT * FROM prox WHERE text @@@ pdb.proximity('a', 24, 'z');
 
 -- no match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', 'delicious', 2, paradedb.prox_array('bbq', 'chicken'));
+SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order('delicious', 2, pdb.prox_array('bbq', 'chicken'));
 -- match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', 'delicious', 2, paradedb.prox_array('bbq', 'chicken'));
-SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_array('bbq', 'chicken'), 2, 'delicious');
+SELECT * FROM prox WHERE text @@@ pdb.proximity('delicious', 2, pdb.prox_array('bbq', 'chicken'));
+SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_array('bbq', 'chicken'), 2, 'delicious');
 
 -- match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', paradedb.prox_clause(paradedb.prox_array('chicken', 'ribs'), 0, 'will'), 4, paradedb.prox_clause('bbq', 0, 'party'));
-SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_clause(paradedb.prox_array('chicken', 'ribs'), 0, 'will'), 4, paradedb.prox_clause('bbq', 0, 'party'));
+SELECT * FROM prox WHERE text @@@ pdb.proximity(pdb.prox_clause(pdb.prox_array('chicken', 'ribs'), 0, 'will'), 4, pdb.prox_clause('bbq', 0, 'party'));
+SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_clause(pdb.prox_array('chicken', 'ribs'), 0, 'will'), 4, pdb.prox_clause('bbq', 0, 'party'));
 
 -- match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity('text', paradedb.prox_regex('del...ous'), 1, paradedb.prox_array('chicken', paradedb.prox_regex('r..s')));
+SELECT * FROM prox WHERE text @@@ pdb.proximity(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s')));
 -- no match
-SELECT * FROM prox WHERE text @@@ paradedb.proximity_in_order('text', paradedb.prox_regex('del...ous'), 1, paradedb.prox_array('chicken', paradedb.prox_regex('r..s')));
+SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s')));

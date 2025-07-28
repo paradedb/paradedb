@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753728492561,
+  "lastUpdate": 1753729122226,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10704,6 +10704,42 @@ window.BENCHMARK_DATA = {
             "value": 136.27200514056761,
             "unit": "median tps",
             "extra": "avg tps: 135.12607323315268, max tps: 138.0669371774741, count: 57168"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de0dcfa05f9e3e756445ad18ad319de148bdd673",
+          "message": "feat: improved `bool` type support (#2907)\n\n# Ticket(s) Closed\n\n- Related to #2885\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-28T11:21:39-07:00",
+          "tree_id": "e803dbcbfc2f4303b256138a6af87df088401ae8",
+          "url": "https://github.com/paradedb/paradedb/commit/de0dcfa05f9e3e756445ad18ad319de148bdd673"
+        },
+        "date": 1753729121037,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.7828083823036,
+            "unit": "median tps",
+            "extra": "avg tps: 28.648621817594357, max tps: 28.8550686796093, count: 57484"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 137.77517515646986,
+            "unit": "median tps",
+            "extra": "avg tps: 136.80396388108636, max tps: 140.0698091749902, count: 57484"
           }
         ]
       }

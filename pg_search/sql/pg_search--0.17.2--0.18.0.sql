@@ -1914,172 +1914,265 @@ DROP SCHEMA IF EXISTS paradedb_tmp;
 --
 -- proximity query support
 --
--- pg_search/src/query/proximity/mod.rs:28
--- pg_search::query::proximity::ProximityClause
+/* pg_search::query::proximity::pdb */
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/query/proximity/mod.rs:33
+-- pg_search::query::proximity::pdb::ProximityClause
 CREATE TYPE pdb.ProximityClause;
--- pg_search/src/query/proximity/mod.rs:28
--- pg_search::query::proximity::proximityclause_in
+-- pg_search/src/query/proximity/mod.rs:33
+-- pg_search::query::proximity::pdb::proximityclause_in
 CREATE  FUNCTION pdb."proximityclause_in"(
     "input" cstring /* core::option::Option<&core::ffi::c_str::CStr> */
-) RETURNS pdb.ProximityClause /* core::option::Option<pg_search::query::proximity::ProximityClause> */
+) RETURNS pdb.ProximityClause /* core::option::Option<pg_search::query::proximity::pdb::ProximityClause> */
     IMMUTABLE PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'proximityclause_in_wrapper';
--- pg_search/src/query/proximity/mod.rs:28
--- pg_search::query::proximity::proximityclause_out
+-- pg_search/src/query/proximity/mod.rs:33
+-- pg_search::query::proximity::pdb::proximityclause_out
 CREATE  FUNCTION pdb."proximityclause_out"(
-    "input" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    "input" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
 ) RETURNS cstring /* alloc::ffi::c_str::CString */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'proximityclause_out_wrapper';
 
-
 CREATE TYPE pdb.ProximityClause (
   INTERNALLENGTH = variable,
-  INPUT = pdb.proximityclause_in,
-  OUTPUT = pdb.proximityclause_out,
+  INPUT = pdb.proximityclause_in, /* pg_search::query::pdb_query::pdb::query_in */
+  OUTPUT = pdb.proximityclause_out, /* pg_search::query::pdb_query::pdb::query_out */
   STORAGE = extended
 );
-
 /* </end connected objects> */
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:62
--- pg_search::api::builder_fns::proximity::pdb::_db50eb::proximity_bfn
+-- pg_search/src/api/operator/atatat.rs:46
+-- pg_search::api::operator::atatat::search_with_proximity_clause
+CREATE  FUNCTION "search_with_proximity_clause"(
+    "_element" anyelement, /* pgrx::datum::anyelement::AnyElement */
+    "query" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_proximity_clause_wrapper';
+ALTER FUNCTION paradedb.search_with_proximity_clause SUPPORT paradedb.atatat_support;
+-- pg_search/src/api/operator/atatat.rs:46
+-- pg_search::api::operator::atatat::search_with_proximity_clause
+CREATE OPERATOR pg_catalog.@@@ (
+    PROCEDURE="search_with_proximity_clause",
+    LEFTARG=anyelement, /* pgrx::datum::anyelement::AnyElement */
+    RIGHTARG=pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:97
+-- pg_search::api::builder_fns::proximity::pdb::_044dff::proximity
 CREATE  FUNCTION "proximity"(
     "field" FieldName, /* pg_search::api::FieldName */
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
 ) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'proximity_bfn_wrapper';
+AS 'MODULE_PATHNAME', 'proximity_pair_bfn_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:79
--- pg_search::api::builder_fns::proximity::pdb::_592d4e::proximity_in_order_bfn
+-- pg_search/src/api/builder_fns/proximity.rs:114
+-- pg_search::api::builder_fns::proximity::pdb::_1650fa::proximity_in_order
 CREATE  FUNCTION "proximity_in_order"(
     "field" FieldName, /* pg_search::api::FieldName */
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
 ) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'proximity_in_order_bfn_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:101
--- pg_search::api::builder_fns::proximity::text_array_to_prox_clause
-CREATE  FUNCTION "text_array_to_prox_clause"(
-    "t" TEXT[] /* alloc::vec::Vec<alloc::string::String> */
-) RETURNS pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-    IMMUTABLE STRICT PARALLEL SAFE
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'text_array_to_prox_clause_wrapper';
--- pg_search/src/api/builder_fns/proximity.rs:101
--- pg_search::api::builder_fns::proximity::text_array_to_prox_clause
-CREATE CAST (
-    TEXT[] /* alloc::vec::Vec<alloc::string::String> */
-    AS
-    pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-    )
-    WITH FUNCTION text_array_to_prox_clause AS IMPLICIT;
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:96
+-- pg_search/src/api/builder_fns/proximity.rs:131
 -- pg_search::api::builder_fns::proximity::text_to_prox_clause
 CREATE  FUNCTION "text_to_prox_clause"(
     "t" TEXT /* alloc::string::String */
-) RETURNS pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'text_to_prox_clause_wrapper';
--- pg_search/src/api/builder_fns/proximity.rs:96
+-- pg_search/src/api/builder_fns/proximity.rs:131
 -- pg_search::api::builder_fns::proximity::text_to_prox_clause
 CREATE CAST (
     TEXT /* alloc::string::String */
     AS
-    pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
     )
     WITH FUNCTION text_to_prox_clause AS IMPLICIT;
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:136
+-- pg_search::api::builder_fns::proximity::text_array_to_prox_clause
+CREATE  FUNCTION "text_array_to_prox_clause"(
+    "t" TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'text_array_to_prox_clause_wrapper';
+-- pg_search/src/api/builder_fns/proximity.rs:136
+-- pg_search::api::builder_fns::proximity::text_array_to_prox_clause
+CREATE CAST (
+    TEXT[] /* alloc::vec::Vec<alloc::string::String> */
+    AS
+    pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    )
+    WITH FUNCTION text_array_to_prox_clause AS IMPLICIT;
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/tildetildetilde.rs:4
+-- pg_search::api::operator::tildetildetilde::lhs_prox
+CREATE  FUNCTION "lhs_prox"(
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "distance" INT /* i32 */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'lhs_prox_wrapper';
+-- pg_search/src/api/operator/tildetildetilde.rs:4
+-- pg_search::api::operator::tildetildetilde::lhs_prox
+CREATE OPERATOR pg_catalog.~~~ (
+    PROCEDURE="lhs_prox",
+    LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    RIGHTARG=INT /* i32 */
+    );
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:80
+-- pg_search::api::builder_fns::proximity::pdb::_f13bb3::proximity
+CREATE  FUNCTION "proximity"(
+    "field" FieldName, /* pg_search::api::FieldName */
+    "prox" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS SearchQueryInput /* pg_search::query::SearchQueryInput */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'proximity_bfn_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/operator/tildetildetilde.rs:18
+-- pg_search::api::operator::tildetildetilde::rhs_prox
+CREATE  FUNCTION "rhs_prox"(
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'rhs_prox_wrapper';
+CREATE OPERATOR pg_catalog.~~~ (
+    PROCEDURE="rhs_prox",
+    LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    RIGHTARG=pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+);
+
 /* pg_search::api::builder_fns::proximity::pdb */
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:35
+-- pg_search/src/api/builder_fns/proximity.rs:31
+-- pg_search::api::builder_fns::proximity::pdb::prox_term
+CREATE  FUNCTION pdb."prox_term"(
+    "term" TEXT /* alloc::string::String */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'prox_term_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:53
 -- pg_search::api::builder_fns::proximity::pdb::prox_clause
 CREATE  FUNCTION pdb."prox_clause"(
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::ProximityClause, anyhow::Error> */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'prox_clause_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
 -- pg_search/src/api/builder_fns/proximity.rs:48
+-- pg_search::api::builder_fns::proximity::pdb::prox_array
+CREATE  FUNCTION pdb."prox_array"(
+    "clauses" VARIADIC pdb.ProximityClause[] /* pgrx::datum::array::VariadicArray<pg_search::query::proximity::pdb::ProximityClause> */
+) RETURNS pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'prox_array_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:66
 -- pg_search::api::builder_fns::proximity::pdb::prox_clause_in_order
 CREATE  FUNCTION pdb."prox_clause_in_order"(
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::ProximityClause, anyhow::Error> */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'prox_clause_in_order_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:79
+-- pg_search/src/api/builder_fns/proximity.rs:36
+-- pg_search::api::builder_fns::proximity::pdb::prox_regex
+-- requires:
+--   ProximityClause
+CREATE  FUNCTION pdb."prox_regex"(
+    "regex" TEXT, /* alloc::string::String */
+    "max_expansions" INT DEFAULT 50 /* i32 */
+) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'prox_regex_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:97
+-- pg_search::api::builder_fns::proximity::pdb::proximity
+CREATE  FUNCTION pdb."proximity"(
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
+    "distance" INT, /* i32 */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
+) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'proximity_pair_wrapper';
+/* </end connected objects> */
+
+/* <begin connected objects> */
+-- pg_search/src/api/builder_fns/proximity.rs:114
 -- pg_search::api::builder_fns::proximity::pdb::proximity_in_order
 CREATE  FUNCTION pdb."proximity_in_order"(
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
+    "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
 ) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'proximity_in_order_wrapper';
 /* </end connected objects> */
+
 /* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:30
--- pg_search::api::builder_fns::proximity::pdb::prox_array
-CREATE  FUNCTION pdb."prox_array"(
-    "clauses" VARIADIC pdb.ProximityClause[] /* pgrx::datum::array::VariadicArray<pg_search::query::proximity::ProximityClause> */
-) RETURNS pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-    IMMUTABLE STRICT PARALLEL SAFE
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'prox_array_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:19
--- pg_search::api::builder_fns::proximity::pdb::prox_regex
-CREATE  FUNCTION pdb."prox_regex"(
-    "regex" TEXT, /* alloc::string::String */
-    "max_expansions" INT DEFAULT 50 /* i32 */
-) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::ProximityClause, anyhow::Error> */
-    IMMUTABLE STRICT PARALLEL SAFE
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'prox_regex_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:14
--- pg_search::api::builder_fns::proximity::pdb::prox_term
-CREATE  FUNCTION pdb."prox_term"(
-    "term" TEXT /* alloc::string::String */
-) RETURNS pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
-    IMMUTABLE STRICT PARALLEL SAFE
-    LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'prox_term_wrapper';
-/* </end connected objects> */
-/* <begin connected objects> */
--- pg_search/src/api/builder_fns/proximity.rs:62
+-- pg_search/src/api/builder_fns/proximity.rs:80
 -- pg_search::api::builder_fns::proximity::pdb::proximity
 CREATE  FUNCTION pdb."proximity"(
-    "left" pdb.ProximityClause, /* pg_search::query::proximity::ProximityClause */
-    "distance" INT, /* i32 */
-    "right" pdb.ProximityClause /* pg_search::query::proximity::ProximityClause */
+    "prox" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
 ) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */

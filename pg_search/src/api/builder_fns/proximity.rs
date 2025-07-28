@@ -33,7 +33,7 @@ pub mod pdb {
         ProximityClause::Term(term)
     }
 
-    #[pg_extern(immutable, parallel_safe)]
+    #[pg_extern(immutable, parallel_safe, requires = [ProximityClause])]
     pub fn prox_regex(
         regex: String,
         max_expansions: default!(i32, 50),

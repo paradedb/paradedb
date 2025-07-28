@@ -20,6 +20,7 @@ use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
+use crate::query::proximity::ProximityClause;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -40,6 +41,12 @@ pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
 #[opname(pg_catalog.@@@)]
 pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, pdb.query)` operator: `{query:?}`")
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.@@@)]
+pub fn search_with_proximity_clause(_element: AnyElement, query: ProximityClause) -> bool {
+    panic!("query is incompatible with pg_search's `@@@(field, pdb.ProximityClause)` operator: `{query:?}`")
 }
 
 #[pg_extern(immutable, parallel_safe)]
@@ -141,11 +148,13 @@ extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
         ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
+        ALTER FUNCTION paradedb.search_with_proximity_clause SUPPORT paradedb.atatat_support;
     "#,
     name = "atatat_support_fn",
     requires = [
         search_with_parse,
         search_with_fieled_query_input,
+        search_with_proximity_clause,
         atatat_support
     ]
 );

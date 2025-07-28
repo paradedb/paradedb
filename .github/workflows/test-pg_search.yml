@@ -138,12 +138,9 @@ jobs:
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-  # Don't run pgrx-managed Postgres tests on drafts or push events, since they are only used to
-  # fill the Rust cache, which is already handled in the test-pg_search-postgres job.
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubicloud-standard-8
-    if: github.event.pull_request.draft == false || github.event_name == 'push'
     strategy:
       matrix:
         pg_version: [17]

@@ -224,13 +224,29 @@ fn collect_fast_field_try_for_attno(
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
                 if let Some(search_field) = schema.search_field(att.name()) {
                     if search_field.is_fast() {
-                        let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
-                            || att.type_oid().value() == pg_sys::VARCHAROID
-                            || att.type_oid().value() == pg_sys::UUIDOID
-                        {
-                            FastFieldType::String
-                        } else {
-                            FastFieldType::Numeric
+                        let ff_type = match att.type_oid().value() {
+                            pg_sys::TEXTOID
+                            | pg_sys::VARCHAROID
+                            | pg_sys::UUIDOID
+                            | pg_sys::JSONBOID
+                            | pg_sys::JSONOID => FastFieldType::String,
+                            pg_sys::BOOLOID
+                            | pg_sys::DATEOID
+                            | pg_sys::FLOAT4OID
+                            | pg_sys::FLOAT8OID
+                            | pg_sys::INT2OID
+                            | pg_sys::INT4OID
+                            | pg_sys::INT8OID
+                            | pg_sys::NUMERICOID
+                            | pg_sys::TIMEOID
+                            | pg_sys::TIMESTAMPOID
+                            | pg_sys::TIMESTAMPTZOID
+                            | pg_sys::TIMETZOID => FastFieldType::Numeric,
+                            _ => {
+                                // This fast field type is supported for pushdown of queries, but not for
+                                // rendering via fast field execution.
+                                return false;
+                            }
                         };
                         matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
                     }

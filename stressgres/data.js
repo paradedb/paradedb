@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753728490275,
+  "lastUpdate": 1753728492561,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9470,6 +9470,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.4496087555114, max segment_count: 97.0, count: 57381"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de0dcfa05f9e3e756445ad18ad319de148bdd673",
+          "message": "feat: improved `bool` type support (#2907)\n\n# Ticket(s) Closed\n\n- Related to #2885\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-28T11:21:39-07:00",
+          "tree_id": "e803dbcbfc2f4303b256138a6af87df088401ae8",
+          "url": "https://github.com/paradedb/paradedb/commit/de0dcfa05f9e3e756445ad18ad319de148bdd673"
+        },
+        "date": 1753728491413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.267118414497787, max cpu: 43.156845, count: 57680"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 240.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.9902181892554, max mem: 240.66796875, count: 57680"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.297903142346286, max cpu: 33.20158, count: 57680"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.8722043358833, max mem: 161.61328125, count: 57680"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22545,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20964.028848821083, max block_count: 23990.0, count: 57680"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 68,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 69.29147018030513, max segment_count: 97.0, count: 57680"
           }
         ]
       }

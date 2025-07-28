@@ -414,7 +414,7 @@ INSERT INTO support_tickets (description, priority, status, category) VALUES
     ('Cannot login to account', 'High', 'Open', 'Authentication'),
     ('Password reset not working', 'High', 'Open', 'Authentication'),
     ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
-    ('Export feature broken', 'Low', 'Open', 'Features'),
+    ('Export feature broken error', 'Low', 'Open', 'Features'),
     ('Payment failed error', 'High', 'Resolved', 'Billing'),
     ('Missing invoice', 'Low', 'Resolved', 'Billing');
 CREATE INDEX tickets_idx ON support_tickets
@@ -487,27 +487,30 @@ SELECT category, priority, COUNT(*)
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category, priority;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate
    Output: category, priority, count(*)
    Group Key: support_tickets.category, support_tickets.priority
    ->  Gather Merge
-         Output: category, priority
+         Output: category, priority, (PARTIAL count(*))
          Workers Planned: 1
-         ->  Sort
-               Output: category, priority
-               Sort Key: support_tickets.category, support_tickets.priority
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
+         ->  Partial GroupAggregate
+               Output: category, priority, PARTIAL count(*)
+               Group Key: support_tickets.category, support_tickets.priority
+               ->  Sort
                      Output: category, priority
-                     Table: support_tickets
-                     Index: tickets_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: category, priority
-                     String Fast Fields: category, priority
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+                     Sort Key: support_tickets.category, support_tickets.priority
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
+                           Output: category, priority
+                           Table: support_tickets
+                           Index: tickets_idx
+                           Exec Method: MixedFastFieldExecState
+                           Fast Fields: category, priority
+                           String Fast Fields: category, priority
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
 
 -- ===========================================================================
 -- SECTION 6: Verify ORDER BY functionality
@@ -569,7 +572,8 @@ ORDER BY category;
  category | count 
 ----------+-------
  Billing  |     1
-(1 row)
+ Features |     1
+(2 rows)
 
 -- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -594,7 +598,36 @@ GROUP BY category;
  category | count 
 ----------+-------
  Billing  |     1
-(1 row)
+ Features |     1
+(2 rows)
+
+-- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
+   Output: category
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{}}}
+(5 rows)
+
+-- This should use our custom aggregate scan and return distinct categories without COUNT(*)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+ category 
+----------
+ Billing
+ Features
+(2 rows)
 
 -- ===========================================================================
 -- Clean up

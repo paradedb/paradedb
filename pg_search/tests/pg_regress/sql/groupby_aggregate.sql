@@ -225,7 +225,7 @@ INSERT INTO support_tickets (description, priority, status, category) VALUES
     ('Cannot login to account', 'High', 'Open', 'Authentication'),
     ('Password reset not working', 'High', 'Open', 'Authentication'),
     ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
-    ('Export feature broken', 'Low', 'Open', 'Features'),
+    ('Export feature broken error', 'Low', 'Open', 'Features'),
     ('Payment failed error', 'High', 'Resolved', 'Billing'),
     ('Missing invoice', 'Low', 'Resolved', 'Billing');
 
@@ -342,6 +342,21 @@ SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category;
+
+-- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+
+-- This should use our custom aggregate scan and return distinct categories without COUNT(*)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
 
 -- ===========================================================================
 -- Clean up

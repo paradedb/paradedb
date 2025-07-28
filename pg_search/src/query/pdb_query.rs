@@ -300,7 +300,7 @@ fn proximity(
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
-    if !search_field.is_tokenized() {
+    if !search_field.is_tokenized_with_freqs_and_positions() {
         return Err(QueryError::InvalidTokenizer.into());
     }
 

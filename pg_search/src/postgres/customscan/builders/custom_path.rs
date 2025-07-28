@@ -166,6 +166,7 @@ pub enum ExecMethodType {
     },
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
+        limit: Option<usize>,
     },
 }
 

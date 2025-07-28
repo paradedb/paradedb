@@ -28,7 +28,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use std::cell::UnsafeCell;
@@ -199,10 +199,6 @@ impl PdbScanState {
             .segment_readers();
 
         (segment_readers, serialized_query)
-    }
-
-    pub fn human_readable_query_string(&self) -> String {
-        self.base_search_query_input.as_human_readable()
     }
 
     pub fn has_postgres_expressions(&mut self) -> bool {

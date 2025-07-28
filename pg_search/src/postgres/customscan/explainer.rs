@@ -20,7 +20,7 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 
 pub struct Explainer {
     state: NonNull<pg_sys::ExplainState>,
@@ -49,10 +49,6 @@ impl Explainer {
         let updated_json_query =
             serde_json::to_string(&json_value).expect("updated query should serialize to json");
         self.add_text("Tantivy Query", &updated_json_query);
-
-        if self.is_verbose() {
-            self.add_text("Human Readable Query", query.as_human_readable());
-        }
     }
 
     pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {

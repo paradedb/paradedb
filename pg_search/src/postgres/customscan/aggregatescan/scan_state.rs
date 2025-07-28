@@ -180,14 +180,11 @@ impl AggregateScanState {
                 })
                 .collect::<AggregateRow>();
 
-            let mut rows = vec![GroupedAggregateRow {
+            // No sorting needed for single aggregate result
+            return vec![GroupedAggregateRow {
                 group_keys: vec![],
                 aggregate_values: row,
             }];
-
-            // Sort if needed (though for single aggregate this is usually not needed)
-            self.sort_rows(&mut rows);
-            return rows;
         }
         // GROUP BY - extract bucket results
         let mut rows = Vec::new();

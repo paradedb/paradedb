@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753710913475,
+  "lastUpdate": 1753710915753,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9188,6 +9188,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.55936259125036, max segment_count: 97.0, count: 57671"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e13f82a5144fb0c47657c94f396084b2dcf10c2",
+          "message": "feat: new SQL builder functions (#2897)\n\n## What\n\nThis adds a new set of SQL query \"builder functions\" that are all\ndesigned to be used with the `@@@` operator such that the field to be\nqueried must be on the left-hand-side and one of these builder functions\non the right-hand-side.\n\nThese functions live in a new schema named `pdb`. We decided to put\nthese new functions into a new schema for both technical and practical\nreasons. The technical reason is to avoid ambiguities when calling them,\nas all the original `paradedb.*` builder functions _still_ exist too,\nand because `pdb` is easier to type and read than `paradedb` in large\nSQL queries.\n\nThey all parallel their (pre-existing) counterparts in the `paradedb`\nschema\n\n\nFor example, you may have previously written:\n\n```sql\nSELECT * FROM mock_items\nWHERE id @@@ paradedb.term('description', 'shoes');\n```\n\nNow, you can instead write this:\n\n```sql\nSELECT * FROM mock_items\nWHERE description @@@ pdb.term('shoes');\n```\n\nNot only do we hope that this will be easier for humans writing SQL by\nhand but for machines generating SQL (think ORM tools). Putting the\nfield reference to the left of the operator, as opposed to a quoted\nstring as a function argument is more in-line with typical SQL query\npatterns.\n\n---\n\nThe full set of new functions in the `pdb` schema encompasses 68\nfunctions (too many to list here) and none of them take a\n`paradedb.FieldName` as their first argument. That said, for each\nfunction, there is an existing `paradedb` function counterpart that\ndoes. Not only does this ensure backwards compatibility, but the new\nfunctions essentially rewrite to the old functions during query planning\nand/or execution.\n\nFor example, this means that the query plans for both the old style of\n`WHERE id @@@ paradedb.exists('rating')` and the new, preferred style of\n`WHERE rating @@@ pdb.exists()` will be identical, including the json\nrepresentation of the \"Tantivy Query\":\n\n```sql\n[v16.2][2212069] test=# explain select * from mock_items where id @@@ paradedb.exists('rating');\n                                           QUERY PLAN                                            \n-------------------------------------------------------------------------------------------------\n Gather  (cost=1010.00..1014.20 rows=41 width=118)\n   Workers Planned: 1\n   ->  Parallel Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.10 rows=20 width=118)\n         Table: mock_items\n         Index: idxmock_items\n         Segment Count: 1\n         Exec Method: NormalScanExecState\n         Scores: false\n         Tantivy Query: {\"with_index\":{\"query\":{\"exists\":{\"field\":\"rating\"}}}}\n(9 rows)\n\n[v16.2][2212069] test=# explain select * from mock_items where rating @@@ pdb.exists();\n                                           QUERY PLAN                                            \n-------------------------------------------------------------------------------------------------\n Gather  (cost=1010.00..1014.20 rows=41 width=118)\n   Workers Planned: 1\n   ->  Parallel Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.10 rows=20 width=118)\n         Table: mock_items\n         Index: idxmock_items\n         Segment Count: 1\n         Exec Method: NormalScanExecState\n         Scores: false\n         Tantivy Query: {\"with_index\":{\"query\":{\"exists\":{\"field\":\"rating\"}}}}\n(9 rows)\n```\n\n### Unanticipated Change\n\nIt is no longer possible to search for a term \"across all text fields\".\nPreviously this was possible via `WHERE id @@@\nparadedb.term(value=>'shoes')`, but is no longer supported.\n\n## Why\n\nAs part of our development roadmap we're working on making our SQL UX\neasier for users (and machines!) in an effort to be more intuitive to\nthose already familiar with SQL.\n\n## How\n\nBy creating a lot of new functions. Technically, these new functions are\nthe old functions and the old functions are now generated via a custom\nproc-macro.\n\n## Tests\n\nAll existing unit and regression tests pass.  \n\nThere were 3 (?) instances where the \"search for a term across all text\nfields\" was being tested, and those have been commented out (I suspect\nwe'll have to bring that feature back at some point).\n\nI have yet to implement tests for these new functions. The fact they're\nprogrammatically created makes that a little challenging.\n\n## Docs\n\nI believe the plan is for @rebasedming to work on docs for this in\nparallel with docs on the recently added operators (&&&, |||, ###, ===)\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-07-28T09:27:02-04:00",
+          "tree_id": "ee9422fced5bcd3cb8633b945ee6f6c6d0408498",
+          "url": "https://github.com/paradedb/paradedb/commit/5e13f82a5144fb0c47657c94f396084b2dcf10c2"
+        },
+        "date": 1753710914578,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.50588144172424, max cpu: 42.60355, count: 57381"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.00501118619403, max mem: 233.3125, count: 57381"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.269526046112652, max cpu: 33.267326, count: 57381"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.86579235722627, max mem: 164.07421875, count: 57381"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22367,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20772.65697704815, max block_count: 23453.0, count: 57381"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.4496087555114, max segment_count: 97.0, count: 57381"
           }
         ]
       }

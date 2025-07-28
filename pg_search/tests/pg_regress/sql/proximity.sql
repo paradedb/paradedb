@@ -30,3 +30,15 @@ SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_clause(pdb.pro
 SELECT * FROM prox WHERE text @@@ pdb.proximity(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s')));
 -- no match
 SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_regex('del...ous'), 1, pdb.prox_array('chicken', pdb.prox_regex('r..s')));
+
+
+--
+-- just to assert the json representation
+--
+select pdb.proximity('a', 42, 'b');
+select pdb.proximity_in_order('a', 42, 'b');
+select pdb.prox_term('the_term');
+select pdb.prox_regex('the_pattern');
+select pdb.prox_regex('the_pattern', 100);
+select pdb.prox_array('a', 'b', 'c', pdb.prox_term('d'), pdb.prox_regex('e'));
+select pdb.prox_clause('a', 42, 'b');

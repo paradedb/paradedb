@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::proximity::{ProximityClause, ProximityTermStyle};
+use crate::query::proximity::ProximityClause;
 use pgrx::pg_cast;
 
 pub use pdb::*;
@@ -24,13 +24,13 @@ pub use pdb::*;
 pub mod pdb {
     use crate::api::Regex;
     use crate::query::pdb_query::pdb;
-    use crate::query::proximity::{ProximityClause, ProximityDistance, ProximityTermStyle};
+    use crate::query::proximity::{ProximityClause, ProximityDistance};
     use macros::builder_fn;
     use pgrx::{default, pg_extern, VariadicArray};
 
     #[pg_extern(immutable, parallel_safe)]
     pub fn prox_term(term: String) -> ProximityClause {
-        ProximityClause::Term(ProximityTermStyle::Term(term))
+        ProximityClause::Term(term)
     }
 
     #[pg_extern(immutable, parallel_safe)]
@@ -39,9 +39,10 @@ pub mod pdb {
         max_expansions: default!(i32, 50),
     ) -> anyhow::Result<ProximityClause> {
         let max_expansions: usize = max_expansions.try_into()?;
-        Ok(ProximityClause::Term(
-            Regex::new(&regex).map(|re| ProximityTermStyle::Regex(re, max_expansions))?,
-        ))
+        Ok(ProximityClause::Regex {
+            pattern: Regex::new(&regex)?,
+            max_expansions,
+        })
     }
 
     #[pg_extern(immutable, parallel_safe)]
@@ -112,7 +113,7 @@ pub mod pdb {
 
 #[pg_cast(implicit, immutable, parallel_safe)]
 pub fn text_to_prox_clause(t: String) -> ProximityClause {
-    ProximityClause::Term(ProximityTermStyle::Term(t))
+    ProximityClause::Term(t)
 }
 
 #[pg_cast(implicit, immutable, parallel_safe)]

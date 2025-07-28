@@ -73,3 +73,48 @@ SELECT * FROM prox WHERE text @@@ pdb.proximity_in_order(pdb.prox_regex('del...o
 ----+------
 (0 rows)
 
+--
+-- just to assert the json representation
+--
+select pdb.proximity('a', 42, 'b');
+                                      proximity                                       
+--------------------------------------------------------------------------------------
+ {"proximity":{"left":{"term":"a"},"distance":{"any_order":42},"right":{"term":"b"}}}
+(1 row)
+
+select pdb.proximity_in_order('a', 42, 'b');
+                                 proximity_in_order                                  
+-------------------------------------------------------------------------------------
+ {"proximity":{"left":{"term":"a"},"distance":{"in_order":42},"right":{"term":"b"}}}
+(1 row)
+
+select pdb.prox_term('the_term');
+ prox_term 
+-----------
+ the_term
+(1 row)
+
+select pdb.prox_regex('the_pattern');
+                       prox_regex                        
+---------------------------------------------------------
+ {"regex":{"pattern":"the_pattern","max_expansions":50}}
+(1 row)
+
+select pdb.prox_regex('the_pattern', 100);
+                        prox_regex                        
+----------------------------------------------------------
+ {"regex":{"pattern":"the_pattern","max_expansions":100}}
+(1 row)
+
+select pdb.prox_array('a', 'b', 'c', pdb.prox_term('d'), pdb.prox_regex('e'));
+                                                   prox_array                                                    
+-----------------------------------------------------------------------------------------------------------------
+ {"clauses":[{"term":"a"},{"term":"b"},{"term":"c"},{"term":"d"},{"regex":{"pattern":"e","max_expansions":50}}]}
+(1 row)
+
+select pdb.prox_clause('a', 42, 'b');
+                                     prox_clause                                      
+--------------------------------------------------------------------------------------
+ {"proximity":{"left":{"term":"a"},"distance":{"any_order":42},"right":{"term":"b"}}}
+(1 row)
+

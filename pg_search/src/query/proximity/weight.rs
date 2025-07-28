@@ -17,7 +17,7 @@
 
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::scorer::ProximityScorer;
-use crate::query::proximity::{ProximityClause, ProximityTermStyle, WhichTerms};
+use crate::query::proximity::{ProxTermStyle, ProximityClause, WhichTerms};
 use std::sync::Arc;
 use tantivy::fieldnorm::FieldNormReader;
 use tantivy::postings::{LoadedPostings, Postings};
@@ -157,16 +157,16 @@ impl ProximityWeight {
             let mut num_regex_terms = 0;
             let inverted_index = segment_reader.inverted_index(self.query.field())?;
             for term in clause.terms(self.query.field(), Some(segment_reader), which_terms)? {
-                match term.as_ref() {
-                    ProximityTermStyle::Term(term) => {
-                        let term = Term::from_field_text(self.query.field(), term);
+                match term {
+                    ProxTermStyle::Term(term) => {
+                        let term = Term::from_field_text(self.query.field(), term.as_ref());
                         if let Some(segment_postings) = inverted_index
                             .read_postings(&term, IndexRecordOption::WithFreqsAndPositions)?
                         {
                             postings.push(Box::new(segment_postings));
                         }
                     }
-                    ProximityTermStyle::Regex(re, max_expansions) => {
+                    ProxTermStyle::Regex(re, max_expansions) => {
                         let regex =
                             tantivy_fst::Regex::new(re.as_str()).unwrap_or_else(|e| panic!("{e}"));
                         let automaton = AutomatonWeight::<tantivy_fst::Regex>::new(
@@ -179,7 +179,7 @@ impl ProximityWeight {
                             continue;
                         }
                         num_regex_terms += term_infos.len();
-                        if num_regex_terms > *max_expansions {
+                        if num_regex_terms > max_expansions {
                             // we have more regex matches than our max_expansions -- stop matching now
                             continue;
                             // return Err(TantivyError::InvalidArgument(format!(

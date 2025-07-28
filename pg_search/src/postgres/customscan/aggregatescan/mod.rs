@@ -45,6 +45,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -322,9 +323,10 @@ impl CustomScan for AggregateScan {
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
-                        // Convert the TantivyValue directly to the appropriate type
+                        // Convert the OwnedValue to TantivyValue and then to datum
                         let oid = pgrx::PgOid::from(typoid);
-                        match group_val.clone().try_into_datum(oid) {
+                        let tantivy_value = TantivyValue(group_val.clone());
+                        match tantivy_value.try_into_datum(oid) {
                             Ok(Some(datum)) => {
                                 datums[i] = datum;
                             }

@@ -6,3 +6,6 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.al
 
 -- aggregate without mvcc
 SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{"buckets": { "terms": { "field": "severity" }}}', solve_mvcc=>false);
+
+-- aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT severity, COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all() GROUP BY severity ORDER BY severity;

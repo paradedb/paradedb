@@ -1937,8 +1937,8 @@ AS 'MODULE_PATHNAME', 'proximityclause_out_wrapper';
 
 CREATE TYPE pdb.ProximityClause (
   INTERNALLENGTH = variable,
-  INPUT = pdb..proximityclause_in,
-  OUTPUT = pdb..proximityclause_out,
+  INPUT = pdb.proximityclause_in,
+  OUTPUT = pdb.proximityclause_out,
   STORAGE = extended
 );
 

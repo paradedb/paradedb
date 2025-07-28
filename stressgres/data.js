@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753507792380,
+  "lastUpdate": 1753710257498,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2096,6 +2096,72 @@ window.BENCHMARK_DATA = {
             "value": 41.41554673900646,
             "unit": "median tps",
             "extra": "avg tps: 44.62989377196943, max tps: 797.4182785812652, count: 55066"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e13f82a5144fb0c47657c94f396084b2dcf10c2",
+          "message": "feat: new SQL builder functions (#2897)\n\n## What\n\nThis adds a new set of SQL query \"builder functions\" that are all\ndesigned to be used with the `@@@` operator such that the field to be\nqueried must be on the left-hand-side and one of these builder functions\non the right-hand-side.\n\nThese functions live in a new schema named `pdb`. We decided to put\nthese new functions into a new schema for both technical and practical\nreasons. The technical reason is to avoid ambiguities when calling them,\nas all the original `paradedb.*` builder functions _still_ exist too,\nand because `pdb` is easier to type and read than `paradedb` in large\nSQL queries.\n\nThey all parallel their (pre-existing) counterparts in the `paradedb`\nschema\n\n\nFor example, you may have previously written:\n\n```sql\nSELECT * FROM mock_items\nWHERE id @@@ paradedb.term('description', 'shoes');\n```\n\nNow, you can instead write this:\n\n```sql\nSELECT * FROM mock_items\nWHERE description @@@ pdb.term('shoes');\n```\n\nNot only do we hope that this will be easier for humans writing SQL by\nhand but for machines generating SQL (think ORM tools). Putting the\nfield reference to the left of the operator, as opposed to a quoted\nstring as a function argument is more in-line with typical SQL query\npatterns.\n\n---\n\nThe full set of new functions in the `pdb` schema encompasses 68\nfunctions (too many to list here) and none of them take a\n`paradedb.FieldName` as their first argument. That said, for each\nfunction, there is an existing `paradedb` function counterpart that\ndoes. Not only does this ensure backwards compatibility, but the new\nfunctions essentially rewrite to the old functions during query planning\nand/or execution.\n\nFor example, this means that the query plans for both the old style of\n`WHERE id @@@ paradedb.exists('rating')` and the new, preferred style of\n`WHERE rating @@@ pdb.exists()` will be identical, including the json\nrepresentation of the \"Tantivy Query\":\n\n```sql\n[v16.2][2212069] test=# explain select * from mock_items where id @@@ paradedb.exists('rating');\n                                           QUERY PLAN                                            \n-------------------------------------------------------------------------------------------------\n Gather  (cost=1010.00..1014.20 rows=41 width=118)\n   Workers Planned: 1\n   ->  Parallel Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.10 rows=20 width=118)\n         Table: mock_items\n         Index: idxmock_items\n         Segment Count: 1\n         Exec Method: NormalScanExecState\n         Scores: false\n         Tantivy Query: {\"with_index\":{\"query\":{\"exists\":{\"field\":\"rating\"}}}}\n(9 rows)\n\n[v16.2][2212069] test=# explain select * from mock_items where rating @@@ pdb.exists();\n                                           QUERY PLAN                                            \n-------------------------------------------------------------------------------------------------\n Gather  (cost=1010.00..1014.20 rows=41 width=118)\n   Workers Planned: 1\n   ->  Parallel Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.10 rows=20 width=118)\n         Table: mock_items\n         Index: idxmock_items\n         Segment Count: 1\n         Exec Method: NormalScanExecState\n         Scores: false\n         Tantivy Query: {\"with_index\":{\"query\":{\"exists\":{\"field\":\"rating\"}}}}\n(9 rows)\n```\n\n### Unanticipated Change\n\nIt is no longer possible to search for a term \"across all text fields\".\nPreviously this was possible via `WHERE id @@@\nparadedb.term(value=>'shoes')`, but is no longer supported.\n\n## Why\n\nAs part of our development roadmap we're working on making our SQL UX\neasier for users (and machines!) in an effort to be more intuitive to\nthose already familiar with SQL.\n\n## How\n\nBy creating a lot of new functions. Technically, these new functions are\nthe old functions and the old functions are now generated via a custom\nproc-macro.\n\n## Tests\n\nAll existing unit and regression tests pass.  \n\nThere were 3 (?) instances where the \"search for a term across all text\nfields\" was being tested, and those have been commented out (I suspect\nwe'll have to bring that feature back at some point).\n\nI have yet to implement tests for these new functions. The fact they're\nprogrammatically created makes that a little challenging.\n\n## Docs\n\nI believe the plan is for @rebasedming to work on docs for this in\nparallel with docs on the recently added operators (&&&, |||, ###, ===)\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-07-28T09:27:02-04:00",
+          "tree_id": "ee9422fced5bcd3cb8633b945ee6f6c6d0408498",
+          "url": "https://github.com/paradedb/paradedb/commit/5e13f82a5144fb0c47657c94f396084b2dcf10c2"
+        },
+        "date": 1753710256335,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1205.6687834671427,
+            "unit": "median tps",
+            "extra": "avg tps: 1200.2197387295819, max tps: 1211.7128835147346, count: 55027"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2684.207080380837,
+            "unit": "median tps",
+            "extra": "avg tps: 2682.255487575513, max tps: 2723.242152934909, count: 55027"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1149.2470996538636,
+            "unit": "median tps",
+            "extra": "avg tps: 1146.2647132885122, max tps: 1152.2018716634914, count: 55027"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 976.4771829241769,
+            "unit": "median tps",
+            "extra": "avg tps: 966.469595592069, max tps: 984.1878426743787, count: 55027"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.0261793131912,
+            "unit": "median tps",
+            "extra": "avg tps: 174.10896361968844, max tps: 188.44663618975315, count: 110054"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 140.9371377365625,
+            "unit": "median tps",
+            "extra": "avg tps: 140.73834315171092, max tps: 147.80820061303706, count: 55027"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 38.142171263215296,
+            "unit": "median tps",
+            "extra": "avg tps: 47.141362329482334, max tps: 686.3606413353833, count: 55027"
           }
         ]
       }

@@ -2098,7 +2098,7 @@ CREATE  FUNCTION pdb."prox_clause"(
     "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
     "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
-) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
+) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'prox_clause_wrapper';
@@ -2122,7 +2122,7 @@ CREATE  FUNCTION pdb."prox_clause_in_order"(
     "left" pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     "distance" INT, /* i32 */
     "right" pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */
-) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
+) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'prox_clause_in_order_wrapper';
@@ -2136,7 +2136,7 @@ AS 'MODULE_PATHNAME', 'prox_clause_in_order_wrapper';
 CREATE  FUNCTION pdb."prox_regex"(
     "regex" TEXT, /* alloc::string::String */
     "max_expansions" INT DEFAULT 50 /* i32 */
-) RETURNS ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
+) RETURNS pdb.ProximityClause /* core::result::Result<pg_search::query::proximity::pdb::ProximityClause, anyhow::Error> */
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'prox_regex_wrapper';

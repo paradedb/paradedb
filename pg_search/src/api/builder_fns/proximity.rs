@@ -34,15 +34,14 @@ pub mod pdb {
     }
 
     #[pg_extern(immutable, parallel_safe, requires = [ProximityClause])]
-    pub fn prox_regex(
-        regex: String,
-        max_expansions: default!(i32, 50),
-    ) -> anyhow::Result<ProximityClause> {
-        let max_expansions: usize = max_expansions.try_into()?;
-        Ok(ProximityClause::Regex {
-            pattern: Regex::new(&regex)?,
+    pub fn prox_regex(regex: String, max_expansions: default!(i32, 50)) -> ProximityClause {
+        let max_expansions: usize = max_expansions
+            .try_into()
+            .expect("max_expansions should be between 1 and u32::MAX");
+        ProximityClause::Regex {
+            pattern: Regex::new(&regex).unwrap_or_else(|e| panic!("{e}")),
             max_expansions,
-        })
+        }
     }
 
     #[pg_extern(immutable, parallel_safe)]
@@ -55,12 +54,16 @@ pub mod pdb {
         left: ProximityClause,
         distance: i32,
         right: ProximityClause,
-    ) -> anyhow::Result<ProximityClause> {
-        Ok(ProximityClause::Proximity {
+    ) -> ProximityClause {
+        ProximityClause::Proximity {
             left: Box::new(left),
-            distance: ProximityDistance::AnyOrder(distance.try_into()?),
+            distance: ProximityDistance::AnyOrder(
+                distance
+                    .try_into()
+                    .expect("distance should be between zero and u32::MAX"),
+            ),
             right: Box::new(right),
-        })
+        }
     }
 
     #[pg_extern(immutable, parallel_safe)]
@@ -68,12 +71,16 @@ pub mod pdb {
         left: ProximityClause,
         distance: i32,
         right: ProximityClause,
-    ) -> anyhow::Result<ProximityClause> {
-        Ok(ProximityClause::Proximity {
+    ) -> ProximityClause {
+        ProximityClause::Proximity {
             left: Box::new(left),
-            distance: ProximityDistance::InOrder(distance.try_into()?),
+            distance: ProximityDistance::InOrder(
+                distance
+                    .try_into()
+                    .expect("distance should be between zero and u32::MAX"),
+            ),
             right: Box::new(right),
-        })
+        }
     }
 
     #[builder_fn]

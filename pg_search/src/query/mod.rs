@@ -18,70 +18,39 @@
 pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
+pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
 
 use heap_field_filter::HeapFieldFilter;
 
+use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
-use crate::query::proximity::query::ProximityQuery;
-use crate::query::proximity::{ProximityClause, ProximityDistance};
-use crate::query::range::{Comparison, RangeField};
+use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
-use crate::schema::{IndexRecordOption, SearchIndexSchema};
+use crate::schema::SearchIndexSchema;
+use anyhow::Result;
 use core::panic;
-use pgrx::{pg_sys, PgBuiltInOids, PgOid, PostgresType};
-use range::{deserialize_bound, serialize_bound};
-use serde::de::Visitor;
+use pgrx::{pg_sys, IntoDatum, PgBuiltInOids, PgOid, PostgresType};
+use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
-use tantivy::tokenizer::TokenStream;
+use tantivy::query::{
+    AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
+    Query as TantivyQuery, QueryParser, TermSetQuery,
+};
 use tantivy::DateTime;
 use tantivy::{
-    query::{
-        AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, PhrasePrefixQuery, PhraseQuery, Query,
-        QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
-    },
     query_grammar::Occur,
     schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
     Searcher, Term,
 };
 use thiserror::Error;
-use tokenizers::SearchTokenizer;
-
-pub trait AsHumanReadable {
-    fn as_human_readable(&self) -> String;
-}
-
-impl AsHumanReadable for OwnedValue {
-    fn as_human_readable(&self) -> String {
-        match self {
-            OwnedValue::Null => "<NULL>".to_string(),
-            OwnedValue::Str(s) => s.clone(),
-            OwnedValue::PreTokStr(s) => s.text.to_string(),
-            OwnedValue::U64(v) => v.to_string(),
-            OwnedValue::I64(v) => v.to_string(),
-            OwnedValue::F64(v) => v.to_string(),
-            OwnedValue::Bool(v) => v.to_string(),
-            OwnedValue::Date(v) => format!("{v:?}"),
-            OwnedValue::Facet(v) => v.to_string(),
-            OwnedValue::Bytes(_) => "<BYTES>".to_string(),
-            OwnedValue::Array(a) => a
-                .iter()
-                .map(|v| v.as_human_readable())
-                .collect::<Vec<_>>()
-                .join(", "),
-            OwnedValue::Object(o) => format!("{o:?}"),
-            OwnedValue::IpAddr(v) => v.to_string(),
-        }
-    }
-}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -111,7 +80,7 @@ pub enum SearchQueryInput {
         score: f32,
     },
     ScoreFilter {
-        bounds: Vec<(std::ops::Bound<f32>, std::ops::Bound<f32>)>,
+        bounds: Vec<(Bound<f32>, Bound<f32>)>,
         query: Option<Box<SearchQueryInput>>,
     },
     DisjunctionMax {
@@ -119,38 +88,6 @@ pub enum SearchQueryInput {
         tie_breaker: Option<f32>,
     },
     Empty,
-    Exists {
-        field: FieldName,
-    },
-    FastFieldRangeWeight {
-        field: FieldName,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: std::ops::Bound<u64>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: std::ops::Bound<u64>,
-    },
-    FuzzyTerm {
-        field: FieldName,
-        value: String,
-        distance: Option<u8>,
-        transposition_cost_one: Option<bool>,
-        prefix: Option<bool>,
-    },
-    Match {
-        field: FieldName,
-        value: String,
-        tokenizer: Option<serde_json::Value>,
-        distance: Option<u8>,
-        transposition_cost_one: Option<bool>,
-        prefix: Option<bool>,
-        conjunction_mode: Option<bool>,
-    },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
         max_doc_frequency: Option<u64>,
@@ -160,7 +97,7 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        document_fields: Option<Vec<(String, tantivy::schema::OwnedValue)>>,
+        document_fields: Option<Vec<(String, OwnedValue)>>,
         document_id: Option<OwnedValue>,
     },
     Parse {
@@ -168,110 +105,7 @@ pub enum SearchQueryInput {
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
     },
-    ParseWithField {
-        field: FieldName,
-        query_string: String,
-        lenient: Option<bool>,
-        conjunction_mode: Option<bool>,
-    },
-    Phrase {
-        field: FieldName,
-        phrases: Vec<String>,
-        slop: Option<u32>,
-    },
-    PhrasePrefix {
-        field: FieldName,
-        phrases: Vec<String>,
-        max_expansions: Option<u32>,
-    },
-    Proximity {
-        field: FieldName,
-        left: ProximityClause,
-        distance: ProximityDistance,
-        right: ProximityClause,
-    },
-    Range {
-        field: FieldName,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeContains {
-        field: FieldName,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeIntersects {
-        field: FieldName,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeTerm {
-        field: FieldName,
-        value: tantivy::schema::OwnedValue,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    RangeWithin {
-        field: FieldName,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        lower_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(
-            serialize_with = "serialize_bound",
-            deserialize_with = "deserialize_bound"
-        )]
-        upper_bound: std::ops::Bound<tantivy::schema::OwnedValue>,
-        #[serde(default)]
-        is_datetime: bool,
-    },
-    Regex {
-        field: FieldName,
-        pattern: String,
-    },
-    RegexPhrase {
-        field: FieldName,
-        regexes: Vec<String>,
-        slop: Option<u32>,
-        max_expansions: Option<u32>,
-    },
-    Term {
-        field: Option<FieldName>,
-        value: tantivy::schema::OwnedValue,
-        #[serde(default)]
-        is_datetime: bool,
-    },
+
     TermSet {
         terms: Vec<TermInput>,
     },
@@ -287,6 +121,98 @@ pub enum SearchQueryInput {
         indexed_query: Box<SearchQueryInput>,
         field_filters: Vec<HeapFieldFilter>,
     },
+
+    #[serde(serialize_with = "serialize_fielded_query")]
+    #[serde(deserialize_with = "deserialize_fielded_query")]
+    #[serde(untagged)]
+    FieldedQuery {
+        field: FieldName,
+        query: pdb::Query,
+    },
+}
+
+fn serialize_fielded_query<S>(
+    field: &FieldName,
+    query: &pdb::Query,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut query_json = serde_json::to_value(query).unwrap();
+
+    if let Some(map) = query_json.as_object_mut() {
+        let fielded_query_input_entry = map.values_mut().next().unwrap();
+        fielded_query_input_entry
+            .as_object_mut()
+            .unwrap()
+            .shift_insert(0, "field".into(), serde_json::to_value(field).unwrap());
+
+        query_json.serialize(serializer)
+    } else if let Some(variant_name) = query_json.as_str() {
+        let mut map = serde_json::Map::new();
+        map.insert("field".into(), serde_json::to_value(field).unwrap());
+
+        let mut object = serde_json::Map::new();
+        object.insert(variant_name.to_string(), serde_json::Value::Object(map));
+        object.serialize(serializer)
+    } else {
+        Err(<S::Error as serde::ser::Error>::custom(
+            "this does not appear to be a `pdb::Query` instance",
+        ))
+    }
+}
+
+fn deserialize_fielded_query<'de, D>(deserializer: D) -> Result<(FieldName, pdb::Query), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct Visitor;
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+        type Value = (FieldName, pdb::Query);
+
+        fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+            formatter.write_str("a map")
+        }
+
+        fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
+        where
+            A: MapAccess<'de>,
+        {
+            let Some((key, mut value)) = map.next_entry::<String, serde_json::Value>()? else {
+                return Err(<A::Error as serde::de::Error>::custom(
+                    "this does not appear to be a `pdb::Query` instance",
+                ));
+            };
+
+            if let Some(field_entry) = value.as_object_mut().unwrap().remove_entry("field") {
+                // pull the field out of the object that also contains the FieldedQueryInput
+                let field = field_entry.1;
+                let field = serde_json::from_value::<FieldName>(field).unwrap();
+
+                if value.as_object_mut().unwrap().is_empty() {
+                    let field_query_input =
+                        serde_json::from_value::<pdb::Query>(serde_json::Value::String(key))
+                            .unwrap();
+                    Ok((field, field_query_input))
+                } else {
+                    let mut reconstructed = serde_json::Map::new();
+                    reconstructed.insert(key, value);
+
+                    let field_query_input = serde_json::from_value::<pdb::Query>(
+                        serde_json::Value::Object(reconstructed),
+                    )
+                    .unwrap();
+                    Ok((field, field_query_input))
+                }
+            } else {
+                Err(<A::Error as serde::de::Error>::custom(
+                    "this does not appear to be a `pdb::Query` instance",
+                ))
+            }
+        }
+    }
+    deserializer.deserialize_map(Visitor)
 }
 
 impl SearchQueryInput {
@@ -331,177 +257,28 @@ impl SearchQueryInput {
     }
 }
 
-impl AsHumanReadable for SearchQueryInput {
-    fn as_human_readable(&self) -> String {
-        let mut s = String::new();
-        match self {
-            SearchQueryInput::All => s.push_str("<ALL>"),
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-            } => {
-                if !must.is_empty() {
-                    s.push('(');
-                    for (i, input) in must.iter().enumerate() {
-                        (i > 0).then(|| s.push_str(" AND "));
-                        s.push_str(&input.as_human_readable());
-                    }
-                    s.push(')');
-                }
-
-                if !should.is_empty() {
-                    if !s.is_empty() {
-                        s.push_str(" AND ");
-                    }
-                    s.push('(');
-                    for (i, input) in should.iter().enumerate() {
-                        (i > 0).then(|| s.push_str(" OR "));
-                        s.push_str(&input.as_human_readable());
-                    }
-                    s.push(')');
-                }
-
-                if !must_not.is_empty() {
-                    s.push_str(" NOT (");
-                    for input in must_not {
-                        s.push_str(&input.as_human_readable());
-                    }
-                    s.push(')');
-                }
-            }
-            SearchQueryInput::Boost { query, factor } => {
-                s.push_str(&query.as_human_readable());
-                s.push_str(&format!("^{factor}"));
-            }
-            SearchQueryInput::ConstScore { query, score } => {
-                s.push_str(&query.as_human_readable());
-                s.push_str(&format!("^{score}"));
-            }
-            SearchQueryInput::ScoreFilter { bounds, query } => {
-                s.push_str(&format!(
-                    "SCORE:{bounds:?}({})",
-                    query
-                        .as_ref()
-                        .expect("ScoreFilter's query should have been set")
-                        .as_human_readable()
-                ));
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                s.push('(');
-                for (i, input) in disjuncts.iter().enumerate() {
-                    (i > 0).then(|| s.push_str(" OR "));
-                    s.push_str(&input.as_human_readable());
-                }
-                s.push(')');
-            }
-            SearchQueryInput::Empty => s.push_str("<EMPTY>"),
-            SearchQueryInput::Exists { field } => s.push_str(&format!("<EXISTS:{field}>")),
-            SearchQueryInput::FastFieldRangeWeight { .. } => {}
-            SearchQueryInput::FuzzyTerm {
-                field,
-                value,
-                distance,
-                ..
-            } => match distance {
-                Some(distance) => s.push_str(&format!("{field}:{value}~{distance}")),
-                None => s.push_str(&format!("{field}:{value}~")),
-            },
-            SearchQueryInput::Match { field, value, .. } => {
-                s.push_str(&format!("{field}:\"{value}\""))
-            }
-            SearchQueryInput::MoreLikeThis { .. } => s.push_str("<MLT>"),
-            SearchQueryInput::Parse { query_string, .. } => {
-                s.push('(');
-                s.push_str(query_string);
-                s.push(')');
-            }
-            SearchQueryInput::ParseWithField {
-                field,
-                query_string,
-                ..
-            } => s.push_str(&format!("{field}:({query_string})")),
-            SearchQueryInput::Phrase { field, phrases, .. } => {
-                s.push_str(&format!("{field}:("));
-                for phrase in phrases {
-                    s.push_str(&format!("\"{phrase}\""));
-                }
-                s.push(')');
-            }
-            SearchQueryInput::PhrasePrefix { field, phrases, .. } => {
-                s.push_str(&format!("{field}:("));
-                for (i, phrase) in phrases.iter().enumerate() {
-                    (i > 0).then(|| s.push_str(", "));
-                    s.push_str(&format!("\"{phrase}\"*"));
-                }
-                s.push(')');
-            }
-            SearchQueryInput::Regex { field, pattern } => {
-                s.push_str(&format!("{field}:/{pattern}/"));
-            }
-            SearchQueryInput::RegexPhrase { field, regexes, .. } => {
-                s.push_str(&format!("{field}:("));
-                for (i, regex) in regexes.iter().enumerate() {
-                    (i > 0).then(|| s.push_str(", "));
-                    s.push_str(&format!("/{regex}/"));
-                }
-                s.push(')');
-            }
-            SearchQueryInput::Term { field, value, .. } => match field {
-                Some(field) => s.push_str(&format!("{field}:{}", value.as_human_readable())),
-                None => s.push_str(&value.as_human_readable()),
-            },
-            SearchQueryInput::TermSet { terms } => {
-                if !terms.is_empty() {
-                    s.push('(');
-                    for (i, term) in terms.iter().enumerate() {
-                        (i > 0).then(|| s.push_str(", "));
-                        s.push_str(&format!("{}:{:?}", term.field, term.value))
-                    }
-                    s.push(')');
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => s.push_str(&query.as_human_readable()),
-            SearchQueryInput::HeapFilter {
-                indexed_query,
-                field_filters,
-            } => {
-                s.push_str(&format!(
-                    "{}+HEAP_FILTERS[{}]",
-                    indexed_query.as_human_readable(),
-                    field_filters.len()
-                ));
-            }
-
-            other => s.push_str(&format!("{other:?}")),
-        }
-        s
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TermInput {
     pub field: FieldName,
-    pub value: tantivy::schema::OwnedValue,
+    pub value: OwnedValue,
     #[serde(default)]
     pub is_datetime: bool,
 }
 
-impl TryFrom<SearchQueryInput> for TermInput {
-    type Error = &'static str;
-
-    fn try_from(query: SearchQueryInput) -> Result<Self, Self::Error> {
-        match query {
-            SearchQueryInput::Term {
-                field,
-                value,
-                is_datetime,
-            } => Ok(TermInput {
-                field: field.expect("field string must not be empty"),
-                value,
-                is_datetime,
-            }),
-            _ => Err("Only Term variants can be converted to TermInput"),
+/// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
+/// in the current memory context.
+impl From<SearchQueryInput> for *mut pg_sys::Const {
+    fn from(value: SearchQueryInput) -> Self {
+        unsafe {
+            pg_sys::makeConst(
+                searchqueryinput_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                value.into_datum().unwrap(),
+                false,
+                false,
+            )
         }
     }
 }
@@ -633,11 +410,13 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-    ) -> Result<Box<dyn Query>, QueryError> {
+    ) -> Result<Box<dyn TantivyQuery>, Box<dyn std::error::Error>> {
         match self {
-            Self::Uninitialized => panic!("this `SearchQueryInput` instance is uninitialized"),
-            Self::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
-            Self::Boolean {
+            SearchQueryInput::Uninitialized => {
+                panic!("this `SearchQueryInput` instance is uninitialized")
+            }
+            SearchQueryInput::All => Ok(Box::new(ConstScoreQuery::new(Box::new(AllQuery), 0.0))),
+            SearchQueryInput::Boolean {
                 must,
                 should,
                 must_not,
@@ -681,21 +460,21 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
-            Self::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
+            SearchQueryInput::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
                 query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
                 factor,
             ))),
-            Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
+            SearchQueryInput::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
                 query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
                 score,
             ))),
-            Self::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
+            SearchQueryInput::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
                 bounds,
                 query
                     .expect("ScoreFilter's query should have been set")
                     .into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
             ))),
-            Self::DisjunctionMax {
+            SearchQueryInput::DisjunctionMax {
                 disjuncts,
                 tie_breaker,
             } => {
@@ -714,140 +493,8 @@ impl SearchQueryInput {
                     Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
                 }
             }
-            Self::Empty => Ok(Box::new(EmptyQuery)),
-            Self::Exists { field } => {
-                let schema_field = searcher.schema().get_field(&field.root()).unwrap();
-                let is_json = searcher
-                    .schema()
-                    .get_field_entry(schema_field)
-                    .field_type()
-                    .is_json();
-                Ok(Box::new(ExistsQuery::new(field.into_inner(), is_json)))
-            }
-            Self::FastFieldRangeWeight {
-                field,
-                lower_bound,
-                upper_bound,
-            } => {
-                let field = schema.search_field(field.root()).unwrap().field();
-                let new_lower_bound = match lower_bound {
-                    Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
-                    Bound::Included(v) => Bound::Included(Term::from_field_u64(field, v)),
-                    Bound::Unbounded => Bound::Unbounded,
-                };
-
-                let new_upper_bound = match upper_bound {
-                    Bound::Excluded(v) => Bound::Excluded(Term::from_field_u64(field, v)),
-                    Bound::Included(v) => Bound::Included(Term::from_field_u64(field, v)),
-                    Bound::Unbounded => Bound::Unbounded,
-                };
-
-                Ok(Box::new(FastFieldRangeQuery::new(
-                    new_lower_bound,
-                    new_upper_bound,
-                )))
-            }
-            Self::FuzzyTerm {
-                field,
-                value,
-                distance,
-                transposition_cost_one,
-                prefix,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let field_type = search_field.field_entry().field_type();
-                let term = value_to_term(
-                    search_field.field(),
-                    &OwnedValue::Str(value),
-                    field_type,
-                    field.path().as_deref(),
-                    false,
-                )?;
-                let distance = distance.unwrap_or(2);
-                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-                if prefix.unwrap_or(false) {
-                    Ok(Box::new(FuzzyTermQuery::new_prefix(
-                        term,
-                        distance,
-                        transposition_cost_one,
-                    )))
-                } else {
-                    Ok(Box::new(FuzzyTermQuery::new(
-                        term,
-                        distance,
-                        transposition_cost_one,
-                    )))
-                }
-            }
-            Self::Match {
-                field,
-                value,
-                tokenizer,
-                distance,
-                transposition_cost_one,
-                prefix,
-                conjunction_mode,
-            } => {
-                let distance = distance.unwrap_or(0);
-                let transposition_cost_one = transposition_cost_one.unwrap_or(true);
-                let conjunction_mode = conjunction_mode.unwrap_or(false);
-                let prefix = prefix.unwrap_or(false);
-
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let field_type = search_field.field_entry().field_type();
-                let mut analyzer = match tokenizer {
-                    Some(tokenizer) => {
-                        let tokenizer = SearchTokenizer::from_json_value(&tokenizer)
-                            .map_err(|_| QueryError::InvalidTokenizer)?;
-                        tokenizer
-                            .to_tantivy_tokenizer()
-                            .ok_or(QueryError::InvalidTokenizer)?
-                    }
-                    None => searcher.index().tokenizer_for_field(search_field.field())?,
-                };
-                let mut stream = analyzer.token_stream(&value);
-                let mut terms = Vec::new();
-
-                while stream.advance() {
-                    let token = stream.token().text.clone();
-                    let term = value_to_term(
-                        search_field.field(),
-                        &OwnedValue::Str(token),
-                        field_type,
-                        field.path().as_deref(),
-                        false,
-                    )?;
-                    let term_query: Box<dyn Query> = match (distance, prefix) {
-                        (0, _) => Box::new(TermQuery::new(
-                            term,
-                            IndexRecordOption::WithFreqsAndPositions.into(),
-                        )),
-                        (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
-                            term,
-                            distance,
-                            transposition_cost_one,
-                        )),
-                        (distance, false) => {
-                            Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
-                        }
-                    };
-
-                    let occur = if conjunction_mode {
-                        Occur::Must
-                    } else {
-                        Occur::Should
-                    };
-
-                    terms.push((occur, term_query));
-                }
-
-                Ok(Box::new(BooleanQuery::new(terms)))
-            }
-            Self::MoreLikeThis {
+            SearchQueryInput::Empty => Ok(Box::new(EmptyQuery)),
+            SearchQueryInput::MoreLikeThis {
                 min_doc_frequency,
                 max_doc_frequency,
                 min_term_frequency,
@@ -899,7 +546,7 @@ impl SearchQueryInput {
                             search_field.try_coerce(&mut value)?;
                             fields_map
                                 .entry(search_field.field())
-                                .or_insert_with(std::vec::Vec::new);
+                                .or_insert_with(Vec::new);
 
                             if let Some(vec) = fields_map.get_mut(&search_field.field()) {
                                 vec.push(value)
@@ -917,32 +564,7 @@ impl SearchQueryInput {
                     }
                 }
             }
-            Self::PhrasePrefix {
-                field,
-                phrases,
-                max_expansions,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let field_type = search_field.field_entry().field_type();
-                let terms = phrases.clone().into_iter().map(|phrase| {
-                    value_to_term(
-                        search_field.field(),
-                        &OwnedValue::Str(phrase),
-                        field_type,
-                        field.path().as_deref(),
-                        false,
-                    )
-                    .unwrap()
-                });
-                let mut query = PhrasePrefixQuery::new(terms.collect());
-                if let Some(max_expansions) = max_expansions {
-                    query.set_max_expansions(max_expansions)
-                }
-                Ok(Box::new(query))
-            }
-            Self::Parse {
+            SearchQueryInput::Parse {
                 query_string,
                 lenient,
                 conjunction_mode,
@@ -963,810 +585,7 @@ impl SearchQueryInput {
                     }
                 }
             }
-            Self::ParseWithField {
-                field,
-                query_string,
-                lenient,
-                conjunction_mode,
-            } => {
-                let query_string = format!("{field}:({query_string})");
-                Self::Parse {
-                    query_string,
-                    lenient,
-                    conjunction_mode,
-                }
-                .into_tantivy_query(
-                    schema,
-                    parser,
-                    searcher,
-                    index_oid,
-                    relation_oid,
-                )
-            }
-            Self::Phrase {
-                field,
-                phrases,
-                slop,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let field_type = search_field.field_entry().field_type();
-
-                let mut terms = Vec::new();
-                let mut analyzer = searcher.index().tokenizer_for_field(search_field.field())?;
-                let mut should_warn = false;
-
-                for phrase in phrases.into_iter() {
-                    let mut stream = analyzer.token_stream(&phrase);
-                    let len_before = terms.len();
-
-                    while stream.advance() {
-                        let token = stream.token().text.clone();
-                        let term = value_to_term(
-                            search_field.field(),
-                            &OwnedValue::Str(token),
-                            field_type,
-                            field.path().as_deref(),
-                            false,
-                        )?;
-
-                        terms.push(term);
-                    }
-
-                    if len_before + 1 < terms.len() {
-                        should_warn = true;
-                    }
-                }
-
-                // When tokeniser produce more than one token per phrase, their position may not
-                // correctly represent the original query.
-                // For example, NgramTokenizer can produce many tokens per word and all of them will
-                // have position=0 which won't be correctly interpreted when processing slop
-                if should_warn {
-                    pgrx::warning!("Phrase query with multiple tokens per phrase may not be correctly interpreted. Consider using a different tokenizer or switch to parse/match");
-                }
-
-                let mut query = PhraseQuery::new(terms);
-                if let Some(slop) = slop {
-                    query.set_slop(slop)
-                }
-                Ok(Box::new(query))
-            }
-            Self::Proximity {
-                field,
-                left,
-                distance,
-                right,
-            } => {
-                if left.is_empty() || right.is_empty() {
-                    return Ok(Box::new(EmptyQuery));
-                }
-
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                if !search_field.is_tokenized() {
-                    return Err(QueryError::InvalidTokenizer);
-                }
-
-                let prox = ProximityQuery::new(search_field.field(), left, distance, right);
-                Ok(Box::new(prox))
-            }
-            Self::Range {
-                field,
-                lower_bound,
-                upper_bound,
-                is_datetime,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let field_type = search_field.field_entry().field_type();
-                let typeoid = search_field.field_type().typeoid();
-                let is_datetime = search_field.is_datetime() || is_datetime;
-
-                let lower_bound = coerce_bound_to_field_type(lower_bound, field_type);
-                let upper_bound = coerce_bound_to_field_type(upper_bound, field_type);
-                let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-
-                let lower_bound = match lower_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?),
-                    Bound::Unbounded => Bound::Unbounded,
-                };
-
-                let upper_bound = match upper_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?),
-                    Bound::Unbounded => Bound::Unbounded,
-                };
-
-                Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
-            }
-            Self::RangeContains {
-                field,
-                lower_bound,
-                upper_bound,
-                is_datetime,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let typeoid = search_field.field_type().typeoid();
-                let is_datetime = search_field.is_datetime() || is_datetime;
-                let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-                let range_field = RangeField::new(search_field.field(), is_datetime);
-
-                let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-                let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-
-                match lower_bound {
-                    Bound::Included(lower) => {
-                        satisfies_lower_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field
-                                        .compare_lower_bound(&lower, Comparison::LessThanOrEqual)?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Excluded(lower) => {
-                        satisfies_lower_bound.push((
-                            Occur::Must,
-                            (Box::new(BooleanQuery::new(vec![
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                &lower,
-                                                Comparison::LessThan,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(true)?),
-                                        ),
-                                    ])),
-                                ),
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                &lower,
-                                                Comparison::LessThanOrEqual,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(false)?),
-                                        ),
-                                    ])),
-                                ),
-                            ]))),
-                        ))
-                    }
-                    _ => {
-                        satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?)))
-                    }
-                }
-
-                match upper_bound {
-                    Bound::Included(upper) => {
-                        satisfies_upper_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field.compare_upper_bound(
-                                        &upper,
-                                        Comparison::GreaterThanOrEqual,
-                                    )?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Excluded(upper) => satisfies_upper_bound.push((
-                        Occur::Must,
-                        (Box::new(BooleanQuery::new(vec![
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_upper_bound(
-                                            &upper,
-                                            Comparison::GreaterThan,
-                                        )?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(true)?),
-                                    ),
-                                ])),
-                            ),
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_upper_bound(
-                                            &upper,
-                                            Comparison::GreaterThanOrEqual,
-                                        )?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(false)?),
-                                    ),
-                                ])),
-                            ),
-                        ]))),
-                    )),
-                    _ => {
-                        satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?)))
-                    }
-                }
-
-                let satisfies_lower_bound = BooleanQuery::new(vec![
-                    (Occur::Should, Box::new(range_field.empty(true)?)),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_lower_bound)),
-                    ),
-                ]);
-
-                let satisfies_upper_bound = BooleanQuery::new(vec![
-                    (Occur::Should, Box::new(range_field.empty(true)?)),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_upper_bound)),
-                    ),
-                ]);
-
-                Ok(Box::new(BooleanQuery::new(vec![
-                    (Occur::Must, Box::new(satisfies_lower_bound)),
-                    (Occur::Must, Box::new(satisfies_upper_bound)),
-                ])))
-            }
-            Self::RangeIntersects {
-                field,
-                lower_bound,
-                upper_bound,
-                is_datetime,
-                ..
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let typeoid = search_field.field_type().typeoid();
-                let is_datetime = search_field.is_datetime() || is_datetime;
-
-                let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-                let range_field = RangeField::new(search_field.field(), is_datetime);
-
-                let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-                let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-
-                match lower_bound {
-                    Bound::Excluded(ref lower) => {
-                        satisfies_lower_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field.compare_upper_bound(lower, Comparison::LessThan)?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Included(ref lower) => satisfies_lower_bound.push((
-                        Occur::Must,
-                        (Box::new(BooleanQuery::new(vec![
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_upper_bound(
-                                            lower,
-                                            Comparison::LessThanOrEqual,
-                                        )?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(true)?),
-                                    ),
-                                ])),
-                            ),
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(
-                                            range_field
-                                                .compare_upper_bound(lower, Comparison::LessThan)?,
-                                        ),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(false)?),
-                                    ),
-                                ])),
-                            ),
-                        ]))),
-                    )),
-                    Bound::Unbounded => {
-                        satisfies_lower_bound.push((Occur::Should, Box::new(range_field.exists()?)))
-                    }
-                }
-
-                match upper_bound {
-                    Bound::Excluded(ref upper) => {
-                        satisfies_upper_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field
-                                        .compare_lower_bound(upper, Comparison::GreaterThan)?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Included(ref upper) => {
-                        satisfies_upper_bound.push((
-                            Occur::Must,
-                            (Box::new(BooleanQuery::new(vec![
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                upper,
-                                                Comparison::GreaterThanOrEqual,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(true)?),
-                                        ),
-                                    ])),
-                                ),
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                upper,
-                                                Comparison::GreaterThan,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(false)?),
-                                        ),
-                                    ])),
-                                ),
-                            ]))),
-                        ))
-                    }
-                    Bound::Unbounded => {
-                        satisfies_upper_bound.push((Occur::Should, Box::new(range_field.exists()?)))
-                    }
-                }
-
-                let satisfies_lower_bound = BooleanQuery::new(vec![
-                    (
-                        Occur::Should,
-                        Box::new(range_field.upper_bound_unbounded(true)?),
-                    ),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_lower_bound)),
-                    ),
-                ]);
-
-                let satisfies_upper_bound = BooleanQuery::new(vec![
-                    (
-                        Occur::Should,
-                        Box::new(range_field.lower_bound_unbounded(true)?),
-                    ),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_upper_bound)),
-                    ),
-                ]);
-
-                let is_empty = match (lower_bound, upper_bound) {
-                    (Bound::Included(lower), Bound::Excluded(upper)) => lower == upper,
-                    _ => false,
-                };
-
-                if is_empty {
-                    Ok(Box::new(EmptyQuery))
-                } else {
-                    Ok(Box::new(BooleanQuery::new(vec![
-                        (Occur::Must, Box::new(satisfies_lower_bound)),
-                        (Occur::Must, Box::new(satisfies_upper_bound)),
-                        (Occur::Must, Box::new(range_field.empty(false)?)),
-                    ])))
-                }
-            }
-            Self::RangeTerm {
-                field,
-                value,
-                is_datetime,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let range_field = RangeField::new(search_field.field(), is_datetime);
-
-                let satisfies_lower_bound = BooleanQuery::new(vec![
-                    (
-                        Occur::Should,
-                        Box::new(range_field.lower_bound_unbounded(true)?),
-                    ),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(vec![
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.lower_bound_inclusive(true)?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_lower_bound(
-                                            &value,
-                                            Comparison::GreaterThanOrEqual,
-                                        )?),
-                                    ),
-                                ])),
-                            ),
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.lower_bound_inclusive(false)?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_lower_bound(
-                                            &value,
-                                            Comparison::GreaterThan,
-                                        )?),
-                                    ),
-                                ])),
-                            ),
-                        ])),
-                    ),
-                ]);
-
-                let satisfies_upper_bound =
-                    BooleanQuery::new(vec![
-                        (
-                            Occur::Should,
-                            Box::new(range_field.upper_bound_unbounded(true)?),
-                        ),
-                        (
-                            Occur::Should,
-                            Box::new(BooleanQuery::new(vec![
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.upper_bound_inclusive(true)?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_upper_bound(
-                                                &value,
-                                                Comparison::LessThanOrEqual,
-                                            )?),
-                                        ),
-                                    ])),
-                                ),
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.upper_bound_inclusive(false)?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_upper_bound(
-                                                &value,
-                                                Comparison::LessThan,
-                                            )?),
-                                        ),
-                                    ])),
-                                ),
-                            ])),
-                        ),
-                    ]);
-
-                Ok(Box::new(BooleanQuery::new(vec![
-                    (Occur::Must, Box::new(satisfies_lower_bound)),
-                    (Occur::Must, Box::new(satisfies_upper_bound)),
-                ])))
-            }
-            Self::RangeWithin {
-                field,
-                lower_bound,
-                upper_bound,
-                is_datetime,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let typeoid = search_field.field_type().typeoid();
-                let is_datetime = search_field.is_datetime() || is_datetime;
-                let (lower_bound, upper_bound) =
-                    check_range_bounds(typeoid, lower_bound, upper_bound)?;
-
-                let range_field = RangeField::new(search_field.field(), is_datetime);
-
-                let mut satisfies_lower_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-                let mut satisfies_upper_bound: Vec<(Occur, Box<dyn Query>)> = vec![];
-
-                match lower_bound {
-                    Bound::Excluded(ref lower) => {
-                        satisfies_lower_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field.compare_lower_bound(
-                                        lower,
-                                        Comparison::GreaterThanOrEqual,
-                                    )?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Included(ref lower) => {
-                        satisfies_lower_bound.push((
-                            Occur::Must,
-                            (Box::new(BooleanQuery::new(vec![
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                lower,
-                                                Comparison::GreaterThan,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(false)?),
-                                        ),
-                                    ])),
-                                ),
-                                (
-                                    Occur::Should,
-                                    Box::new(BooleanQuery::new(vec![
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.compare_lower_bound(
-                                                lower,
-                                                Comparison::GreaterThanOrEqual,
-                                            )?),
-                                        ),
-                                        (
-                                            Occur::Must,
-                                            Box::new(range_field.lower_bound_inclusive(true)?),
-                                        ),
-                                    ])),
-                                ),
-                            ]))),
-                        ))
-                    }
-                    _ => {}
-                }
-
-                match upper_bound {
-                    Bound::Excluded(ref upper) => {
-                        satisfies_upper_bound.push((
-                            Occur::Must,
-                            Box::new(BooleanQuery::new(vec![(
-                                Occur::Must,
-                                Box::new(
-                                    range_field
-                                        .compare_upper_bound(upper, Comparison::LessThanOrEqual)?,
-                                ),
-                            )])),
-                        ));
-                    }
-                    Bound::Included(ref upper) => satisfies_upper_bound.push((
-                        Occur::Must,
-                        (Box::new(BooleanQuery::new(vec![
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(
-                                            range_field
-                                                .compare_upper_bound(upper, Comparison::LessThan)?,
-                                        ),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(false)?),
-                                    ),
-                                ])),
-                            ),
-                            (
-                                Occur::Should,
-                                Box::new(BooleanQuery::new(vec![
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.compare_upper_bound(
-                                            upper,
-                                            Comparison::LessThanOrEqual,
-                                        )?),
-                                    ),
-                                    (
-                                        Occur::Must,
-                                        Box::new(range_field.upper_bound_inclusive(true)?),
-                                    ),
-                                ])),
-                            ),
-                        ]))),
-                    )),
-                    _ => {}
-                }
-
-                let satisfies_lower_bound = BooleanQuery::new(vec![
-                    (
-                        Occur::Should,
-                        Box::new(range_field.lower_bound_unbounded(true)?),
-                    ),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_lower_bound)),
-                    ),
-                ]);
-
-                let satisfies_upper_bound = BooleanQuery::new(vec![
-                    (
-                        Occur::Should,
-                        Box::new(range_field.upper_bound_unbounded(true)?),
-                    ),
-                    (
-                        Occur::Should,
-                        Box::new(BooleanQuery::new(satisfies_upper_bound)),
-                    ),
-                ]);
-
-                let is_empty = match (lower_bound, upper_bound) {
-                    (Bound::Included(lower), Bound::Excluded(upper)) => lower == upper,
-                    _ => false,
-                };
-
-                if is_empty {
-                    Ok(Box::new(range_field.exists()?))
-                } else {
-                    Ok(Box::new(BooleanQuery::new(vec![
-                        (Occur::Must, Box::new(satisfies_lower_bound)),
-                        (Occur::Must, Box::new(satisfies_upper_bound)),
-                    ])))
-                }
-            }
-            Self::Regex { field, pattern } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-
-                Ok(Box::new(
-                    RegexQuery::from_pattern(&pattern, search_field.field())
-                        .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
-                ))
-            }
-            Self::RegexPhrase {
-                field,
-                regexes,
-                slop,
-                max_expansions,
-            } => {
-                let search_field = schema
-                    .search_field(field.root())
-                    .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                let mut query = RegexPhraseQuery::new(search_field.field(), regexes);
-
-                if let Some(slop) = slop {
-                    query.set_slop(slop)
-                }
-                if let Some(max_expansions) = max_expansions {
-                    query.set_max_expansions(max_expansions)
-                }
-                Ok(Box::new(query))
-            }
-
-            Self::Term {
-                field,
-                value,
-                is_datetime,
-            } => {
-                let record_option = IndexRecordOption::WithFreqsAndPositions;
-                if let Some(field) = field {
-                    let search_field = schema
-                        .search_field(field.root())
-                        .ok_or(QueryError::NonIndexedField(field.clone()))?;
-                    let field_type = search_field.field_entry().field_type();
-                    let is_datetime = search_field.is_datetime() || is_datetime;
-                    let term = value_to_term(
-                        search_field.field(),
-                        &value,
-                        field_type,
-                        field.path().as_deref(),
-                        is_datetime,
-                    )?;
-
-                    Ok(Box::new(TermQuery::new(term, record_option.into())))
-                } else {
-                    // If no field is passed, then search all fields.
-                    let all_fields = schema.fields();
-                    let mut terms = vec![];
-                    for (field, field_entry) in all_fields {
-                        let field_type = field_entry.field_type();
-                        if let Ok(term) =
-                            value_to_term(field, &value, field_type, None, is_datetime)
-                        {
-                            terms.push(term);
-                        }
-                    }
-
-                    Ok(Box::new(TermSetQuery::new(terms)))
-                }
-            }
-            Self::TermSet { terms: fields } => {
+            SearchQueryInput::TermSet { terms: fields } => {
                 let mut terms = vec![];
                 for TermInput {
                     field,
@@ -1790,10 +609,10 @@ impl SearchQueryInput {
 
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
-            Self::WithIndex { query, .. } => {
+            SearchQueryInput::WithIndex { query, .. } => {
                 query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
             }
-            Self::HeapFilter {
+            SearchQueryInput::HeapFilter {
                 indexed_query,
                 field_filters,
             } => {
@@ -1813,7 +632,12 @@ impl SearchQueryInput {
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
                 )))
             }
-            Self::PostgresExpression { .. } => panic!("postgres expressions have not been solved"),
+            SearchQueryInput::PostgresExpression { .. } => {
+                panic!("postgres expressions have not been solved")
+            }
+            SearchQueryInput::FieldedQuery { field, query } => {
+                query.into_tantivy_query(field, schema, parser, searcher)
+            }
         }
     }
 }
@@ -1824,7 +648,7 @@ fn value_to_json_term(
     path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
-) -> Result<Term, QueryError> {
+) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
@@ -1871,7 +695,7 @@ pub fn value_to_term(
     field_type: &FieldType,
     path: Option<&str>,
     is_datetime: bool,
-) -> std::result::Result<Term, QueryError> {
+) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
         _ => None,
@@ -1925,7 +749,7 @@ pub fn value_to_term(
     })
 }
 
-struct TantivyDateTime(pub tantivy::DateTime);
+struct TantivyDateTime(pub DateTime);
 impl TryFrom<&str> for TantivyDateTime {
     type Error = QueryError;
 
@@ -1935,7 +759,7 @@ impl TryFrom<&str> for TantivyDateTime {
             Err(_) => chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
                 .map_err(|_| QueryError::FieldTypeMismatch)?,
         };
-        Ok(TantivyDateTime(tantivy::DateTime::from_timestamp_micros(
+        Ok(TantivyDateTime(DateTime::from_timestamp_micros(
             datetime.and_utc().timestamp_micros(),
         )))
     }
@@ -2068,6 +892,13 @@ pub struct PostgresExpression {
 }
 
 impl PostgresExpression {
+    pub fn new(node: *mut pg_sys::Node) -> Self {
+        Self {
+            node: PostgresPointer(node.cast()),
+            expr_state: PostgresPointer::default(),
+        }
+    }
+
     pub fn set_expr_state(&mut self, expr_state: *mut pg_sys::ExprState) {
         self.expr_state = PostgresPointer(expr_state.cast())
     }

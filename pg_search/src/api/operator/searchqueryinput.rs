@@ -14,10 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use super::{
-    anyelement_query_input_opoid, anyelement_query_input_procoid,
-    make_search_query_input_opexpr_node,
-};
+use super::{anyelement_query_input_opoid, request_simplify};
 use crate::api::operator::{estimate_selectivity, find_var_relation, ReturnedNodePointer};
 use crate::api::{HashMap, HashSet};
 use crate::gucs::per_tuple_cost;
@@ -239,39 +236,24 @@ pub unsafe fn query_input_support(arg: Internal) -> ReturnedNodePointer {
 
 fn query_input_support_request_simplify(arg: pg_sys::Datum) -> Option<ReturnedNodePointer> {
     unsafe {
-        let srs = nodecast!(
-            SupportRequestSimplify,
-            T_SupportRequestSimplify,
-            arg.cast_mut_ptr::<pg_sys::Node>()
-        )?;
-
-        // Rewrite this node to use the @@@(key_field, paradedb.searchqueryinput) operator.
-        // This involves converting the rhs of the operator into a SearchQueryInput.
-        let mut input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-        let lhs = input_args.get_ptr(0)?;
-
-        // NB:  there was a point where we only allowed a relation reference on the left of @@@
-        // when the right side uses a builder function, but we've decided that also allowing a field
-        // name is materially better as the relation reference might be an artificial ROW(...) whereas
-        // a field will be a legitimate Var from which we can derive the physical table.
-        // if (*var).varattno != 0 {
-        //     panic!("the left side of the `@@@` operator must be a relation reference when the right side uses a builder function");
-        // }
-
-        let rhs = input_args.get_ptr(1)?;
-        let query = nodecast!(Const, T_Const, rhs)
-            .map(|const_| SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull))
-            .flatten();
-
-        Some(make_search_query_input_opexpr_node(
-            srs,
-            &mut input_args,
-            lhs,
-            query,
-            None,
-            anyelement_query_input_opoid(),
-            anyelement_query_input_procoid(),
-        ))
+        request_simplify(
+            arg.cast_mut_ptr::<pg_sys::Node>(),
+            //
+            // if either of these closures are called that represents a logic error
+            // in `request_simplify`'s implementation
+            //
+            // in this case, we know that the rhs of the expression has a type of `SearchQueryInput`
+            // so there's no need for additional rewriting
+            //
+            |_, _| {
+                unreachable!(
+                    "query_input_support_request_simplify should never be called for Const rewriting"
+                )
+            },
+            |_, _| {
+                unreachable!("query_input_support_request_simplify should never be called for rhs expression rewriting")
+            },
+        )
     }
 }
 

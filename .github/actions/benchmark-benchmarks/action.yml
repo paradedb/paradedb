@@ -79,8 +79,7 @@ runs:
           channel: ${{ inputs.slack_channel }}
           text: |
             ${{ github.repository }} Benchmark Results: `${{ inputs.dataset }}`
-            ${{ inputs.pr_label }} @ <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}>
-            <https://paradedb.github.io/paradedb/benchmarks/>
+            <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/benchmarks/>
 
     - name: Notify Slack on Failure (push only)
       if: failure() && github.event_name == 'push'

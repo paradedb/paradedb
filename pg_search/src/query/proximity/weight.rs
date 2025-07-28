@@ -149,7 +149,7 @@ impl ProximityWeight {
                             postings.push(Box::new(segment_postings));
                         }
                     }
-                    ProximityTermStyle::Rexgex(re, max_expansions) => {
+                    ProximityTermStyle::Regex(re, max_expansions) => {
                         let regex =
                             tantivy_fst::Regex::new(re.as_str()).unwrap_or_else(|e| panic!("{e}"));
                         let automaton = AutomatonWeight::<tantivy_fst::Regex>::new(

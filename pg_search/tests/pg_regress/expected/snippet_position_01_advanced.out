@@ -9,11 +9,12 @@ CREATE TABLE authors (
     age INT
 );
 CREATE TABLE books (
-    id SERIAL PRIMARY KEY,
+    id INT,
     author_id INT,
     content TEXT,
     titles TEXT[],
-    metadata JSONB
+    metadata JSONB,
+    PRIMARY KEY (id, author_id)
 );
 CREATE TABLE reviews (
     id SERIAL PRIMARY KEY,
@@ -25,12 +26,15 @@ INSERT INTO authors (name, age) VALUES
 ('Stephen King', 75),
 ('Agatha Christie', 80),
 ('Dan Brown', 60),
-('J.R.R. Tolkien', 100);
-INSERT INTO books (author_id,content, titles, metadata) VALUES
-(2, 'This is a test test of the snippet function with multiple test words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
-(2, 'Another test of the snippet snippet function with repeated snippet words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
-(1, 'Yet another test test test of the function function function', ARRAY['test', 'snippet', 'test'], '{"test": "test"}'),
-(3, 'test Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? test At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae. Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. test', ARRAY['test', 'snippet', 'function'], '{"test": "test"}');
+('J.R.R. Tolkien', 100),
+('Sami Bowling', 66);
+INSERT INTO books (id, author_id,content, titles, metadata) VALUES
+(1, 2, 'This is a test test of the snippet function with multiple test words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 1, 'This is a final final of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(1, 6, 'This is a final test of the snippet function with multiple final words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+(2, 2, 'Another test of the snippet snippet function with repeated snippet words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
+(3, 1, 'Yet another test test test of the function function function', ARRAY['test', 'snippet', 'test'], '{"test": "test"}'),
+(4, 3, 'test Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? test At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae. Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. test', ARRAY['test', 'snippet', 'function'], '{"test": "test"}');
 INSERT INTO reviews (book_id, review) VALUES
 (1, 'This is a test review of the snippet function with multiple test words'),
 (2, 'Another test review of the snippet snippet function with repeated snippet words'),
@@ -54,6 +58,150 @@ CREATE INDEX ON reviews USING bm25 (
     book_id,
     review
 ) WITH (key_field = 'id');
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
+       1 |         2 |                     |                  |            0 | 0.45681813
+       1 |         6 |                     |                  |            0 | 0.35745716
+       2 |         2 |                     |                  |            0 | 0.36441684
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617
+       4 |         3 |                     |                  |            0 | 0.20612015
+(6 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' OR NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |            0 |          0
+       1 |         2 |                     |                  |            0 | 0.45681813
+       1 |         6 |                     |                  |            0 | 0.35745716
+       2 |         2 |                     |                  |            0 | 0.36441684
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |            0 |  0.4624617
+       4 |         3 |                     |                  |            0 | 0.20612015
+(6 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') OR a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
+(2 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') OR NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id | author_snippet | author_positions | author_score | book_score 
+---------+-----------+----------------+------------------+--------------+------------
+       1 |         2 |                |                  |            0 |          0
+       1 |         6 |                |                  |            0 |          0
+       2 |         2 |                |                  |            0 |          0
+       4 |         3 |                |                  |            0 |          0
+(4 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       3 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617
+(1 row)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE b.content @@@ 'test' AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id | author_snippet | author_positions | author_score | book_score 
+---------+-----------+----------------+------------------+--------------+------------
+       1 |         2 |                |                  |            0 | 0.45681813
+       1 |         6 |                |                  |            0 | 0.35745716
+       2 |         2 |                |                  |            0 | 0.36441684
+       4 |         3 |                |                  |            0 | 0.20612015
+(4 rows)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND a.name @@@ 'Rowling'
+ORDER BY b.id, a.id;
+ book_id | author_id |   author_snippet    | author_positions | author_score | book_score 
+---------+-----------+---------------------+------------------+--------------+------------
+       1 |         1 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |          0
+(1 row)
+
+SELECT
+    b.id as book_id,
+    a.id as author_id,
+    paradedb.snippet(a.name) as author_snippet,
+    paradedb.snippet_positions(a.name) as author_positions,
+    paradedb.score(a.id) as author_score,
+    paradedb.score(b.id) as book_score
+FROM books b
+JOIN authors a ON b.author_id = a.id
+WHERE NOT(b.content @@@ 'test') AND NOT(a.name @@@ 'Rowling')
+ORDER BY b.id, a.id;
+ book_id | author_id | author_snippet | author_positions | author_score | book_score 
+---------+-----------+----------------+------------------+--------------+------------
+(0 rows)
+
 WITH book_snippets AS (
     SELECT
         b.id as book_id,
@@ -63,7 +211,7 @@ WITH book_snippets AS (
         paradedb.score(b.id) as book_score
     FROM books b
     JOIN authors a ON b.author_id = a.id
-    WHERE b.content @@@ 'test' OR a.name @@@ 'Rowling'
+    WHERE b.content @@@ 'test' AND a.name @@@ 'Rowling'
 )
 SELECT
     bs.*,
@@ -75,13 +223,10 @@ FROM book_snippets bs
 LEFT JOIN reviews r ON r.book_id = bs.book_id
 WHERE r.review @@@ 'test' AND r.review @@@ 'snippet'
 ORDER BY bs.book_id, r.id;
- book_id |   author_snippet    | author_positions | author_score | book_score |                                     review                                      |                                               review_snippet                                                |             review_positions             | review_score 
----------+---------------------+------------------+--------------+------------+---------------------------------------------------------------------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+--------------
-       1 |                     |                  |            0 | 0.20262644 | This is a test review of the snippet function with multiple test words          | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |     0.494645
-       2 |                     |                  |            0 | 0.16421193 | Another test review of the snippet snippet function with repeated snippet words | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} |    0.7406344
-       2 |                     |                  |            0 | 0.16421193 | test review of the snippet snippet function with repeated snippet words         | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  |   0.75704324
-       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.3042113 | 0.20443876 | test review of the snippet function with multiple test words                    | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            |    0.5505729
-(4 rows)
+ book_id |   author_snippet    | author_positions | author_score | book_score |                            review                            |                                  review_snippet                                   |       review_positions        | review_score 
+---------+---------------------+------------------+--------------+------------+--------------------------------------------------------------+-----------------------------------------------------------------------------------+-------------------------------+--------------
+       3 | J.K. <b>Rowling</b> | {"{5,12}"}       |    1.4239408 |  0.4624617 | test review of the snippet function with multiple test words | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words | {"{0,4}","{19,26}","{50,54}"} |    0.5505729
+(1 row)
 
 SELECT
     b.id as book_id,
@@ -104,14 +249,18 @@ WHERE b.content @@@ 'test'
 ORDER BY b.id, r.id;
  book_id |                                                                       book_snippet                                                                       |            book_positions             |   author_snippet    | author_positions |                                               review_snippet                                                |             review_positions             | book_score | author_score | review_score 
 ---------+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------------------+---------------------+------------------+-------------------------------------------------------------------------------------------------------------+------------------------------------------+------------+--------------+--------------
-       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          | 0.20262644 |            0 |     0.494645
-       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | <b>test</b> review of the function function function                                                        | {"{0,4}"}                                | 0.20262644 |            0 |  0.085374445
-       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} | 0.16421193 |            0 |    0.7406344
-       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  | 0.16421193 |            0 |   0.75704324
-       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | Yet another <b>test</b> review of the function function function                                            | {"{12,16}"}                              | 0.20443876 |    1.3042113 |   0.07823789
-       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            | 0.20443876 |    1.3042113 |    0.5505729
-       4 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{0,4}","{1317,1321}","{2167,2171}"} |                     |                  |                                                                                                             |                                          | 0.10757824 |            0 |             
-(7 rows)
+       1 |                                                                                                                                                          |                                       | J.K. <b>Rowling</b> | {"{5,12}"}       | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          |          0 |    1.4239408 |     0.494645
+       1 | This is a final <b>test</b> of the snippet function with multiple final words                                                                            | {"{16,20}"}                           |                     |                  | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          | 0.35745716 |            0 |     0.494645
+       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | This is a <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                 | {"{10,14}","{29,36}","{60,64}"}          | 0.45681813 |            0 |     0.494645
+       1 | This is a final <b>test</b> of the snippet function with multiple final words                                                                            | {"{16,20}"}                           |                     |                  | <b>test</b> review of the function function function                                                        | {"{0,4}"}                                | 0.35745716 |            0 |  0.085374445
+       1 | This is a <b>test</b> <b>test</b> of the snippet function with multiple <b>test</b> words                                                                | {"{10,14}","{15,19}","{58,62}"}       |                     |                  | <b>test</b> review of the function function function                                                        | {"{0,4}"}                                | 0.45681813 |            0 |  0.085374445
+       1 |                                                                                                                                                          |                                       | J.K. <b>Rowling</b> | {"{5,12}"}       | <b>test</b> review of the function function function                                                        | {"{0,4}"}                                |          0 |    1.4239408 |  0.085374445
+       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | Another <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words | {"{8,12}","{27,34}","{35,42}","{66,73}"} | 0.36441684 |            0 |    0.7406344
+       2 | Another <b>test</b> of the snippet snippet function with repeated snippet words                                                                          | {"{8,12}"}                            |                     |                  | <b>test</b> review of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words         | {"{0,4}","{19,26}","{27,34}","{58,65}"}  | 0.36441684 |            0 |   0.75704324
+       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | Yet another <b>test</b> review of the function function function                                            | {"{12,16}"}                              |  0.4624617 |    1.4239408 |   0.07823789
+       3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}       | J.K. <b>Rowling</b> | {"{5,12}"}       | <b>test</b> review of the <b>snippet</b> function with multiple <b>test</b> words                           | {"{0,4}","{19,26}","{50,54}"}            |  0.4624617 |    1.4239408 |    0.5505729
+       4 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{0,4}","{1317,1321}","{2167,2171}"} |                     |                  |                                                                                                             |                                          | 0.20612015 |            0 |             
+(11 rows)
 
 \i common/snippet_position_advanced_cleanup.sql
 DROP TABLE IF EXISTS authors;

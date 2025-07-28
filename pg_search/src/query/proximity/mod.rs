@@ -13,14 +13,14 @@ mod weight;
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ProximityTermStyle {
     Term(String),
-    Rexgex(Regex, usize),
+    Regex(Regex, usize),
 }
 
 impl ProximityTermStyle {
     pub fn as_str(&self) -> &str {
         match self {
             ProximityTermStyle::Term(term) => term.as_str(),
-            ProximityTermStyle::Rexgex(regex, ..) => regex.as_str(),
+            ProximityTermStyle::Regex(regex, ..) => regex.as_str(),
         }
     }
 }
@@ -92,12 +92,12 @@ impl ProximityClause {
             ProximityClause::Term(term @ ProximityTermStyle::Term(_)) => {
                 Box::new(std::iter::once(Cow::Borrowed(term)))
             }
-            ProximityClause::Term(term @ ProximityTermStyle::Rexgex(..))
+            ProximityClause::Term(term @ ProximityTermStyle::Regex(..))
                 if segment_reader.is_none() =>
             {
                 Box::new(std::iter::once(Cow::Borrowed(term)))
             }
-            ProximityClause::Term(ProximityTermStyle::Rexgex(re, ..)) => {
+            ProximityClause::Term(ProximityTermStyle::Regex(re, ..)) => {
                 let segment_reader = segment_reader.unwrap();
                 let regex = tantivy_fst::Regex::new(re.as_str()).unwrap_or_else(|e| panic!("{e}"));
                 let inverted_index = segment_reader.inverted_index(field)?;

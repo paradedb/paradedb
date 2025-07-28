@@ -18,11 +18,11 @@
 // TODO: See https://github.com/pgcentralfoundation/pgrx/pull/2089
 #![allow(for_loops_over_fallibles)]
 
+mod admin;
 pub mod aggregate;
 pub mod builder_fns;
 pub mod config;
 pub mod operator;
-mod proximity;
 pub mod tokenize;
 
 use pgrx::{
@@ -189,6 +189,20 @@ impl InOutFuncs for FieldName {
 }
 
 impl FieldName {
+    pub fn into_const(self) -> *mut pg_sys::Const {
+        unsafe {
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                self.into_datum().unwrap_unchecked(),
+                false,
+                false,
+            )
+        }
+    }
+
     #[inline(always)]
     pub fn into_inner(self) -> String {
         self.0

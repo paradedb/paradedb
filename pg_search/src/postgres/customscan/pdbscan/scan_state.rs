@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::api::Varno;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
@@ -28,7 +28,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use std::cell::UnsafeCell;
@@ -51,7 +51,6 @@ pub struct PdbScanState {
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
-    pub search_results: SearchResults,
     pub targetlist_len: usize,
 
     pub limit: Option<usize>,
@@ -202,10 +201,6 @@ impl PdbScanState {
         (segment_readers, serialized_query)
     }
 
-    pub fn human_readable_query_string(&self) -> String {
-        self.base_search_query_input.as_human_readable()
-    }
-
     pub fn has_postgres_expressions(&mut self) -> bool {
         self.base_search_query_input.has_postgres_expressions()
     }
@@ -316,7 +311,6 @@ impl PdbScanState {
                 }
             }
         }
-        self.search_results = SearchResults::None;
         self.query_count = 0;
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;

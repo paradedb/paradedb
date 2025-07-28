@@ -22,10 +22,11 @@ use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoid};
 use crate::query::heap_field_filter::HeapFieldFilter;
+use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
@@ -272,28 +273,37 @@ impl From<&Qual> for SearchQueryInput {
                 SearchQueryInput::from_datum(datum, is_null)
                     .expect("pushdown expression should not evaluate to NULL")
             },
-            Qual::PushdownVarEqTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
-                value: OwnedValue::Bool(true),
-                is_datetime: false,
-            },
-            Qual::PushdownVarEqFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
-                value: OwnedValue::Bool(false),
-                is_datetime: false,
-            },
-            Qual::PushdownVarIsTrue { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
-                value: OwnedValue::Bool(true),
-                is_datetime: false,
-            },
-            Qual::PushdownVarIsFalse { field } => SearchQueryInput::Term {
-                field: Some(field.attname()),
-                value: OwnedValue::Bool(false),
-                is_datetime: false,
-            },
-            Qual::PushdownIsNotNull { field } => SearchQueryInput::Exists {
+            Qual::PushdownVarEqTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
+                query: pdb::Query::Term {
+                    value: OwnedValue::Bool(true),
+                    is_datetime: false,
+                },
+            },
+            Qual::PushdownVarEqFalse { field } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::Term {
+                    value: OwnedValue::Bool(false),
+                    is_datetime: false,
+                },
+            },
+            Qual::PushdownVarIsTrue { field } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::Term {
+                    value: OwnedValue::Bool(true),
+                    is_datetime: false,
+                },
+            },
+            Qual::PushdownVarIsFalse { field } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::Term {
+                    value: OwnedValue::Bool(false),
+                    is_datetime: false,
+                },
+            },
+            Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::Exists,
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -962,7 +972,11 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
 }
 
 unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         if let Some(param) = nodecast!(Param, T_Param, node) {
             if (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC {
                 return true;
@@ -979,7 +993,11 @@ unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
 }
 
 unsafe fn contains_var(root: *mut pg_sys::Node) -> bool {
-    unsafe extern "C-unwind" fn walker(node: *mut pg_sys::Node, _: *mut core::ffi::c_void) -> bool {
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        _data: *mut core::ffi::c_void,
+    ) -> bool {
         nodecast!(Var, T_Var, node).is_some()
             || pg_sys::expression_tree_walker(node, Some(walker), std::ptr::null_mut())
     }
@@ -1039,7 +1057,7 @@ unsafe fn booltest(
     qual
 }
 
-/// Extract join-level search predicates that are relevant for snippet generation
+/// Extract join-level search predicates that are relevant for snippet/score generation
 /// This captures search predicates that reference specific fields but may not be
 /// pushed down to the current scan due to join conditions.
 /// Returns the entire simplified Boolean expression to preserve OR structures.
@@ -1088,7 +1106,7 @@ pub unsafe fn extract_join_predicates(
                 true,
                 &mut qual_extract_state,
             ) {
-                if qual_extract_state.uses_tantivy_to_query {
+                if qual_extract_state.uses_our_operator {
                     // Convert qual to SearchQueryInput and return the entire expression
                     let search_input = SearchQueryInput::from(&qual);
                     // Return the entire simplified expression for scoring
@@ -1271,6 +1289,7 @@ unsafe fn contains_relation_reference(node: *mut pg_sys::Node, target_rti: pg_sy
         return false;
     }
 
+    #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         context: *mut core::ffi::c_void,
@@ -1467,6 +1486,7 @@ unsafe fn contains_any_relation_reference(node: *mut pg_sys::Node) -> bool {
         return false;
     }
 
+    #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
         _context: *mut core::ffi::c_void,
@@ -1508,10 +1528,12 @@ mod tests {
             field: PushdownField::new("foo"),
         };
         let got = SearchQueryInput::from(&qual);
-        let want = SearchQueryInput::Term {
-            field: Some("foo".into()),
-            value: OwnedValue::Bool(true),
-            is_datetime: false,
+        let want = SearchQueryInput::FieldedQuery {
+            field: "foo".into(),
+            query: pdb::Query::Term {
+                value: OwnedValue::Bool(true),
+                is_datetime: false,
+            },
         };
         assert_eq!(got, want);
     }
@@ -1522,10 +1544,12 @@ mod tests {
             field: PushdownField::new("bar"),
         };
         let got = SearchQueryInput::from(&qual);
-        let want = SearchQueryInput::Term {
-            field: Some("bar".into()),
-            value: OwnedValue::Bool(false),
-            is_datetime: false,
+        let want = SearchQueryInput::FieldedQuery {
+            field: "bar".into(),
+            query: pdb::Query::Term {
+                value: OwnedValue::Bool(false),
+                is_datetime: false,
+            },
         };
         assert_eq!(got, want);
     }
@@ -1536,10 +1560,12 @@ mod tests {
             field: PushdownField::new("baz"),
         };
         let got = SearchQueryInput::from(&qual);
-        let want = SearchQueryInput::Term {
-            field: Some("baz".into()),
-            value: OwnedValue::Bool(true),
-            is_datetime: false,
+        let want = SearchQueryInput::FieldedQuery {
+            field: "baz".into(),
+            query: pdb::Query::Term {
+                value: OwnedValue::Bool(true),
+                is_datetime: false,
+            },
         };
         assert_eq!(got, want);
     }
@@ -1550,10 +1576,12 @@ mod tests {
             field: PushdownField::new("qux"),
         };
         let got = SearchQueryInput::from(&qual);
-        let want = SearchQueryInput::Term {
-            field: Some("qux".into()),
-            value: OwnedValue::Bool(false),
-            is_datetime: false,
+        let want = SearchQueryInput::FieldedQuery {
+            field: "qux".into(),
+            query: pdb::Query::Term {
+                value: OwnedValue::Bool(false),
+                is_datetime: false,
+            },
         };
         assert_eq!(got, want);
     }
@@ -1564,8 +1592,9 @@ mod tests {
             field: PushdownField::new("fld"),
         };
         let got = SearchQueryInput::from(&qual);
-        let want = SearchQueryInput::Exists {
+        let want = SearchQueryInput::FieldedQuery {
             field: "fld".into(),
+            query: pdb::Query::Exists,
         };
         assert_eq!(got, want);
     }
@@ -1609,27 +1638,29 @@ mod tests {
             // Match boolean field TRUE cases
             (
                 qual @ (Qual::PushdownVarEqTrue { field } | Qual::PushdownVarIsTrue { field }),
-                SearchQueryInput::Term {
-                    field: Some(f),
-                    value,
-                    ..
+                SearchQueryInput::FieldedQuery {
+                    field: f,
+                    query: pdb::Query::Term { value, .. },
                 },
             ) => field.attname() == *f && matches!(value, OwnedValue::Bool(true)),
 
             // Match boolean field FALSE cases
             (
                 qual @ (Qual::PushdownVarEqFalse { field } | Qual::PushdownVarIsFalse { field }),
-                SearchQueryInput::Term {
-                    field: Some(f),
-                    value,
-                    ..
+                SearchQueryInput::FieldedQuery {
+                    field: f,
+                    query: pdb::Query::Term { value, .. },
                 },
             ) => field.attname() == *f && matches!(value, OwnedValue::Bool(false)),
 
             // Match IS NOT NULL
-            (Qual::PushdownIsNotNull { field }, SearchQueryInput::Exists { field: f }) => {
-                field.attname() == *f
-            }
+            (
+                Qual::PushdownIsNotNull { field },
+                SearchQueryInput::FieldedQuery {
+                    field: f,
+                    query: pdb::Query::Exists,
+                },
+            ) => field.attname() == *f,
 
             // Match AND clauses
             (
@@ -1664,10 +1695,13 @@ mod tests {
             // Match negation of PushdownVarEqTrue mapping to PushdownVarEqFalse
             (
                 Qual::Not(inner),
-                SearchQueryInput::Term {
-                    field: Some(f),
-                    value: OwnedValue::Bool(false),
-                    ..
+                SearchQueryInput::FieldedQuery {
+                    field: f,
+                    query:
+                        pdb::Query::Term {
+                            value: OwnedValue::Bool(false),
+                            ..
+                        },
                 },
             ) if matches!(**inner, Qual::PushdownVarEqTrue { field: ref a } if a.attname() == *f) => {
                 true
@@ -1676,10 +1710,13 @@ mod tests {
             // Match negation of PushdownVarEqFalse mapping to PushdownVarEqTrue
             (
                 Qual::Not(inner),
-                SearchQueryInput::Term {
-                    field: Some(f),
-                    value: OwnedValue::Bool(true),
-                    ..
+                SearchQueryInput::FieldedQuery {
+                    field: f,
+                    query:
+                        pdb::Query::Term {
+                            value: OwnedValue::Bool(true),
+                            ..
+                        },
                 },
             ) if matches!(**inner, Qual::PushdownVarEqFalse { field: ref a } if a.attname() == *f) => {
                 true

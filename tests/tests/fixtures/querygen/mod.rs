@@ -15,20 +15,25 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod groupbygen;
 pub mod joingen;
 pub mod opexprgen;
 pub mod pagegen;
 pub mod wheregen;
 
+use std::fmt::Debug;
+
+use futures::executor::block_on;
+use proptest::prelude::*;
+use proptest_derive::Arbitrary;
+use sqlx::{Connection, PgConnection};
+
 use crate::fixtures::db::Query;
 use crate::fixtures::ConnExt;
-use futures::executor::block_on;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
-use proptest::prelude::*;
-use sqlx::{Connection, PgConnection};
-use std::fmt::Debug;
 use wheregen::{Expr, SqlValue};
+
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
@@ -65,15 +70,48 @@ pub fn arb_joins_and_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
         })
 }
 
-/// Run the given pg and bm25 queries on the given connection, and compare their results across a
-/// variety of configurations of the extension.
-///
-/// TODO: The configurations of the extension in the loop below could in theory also be proptested
-/// properties: if performance becomes a concern, we should lift them out, and apply them using the
-/// proptest properties instead.
+#[derive(Copy, Clone, Debug, Arbitrary)]
+pub struct PgGucs {
+    aggregate_custom_scan: bool,
+    custom_scan: bool,
+    custom_scan_without_operator: bool,
+    seqscan: bool,
+    indexscan: bool,
+    parallel_workers: bool,
+}
+
+impl PgGucs {
+    fn set(&self) -> String {
+        let PgGucs {
+            aggregate_custom_scan,
+            custom_scan,
+            custom_scan_without_operator,
+            seqscan,
+            indexscan,
+            parallel_workers,
+        } = self;
+
+        let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
+
+        format!(
+            r#"
+            SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};
+            SET paradedb.enable_custom_scan TO {custom_scan};
+            SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};
+            SET enable_seqscan TO {seqscan};
+            SET enable_indexscan TO {indexscan};
+            SET max_parallel_workers TO {max_parallel_workers};
+            "#
+        )
+    }
+}
+
+/// Run the given pg and bm25 queries on the given connection, and compare their results when run
+/// with the given GUCs.
 pub fn compare<R, F>(
     pg_query: String,
     bm25_query: String,
+    gucs: PgGucs,
     conn: &mut PgConnection,
     run_query: F,
 ) -> Result<(), TestCaseError>
@@ -89,6 +127,7 @@ where
         SET enable_seqscan TO ON;
         SET enable_indexscan TO ON;
         SET paradedb.enable_custom_scan TO OFF;
+        SET paradedb.enable_aggregate_custom_scan TO OFF;
     "#
     .execute(conn);
 
@@ -96,39 +135,27 @@ where
 
     let pg_result = run_query(&pg_query, conn);
 
-    // and for the "bm25" query, we run it a number of times with more and more scan types disabled,
-    // always ensuring that paradedb's custom scan is turned on
-    r#"
-        SET paradedb.enable_custom_scan TO ON;
-        SET paradedb.enable_custom_scan_without_operator TO ON;
-    "#
-    .execute(conn);
-    for scan_type in [
-        "SET enable_seqscan TO OFF",
-        "SET enable_indexscan TO OFF",
-        "SET max_parallel_workers TO 0",
-    ] {
-        scan_type.execute(conn);
+    // and for the "bm25" query, we run it with the given GUCs set.
+    gucs.set().execute(conn);
 
-        conn.deallocate_all()?;
+    conn.deallocate_all()?;
 
-        let bm25_result = run_query(&bm25_query, conn);
+    let bm25_result = run_query(&bm25_query, conn);
 
-        prop_assert_eq!(
-            &pg_result,
-            &bm25_result,
-            "\nscan_type={}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
-            scan_type,
-            pg_query,
-            bm25_query,
-            format!("EXPLAIN {bm25_query}")
-                .fetch::<(String,)>(conn)
-                .into_iter()
-                .map(|(s,)| s)
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-    }
+    prop_assert_eq!(
+        &pg_result,
+        &bm25_result,
+        "\ngucs={:?}\npg:\n  {}\nbm25:\n  {}\nexplain:\n{}\n",
+        gucs,
+        pg_query,
+        bm25_query,
+        format!("EXPLAIN {bm25_query}")
+            .fetch::<(String,)>(conn)
+            .into_iter()
+            .map(|(s,)| s)
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
 
     Ok(())
 }

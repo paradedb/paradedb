@@ -1,4 +1,4 @@
-use crate::query::{value_to_json_term, QueryError};
+use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use serde::de::Error as SerdeError;
@@ -41,31 +41,31 @@ impl RangeField {
         Self { field, is_datetime }
     }
 
-    pub fn exists(&self) -> Result<RegexQuery, QueryError> {
+    pub fn exists(&self) -> Result<RegexQuery> {
         Ok(RegexQuery::from_pattern(".*", self.field)?)
     }
 
-    pub fn empty(&self, val: bool) -> Result<TermQuery, QueryError> {
+    pub fn empty(&self, val: bool) -> Result<TermQuery> {
         let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
-    pub fn upper_bound_inclusive(&self, val: bool) -> Result<TermQuery, QueryError> {
+    pub fn upper_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
         let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
-    pub fn lower_bound_inclusive(&self, val: bool) -> Result<TermQuery, QueryError> {
+    pub fn lower_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
         let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
-    pub fn upper_bound_unbounded(&self, val: bool) -> Result<TermQuery, QueryError> {
+    pub fn upper_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
         let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
-    pub fn lower_bound_unbounded(&self, val: bool) -> Result<TermQuery, QueryError> {
+    pub fn lower_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
         let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
@@ -74,7 +74,7 @@ impl RangeField {
         &self,
         owned: &OwnedValue,
         comparison: Comparison,
-    ) -> Result<RangeQuery, QueryError> {
+    ) -> Result<RangeQuery> {
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(self, owned, Some(LOWER_KEY))?),
@@ -101,7 +101,7 @@ impl RangeField {
         &self,
         owned: &OwnedValue,
         comparison: Comparison,
-    ) -> Result<RangeQuery, QueryError> {
+    ) -> Result<RangeQuery> {
         let query = match comparison {
             Comparison::LessThan => RangeQuery::new(
                 Bound::Excluded(Self::as_range_term(self, owned, Some(UPPER_KEY))?),
@@ -124,7 +124,7 @@ impl RangeField {
         Ok(query)
     }
 
-    fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term, QueryError> {
+    fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
         value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
     }
 }

@@ -30,6 +30,9 @@ pub mod parallel_worker;
 use self::postgres::customscan;
 use pgrx::*;
 
+/// The prefix applied to tantivy fields that are actually Postgres expressions.
+pub const PG_SEARCH_PREFIX: &str = "_pg_search_";
+
 /// Postgres' value for a `norm_selec` that hasn't been assigned
 const UNASSIGNED_SELECTIVITY: f64 = -1.0;
 
@@ -50,7 +53,10 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 pgrx::pg_module_magic!();
 
 extension_sql!(
-    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    r#"
+        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
+        GRANT ALL ON SCHEMA pdb TO PUBLIC;
+    "#,
     name = "paradedb_grant_all",
     finalize
 );

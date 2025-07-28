@@ -15,33 +15,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::OnceLock;
+
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::schema::SearchFieldType;
+
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 use tantivy::columnar::StrColumn;
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
+use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
 
-type FastFieldReadersCache = Vec<Vec<(FastFieldReaders, String, OnceLock<FFType>)>>;
+/// A cache of fast field columns for a single segment, indexed by FFIndex.
+type ColumnCache = Vec<(String, OnceLock<FFType>)>;
+
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
 /// They're organized by index positions and not names to eliminate as much runtime overhead as
 /// possible when looking up the value of a specific fast field.
 #[derive(Default)]
-pub struct FFHelper(FastFieldReadersCache);
+pub struct FFHelper {
+    // A cache of columns and a ctid column for each segment.
+    segment_caches: Vec<(FastFieldReaders, ColumnCache, OnceLock<FFType>)>,
+}
+
 impl FFHelper {
     pub fn empty() -> Self {
-        Self(vec![])
+        Self::default()
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
-        let fast_fields = reader
+        let segment_caches = reader
             .segment_readers()
             .iter()
             .map(|reader| {
@@ -49,44 +58,53 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) => lookup.push((
-                            fast_fields_reader.clone(),
-                            name.to_string(),
-                            OnceLock::default(),
-                        )),
+                        WhichFastField::Named(name, _) => {
+                            lookup.push((name.to_string(), OnceLock::default()))
+                        }
                         WhichFastField::Ctid
                         | WhichFastField::TableOid
                         | WhichFastField::Score
-                        | WhichFastField::Junk(_) => lookup.push((
-                            fast_fields_reader.clone(),
-                            String::from("junk"),
-                            OnceLock::from(FFType::Junk),
-                        )),
+                        | WhichFastField::Junk(_) => {
+                            lookup.push((String::from("junk"), OnceLock::from(FFType::Junk)))
+                        }
                     }
                 }
-                lookup
+                (fast_fields_reader, lookup, OnceLock::default())
             })
             .collect();
-        Self(fast_fields)
+        Self { segment_caches }
+    }
+
+    pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
+        let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
+        ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+    }
+
+    pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
+        let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
+        let column = &columns[field];
+        column.1.get_or_init(|| FFType::new(ff_readers, &column.0))
     }
 
     #[track_caller]
     pub fn value(&self, field: FFIndex, doc_address: DocAddress) -> Option<TantivyValue> {
-        let entry = &self.0[doc_address.segment_ord as usize][field];
+        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
+        let column = &columns[field];
         Some(
-            entry
-                .2
-                .get_or_init(|| FFType::new(&entry.0, &entry.1))
+            column
+                .1
+                .get_or_init(|| FFType::new(ff_readers, &column.0))
                 .value(doc_address.doc_id),
         )
     }
 
     #[track_caller]
     pub fn i64(&self, field: FFIndex, doc_address: DocAddress) -> Option<i64> {
-        let entry = &self.0[doc_address.segment_ord as usize][field];
-        entry
-            .2
-            .get_or_init(|| FFType::new(&entry.0, &entry.1))
+        let (ff_readers, columns, _) = &self.segment_caches[doc_address.segment_ord as usize];
+        let column = &columns[field];
+        column
+            .1
+            .get_or_init(|| FFType::new(ff_readers, &column.0))
             .as_i64(doc_address.doc_id)
     }
 }
@@ -174,19 +192,6 @@ impl FFType {
         };
 
         value
-    }
-
-    #[inline(always)]
-    pub fn string(&self, doc: DocId, value: &mut String) -> Option<()> {
-        match self {
-            FFType::Text(ff) => {
-                value.clear();
-                let ord = ff.term_ords(doc).next()?;
-                ff.ord_to_str(ord, value).ok()?;
-                Some(())
-            }
-            _ => None,
-        }
     }
 
     /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we

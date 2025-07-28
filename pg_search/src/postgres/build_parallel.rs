@@ -27,7 +27,7 @@ use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
     ParallelWorker, WorkerStyle,
 };
-use crate::postgres::insert::garbage_collect_index;
+use crate::postgres::merge::garbage_collect_index;
 use crate::postgres::ps_status::{
     set_ps_display_remove_suffix, set_ps_display_suffix, COMMITTING, FINALIZING,
     GARBAGE_COLLECTING, INDEXING, MERGING,

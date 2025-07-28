@@ -21,11 +21,11 @@ performance of a dedicated search and analytical database.
 
 ParadeDB may be a good fit for your stack if:
 
-- You already use Postgres as your primary database, either self-hosted or in a managed service like RDS.
-- Expensive aggregates (`COUNT`s, `GROUP BY`s) and "top N" queries (i.e. `ORDER BY`s) frequently hit query timeouts.
-- You have tried `tsvector` and the `GIN` index for text search, but lack of fuzzy matching,
+- **You already use Postgres** as your primary database, either self-hosted or in a managed service like RDS.
+- **Expensive aggregates** (`COUNT`s, `GROUP BY`s) and "top N" queries (i.e. `ORDER BY`s) frequently hit query timeouts.
+- **You have tried `tsvector` and the `GIN` index for text search**, but lack of fuzzy matching,
   BM25 relevance scoring, advanced query types, etc. leads to low-quality results.
-- Your application requires real-time results over data that's frequently updated, and the sync process with
+- **Your application requires real-time results** over data that's frequently updated, and the sync process with
   tools like Elasticsearch is time-consuming/error-prone.
 
 ## ParadeDB vs. Alternatives

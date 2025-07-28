@@ -1,7 +1,9 @@
 # workflows/benchmark-backfill.yml
 #
-# Backfill benchmarks using an array of git commit hashes
-name: benchmark-backfill
+# Benchmark Backfill
+# Backfill benchmarks results using an array of git commit hashes
+
+name: Benchmark Backfill
 
 on:
   workflow_dispatch:

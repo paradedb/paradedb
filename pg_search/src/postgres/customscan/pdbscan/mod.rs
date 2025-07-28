@@ -64,6 +64,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
@@ -215,9 +216,19 @@ impl PdbScan {
 
             let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
 
-            // If we have found something to push down in the join, or if we have found something to
-            // push down in the base relation, then we can use the join quals
-            if state.uses_tantivy_to_query {
+            // If we have found something to push down in the join, then we can use the join quals
+            // Note: these Join quals won't help in filtering down the data (as they contain
+            // external vars, e.g. `b.category_name @@@ "technology"` in
+            // `a.name @@@ "abc" OR b.category_name @@@ "technology"`), and we cannot evaluate
+            // boolean expressions that contain external vars. That's why, when handling the Join
+            // quals, we'd endup scanning the whole tantivy index.
+            // However, the Join quals help with scoring and snippet generation, as the documents
+            // that match partially the Join quals will be scored and snippets generated. That is
+            // why it only makes sense to use the Join quals if we have used our operator.
+            // TODO(mdasht): we should make it even more restrictive and only use the Join quals if
+            // we have used our operator and also use paradedb.score and paradedb.snippet functions
+            // in the query.
+            if state.uses_our_operator {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
                 (None, ri_type, restrict_info)
@@ -1082,7 +1093,6 @@ impl CustomScan for PdbScan {
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
-        drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();
@@ -1129,6 +1139,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     } else if fast_fields::is_mixed_fast_field_capable(privdata) {
         ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            limit: privdata.limit(),
         }
     } else {
         // Fall back to normal execution
@@ -1194,13 +1205,17 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                 )
             }
         }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
+        ExecMethodType::FastFieldMixed {
+            which_fast_fields,
+            limit,
+        } => {
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
+                        limit,
                     ),
                     None,
                 )
@@ -1452,6 +1467,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     referenced_columns
 }
 
+#[rustfmt::skip]
 /// Check if the base query has search predicates for the current table's index
 fn base_query_has_search_predicates(
     query: &SearchQueryInput,
@@ -1506,33 +1522,36 @@ fn base_query_has_search_predicates(
             .any(|q| base_query_has_search_predicates(q, current_index_oid)),
 
         // These are NOT search predicates (they're range/exists/other predicates)
-        SearchQueryInput::Range { .. }
-        | SearchQueryInput::RangeContains { .. }
-        | SearchQueryInput::RangeIntersects { .. }
-        | SearchQueryInput::RangeTerm { .. }
-        | SearchQueryInput::RangeWithin { .. }
-        | SearchQueryInput::Exists { .. }
-        | SearchQueryInput::FastFieldRangeWeight { .. }
+        SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeWithin { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Exists, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FastFieldRangeWeight { .. }, .. }
         | SearchQueryInput::MoreLikeThis { .. } => false,
 
         // These are search predicates that use the @@@ operator
-        SearchQueryInput::ParseWithField { query_string, .. } => {
+        SearchQueryInput::FieldedQuery { query: pdb::Query::ParseWithField { query_string, .. }, .. } => {
             // For ParseWithField, check if it's a text search or a range query
             !is_range_query_string(query_string)
         }
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
-        | SearchQueryInput::Term { field: Some(_), .. }
-        | SearchQueryInput::Phrase { .. }
-        | SearchQueryInput::PhrasePrefix { .. }
-        | SearchQueryInput::Proximity { .. }
-        | SearchQueryInput::FuzzyTerm { .. }
-        | SearchQueryInput::Match { .. }
-        | SearchQueryInput::Regex { .. }
-        | SearchQueryInput::RegexPhrase { .. } => true,
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TermSet { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Term { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Phrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Proximity { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TokenizedPhrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::PhrasePrefix { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FuzzyTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Match { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Regex { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RegexPhrase { .. }, .. } => true,
 
-        // Term with no field is not a search predicate
-        SearchQueryInput::Term { field: None, .. } => false,
+        // // Term with no field is not a search predicate
+        // NB:  We don't support unqualified term queries anymore
+        // SearchQueryInput::Term { field: None, .. } => false,
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,

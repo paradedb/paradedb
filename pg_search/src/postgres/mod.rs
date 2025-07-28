@@ -28,8 +28,8 @@ use tantivy::SegmentReader;
 mod build;
 mod cost;
 mod delete;
-pub mod expression;
 pub mod insert;
+mod merge;
 pub mod options;
 mod ps_status;
 mod range;
@@ -185,7 +185,6 @@ impl ParallelScanPayload {
 
     #[inline(always)]
     fn data(&self) -> &[u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_end = self.segments.1;
             let data_ptr = self.data.as_ptr();
@@ -195,7 +194,6 @@ impl ParallelScanPayload {
 
     #[inline(always)]
     fn data_mut(&mut self) -> &mut [u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_end = self.segments.1;
             let data_ptr = self.data.as_mut_ptr();
@@ -250,7 +248,6 @@ impl ParallelScanState {
     }
 
     fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
-        assert!(!segments.is_empty());
         self.payload.init(segments, query);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();

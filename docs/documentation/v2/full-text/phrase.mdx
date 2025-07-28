@@ -2,8 +2,12 @@
 title: Phrase
 ---
 
-Phrase queries work exactly like [match](/documentation/full-text/phrase) queries, but are more strict in that they require the
-order and position of tokens to be the same. For instance, suppose our query is `running shoes`, and we want to omit results like
+Phrase queries work exactly like [match conjunction](/documentation/full-text/match#match-conjunction), but are more strict in that they require the
+order and position of tokens to be the same.
+
+## Overview
+
+Suppose our query is `running shoes`, and we want to omit results like
 `running sleek shoes` or `shoes running` — these results contain the right tokens, but not in the exact order and position
 that the query specifies.
 
@@ -31,9 +35,26 @@ This query returns:
 Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
 `shoes` because they appear in the wrong order or with other words in between.
 
+### Examples
+
+Let’s consider a few more hypothetical documents to see whether they would be returned by the phrase query.
+These examples assume that index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
+
+| Original Text       | Tokens                    | Match | Reason                                         | Related                                                                  |
+| ------------------- | ------------------------- | ----- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. |
+| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/documentation/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](<(/documentation/v2/indexing)>)                               |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`.   |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`.   |
+
 ## Slop
 
 Slop allows phrase queries to be relaxed a bit. It specifies how many changes — like extra words in between or swapped word positions — are allowed while still considering the phrase a match.
 
 For example, searching for `sleek shoes` with a slop of `1` would match `sleek running shoes` because there is one word, `running`, between
 `sleek` and `shoes`.
+
+Slop has not yet been implemented in `v2`. Please continue to use `v1` for this capability.

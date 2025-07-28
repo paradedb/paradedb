@@ -2,21 +2,30 @@
 title: Term
 ---
 
-Term queries look for exact token matches.
+Term queries look for exact token matches. A term query is like an exact string match, but at the
+token level.
+
+## Overview
 
 Unlike [match](/documentation/full-text/match) or [phrase](/documentation/full-text/phrase) queries, term queries treat the query
-string as a finalized token. This means that the query string is taken as-is, without any further tokenization or processing,
-regardless of how the target column is tokenized.
+string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization, lowercasing,
+stemming, etc.
 
-To understand exactly how this works, let's consider the following term query:
+To understand exactly how this works, let's consider the following two term queries:
 
 ```sql
+-- Term query 1
 SELECT description, rating, category
 FROM mock_items
 WHERE description === 'running';
+
+-- Term query 2
+SELECT description, rating, category
+FROM mock_items
+WHERE description === 'RUNNING';
 ```
 
-This query returns:
+The first query returns:
 
 ```csv
      description     | rating | category
@@ -25,43 +34,29 @@ This query returns:
 (1 row)
 ```
 
-Under the hood, here's what `===` does:
+However, the second query returns no results. This is because term queries look for exact matches, which includes
+case sensitivity, and there are no documents in the example dataset containing the token `RUNNING`.
 
-1. Retrieves the [tokenizer configuration](/documentation/indexing/tokenizers) of the `description` column. In this example,
-   let's assume `description` uses the [default](/documentation/indexing/tokenizers#default) tokenizer, which splits on whitespace
-   and punctuation.
-2. Finds all rows where `description` contains the exact token, `running`.
+### How It Works
 
-When using the term query, it's important to remember that a result will only be considered a match if one of its tokens is a match.
-For instance, consider the following query:
+Under the hood, `===` simply finds all documents where any of their tokens are an exact string match against the query token.
+A document's tokens are determined by the field's tokenizer and token filters, configured at index creation time.
 
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description === 'running shoes';
-```
+### Examples
 
-<Accordion title="Expected Response">
-  ```csv description | rating | category -------------+--------+---------- (0
-  rows) ```
-</Accordion>
+Let’s consider a few more hypothetical documents to see whether they would be returned by the term query.
+These examples assume that index uses the default tokenizer and token filters, and that the term query is
+`running`.
 
-This query will **not** match the document `Sleek running shoes` because its tokens are `sleek`, `running`, and `shoes`, not
-`running shoes`.
+| Original Text       | Tokens                    | Match | Reason                                | Related                                    |
+| ------------------- | ------------------------- | ----- | ------------------------------------- | ------------------------------------------ |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         | [Lowercasing](/documentation/v2/indexing)  |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain the token `running`. | [Stemming](<(/documentation/v2/indexing)>) |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain the token `running`. |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain the token `running`. |
 
-## Case Sensitivity
+## Fuzzy Term
 
-Because term queries look for exact token matches, they are case sensitive. This means that the following two queries
-are **not** equivalent:
-
-```sql
--- Looks for the token `running`
-SELECT description, rating, category
-FROM mock_items
-WHERE description === 'running';
-
--- Looks for the token `RUNNING`
-SELECT description, rating, category
-FROM mock_items
-WHERE description === 'RUNNING';
-```
+Fuzzy term has not yet been implemented in `v2`. Please continue to use `v1` for this capability.

@@ -24,9 +24,9 @@
                   {
                     "group": "Getting Started",
                     "pages": [
-                      "documentation/getting-started/install",
-                      "documentation/getting-started/quickstart",
-                      "documentation/getting-started/load"
+                      "documentation/v2/getting-started/install",
+                      "documentation/v2/getting-started/quickstart",
+                      "documentation/v2/getting-started/load"
                     ]
                   },
                   {
@@ -44,110 +44,21 @@
                           "documentation/v2/full-text/overview",
                           "documentation/v2/full-text/match",
                           "documentation/v2/full-text/phrase",
-                          "documentation/v2/full-text/term",
-                          "documentation/v2/full-text/filtering",
-                          "documentation/v2/full-text/pagination",
-                          "documentation/v2/full-text/scoring",
-                          "documentation/v2/full-text/highlighting",
-                          "documentation/v2/full-text/sorting",
-                          "documentation/v2/full-text/boosting"
+                          "documentation/v2/full-text/term"
                         ]
                       },
                       {
                         "group": "Query Builder",
                         "pages": [
-                          "documentation/advanced/overview",
-                          {
-                            "group": "Full Text Queries",
-                            "pages": [
-                              "documentation/advanced/full-text/match"
-                            ]
-                          },
-                          {
-                            "group": "Term-Level Queries",
-                            "pages": [
-                              "documentation/advanced/term/exists",
-                              "documentation/advanced/term/fuzzy_term",
-                              "documentation/advanced/term/range",
-                              "documentation/advanced/term/range_term",
-                              "documentation/advanced/term/regex",
-                              "documentation/advanced/term/term",
-                              "documentation/advanced/term/term_set"
-                            ]
-                          },
-                          {
-                            "group": "Phrase-Level Queries",
-                            "pages": [
-                              "documentation/advanced/phrase/phrase",
-                              "documentation/advanced/phrase/phrase_prefix"
-                            ]
-                          },
-                          {
-                            "group": "JSON Queries",
-                            "pages": [
-                              "documentation/advanced/json/overview",
-                              "documentation/advanced/json/arrays",
-                              "documentation/advanced/json/range"
-                            ]
-                          },
-                          {
-                            "group": "Compound Queries",
-                            "pages": [
-                              "documentation/advanced/compound/overview",
-                              "documentation/advanced/compound/all",
-                              "documentation/advanced/compound/boolean",
-                              "documentation/advanced/compound/boost",
-                              "documentation/advanced/compound/const",
-                              "documentation/advanced/compound/disjunction_max",
-                              "documentation/advanced/compound/empty",
-                              "documentation/advanced/compound/parse"
-                            ]
-                          },
-                          {
-                            "group": "Specialized Queries",
-                            "pages": [
-                              "documentation/advanced/specialized/more_like_this"
-                            ]
-                          }
+                          "documentation/v2/query-builder/overview"
                         ]
                       },
                       {
                         "group": "Aggregates",
                         "pages": [
-                          "documentation/aggregates/overview",
-                          "documentation/aggregates/common",
-                          "documentation/aggregates/limitations"
-                        ]
-                      },
-                      {
-                        "group": "Similarity Search",
-                        "pages": [
-                          "documentation/similarity/overview",
-                          "documentation/similarity/index",
-                          "documentation/similarity/search"
+                          "documentation/v2/aggregates/overview"
                         ]
                       }
-                    ]
-                  },
-                  {
-                    "group": "Tutorials",
-                    "pages": [
-                      "documentation/guides/overview",
-                      "documentation/guides/autocomplete",
-                      "documentation/guides/hybrid"
-                    ]
-                  },
-                  {
-                    "group": "Concepts",
-                    "pages": [
-                      "documentation/concepts/bm25",
-                      "documentation/concepts/index",
-                      "documentation/concepts/matching",
-                      "documentation/concepts/phrase",
-                      "documentation/concepts/search",
-                      "documentation/concepts/stemming",
-                      "documentation/concepts/tantivy",
-                      "documentation/concepts/term"
                     ]
                   },
                   "welcome/support",

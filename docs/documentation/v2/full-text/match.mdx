@@ -2,11 +2,14 @@
 title: Match
 ---
 
+Match queries are the go-to query type for text search in ParadeDB. There are two types of match queries:
+[match disjunction](#match-disjunction) and [match conjunction](#match-conjunction).
+
 ## Match Disjunction
 
-### Quick Example
+Match disjunction uses the `|||` operator and means "find all documents that contain one or more of the terms tokenized from this text input."
 
-Match queries are the go-to query type for text search in ParadeDB and use the `|||` match disjunction operator. `|||` means "find all documents that contain one or more of the terms tokenized from this text input." To understand what this looks like in practice, let's consider the following query:
+To understand what this looks like in practice, let's consider the following query:
 
 ```sql
 SELECT description, rating, category
@@ -37,25 +40,24 @@ To see why, let's look at what the `|||` operator does:
 
 This is why all results have either `running` or `shoes` tokens in `description`.
 
-### More Examples
+### Examples
 
 Let's consider a few more hypothetical documents to see whether they would be returned by match disjunction.
-These examples assume that index uses the default tokenizer and token filters.
+These examples assume that the index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
 
-| Document            | Tokens                      | Matches? | Reason                                  |
-| ------------------- | --------------------------- | -------- | --------------------------------------- |
-| Sleek running shoes | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.    |
-| Running shoes sleek | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.    |
-| SLeeK RUNNING ShOeS | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.    |
-| Sleek run shoe      | `sleek`, `run`, `shoe`      | ❌       | Contains neither `running` nor `shoes`. |
-| Sleke ruining shoez | `sleke`, `ruining`, `shoez` | ❌       | Contains neither `running` nor `shoes`. |
-| White jogging shoes | `white`, `jogging`, `shoes` | ✅       | Contains `shoes`.                       |
+| Original Text       | Tokens                    | Match | Reason                                  | Related                                                                  |
+| ------------------- | ------------------------- | ----- | --------------------------------------- | ------------------------------------------------------------------------ |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Phrase](/documentation/v2/full-text/phrase)                             |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/documentation/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](<(/documentation/v2/indexing)>)                               |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy match](/documetnation/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
 
 ## Match Conjunction
 
-### Quick Example
-
-Suppose we want to find rows that contain both `running` AND `shoes` tokens. This is where the `&&&` match conjunction operator comes in.
+Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
 `&&&` means "find all documents that contain all terms tokenized from this text input."
 
 ```sql
@@ -80,20 +82,21 @@ Note that `White jogging shoes` and `Generic shoes` are no longer returned becau
 Match conjunction works exactly like match disjunction, except for one key distinction. Instead of finding documents containing
 at least one matching token from the query, it finds documents where **all tokens** from the query are a match.
 
-### More Examples
+### Examples
 
 Let’s consider a few more hypothetical documents to see whether they would be returned by match conjunction.
-These examples assume that index uses the default tokenizer and token filters.
+These examples assume that the index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
 
-| Document            | Tokens                      | Matches? | Reason                                       |
-| ------------------- | --------------------------- | -------- | -------------------------------------------- |
-| Sleek running shoes | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.         |
-| Running shoes sleek | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.         |
-| SLeeK RUNNING ShOeS | `sleek`, `running`, `shoes` | ✅       | Contains both `running` and `shoes`.         |
-| Sleek run shoe      | `sleek`, `run`, `shoe`      | ❌       | Contains neither `running` nor `shoes`.      |
-| Sleke ruining shoez | `sleke`, `ruining`, `shoez` | ❌       | Does not contain both `running` and `shoes`. |
-| White jogging shoes | `white`, `jogging`, `shoes` | ❌       | Does not contain both `running` and `shoes`. |
+| Original Text       | Tokens                    | Match | Reason                                       | Related                                                                  |
+| ------------------- | ------------------------- | ----- | -------------------------------------------- | ------------------------------------------------------------------------ |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Phrase](/documentation/v2/full-text/phrase)                             |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Lowercasing](/documentation/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](<(/documentation/v2/indexing)>)                               |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy match](/documetnation/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
 
-## Fuzzy Matching
+## Fuzzy Match
 
 Fuzzy matching has not yet been implemented in `v2`. Please continue to use `v1` for this capability.

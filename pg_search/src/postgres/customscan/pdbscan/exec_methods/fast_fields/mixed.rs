@@ -15,39 +15,51 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Implementation of a mixed field execution state for fast field retrieval.
-//!
-//! This module provides an optimized execution method that can efficientl y handle
-//! both multiple string fast fields and numeric fast fields simultaneously,
-//! overcoming the limitation where previously ParadeDB could only support
-//! either multiple numeric fast fields OR a single string fast field.
-
-use std::rc::Rc;
-
-use crate::api::HashMap;
-use crate::index::fast_fields_helper::{FFIndex, FFType, WhichFastField};
-use crate::index::reader::index::{SearchIndexReader, SearchIndexScore};
+use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{FFType, WhichFastField};
+use crate::index::reader::index::MultiSegmentSearchResults;
+use crate::index::reader::index::SearchIndexScore;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState,
+    non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState, NULL_TERM_ORDINAL,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::pdbscan::fast_fields::StrColumn;
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::types::TantivyValue;
-use crate::query::SearchQueryInput;
 
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
 use pgrx::PgOid;
-use tantivy::collector::Collector;
-use tantivy::index::SegmentId;
 use tantivy::schema::document::OwnedValue;
-use tantivy::schema::Schema;
-use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, Executor, SegmentOrdinal};
-use tinyvec::TinyVec;
+use tantivy::DocAddress;
+use tantivy::SegmentOrdinal;
+
+/// The number of rows to batch materialize in memory while iterating over a result set.
+///
+/// Setting this value larger reduces the cost of our joins to the term dictionary by allowing more
+/// terms to be looked up at a time, but increases our memory usage by forcing more column values to
+/// be held in memory at a time.
+const JOIN_BATCH_SIZE: usize = 128_000;
+
+/// A macro to fetch values for the given ids into a Vec<OwnedValue>.
+macro_rules! fetch_ff_column {
+    ($col:expr, $ids:ident, $($ff_type:ident => $owned_value:ident),* $(,)?) => {
+        match $col {
+            $(
+                FFType::$ff_type(col) => {
+                    let mut column_results = Vec::with_capacity($ids.len());
+                    column_results.resize($ids.len(), None);
+                    col.first_vals(&$ids, &mut column_results);
+                    column_results.into_iter().map(|maybe_val| {
+                        TantivyValue(maybe_val.map(OwnedValue::$owned_value).unwrap_or(OwnedValue::Null))
+                    }).collect::<Vec<_>>()
+                }
+            )*
+            x => panic!("Unhandled column type {x:?}"),
+        }
+    };
+}
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
 ///
@@ -74,11 +86,14 @@ pub struct MixedFastFieldExecState {
     /// Core functionality shared with other fast field execution methods
     inner: FastFieldExecState,
 
-    /// Optimized results storage for both string and numeric fields
-    mixed_results: MixedAggResults,
+    /// The batch size to use for this execution.
+    batch_size: usize,
 
-    /// Statistics tracking the number of rows fetched
-    num_rows_fetched: usize,
+    /// The segment(s) that we have queried.
+    search_results: Option<MultiSegmentSearchResults>,
+
+    /// The current batch of fast field values
+    batch: Batch,
 
     /// Statistics tracking the number of visible rows
     num_visible: usize,
@@ -97,14 +112,133 @@ impl MixedFastFieldExecState {
     /// # Returns
     ///
     /// A new MixedFastFieldExecState instance
-    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
-        let fields_len = which_fast_fields.len();
+    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>) -> Self {
+        // If there is a limit, then we use a batch size which is a small multiple of the limit, in
+        // case of dead tuples.
+        let batch_size = limit
+            .map(|limit| std::cmp::min(limit * 2, JOIN_BATCH_SIZE))
+            .unwrap_or(JOIN_BATCH_SIZE);
         Self {
             inner: FastFieldExecState::new(which_fast_fields),
-            mixed_results: MixedAggResults::new(fields_len, vec![]),
-            num_rows_fetched: 0,
+            batch_size,
+            search_results: None,
+            batch: Batch::default(),
             num_visible: 0,
         }
+    }
+
+    fn try_get_batch_ids(&mut self) -> Option<(SegmentOrdinal, Vec<f32>, Vec<u32>)> {
+        let search_results = self.search_results.as_mut()?;
+
+        // Collect a batch of ids for a single segment.
+        loop {
+            let scorer_iter = search_results.current_segment()?;
+            let segment_ord = scorer_iter.segment_ord();
+
+            // Collect a batch of ids/scores for this segment.
+            let mut scores = Vec::with_capacity(self.batch_size);
+            let mut ids = Vec::with_capacity(self.batch_size);
+            while ids.len() < self.batch_size {
+                let Some((score, id)) = scorer_iter.next() else {
+                    // No more results for the current segment: remove it.
+                    search_results.current_segment_pop();
+                    break;
+                };
+
+                // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
+                debug_assert_eq!(id.segment_ord, segment_ord);
+                scores.push(score);
+                ids.push(id.doc_id);
+            }
+
+            if ids.is_empty() {
+                // This segment was completely empty: move to the next.
+                continue;
+            }
+
+            return Some((segment_ord, scores, ids));
+        }
+    }
+
+    /// If our SearchResults iterator contains entries, take one batch, and construct a new
+    /// `joined_results` value which will lazily join them.
+    fn try_join_batch(&mut self) -> bool {
+        let Some((segment_ord, scores, ids)) = self.try_get_batch_ids() else {
+            return false;
+        };
+
+        // Batch lookup the ctids.
+        let ctids: Vec<u64> = {
+            let mut ctids = Vec::with_capacity(ids.len());
+            ctids.resize(ids.len(), None);
+            self.inner
+                .ffhelper
+                .ctid(segment_ord)
+                .as_u64s(&ids, &mut ctids);
+            ctids
+                .into_iter()
+                .map(|ctid| ctid.expect("All docs must have ctids"))
+                .collect()
+        };
+
+        // Execute batch lookups of the fast-field values, and construct the batch.
+        self.batch.fields = self
+            .inner
+            .which_fast_fields
+            .iter()
+            .enumerate()
+            .map(
+                |(ff_index, _)| match self.inner.ffhelper.column(segment_ord, ff_index) {
+                    FFType::Text(str_column) => {
+                        // Get the term ordinals.
+                        let mut term_ords = Vec::with_capacity(ids.len());
+                        term_ords.resize(ids.len(), None);
+                        str_column.ords().first_vals(&ids, &mut term_ords);
+                        // Then enumerate to preserve the id index, and look up in
+                        // the term dictionary.
+                        let sorted_terms = ords_to_sorted_terms(
+                            str_column.clone(),
+                            term_ords.into_iter().enumerate().collect::<Vec<_>>(),
+                            |(_, maybe_ord)| maybe_ord.unwrap_or(NULL_TERM_ORDINAL),
+                        );
+                        // Re-arrange the resulting terms back to docid order.
+                        let mut terms = Vec::with_capacity(ids.len());
+                        terms.resize(ids.len(), TantivyValue(OwnedValue::Null));
+                        for ((index, _), term) in sorted_terms {
+                            if let Some(term) = term {
+                                // TODO: Immediately unwrapping the Rc after creation: should remove it.
+                                terms[index] = TantivyValue(OwnedValue::Str((*term).to_owned()));
+                            }
+                        }
+                        Some(terms)
+                    }
+                    FFType::Junk => None,
+                    numeric_column => Some(fetch_ff_column!(numeric_column, ids,
+                        I64 => I64,
+                        F64 => F64,
+                        U64 => U64,
+                        Bool => Bool,
+                        Date => Date,
+                    )),
+                },
+            )
+            .collect();
+
+        self.batch.offset = 0;
+        self.batch.ids.clear();
+        self.batch.ids.extend(
+            ids.into_iter()
+                .zip(scores)
+                .zip(ctids)
+                .map(|((id, score), ctid)| {
+                    (
+                        SearchIndexScore::new(ctid, score),
+                        DocAddress::new(segment_ord, id),
+                    )
+                }),
+        );
+
+        true
     }
 }
 
@@ -120,8 +254,8 @@ impl ExecMethod for MixedFastFieldExecState {
         self.inner.init(state, cstate);
 
         // Reset mixed field specific state
-        self.mixed_results = MixedAggResults::new(self.inner.which_fast_fields.len(), vec![]);
-        self.num_rows_fetched = 0;
+        self.search_results = None;
+        self.batch.reset();
         self.num_visible = 0;
     }
 
@@ -139,33 +273,32 @@ impl ExecMethod for MixedFastFieldExecState {
     ///
     /// `true` if there are results to process, `false` otherwise
     fn query(&mut self, state: &mut PdbScanState) -> bool {
+        if self.try_join_batch() {
+            // We collected another batch of ids from the SearchResult: construct a
+            return true;
+        }
+
         // Handle parallel query execution
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                let searcher = MixedAggSearcher(state.search_reader.as_ref().unwrap());
-                self.mixed_results = searcher.mixed_agg_by_segment(
-                    state.need_scores(),
-                    state.search_query_input(),
-                    &self.inner.which_fast_fields,
-                    segment_id,
+                self.search_results = Some(
+                    state
+                        .search_reader
+                        .as_ref()
+                        .unwrap()
+                        .search_segments([segment_id].into_iter()),
                 );
                 return true;
             }
 
             // No more segments to query in parallel mode
-            self.mixed_results = MixedAggResults::new(self.inner.which_fast_fields.len(), vec![]);
             false
         } else if self.inner.did_query {
             // Not parallel and already queried
             false
         } else {
             // First time query in non-parallel mode
-            let searcher = MixedAggSearcher(state.search_reader.as_ref().unwrap());
-            self.mixed_results = searcher.mixed_agg(
-                state.need_scores(),
-                state.search_query_input(),
-                &self.inner.which_fast_fields,
-            );
+            self.search_results = Some(state.search_reader.as_ref().unwrap().search(None));
             self.inner.did_query = true;
             true
         }
@@ -186,9 +319,13 @@ impl ExecMethod for MixedFastFieldExecState {
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
         unsafe {
             // Process the next result from our optimized path
-            match self.mixed_results.next() {
-                None => ExecState::Eof,
-                Some((scored, doc_address, field_values)) => {
+            match self.batch.next() {
+                None => {
+                    // No more in the current batch: trampoline out to ExecMethod::next to
+                    // construct the next batch, if any.
+                    ExecState::Eof
+                }
+                Some((row_idx, scored, doc_address)) => {
                     let heaprel = self
                         .inner
                         .heaprel
@@ -235,58 +372,18 @@ impl ExecMethod for MixedFastFieldExecState {
                         let tupdesc = self.inner.tupdesc.as_ref().unwrap();
                         debug_assert!(natts == which_fast_fields.len());
 
-                        // Process each column, converting fast field values to PostgreSQL datums
-                        for (i, ((att, field_value), which_fast_field)) in self
-                            .inner
-                            .tupdesc
-                            .as_ref()
-                            .unwrap()
-                            .iter()
-                            .zip(field_values.into_iter())
-                            .zip(which_fast_fields)
-                            .enumerate()
-                        {
-                            match which_fast_field {
-                                WhichFastField::Named(_, _) => {
-                                    // We extracted this field: convert it into a datum.
-                                    match field_value.try_into_datum(PgOid::from(att.atttypid)) {
-                                        Ok(Some(datum)) => {
-                                            datums[i] = datum;
-                                            isnull[i] = false;
-                                            continue;
-                                        }
-                                        Ok(None) => {
-                                            // Null datum.
-                                            continue;
-                                        }
-                                        Err(e) => {
-                                            panic!(
-                                                "Failed to convert to attribute type for \
-                                                {:?} and {which_fast_field:?}: {e}",
-                                                att.atttypid
-                                            );
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    // Fall back to non_string_ff_to_datum for things like the score, ctid,
-                                    // etc.
-                                    if let Some(datum) = non_string_ff_to_datum(
-                                        (&which_fast_fields[i], i),
-                                        att.atttypid,
-                                        scored.bm25,
-                                        doc_address,
-                                        &mut self.inner.ffhelper,
-                                        slot,
-                                    ) {
-                                        datums[i] = datum;
-                                        isnull[i] = false;
-                                    }
-                                }
-                            }
-                        }
+                        self.batch.populate(
+                            row_idx,
+                            scored,
+                            doc_address,
+                            which_fast_fields,
+                            &mut self.inner.ffhelper,
+                            tupdesc,
+                            &mut *slot,
+                            datums,
+                            isnull,
+                        );
 
-                        self.num_rows_fetched += 1;
                         ExecState::Virtual { slot }
                     } else {
                         // Row needs visibility check
@@ -311,10 +408,10 @@ impl ExecMethod for MixedFastFieldExecState {
         self.inner.reset(state);
 
         // Reset mixed results state
-        self.mixed_results = MixedAggResults::new(self.inner.which_fast_fields.len(), vec![]);
+        self.search_results = None;
+        self.batch.reset();
 
         // Reset statistics
-        self.num_rows_fetched = 0;
         self.num_visible = 0;
     }
 
@@ -326,518 +423,101 @@ impl ExecMethod for MixedFastFieldExecState {
     }
 }
 
-/// Either an Rc<str>, or a TantivyValue representing any non-string value.
+/// A batch of tuples.
 ///
-/// This indirection avoids cloning the  from string fast fields until it is
-/// time to convert them into
-enum MixedField {
-    Other(TantivyValue),
-    String(Rc<str>),
+/// In order to be able to copy directly from the fetched columns into a tuple slot and to reuse
+/// buffers, this structure acts like an inverted Iterator:
+/// * Call `next()` to get the next ctid.
+/// * If the ctid is interesting, call `populate()` for the row_idx.
+#[derive(Default)]
+struct Batch {
+    /// The current offset in the ids.
+    offset: usize,
+
+    /// An iterator of ids which have been consumed from the underlying `SearchResults`
+    /// iterator as a batch.
+    ids: Vec<(SearchIndexScore, DocAddress)>,
+
+    /// The current batch of fast field values, indexed by FFIndex, then by row.
+    /// TODO: Use Arrow here?
+    fields: Vec<Option<Vec<TantivyValue>>>,
 }
 
-impl Default for MixedField {
-    fn default() -> Self {
-        Self::Other(TantivyValue::default())
-    }
-}
-
-/// A fixed-size container for storing mixed field values from fast fields.
-pub struct FieldValues(TinyVec<[MixedField; 4]>);
-
-impl FieldValues {
-    /// Creates a new fixed-size FieldValues container.
-    fn new(size: usize) -> Self {
-        Self((0..size).map(|_| MixedField::default()).collect())
+impl Batch {
+    fn next(&mut self) -> Option<(usize, SearchIndexScore, DocAddress)> {
+        let res = self
+            .ids
+            .get(self.offset)
+            .map(|(s, d)| (self.offset, *s, *d));
+        self.offset += 1;
+        res
     }
 
-    fn set_string(&mut self, field: FFIndex, value: Option<Rc<str>>) {
-        self.0[field] = value.map(MixedField::String).unwrap_or_default();
-    }
-
-    fn set_numeric(&mut self, field: FFIndex, value: OwnedValue) {
-        self.0[field] = MixedField::Other(TantivyValue(value));
-    }
-
-    fn into_iter(self) -> impl Iterator<Item = TantivyValue> {
-        self.0.into_iter().map(|v| match v {
-            MixedField::String(s) => TantivyValue(OwnedValue::Str((*s).to_owned())),
-            MixedField::Other(o) => o,
-        })
-    }
-}
-
-/// The result of searching one segment.
-type SegmentResult = (
-    // A vec of string columns and their associated FFIndex values.
-    Vec<(FFIndex, StrColumn)>,
-    // A vec (of the same length) of string column matches.
-    Vec<Vec<(TermOrdinal, SearchIndexScore, DocAddress)>>,
-    // A vec of integer columns and their associated FFIndex values.
-    Vec<(FFIndex, FFType)>,
-    // A vec (of the same length) of numeric column matches.
-    Vec<Vec<(OwnedValue, SearchIndexScore, DocAddress)>>,
-);
-
-struct MixedAggResults {
-    /// Length of the FieldValues for this MixedAgg.
-    fields_len: usize,
-    /// Per-segment results which have yet to be emitted.
-    per_segment: std::vec::IntoIter<SegmentResult>,
-    /// An iterator for the current segment.
-    current_segment: Box<dyn Iterator<Item = (SearchIndexScore, DocAddress, FieldValues)>>,
-}
-
-impl MixedAggResults {
-    fn new(fields_len: usize, per_segment: Vec<SegmentResult>) -> Self {
-        Self {
-            fields_len,
-            per_segment: per_segment.into_iter(),
-            current_segment: Box::new(std::iter::empty()),
-        }
-    }
-
-    fn next_segment(&mut self) -> bool {
-        let Some((mut string_columns, mut string_results, numeric_columns, numeric_values)) =
-            self.per_segment.next()
-        else {
-            return false;
-        };
-
-        // Build a hashmap of any non-sort column values, which will then be hash joined to the
-        // sort column, if any.
-        let rows = string_results
-            .first()
-            .map(|res| res.len())
-            .or(numeric_values.first().map(|res| res.len()))
-            .unwrap_or(16);
-        let mut doc_fields = HashMap::with_capacity_and_hasher(rows, Default::default());
-
-        // Pop a string column to use as the sort order for emitted rows, if any.
-        //
-        // Note that under some combinations of `paradedb.enable_fast_field_exec` and
-        // `paradedb.enable_mixed_fast_field_exec`, Mixed might be used without a string column.
-        //
-        // TODO: Make the choice of sort column to use a planning-time decision.
-        let string_sort_column = string_columns.pop();
-        let string_sort_results = string_results.pop();
-
-        // Process remaining string fields from this segment
-        for ((field_idx, str_ff), field_result) in string_columns.into_iter().zip(string_results) {
-            // Resolve all term ordinals to their string values.
-            let field_results_iter =
-                ords_to_sorted_terms(str_ff, field_result, |(term_ordinal, _, _)| *term_ordinal);
-
-            // Add term to each document
-            for ((_, score, doc_addr), term_value) in field_results_iter {
-                doc_fields
-                    .entry(doc_addr)
-                    .or_insert_with(|| (FieldValues::new(self.fields_len), score))
-                    .0
-                    .set_string(field_idx, term_value);
-            }
-        }
-
-        // Process numeric fields from this segment
-        for ((field_idx, _), field_values) in numeric_columns.into_iter().zip(numeric_values) {
-            // Add numeric values to all matching documents
-            for (value, score, doc_addr) in field_values {
-                doc_fields
-                    .entry(doc_addr)
-                    .or_insert_with(|| (FieldValues::new(self.fields_len), score))
-                    .0
-                    .set_numeric(field_idx, value);
-            }
-        }
-
-        if let Some(((sort_field_idx, sort_str_ff), string_sort_results)) =
-            string_sort_column.zip(string_sort_results)
-        {
-            // We have a sort column, so create an iterator that lazily scans the sort column and
-            // joins the remaining columns.
-            let fields_len = self.fields_len;
-            self.current_segment = Box::new(
-                ords_to_sorted_terms(sort_str_ff, string_sort_results, |(term_ordinal, _, _)| {
-                    *term_ordinal
-                })
-                .map(move |((_, score, doc_addr), term_value)| {
-                    let (mut field_values, score) = doc_fields
-                        .remove(&doc_addr)
-                        .unwrap_or_else(|| (FieldValues::new(fields_len), score));
-                    field_values.set_string(sort_field_idx, term_value);
-                    (score, doc_addr, field_values)
-                }),
-            );
-        } else {
-            // Otherwise, emit the remaining columns directly.
-            self.current_segment = Box::new(
-                doc_fields
-                    .into_iter()
-                    .map(|(doc_addr, (field_values, score))| (score, doc_addr, field_values)),
-            );
-        }
-
-        true
-    }
-}
-
-impl Iterator for MixedAggResults {
-    type Item = (SearchIndexScore, DocAddress, FieldValues);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            // See if there are more results from the current segment.
-            if let Some(next) = self.current_segment.next() {
-                return Some(next);
-            }
-
-            // Get results from the next segment, if any.
-            if !self.next_segment() {
-                return None;
-            }
-        }
-    }
-}
-
-/// Searcher that aggregates results for mixed field types.
-///
-/// This searcher is responsible for efficiently retrieving both string and numeric
-/// fast field values and organizing them for processing. It handles both single-threaded
-/// execution and parallel segment-based execution.
-struct MixedAggSearcher<'a>(&'a SearchIndexReader);
-
-impl MixedAggSearcher<'_> {
-    /// Executes a search and aggregates mixed field values across all segments.
-    ///
-    /// This method is used for non-parallel execution and processes all segments
-    /// in a single-threaded manner, organizing results by field values to improve
-    /// deduplication and subsequent processing efficiency.
-    ///
-    /// # Arguments
-    ///
-    /// * `need_scores` - Whether relevancy scores are needed
-    /// * `query` - The search query to execute
-    /// * `fields` - Fast fields to retrieve
-    ///
-    /// # Returns
-    ///
-    /// Aggregated results organized by field values
-    pub fn mixed_agg(
-        &self,
-        need_scores: bool,
-        query: &SearchQueryInput,
-        fields: &[WhichFastField],
-    ) -> MixedAggResults {
-        // Create collector that handles both string and numeric fields
-        let collector = multi_field_collector::MultiFieldCollector {
-            need_scores,
-            fields: fields.to_vec(),
-        };
-
-        // Execute search with the appropriate scoring mode
-        let schema = Schema::from(self.0.schema().clone());
-        let results = self
-            .0
-            .searcher()
-            .search_with_executor(
-                self.0.query(),
-                &collector,
-                &Executor::SingleThread,
-                if need_scores {
-                    tantivy::query::EnableScoring::Enabled {
-                        searcher: self.0.searcher(),
-                        statistics_provider: self.0.searcher(),
-                    }
-                } else {
-                    tantivy::query::EnableScoring::Disabled {
-                        schema: &schema,
-                        searcher_opt: Some(self.0.searcher()),
-                    }
-                },
-            )
-            .expect("failed to search");
-
-        MixedAggResults::new(fields.len(), results)
-    }
-
-    /// Executes a search and aggregates mixed field values for a single segment.
-    ///
-    /// This method is used for parallel execution where each worker processes
-    /// a single segment. The results are streamed through a channel to avoid
-    /// excessive memory usage.
-    ///
-    /// # Arguments
-    ///
-    /// * `need_scores` - Whether relevancy scores are needed
-    /// * `query` - The search query to execute
-    /// * `string_fields` - List of string fast fields to retrieve
-    /// * `numeric_fields` - List of numeric fast fields to retrieve
-    /// * `segment_id` - ID of the segment to process
-    ///
-    /// # Returns
-    ///
-    /// Aggregated results for the specified segment
-    pub fn mixed_agg_by_segment(
-        &self,
-        need_scores: bool,
-        query: &SearchQueryInput,
-        fields: &[WhichFastField],
-        segment_id: SegmentId,
-    ) -> MixedAggResults {
-        // Find the segment reader for the specified segment ID
-        let (segment_ord, segment_reader) = self
-            .0
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .find(|(_, reader)| reader.segment_id() == segment_id)
-            .unwrap_or_else(|| panic!("segment {segment_id} should exist"));
-
-        // Create collector for both string and numeric fields
-        let collector = multi_field_collector::MultiFieldCollector {
-            need_scores,
-            fields: fields.to_vec(),
-        };
-
-        // Create a query weight for this segment
-        let schema = Schema::from(self.0.schema().clone());
-        let weight = self.0.weight();
-
-        // Execute search on this specific segment
-        let result = collector
-            .collect_segment(
-                weight.as_ref(),
-                segment_ord as SegmentOrdinal,
-                segment_reader,
-            )
-            .expect("single segment collection should succeed");
-
-        MixedAggResults::new(fields.len(), vec![result])
-    }
-}
-
-/// Module for collecting both string and numeric fast field values during search.
-///
-/// This implementation extends Tantivy's collector framework to efficiently gather
-/// multiple field types simultaneously during a single index traversal.
-mod multi_field_collector {
-    use crate::index::fast_fields_helper::{FFIndex, FFType, FastFieldType, WhichFastField};
-    use crate::index::reader::index::SearchIndexScore;
-    use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::NULL_TERM_ORDINAL;
-
-    use tantivy::collector::{Collector, SegmentCollector};
-    use tantivy::columnar::StrColumn;
-    use tantivy::schema::document::OwnedValue;
-    use tantivy::termdict::TermOrdinal;
-    use tantivy::{DocAddress, DocId, Score, SegmentOrdinal, SegmentReader};
-
-    /// Collector that gathers both string and numeric field values from documents.
-    ///
-    /// This collector is specifically designed to support the mixed fast field
-    /// execution state by collecting all needed field values in a single pass
-    /// through the index, minimizing document access costs.
-    pub struct MultiFieldCollector {
-        /// Whether to collect document scores
-        pub need_scores: bool,
-
-        /// List of fast fields to collect
-        pub fields: Vec<WhichFastField>,
-    }
-
-    impl Collector for MultiFieldCollector {
-        // Each fruit contains the columns, results, and values for both string and numeric fields
-        type Fruit = Vec<super::SegmentResult>;
-        type Child = MultiFieldSegmentCollector;
-
-        /// Creates a segment collector for a specific segment.
-        ///
-        /// This method initializes a collector for each segment that can access
-        /// both string and numeric fast fields for the specified fields.
-        ///
-        /// # Arguments
-        ///
-        /// * `segment_local_id` - Local ID of the segment being processed
-        /// * `segment_reader` - Reader for accessing the segment data
-        ///
-        /// # Returns
-        ///
-        /// A segment collector configured for this segment
-        fn for_segment(
-            &self,
-            segment_local_id: SegmentOrdinal,
-            segment_reader: &SegmentReader,
-        ) -> tantivy::Result<Self::Child> {
-            let ff = segment_reader.fast_fields();
-
-            // Get columns for all requested fields
-            let mut string_columns = Vec::new();
-            let mut string_results = Vec::new();
-            let mut numeric_columns = Vec::new();
-            let mut numeric_values = Vec::new();
-            for (field_idx, fast_field) in self.fields.iter().enumerate() {
-                match fast_field {
-                    WhichFastField::Named(field_name, FastFieldType::String) => {
-                        if let Ok(Some(str_column)) = ff.str(field_name) {
-                            string_columns.push((field_idx, str_column));
-                            string_results.push(Vec::default());
+    #[allow(clippy::too_many_arguments)]
+    fn populate(
+        &mut self,
+        row_idx: usize,
+        scored: SearchIndexScore,
+        doc_address: DocAddress,
+        which_fast_fields: &[WhichFastField],
+        ff_helper: &mut FFHelper,
+        tupdesc: &pgrx::PgTupleDesc,
+        slot: &mut pg_sys::TupleTableSlot,
+        datums: &mut [pg_sys::Datum],
+        isnull: &mut [bool],
+    ) {
+        for (i, (att, which_fast_field)) in tupdesc.iter().zip(which_fast_fields).enumerate() {
+            match &mut self.fields[i] {
+                Some(column) => {
+                    // We extracted this field: convert it into a datum.
+                    let datum_res = unsafe {
+                        std::mem::take(&mut column[row_idx])
+                            .try_into_datum(PgOid::from(att.atttypid))
+                    };
+                    match datum_res {
+                        Ok(Some(datum)) => {
+                            datums[i] = datum;
+                            isnull[i] = false;
+                            continue;
+                        }
+                        Ok(None) => {
+                            // Null datum.
+                            continue;
+                        }
+                        Err(e) => {
+                            panic!(
+                                "Failed to convert to attribute type for \
+                                {:?} and {which_fast_field:?}: {e}",
+                                att.atttypid
+                            );
                         }
                     }
-                    WhichFastField::Named(field_name, FastFieldType::Numeric) => {
-                        // Try different numeric field types in order
-                        let ff_type = if let Ok(i64_col) = ff.i64(field_name) {
-                            FFType::I64(i64_col)
-                        } else if let Ok(u64_col) = ff.u64(field_name) {
-                            FFType::U64(u64_col)
-                        } else if let Ok(f64_col) = ff.f64(field_name) {
-                            FFType::F64(f64_col)
-                        } else if let Ok(bool_col) = ff.bool(field_name) {
-                            FFType::Bool(bool_col)
-                        } else if let Ok(date_col) = ff.date(field_name) {
-                            FFType::Date(date_col)
-                        } else {
-                            panic!("Unrecognized numeric fast field type for: {field_name}");
-                        };
-
-                        numeric_columns.push((field_idx, ff_type));
-                        numeric_values.push(Vec::default());
+                }
+                None => {
+                    // Fall back to non_string_ff_to_datum for things like the score, ctid,
+                    // etc.
+                    let datum_opt = unsafe {
+                        non_string_ff_to_datum(
+                            (&which_fast_fields[i], i),
+                            att.atttypid,
+                            scored.bm25,
+                            doc_address,
+                            ff_helper,
+                            slot,
+                        )
+                    };
+                    if let Some(datum) = datum_opt {
+                        datums[i] = datum;
+                        isnull[i] = false;
                     }
-                    _ => {}
                 }
             }
-
-            Ok(MultiFieldSegmentCollector {
-                segment_ord: segment_local_id,
-                string_columns,
-                string_results,
-                numeric_columns,
-                numeric_values,
-                ctid_ff: FFType::new_ctid(ff),
-            })
-        }
-
-        /// Indicates whether this collector requires document scores.
-        fn requires_scoring(&self) -> bool {
-            self.need_scores
-        }
-
-        /// Merges results from all segment collectors.
-        ///
-        /// This method simply collects all segment results into a vector,
-        /// as the actual merging happens in the MixedAggSearcher implementation.
-        fn merge_fruits(
-            &self,
-            segment_fruits: Vec<<Self::Child as SegmentCollector>::Fruit>,
-        ) -> tantivy::Result<Self::Fruit> {
-            // Just return the list of segment results
-            Ok(segment_fruits)
         }
     }
 
-    /// Segment-level collector for gathering mixed field values.
-    ///
-    /// This collector processes individual documents within a segment,
-    /// collecting both string term ordinals and numeric values for
-    /// all requested fields.
-    pub struct MultiFieldSegmentCollector {
-        /// Segment ordinal for constructing doc addresses
-        pub segment_ord: SegmentOrdinal,
-
-        /// String columns to collect from
-        pub string_columns: Vec<(FFIndex, StrColumn)>,
-
-        /// Results for string fields
-        pub string_results: Vec<Vec<(TermOrdinal, SearchIndexScore, DocAddress)>>,
-
-        /// Numeric columns to collect from
-        pub numeric_columns: Vec<(FFIndex, FFType)>,
-
-        /// Results for numeric fields, organized by doc address
-        pub numeric_values: Vec<Vec<(OwnedValue, SearchIndexScore, DocAddress)>>,
-
-        /// Fast field for retrieving ctid values
-        ctid_ff: FFType,
-    }
-
-    impl SegmentCollector for MultiFieldSegmentCollector {
-        type Fruit = super::SegmentResult;
-
-        /// Processes a single document, collecting all field values.
-        ///
-        /// This method is called for each matching document and collects
-        /// both string and numeric field values in a single pass.
-        ///
-        /// # Arguments
-        ///
-        /// * `doc` - Document ID within the segment
-        /// * `score` - Relevancy score for the document
-        fn collect(&mut self, doc: DocId, score: Score) {
-            let doc_address = DocAddress::new(self.segment_ord, doc);
-            let ctid = self.ctid_ff.as_u64(doc).expect("ctid should be present");
-            let scored = SearchIndexScore::new(ctid, score);
-
-            // Collect string fields
-            for (string_column_idx, (_, str_column)) in self.string_columns.iter().enumerate() {
-                let term_ord = str_column
-                    .term_ords(doc)
-                    .next()
-                    .unwrap_or(NULL_TERM_ORDINAL);
-                self.string_results[string_column_idx].push((term_ord, scored, doc_address));
-            }
-
-            // Collect numeric fields - store in document-keyed maps
-            for (numeric_column_idx, (_, field_type)) in self.numeric_columns.iter().enumerate() {
-                // Convert the field value based on its type
-                let field_value = match field_type {
-                    FFType::I64(col) => {
-                        if let Some(val) = col.first(doc) {
-                            OwnedValue::I64(val)
-                        } else {
-                            OwnedValue::Null
-                        }
-                    }
-                    FFType::U64(col) => {
-                        if let Some(val) = col.first(doc) {
-                            OwnedValue::U64(val)
-                        } else {
-                            OwnedValue::Null
-                        }
-                    }
-                    FFType::F64(col) => {
-                        if let Some(val) = col.first(doc) {
-                            OwnedValue::F64(val)
-                        } else {
-                            OwnedValue::Null
-                        }
-                    }
-                    FFType::Bool(col) => {
-                        if let Some(val) = col.first(doc) {
-                            OwnedValue::Bool(val)
-                        } else {
-                            OwnedValue::Null
-                        }
-                    }
-                    FFType::Date(col) => {
-                        if let Some(val) = col.first(doc) {
-                            OwnedValue::Date(val)
-                        } else {
-                            OwnedValue::Null
-                        }
-                    }
-                    x => panic!("Unhandled column type {x:?}"),
-                };
-
-                // Store the value for this document
-                self.numeric_values[numeric_column_idx].push((field_value, scored, doc_address));
-            }
-        }
-
-        /// Returns all collected field values for this segment.
-        fn harvest(self) -> Self::Fruit {
-            (
-                self.string_columns,
-                self.string_results,
-                self.numeric_columns,
-                self.numeric_values,
-            )
-        }
+    fn reset(&mut self) {
+        self.offset = 0;
+        self.ids.clear();
+        self.fields.clear();
     }
 }

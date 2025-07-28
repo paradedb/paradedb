@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+pub mod groupbygen;
 pub mod joingen;
 pub mod opexprgen;
 pub mod pagegen;
@@ -126,6 +127,7 @@ where
         SET enable_seqscan TO ON;
         SET enable_indexscan TO ON;
         SET paradedb.enable_custom_scan TO OFF;
+        SET paradedb.enable_aggregate_custom_scan TO OFF;
     "#
     .execute(conn);
 

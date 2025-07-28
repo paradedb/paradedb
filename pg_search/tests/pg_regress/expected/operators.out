@@ -224,8 +224,8 @@ SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY i
 -- === (termset equality)
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'];
-                                                                                            QUERY PLAN                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Gather
    Workers Planned: 1
    ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
@@ -233,7 +233,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
          Index: idxregress_mock_items
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"description","value":"shoes","is_datetime":false},{"field":"description","value":"SHOES","is_datetime":false}]}}}}
+         Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description","terms":["shoes","SHOES"]}}}}
 (8 rows)
 
 SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] ORDER BY id;
@@ -245,8 +245,8 @@ SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] O
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
  Gather
    Workers Planned: 1
    ->  Parallel Custom Scan (ParadeDB Scan) on mock_items
@@ -254,7 +254,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
          Index: idxregress_mock_items
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"_pg_search_3","value":"shoes","is_datetime":false},{"field":"_pg_search_3","value":"SHOES","is_datetime":false}]}}}}
+         Tantivy Query: {"with_index":{"query":{"term_set":{"field":"_pg_search_3","terms":["shoes","SHOES"]}}}}
 (8 rows)
 
 SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;

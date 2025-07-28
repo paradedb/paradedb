@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::builder_fns::{parse, parse_with_field};
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
+use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
     Internal, IntoDatum, PgList,
@@ -34,19 +36,29 @@ pub fn search_with_parse(_element: AnyElement, query: &str) -> bool {
     panic!("query is incompatible with pg_search's `@@@(field, TEXT)` operator: `{query}`")
 }
 
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.@@@)]
+pub fn search_with_fieled_query_input(_element: AnyElement, query: pdb::Query) -> bool {
+    panic!("query is incompatible with pg_search's `@@@(field, pdb.query)` operator: `{query:?}`")
+}
+
 #[pg_extern(immutable, parallel_safe)]
-pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
+pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
         request_simplify(
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
             |field, query_value| match query_value {
                 RHSValue::Text(query_string) => match field {
-                    Some(field) => crate::api::builder_fns::parse_with_field(field, query_string, None, None),
-                    None => crate::api::builder_fns::parse(query_string, None, None),
+                    Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
+                    None => parse(query_string, None, None),
+                }
+                RHSValue::PdbQuery(query) => {
+                    assert!(field.is_some());
+                    to_search_query_input(field.unwrap(), query)
                 }
                 _ => {
                     unreachable!(
-                        "search_with_parse_support should only ever be called with a text value"
+                        "atatat_support should only ever be called with a text value"
                     )
                 }
             },
@@ -88,7 +100,7 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
                         }
                     }
 
-                    // here we call the `paradedb.parse` function
+                    // here we call the `paradedb.parse` function without a FieldName
                     None => {
                         let mut args = PgList::<pg_sys::Node>::new();
                         args.push(rhs.cast());
@@ -122,7 +134,14 @@ pub fn search_with_parse_support(arg: Internal) -> ReturnedNodePointer {
 }
 
 extension_sql!(
-    "ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.search_with_parse_support;",
-    name = "search_with_parse_support_fn",
-    requires = [search_with_parse, search_with_parse_support]
+    r#"
+        ALTER FUNCTION paradedb.search_with_parse SUPPORT paradedb.atatat_support;
+        ALTER FUNCTION paradedb.search_with_fieled_query_input SUPPORT paradedb.atatat_support;
+    "#,
+    name = "atatat_support_fn",
+    requires = [
+        search_with_parse,
+        search_with_fieled_query_input,
+        atatat_support
+    ]
 );

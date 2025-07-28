@@ -166,6 +166,16 @@ impl Iterator for TopNSearchResults {
     }
 }
 
+impl MultiSegmentSearchResults {
+    pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        self.iterators.last_mut()
+    }
+
+    pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
+        self.iterators.pop()
+    }
+}
+
 impl Iterator for MultiSegmentSearchResults {
     type Item = (SearchIndexScore, DocAddress);
 

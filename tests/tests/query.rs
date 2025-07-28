@@ -281,12 +281,17 @@ fn single_queries(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
-    // Term with no field (should search all columns)
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM paradedb.bm25_search
-    WHERE bm25_search @@@ paradedb.term(value => 'shoes') ORDER BY id"#
-        .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 3);
+    //
+    // NB:  This once worked, but the capability was removed when the new "pdb.*" builder functions
+    //      were added.  The general problem is that there's no longer a clean way to indicate
+    //      the desire to "search all column"
+    //
+    // // Term with no field (should search all columns)
+    // let columns: SimpleProductsTableVec = r#"
+    // SELECT * FROM paradedb.bm25_search
+    // WHERE bm25_search @@@ paradedb.term(value => 'shoes') ORDER BY id"#
+    //     .fetch_collect(&mut conn);
+    // assert_eq!(columns.len(), 3);
 
     // TermSet with invalid term list
     match r#"

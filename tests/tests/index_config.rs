@@ -657,12 +657,9 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
             per_partition_plan.get("Node Type"),
             Some(&Value::String(String::from("Custom Scan")))
         );
-        let query = per_partition_plan
-            .get("Human Readable Query")
-            .unwrap()
-            .to_string();
+        let query = per_partition_plan.get("Tantivy Query").unwrap().to_string();
         assert!(
-            query.to_string().contains("sale_date:2023-01-10"),
+            query.to_string().contains("2023-01-10"),
             "Expected sale_date to be pushed down into query: {query:?}",
         );
     }

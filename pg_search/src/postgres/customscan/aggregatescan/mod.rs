@@ -40,6 +40,7 @@ use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -544,43 +545,14 @@ fn extract_order_by_pathkeys(
     schema: &SearchIndexSchema,
 ) -> Option<Vec<OrderByStyle>> {
     unsafe {
-        let query_pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
-        if query_pathkeys.is_empty() {
-            return None;
-        }
-
-        let mut pathkey_styles = Vec::new();
-
-        for pathkey_ptr in query_pathkeys.iter_ptr() {
-            let pathkey = pathkey_ptr;
-            let equivclass = (*pathkey).pk_eclass;
-            let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
-
-            for member in members.iter_ptr() {
-                let expr = (*member).em_expr;
-
-                // Check if this is a Var (column reference)
-                if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
-                        continue;
-                    }
-
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if search_field.is_fast() {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                break; // Found a valid pathkey for this equivalence class
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        let pathkey_styles = extract_pathkey_styles_with_sortability_check(
+            root,
+            heap_rti,
+            schema,
+            None,                                  // No limit on pathkeys for aggregatescan
+            |search_field| search_field.is_fast(), // Use is_fast() for regular vars
+            |_search_field| false,                 // Don't accept lower functions in aggregatescan
+        );
 
         if pathkey_styles.is_empty() {
             None

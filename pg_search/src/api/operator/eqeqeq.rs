@@ -14,11 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::api::FieldName;
-use crate::query::{SearchQueryInput, TermInput};
+use crate::query::pdb_query::to_search_query_input;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
     IntoDatum, PgList,
@@ -37,29 +37,6 @@ fn search_with_term_array(_field: &str, terms: Vec<String>) -> bool {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn string_term(field: FieldName, term: String) -> SearchQueryInput {
-    SearchQueryInput::Term {
-        field: Some(field),
-        value: term.into(),
-        is_datetime: false,
-    }
-}
-
-#[pg_extern(immutable, parallel_safe)]
-fn string_term_array(field: FieldName, terms: Vec<String>) -> SearchQueryInput {
-    SearchQueryInput::TermSet {
-        terms: terms
-            .into_iter()
-            .map(|term| TermInput {
-                field: field.clone(),
-                value: term.into(),
-                is_datetime: false,
-            })
-            .collect(),
-    }
-}
-
-#[pg_extern(immutable, parallel_safe)]
 fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
         request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, term| {
@@ -67,8 +44,9 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 .expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
 
             match term {
-                RHSValue::Text(term) => string_term(field, term),
-                RHSValue::TextArray(terms) => string_term_array(field, terms),
+                RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
+                RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
+                _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, rhs| {
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
@@ -87,15 +65,15 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 funcid: if is_array {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.string_term_array(paradedb.fieldname, text)".into_datum()],
+                        &[c"paradedb.term_set(paradedb.fieldname, text[])".into_datum()],
                     )
-                        .expect("`paradedb.string_term_array(paradedb.fieldname, text)` should exist")
+                        .expect("`paradedb.term_set(paradedb.fieldname, text[])` should exist")
                 } else {
                     direct_function_call::<pg_sys::Oid>(
                         pg_sys::regprocedurein,
-                        &[c"paradedb.string_term(paradedb.fieldname, text)".into_datum()],
+                        &[c"paradedb.term(paradedb.fieldname, text)".into_datum()],
                     )
-                        .expect("`paradedb.string_term(paradedb.fieldname, text)` should exist")
+                        .expect("`paradedb.term(paradedb.fieldname, text)` should exist")
                 },
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,

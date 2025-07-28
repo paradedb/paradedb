@@ -14,11 +14,11 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
+use crate::api::builder_fns::phrase_string;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::api::FieldName;
-use crate::query::SearchQueryInput;
+use crate::query::pdb_query::to_search_query_input;
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
     IntoDatum, PgList,
@@ -33,27 +33,20 @@ fn search_with_phrase(_field: &str, terms_to_tokenize: &str) -> bool {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn tokenized_phrase(field: FieldName, phrase: String) -> SearchQueryInput {
-    SearchQueryInput::TokenizedPhrase {
-        field,
-        phrase,
-        slop: None,
-    }
-}
-
-#[pg_extern(immutable, parallel_safe)]
 fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize| tokenized_phrase(
-            field
-                .expect("The left hand side of the `###(field, TEXT)` operator must be a field."),
-            match to_tokenize {
+        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize| {
+            let field = field
+                .expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
+            let query = match to_tokenize {
                 RHSValue::Text(to_tokenize) => to_tokenize,
                 _ => unreachable!("The right-hand side of the `###(key_field, TEXT)` operator must be a text value")
-            }), |field, rhs| {
+            };
+
+            to_search_query_input(field, phrase_string(query))
+        }, |field, rhs| {
             let field = field.expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
             assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `###(field, TEXT)` operator must be a text value");
-
             let mut args = PgList::<pg_sys::Node>::new();
 
             args.push(field.into_const().cast());
@@ -63,9 +56,9 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 xpr: pg_sys::Expr { type_: pg_sys::NodeTag::T_FuncExpr },
                 funcid: direct_function_call::<pg_sys::Oid>(
                     pg_sys::regprocedurein,
-                    &[c"paradedb.tokenized_phrase(paradedb.fieldname, text)".into_datum()],
+                    &[c"paradedb.phrase(paradedb.fieldname, text)".into_datum()],
                 )
-                    .expect("`paradedb.tokenized_phrase(paradedb.fieldname, text)` should exist"),
+                    .expect("`paradedb.phrase(paradedb.fieldname, text)` should exist"),
                 funcresulttype: searchqueryinput_typoid(),
                 funcretset: false,
                 funcvariadic: false,

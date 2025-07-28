@@ -136,11 +136,7 @@ impl RangeField {
         Ok(query)
     }
 
-    fn as_range_term(
-        &self,
-        value: &OwnedValue,
-        path: Option<&str>,
-    ) -> Result<Term, Box<dyn std::error::Error>> {
+    fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
         value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
     }
 }

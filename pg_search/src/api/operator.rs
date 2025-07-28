@@ -29,6 +29,7 @@ use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::find_var_relation;
+use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
@@ -41,6 +42,7 @@ use std::ptr::NonNull;
 enum RHSValue {
     Text(String),
     TextArray(Vec<String>),
+    PdbQuery(pdb::Query),
 }
 
 #[derive(Debug)]
@@ -115,6 +117,18 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
     }
 }
 
+pub fn pdb_query_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.Query".into_datum()])
+                .expect("type `pdb.Query` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pdb.Query` should exist");
+        }
+        oid
+    }
+}
+
 pub(crate) fn estimate_selectivity(
     indexrel: &PgSearchRelation,
     search_query_input: SearchQueryInput,
@@ -161,7 +175,7 @@ unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
 /// This function requires the node to be related to a `bm25` index, otherwise it will panic.
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
-unsafe fn tantivy_field_name_from_node(
+pub unsafe fn tantivy_field_name_from_node(
     root: *mut pg_sys::PlannerInfo,
     node: *mut pg_sys::Node,
 ) -> Option<(pg_sys::Oid, Option<FieldName>)> {
@@ -406,14 +420,22 @@ where
         //
         // we currently only support rewriting Consts of type TEXT or TEXT[]
         let rhs_value = match (*const_).consttype {
+            // these are used for the @@@, &&&, |||, ###, and === operators
             pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(
                 String::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text value must not be NULL"),
             ),
 
+            // these arrays are only supported by the === operator
             pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
                 Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs text array value must not be NULL"),
+            ),
+
+            // this is specifically used for the `@@@(anyelement, pdb.query)` operator
+            other if other == pdb_query_typoid() => RHSValue::PdbQuery(
+                pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fielded query input value must not be NULL"),
             ),
 
             other => panic!("operator does not support rhs type {other}"),

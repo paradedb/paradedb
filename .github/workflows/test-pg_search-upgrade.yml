@@ -94,7 +94,12 @@ jobs:
       #
       # And to complicate matters, v0.15.19 stopped being able to compile on modern rust, so now we just use $PRIOR_PG_SEARCH_VERSION
       - name: Checkout ParadeDB $PRIOR_PG_SEARCH_VERSION
-        run: git checkout $PRIOR_PG_SEARCH_VERSION
+        run: |
+          # cleanup any local modifications the above steps may have made
+          git checkout .
+
+          # checkout the prior version of ParadeDB
+          git checkout $PRIOR_PG_SEARCH_VERSION
 
       - name: Compile & install pg_search $PRIOR_PG_SEARCH_VERSION
         working-directory: pg_search/
@@ -132,6 +137,7 @@ jobs:
 
       - name: Fetch and Checkout PR Head
         run: |
+          git checkout .
           git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head:${{ github.event.pull_request.head.ref }}
           git checkout ${{ github.event.pull_request.head.ref }}
 

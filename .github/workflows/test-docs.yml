@@ -24,7 +24,6 @@ jobs:
   test-docs:
     name: Test Docs for Broken Links
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

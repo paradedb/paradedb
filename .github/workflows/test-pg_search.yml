@@ -27,7 +27,7 @@ jobs:
   set-matrix:
     name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    if: ${{ !cancelled() }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -45,7 +45,7 @@ jobs:
   test-pg_search-postgres:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubicloud-standard-8
-    if: ${{ !cancelled() && github.event.pull_request.draft == false }}
+    if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
       matrix:
@@ -138,8 +138,8 @@ jobs:
         if: always()
         run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
-  # Don't run pgrx-managed Postgres tests on push events, since they are only used to fill the Rust cache, which
-  # is already handled in the test-pg_search-postgres job.
+  # Don't run pgrx-managed Postgres tests on drafts or push events, since they are only used to
+  # fill the Rust cache, which is already handled in the test-pg_search-postgres job.
   test-pg_search-pgrx-postgres:
     name: Test pg_search on pgrx PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubicloud-standard-8

@@ -34,6 +34,7 @@ mod pdb {
     #[serde(rename_all = "snake_case")]
     #[inoutfuncs]
     pub enum ProximityClause {
+        Uninitialized,
         Term(String),
         Regex {
             pattern: Regex,
@@ -98,6 +99,7 @@ mod pdb {
     impl ProximityClause {
         pub fn is_empty(&self) -> bool {
             match self {
+                ProximityClause::Uninitialized => true,
                 ProximityClause::Term(_) => false,
                 ProximityClause::Regex { .. } => false,
                 ProximityClause::Clauses(clauses) => {
@@ -116,6 +118,7 @@ mod pdb {
             which_terms: WhichTerms,
         ) -> tantivy::Result<impl Iterator<Item = ProxTermStyle<'a>>> {
             let iter: Box<dyn Iterator<Item = ProxTermStyle>> = match self {
+                ProximityClause::Uninitialized => Box::new(std::iter::empty()),
                 ProximityClause::Term(term) => Box::new(std::iter::once(ProxTermStyle::Term(
                     Cow::Borrowed(term.as_str()),
                 ))),

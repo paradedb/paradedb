@@ -78,7 +78,24 @@ pub mod pdb {
 
     #[builder_fn]
     #[pg_extern(immutable, parallel_safe, name = "proximity")]
-    pub fn proximity(
+    pub fn proximity(prox: crate::query::proximity::ProximityClause) -> pdb::Query {
+        match prox {
+            crate::query::proximity::ProximityClause::Proximity {
+                left,
+                distance,
+                right,
+            } => pdb::Query::Proximity {
+                left: *left,
+                distance,
+                right: *right,
+            },
+            _ => panic!("prox must be a complete ProximityClause"),
+        }
+    }
+
+    #[builder_fn]
+    #[pg_extern(immutable, parallel_safe, name = "proximity")]
+    pub fn proximity_pair(
         left: crate::query::proximity::ProximityClause,
         distance: i32,
         right: crate::query::proximity::ProximityClause,

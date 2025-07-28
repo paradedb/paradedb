@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::builder_fns::{parse, parse_with_field};
+use crate::api::builder_fns::{parse, parse_with_field, proximity};
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
@@ -55,6 +55,10 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());
                     to_search_query_input(field.unwrap(), query)
+                }
+                RHSValue::ProximityClause(prox) => {
+                    assert!(field.is_some());
+                    to_search_query_input(field.unwrap(), proximity(prox))
                 }
                 _ => {
                     unreachable!(

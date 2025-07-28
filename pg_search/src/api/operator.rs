@@ -21,6 +21,7 @@ mod eqeqeq;
 mod hashhashhash;
 mod ororor;
 mod searchqueryinput;
+mod tildetildetilde;
 
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
@@ -30,6 +31,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::find_var_relation;
 use crate::query::pdb_query::pdb;
+use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
@@ -43,6 +45,7 @@ enum RHSValue {
     Text(String),
     TextArray(Vec<String>),
     PdbQuery(pdb::Query),
+    ProximityClause(ProximityClause),
 }
 
 #[derive(Debug)]
@@ -124,6 +127,20 @@ pub fn pdb_query_typoid() -> pg_sys::Oid {
                 .expect("type `pdb.Query` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `pdb.Query` should exist");
+        }
+        oid
+    }
+}
+
+pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pdb.ProximityClause".into_datum()],
+        )
+        .expect("type `pdb.ProximityClause` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pdb.ProximityClause` should exist");
         }
         oid
     }
@@ -437,6 +454,12 @@ where
                 pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
             ),
+
+            other if other == pdb_proximityclause_typoid() => {
+                let prox = ProximityClause::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fielded proximity clause must not be NULL");
+                RHSValue::ProximityClause(prox)
+            }
 
             other => panic!("operator does not support rhs type {other}"),
         };

@@ -253,13 +253,12 @@ impl AggregateScanState {
                     .position(|gc| gc.field_name == order_info.field_name);
 
                 let cmp = if let Some(idx) = col_index {
-                    let default_value = OwnedValue::Str("".to_string());
-                    let val_a = a.group_keys.get(idx).unwrap_or(&default_value);
-                    let val_b = b.group_keys.get(idx).unwrap_or(&default_value);
+                    let val_a = a.group_keys.get(idx);
+                    let val_b = b.group_keys.get(idx);
 
                     // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
-                    let tantivy_a = TantivyValue(val_a.clone());
-                    let tantivy_b = TantivyValue(val_b.clone());
+                    let tantivy_a = val_a.map(|v| TantivyValue(v.clone()));
+                    let tantivy_b = val_b.map(|v| TantivyValue(v.clone()));
                     let base_cmp = tantivy_a.cmp(&tantivy_b);
 
                     if order_info.is_desc {

@@ -42,3 +42,14 @@ select pdb.prox_regex('the_pattern');
 select pdb.prox_regex('the_pattern', 100);
 select pdb.prox_array('a', 'b', 'c', pdb.prox_term('d'), pdb.prox_regex('e'));
 select pdb.prox_clause('a', 42, 'b');
+
+
+--
+-- use the ~~~ operator
+--
+
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 24 ~~~ 'z');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 3 ~~~ 'c' ~~~ 2 ~~~ 'g');   -- no match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 3 ~~~ 'c' ~~~ 3 ~~~ 'g');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ (ARRAY['a', 'b', 'c'] ~~~ 1 ~~~ 'd');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 1 ~~~ ARRAY['b', 'c', 'd']);   -- match

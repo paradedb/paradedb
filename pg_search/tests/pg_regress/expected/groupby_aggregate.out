@@ -147,9 +147,8 @@ SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY ra
    Output: rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Human Readable Query: description:(laptop)
    Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
-(6 rows)
+(5 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE)
 SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
@@ -159,9 +158,8 @@ SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
    Output: now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Human Readable Query: description:(laptop)
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(6 rows)
+(5 rows)
 
 -- ===========================================================================
 -- SECTION 2: Data Type Tests
@@ -381,8 +379,7 @@ GROUP BY rating;
                            Exec Method: NormalScanExecState
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-                           Human Readable Query: description:(laptop)
-(20 rows)
+(19 rows)
 
 -- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -506,8 +503,7 @@ GROUP BY category, priority;
                      String Fast Fields: category, priority
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-                     Human Readable Query: description:(error)
-(19 rows)
+(18 rows)
 
 -- ===========================================================================
 -- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
@@ -545,8 +541,7 @@ ORDER BY COUNT(*) DESC;
                            String Agg Field: category
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-                           Human Readable Query: description:(error)
-(22 rows)
+(21 rows)
 
 -- The query should still work, just not with our custom scan
 SELECT category, COUNT(*) as count
@@ -589,8 +584,7 @@ ORDER BY count DESC;
                            String Agg Field: category
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-                           Human Readable Query: description:(error)
-(22 rows)
+(21 rows)
 
 -- The query should still work
 SELECT category, COUNT(*) as count
@@ -617,9 +611,8 @@ GROUP BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Human Readable Query: description:(error)
    Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
-(6 rows)
+(5 rows)
 
 -- This uses our custom aggregate scan
 SELECT category, COUNT(*) as count

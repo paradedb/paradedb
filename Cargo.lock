@@ -2621,7 +2621,7 @@ checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
 
 [[package]]
 name = "macros"
-version = "0.17.1"
+version = "0.17.2"
 dependencies = [
  "proc-macro2",
  "syn 2.0.104",

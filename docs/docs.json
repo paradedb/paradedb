@@ -71,6 +71,12 @@
                               "documentation/v2/query-builder/phrase/regex_phrase"
                             ]
                           },
+                          {
+                            "group": "Match",
+                            "pages": [
+                              "documentation/v2/query-builder/match/match"
+                            ]
+                          },
                           "documentation/v2/query-builder/json"
                         ]
                       },

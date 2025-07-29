@@ -2,18 +2,17 @@
 title: Regex Phrase
 ---
 
-Under the hood, the [phrase operator](/documentation/v2/full-text/phrase) gets rewritten to this query builder function.
-By default we recommend using the [phrase operator](/documentation/v2/full-text/term) instead of this function.
+Regex phrase matches a specific sequence of regex queries. Think of it like a conjunction of [regex](/documentation/v2/query-builder/term/regex)
+queries, with positions and ordering of tokens enforced.
 
-## Basic Usage
-
-Searches for documents containing a [phrase](/documentation/concepts/phrase).
+For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
+WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
 ```
+
 <div className="mt-8" />
 
 <ParamField body="phrases" required>
@@ -23,15 +22,10 @@ WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
 </ParamField>
 <ParamField body="slop" default={0}>
   A slop of `0` requires the terms to appear exactly as they are in the phrase
-  and adjacent to each other. Higher slop values allow for more distance between
-  the terms.
+  and adjacent to each other. Higher slop values allow for transpositions and
+  distance between terms.
 </ParamField>
-
-Setting slop equal to `n` allows `n` terms to come in between the terms in the phrase as well
-as term transpositions.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes'], 1);
-```
+<ParamField body="max_expansions" default={16384}>
+  Limits total number of terms that the regex phrase query can expand to. If
+  this number is exceeded, an error will be returned.
+</ParamField>

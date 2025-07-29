@@ -22,10 +22,14 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | rating | category
-  --------------------------+--------+------------- Ergonomic metal keyboard | 4
-  | Electronics Plastic Keyboard | 4 | Electronics Sleek running shoes | 5 |
-  Footwear (3 rows) ```
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
 </Accordion>
 
 Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
@@ -37,18 +41,15 @@ WITH (key_field='id');
 ```
 
 <Note>
-  As a general rule of thumb, any columns that you want to filter, `COUNT`,
-  `GROUP BY`, or `ORDER BY` as part of a full text query should be added to the
-  index for faster performance.
+As a general rule of thumb, any columns that you want to filter, `COUNT`, `GROUP BY`, or `ORDER BY` as part of a full text query should be added to the index for faster
+performance.
 </Note>
 
 <Note>
   Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
   which should be the name of a column that will function as a row's unique
-  identifier within the index. Additionally, the `key_field` must be the first
-  field in the list of columns. See [choosing a key
-  field](/documentation/indexing/create_index#choosing-a-key-field) for more
-  details.
+  identifier within the index. Additionally, the `key_field` must be the first field
+  in the list of columns. See [choosing a key field](/documentation/indexing/create_index#choosing-a-key-field) for more details.
 </Note>
 
 ## Match Query
@@ -64,9 +65,14 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category
-  ---------------------+--------+---------- White jogging shoes | 3 | Footwear
-  Generic shoes | 4 | Footwear Sleek running shoes | 5 | Footwear (3 rows) ```
+``` csv
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
 </Accordion>
 
 `|||` is ParadeDB's custom [match disjunction](/documentation/full-text/match#disjunction) operator, which means "find me all documents containing
@@ -83,9 +89,12 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category
-  ---------------------+--------+---------- Sleek running shoes | 5 | Footwear
-  (1 row) ```
+``` csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
 </Accordion>
 
 ## BM25 Scoring
@@ -101,15 +110,21 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | score ---------------------+----------- Sleek running
-  shoes | 6.833782 Generic shoes | 3.901802 White jogging shoes | 3.4987166 (3
-  rows) ```
+``` csv
+     description     |   score
+---------------------+-----------
+ Sleek running shoes |  6.833782
+ Generic shoes       |  3.901802
+ White jogging shoes | 3.4987166
+(3 rows)
+```
 </Accordion>
 
 ## Highlighting
 
 Finally, let's also [highlight](/documentation/full-text/highlight) the relevant portions of the documents that were matched.
 To do this, we'll use `paradedb.snippet`.
+
 
 ```sql
 SELECT description, paradedb.snippet(description), paradedb.score(id)
@@ -120,11 +135,14 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | snippet | score
-  ---------------------+-----------------------------------+----------- Sleek
-  running shoes | Sleek <b>running</b> <b>shoes</b> | 6.833782 Generic shoes |
-  Generic <b>shoes</b> | 3.901802 White jogging shoes | White jogging{" "}
-  <b>shoes</b> | 3.4987166 (3 rows) ```
+``` csv
+     description     |              snippet              |   score
+---------------------+-----------------------------------+-----------
+ Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.833782
+ Generic shoes       | Generic <b>shoes</b>              |  3.901802
+ White jogging shoes | White jogging <b>shoes</b>        | 3.4987166
+(3 rows)
+```
 </Accordion>
 
 ## Joined Search
@@ -148,10 +166,14 @@ SELECT * FROM orders LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ```csv order_id | product_id | order_quantity | order_total | customer_name
-  ----------+------------+----------------+-------------+--------------- 1 | 1 |
-  3 | 99.99 | John Doe 2 | 2 | 1 | 49.99 | Jane Smith 3 | 3 | 5 | 249.95 | Alice
-  Johnson (3 rows) ```
+```csv
+ order_id | product_id | order_quantity | order_total | customer_name
+----------+------------+----------------+-------------+---------------
+        1 |          1 |              3 |       99.99 | John Doe
+        2 |          2 |              1 |       49.99 | Jane Smith
+        3 |          3 |              5 |      249.95 | Alice Johnson
+(3 rows)
+```
 </Accordion>
 
 Next, let's create a [BM25 index](/welcome/roadmap/architecture#) over the `orders` table.
@@ -174,10 +196,14 @@ LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ```csv order_id | customer_name | description
-  ----------+---------------+--------------------- 3 | Alice Johnson | Sleek
-  running shoes 6 | Alice Johnson | White jogging shoes 36 | Alice Johnson |
-  White jogging shoes (3 rows) ```
+```csv
+ order_id | customer_name |     description
+----------+---------------+---------------------
+        3 | Alice Johnson | Sleek running shoes
+        6 | Alice Johnson | White jogging shoes
+       36 | Alice Johnson | White jogging shoes
+(3 rows)
+```
 </Accordion>
 
 That's it! Next, let's [load your data](/documentation/getting-started/load) to start running real queries.

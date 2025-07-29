@@ -344,6 +344,27 @@ WHERE description @@@ 'error'
 GROUP BY category;
 
 -- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'products_idx',
+        query => paradedb.term('description','laptop'),
+        agg   => '{"buckets": {"terms": {"field": "rating"}}}',
+        solve_mvcc => true
+);
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 

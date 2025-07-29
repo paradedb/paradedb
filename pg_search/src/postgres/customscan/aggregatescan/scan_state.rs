@@ -22,6 +22,7 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
@@ -33,7 +34,7 @@ pub type AggregateRow = TinyVec<[i64; 4]>;
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
 pub struct GroupedAggregateRow {
-    pub group_keys: Vec<TantivyValue>, // The values of the grouping columns
+    pub group_keys: Vec<OwnedValue>, // The values of the grouping columns
     pub aggregate_values: AggregateRow,
 }
 
@@ -137,6 +138,19 @@ impl AggregateScanState {
         serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
     }
 
+    /// Convert a JSON value to an OwnedValue based on the field type from the schema
+    fn json_value_to_owned_value(
+        &self,
+        json_value: &serde_json::Value,
+        field_name: &str,
+    ) -> OwnedValue {
+        // Get the search field from the schema to determine the type
+        let indexrel = self.indexrel();
+        let schema = indexrel.schema().expect("indexrel should have a schema");
+        let search_field = schema.search_field(field_name);
+        TantivyValue::json_value_to_owned_value(&search_field, json_value)
+    }
+
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row
@@ -184,11 +198,12 @@ impl AggregateScanState {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
             // Extract the group key - can be either string or number
+            let grouping_column = &self.grouping_columns[0]; // We only support single grouping column for now
             let key = bucket_obj
                 .get("key")
                 .map(|k| {
-                    // Create TantivyValue directly from JSON value to preserve type information
-                    TantivyValue(tantivy::schema::OwnedValue::from(k.clone()))
+                    // Create OwnedValue from JSON value based on the field type
+                    self.json_value_to_owned_value(k, &grouping_column.field_name)
                 })
                 .expect("missing bucket key");
 

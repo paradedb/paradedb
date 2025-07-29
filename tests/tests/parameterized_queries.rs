@@ -43,6 +43,12 @@ fn self_referencing_var(mut conn: PgConnection) {
 
 #[rstest]
 fn parallel_with_subselect(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // Unstable results without `debug_parallel_query`.
+        return;
+    }
+    "SET debug_parallel_query TO on".execute(&mut conn);
+
     r#"
     DROP TABLE IF EXISTS test;
     CREATE TABLE test (
@@ -56,10 +62,6 @@ fn parallel_with_subselect(mut conn: PgConnection) {
     CREATE INDEX idxtest ON test USING bm25 (id, value) WITH (key_field='id');
     "#
     .execute(&mut conn);
-
-    if pg_major_version(&mut conn) >= 16 {
-        "SET debug_parallel_query TO on".execute(&mut conn);
-    }
 
     "PREPARE foo AS SELECT count(*) FROM test WHERE value @@@ (select $1);".execute(&mut conn);
     let (count,) = "EXECUTE foo('contains')".fetch_one::<(i64,)>(&mut conn);

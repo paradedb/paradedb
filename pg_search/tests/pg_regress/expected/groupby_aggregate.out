@@ -363,28 +363,22 @@ SELECT rating, COUNT(*)
 FROM products 
 WHERE description @@@ 'laptop' 
 GROUP BY rating;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize GroupAggregate
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
    Output: rating, count(*)
    Group Key: products.rating
-   ->  Gather Merge
-         Output: rating, (PARTIAL count(*))
-         Workers Planned: 1
-         ->  Partial GroupAggregate
-               Output: rating, PARTIAL count(*)
-               Group Key: products.rating
-               ->  Sort
-                     Output: rating
-                     Sort Key: products.rating
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.products
-                           Output: rating
-                           Table: products
-                           Index: products_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   ->  Sort
+         Output: rating
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -488,27 +482,24 @@ SELECT category, priority, COUNT(*)
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category, priority;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
    Output: category, priority, count(*)
    Group Key: support_tickets.category, support_tickets.priority
-   ->  Gather Merge
+   ->  Sort
          Output: category, priority
-         Workers Planned: 1
-         ->  Sort
+         Sort Key: support_tickets.category, support_tickets.priority
+         ->  Custom Scan (ParadeDB Scan) on public.support_tickets
                Output: category, priority
-               Sort Key: support_tickets.category, support_tickets.priority
-               ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
-                     Output: category, priority
-                     Table: support_tickets
-                     Index: tickets_idx
-                     Exec Method: MixedFastFieldExecState
-                     Fast Fields: category, priority
-                     String Fast Fields: category, priority
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+               Table: support_tickets
+               Index: tickets_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, priority
+               String Fast Fields: category, priority
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- ===========================================================================
 -- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
@@ -523,30 +514,27 @@ FROM support_tickets
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY COUNT(*) DESC;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (count(*))
    Sort Key: (count(*)) DESC
    ->  GroupAggregate
          Output: category, count(*)
          Group Key: support_tickets.category
-         ->  Gather Merge
+         ->  Sort
                Output: category
-               Workers Planned: 1
-               ->  Sort
+               Sort Key: support_tickets.category
+               ->  Custom Scan (ParadeDB Scan) on public.support_tickets
                      Output: category
-                     Sort Key: support_tickets.category
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
-                           Output: category
-                           Table: support_tickets
-                           Index: tickets_idx
-                           Exec Method: StringFastFieldExecState
-                           Fast Fields: category
-                           String Agg Field: category
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                     Table: support_tickets
+                     Index: tickets_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: category
+                     String Fast Fields: category
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- The query should still work, just not with our custom scan
 SELECT category, COUNT(*) as count
@@ -566,30 +554,27 @@ FROM support_tickets
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY count DESC;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (count(*))
    Sort Key: (count(*)) DESC
    ->  GroupAggregate
          Output: category, count(*)
          Group Key: support_tickets.category
-         ->  Gather Merge
+         ->  Sort
                Output: category
-               Workers Planned: 1
-               ->  Sort
+               Sort Key: support_tickets.category
+               ->  Custom Scan (ParadeDB Scan) on public.support_tickets
                      Output: category
-                     Sort Key: support_tickets.category
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
-                           Output: category
-                           Table: support_tickets
-                           Index: tickets_idx
-                           Exec Method: StringFastFieldExecState
-                           Fast Fields: category
-                           String Agg Field: category
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+                     Table: support_tickets
+                     Index: tickets_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: category
+                     String Fast Fields: category
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 -- The query should still work
 SELECT category, COUNT(*) as count

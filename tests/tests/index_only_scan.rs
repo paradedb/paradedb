@@ -30,7 +30,7 @@ fn custom_scan_on_key_field(mut conn: PgConnection) {
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
+    let plan = plan.pointer("/0/Plan").unwrap();
     pretty_assertions::assert_eq!(
         plan.get("Custom Plan Provider"),
         Some(&Value::String(String::from("ParadeDB Scan")))

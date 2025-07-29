@@ -224,14 +224,12 @@ LIMIT 10;
                ->  Custom Scan (ParadeDB Scan) on documents
                      Table: documents
                      Index: documents_search
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: id
-                     String Agg Field: id
+                     String Fast Fields: id
                      Scores: false
-                        Sort Field: id
-                        Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(39 rows)
+(37 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

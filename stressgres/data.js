@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753813106816,
+  "lastUpdate": 1753813741402,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11340,6 +11340,42 @@ window.BENCHMARK_DATA = {
             "value": 136.27165356876196,
             "unit": "median tps",
             "extra": "avg tps: 135.67904809427674, max tps: 138.2897367450056, count: 57616"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ef675fe021d0dd8eca8fce9b661a1f06e57c08",
+          "message": "perf: Remove StringFastField exec method (#2901)\n\n# Ticket(s) Closed\n\n- Closes #2620\n\n## What\n\nFollowing up on #2887: remove the `StringFastField` execution method,\nsince it is never faster than `Mixed`.\n\nAdditionally: resolve #2620 by removing the planning conditional around\nstring aggregate cardinality.\n\n## Why\n\nSimplified code, faster performance.\n\n## How\n\nThe string agg cardinality check was occasionally preventing parallelism\non smaller datasets, which turned out to be a good thing: you only\nreally need enough parallelism to search the segments that you estimate\nwill be sufficient to answer your query.\n\nThe replacement here is an addition to `compute_nworkers` to explicitly\nlimit the number of workers to the number of segments we think that\nwe'll need to search (when sorting is not in use but a limit is). See\nnew comments in that method.\n\nAdditionally: this fixes our computation of `nworkers` to account for\nthe fact that the leader also takes a segment: we were always requesting\nat least one worker if we had one segment... when in reality we need\n`segments - 1` workers due to the leader. This shifts a lot of explain\nplans in regression and unit tests.\n\n## Tests\n\nAs shown in\nhttps://github.com/paradedb/paradedb/pull/2887#issuecomment-3116181511,\nmicrobenchmarks are unaffected.\n\nThe `docs` dataset has a 1.6x speedup for `line_items-distinct` and ~15%\nfor a few other queries. The `logs` dataset has 1.35x speedups for\n`bucket-string-nofilter` and `bucket-string-filter`.",
+          "timestamp": "2025-07-29T10:50:08-07:00",
+          "tree_id": "143d724002fc9343b1ef56914f272d1dd7945f08",
+          "url": "https://github.com/paradedb/paradedb/commit/f3ef675fe021d0dd8eca8fce9b661a1f06e57c08"
+        },
+        "date": 1753813740199,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.90841065701034,
+            "unit": "median tps",
+            "extra": "avg tps: 28.71129457157642, max tps: 29.050262344899206, count: 57601"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 134.14365594425647,
+            "unit": "median tps",
+            "extra": "avg tps: 133.66702716598905, max tps: 136.44758055951536, count: 57601"
           }
         ]
       }

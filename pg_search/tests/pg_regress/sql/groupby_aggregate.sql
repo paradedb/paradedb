@@ -37,7 +37,7 @@ WITH (
 );
 
 -- Test 1.1: Basic GROUP BY with integer field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
@@ -51,7 +51,7 @@ GROUP BY rating
 ORDER BY rating;
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) AS total_laptops
 FROM products 
 WHERE description @@@ 'laptop';
@@ -61,7 +61,7 @@ FROM products
 WHERE description @@@ 'laptop';
 
 -- Test 1.3: GROUP BY with string field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop OR keyboard OR shoes' 
@@ -76,12 +76,12 @@ ORDER BY category DESC;
 
 -- Test 1.4: Test different column orders (COUNT(*) first vs last)
 -- Verify that both column orders work correctly
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
 
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
@@ -133,39 +133,39 @@ WITH (
 );
 
 -- Test 2.1: GROUP BY different numeric types
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
 SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
 SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
 
 SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
 
 SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
 
 SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
 
 -- Test 2.2: GROUP BY text field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
 SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
 -- Test 2.3: GROUP BY boolean field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
 
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
@@ -175,7 +175,7 @@ SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_b
 -- ===========================================================================
 
 -- Test 3.1: GROUP BY with no matching results
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'nonexistent_term' 
@@ -196,14 +196,14 @@ WITH (
     numeric_fields='{"rating": {"fast": false}}'  -- Not a fast field
 );
 
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) 
 FROM products 
 WHERE description @@@ 'laptop' 
 GROUP BY rating;
 
 -- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) 
 FROM products 
 GROUP BY rating;
@@ -242,7 +242,7 @@ WITH (
 );
 
 -- Test 4.1: Analyze priority distribution for login issues
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
@@ -257,7 +257,7 @@ ORDER BY priority;
 
 -- Test 4.2: Status breakdown by category (without ORDER BY)
 -- Note: ORDER BY aggregate columns is not yet supported in custom scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'error OR broken OR failed'
@@ -269,15 +269,62 @@ WHERE description @@@ 'error OR broken OR failed'
 GROUP BY category;
 
 -- ===========================================================================
--- SECTION 5: Multi-Column GROUP BY (Falls back to PostgreSQL)
+-- SECTION 5: Multi-Column GROUP BY
 -- ===========================================================================
 
--- This will fall back to PostgreSQL's standard GroupAggregate as we don't support multi-column GROUP BY yet
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, priority, COUNT(*) 
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category, priority;
+
+-- ---------------------------------------------------------------------------
+-- Test 5.1: Multi-column GROUP BY with NO aggregate function (2 columns)
+-- ---------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category, priority
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority
+ORDER BY category, priority;
+
+SELECT category, priority
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority
+ORDER BY category, priority;
+
+-- ---------------------------------------------------------------------------
+-- Test 5.2: Three-column GROUP BY with COUNT(*)
+-- ---------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category, priority, status, COUNT(*)
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority, status
+ORDER BY priority, status;
+
+SELECT category, priority, status, COUNT(*)
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority, status
+ORDER BY priority, status;
+
+-- ---------------------------------------------------------------------------
+-- Test 5.3: Three-column GROUP BY without aggregates, descending ORDER BY
+-- ---------------------------------------------------------------------------
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category, priority, status
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority, status
+ORDER BY status DESC, priority DESC;
+
+SELECT category, priority, status
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category, priority, status
+ORDER BY priority DESC, status DESC;
 
 -- ===========================================================================
 -- SECTION 6: Verify ORDER BY functionality
@@ -286,7 +333,7 @@ GROUP BY category, priority;
 -- but ORDER BY on aggregate columns falls back to PostgreSQL.
 
 -- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
@@ -301,7 +348,7 @@ GROUP BY category
 ORDER BY COUNT(*) DESC;
 
 -- Test 6.2: ORDER BY alias should also fall back to PostgreSQL
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
@@ -316,7 +363,7 @@ GROUP BY category
 ORDER BY count DESC;
 
 -- Test 6.3: ORDER BY grouping column should use custom aggregate scan
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
@@ -331,7 +378,7 @@ GROUP BY category
 ORDER BY category;
 
 -- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
-EXPLAIN (COSTS OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 

@@ -118,9 +118,7 @@ impl CustomScan for AggregateScan {
 
         // Extract grouping columns and validate they are fast fields
         let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
-            // This will return None if:
-            // 1. Any grouping column is not a fast field
-            // 2. There are multiple grouping columns (not yet supported)
+            // This will return None if any grouping column is not a fast field
             extract_grouping_columns(pathkeys, args.root, heap_rti, &schema)?
         } else {
             vec![]
@@ -416,12 +414,7 @@ fn extract_grouping_columns(
         }
     }
 
-    // We currently only support single-column GROUP BY
-    if grouping_columns.len() > 1 {
-        None
-    } else {
-        Some(grouping_columns)
-    }
+    Some(grouping_columns)
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.

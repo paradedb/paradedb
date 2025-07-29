@@ -118,7 +118,7 @@ pub fn compute_nworkers(
         let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
         let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
         // See above re: the leader not being included in `nworkers`.
-        let nworkers_for_limited_segments = segments_to_reach_limit - 1;
+        let nworkers_for_limited_segments = segments_to_reach_limit.saturating_sub(1);
         nworkers = nworkers.min(nworkers_for_limited_segments);
     }
 

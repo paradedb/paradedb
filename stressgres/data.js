@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753831884334,
+  "lastUpdate": 1753832520758,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14658,6 +14658,60 @@ window.BENCHMARK_DATA = {
             "value": 18.15156073751739,
             "unit": "median tps",
             "extra": "avg tps: 18.440699293121515, max tps: 22.465929294927776, count: 55214"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b51aa90ba2b8aca73bcf85cfccfc8c6574e4de2",
+          "message": "feat: added support for ORDER BY in GROUP BY aggregate queries  (pushed down to custom scan) (#2909)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-29T15:53:56-07:00",
+          "tree_id": "0e6ff936d83322880b31b283500bf6a28bd57158",
+          "url": "https://github.com/paradedb/paradedb/commit/4b51aa90ba2b8aca73bcf85cfccfc8c6574e4de2"
+        },
+        "date": 1753832519506,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 40.063117770167985,
+            "unit": "median tps",
+            "extra": "avg tps: 40.03729878144777, max tps: 40.811455849637674, count: 55233"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 83.42918266436031,
+            "unit": "median tps",
+            "extra": "avg tps: 143.87242456550374, max tps: 2577.73739085265, count: 55233"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 143.66699215026816,
+            "unit": "median tps",
+            "extra": "avg tps: 142.92440407526064, max tps: 145.5134595475854, count: 55233"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 73.19347355063081,
+            "unit": "median tps",
+            "extra": "avg tps: 57.169890943039356, max tps: 99.40814929820925, count: 110466"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.07844036771542,
+            "unit": "median tps",
+            "extra": "avg tps: 18.930066114118834, max tps: 20.521182561464336, count: 55233"
           }
         ]
       }

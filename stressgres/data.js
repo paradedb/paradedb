@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753807145159,
+  "lastUpdate": 1753812443743,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2294,6 +2294,72 @@ window.BENCHMARK_DATA = {
             "value": 35.36242464553997,
             "unit": "median tps",
             "extra": "avg tps: 38.64614378435226, max tps: 795.945770622756, count: 55028"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ef675fe021d0dd8eca8fce9b661a1f06e57c08",
+          "message": "perf: Remove StringFastField exec method (#2901)\n\n# Ticket(s) Closed\n\n- Closes #2620\n\n## What\n\nFollowing up on #2887: remove the `StringFastField` execution method,\nsince it is never faster than `Mixed`.\n\nAdditionally: resolve #2620 by removing the planning conditional around\nstring aggregate cardinality.\n\n## Why\n\nSimplified code, faster performance.\n\n## How\n\nThe string agg cardinality check was occasionally preventing parallelism\non smaller datasets, which turned out to be a good thing: you only\nreally need enough parallelism to search the segments that you estimate\nwill be sufficient to answer your query.\n\nThe replacement here is an addition to `compute_nworkers` to explicitly\nlimit the number of workers to the number of segments we think that\nwe'll need to search (when sorting is not in use but a limit is). See\nnew comments in that method.\n\nAdditionally: this fixes our computation of `nworkers` to account for\nthe fact that the leader also takes a segment: we were always requesting\nat least one worker if we had one segment... when in reality we need\n`segments - 1` workers due to the leader. This shifts a lot of explain\nplans in regression and unit tests.\n\n## Tests\n\nAs shown in\nhttps://github.com/paradedb/paradedb/pull/2887#issuecomment-3116181511,\nmicrobenchmarks are unaffected.\n\nThe `docs` dataset has a 1.6x speedup for `line_items-distinct` and ~15%\nfor a few other queries. The `logs` dataset has 1.35x speedups for\n`bucket-string-nofilter` and `bucket-string-filter`.",
+          "timestamp": "2025-07-29T10:50:08-07:00",
+          "tree_id": "143d724002fc9343b1ef56914f272d1dd7945f08",
+          "url": "https://github.com/paradedb/paradedb/commit/f3ef675fe021d0dd8eca8fce9b661a1f06e57c08"
+        },
+        "date": 1753812442520,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1214.4949836703936,
+            "unit": "median tps",
+            "extra": "avg tps: 1209.602177928485, max tps: 1218.050186199778, count: 55131"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2644.069156570637,
+            "unit": "median tps",
+            "extra": "avg tps: 2639.3128504588744, max tps: 2678.251951543827, count: 55131"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1151.9088210501207,
+            "unit": "median tps",
+            "extra": "avg tps: 1149.4039224742817, max tps: 1155.466979818265, count: 55131"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 977.6633037015969,
+            "unit": "median tps",
+            "extra": "avg tps: 975.8326991406595, max tps: 990.2949535387471, count: 55131"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 174.4713240770292,
+            "unit": "median tps",
+            "extra": "avg tps: 177.94532151929957, max tps: 185.69075026828233, count: 110262"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 150.95789928970035,
+            "unit": "median tps",
+            "extra": "avg tps: 150.19040404981467, max tps: 151.27345778600704, count: 55131"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.97410039197835,
+            "unit": "median tps",
+            "extra": "avg tps: 47.36188808647127, max tps: 632.7067638251174, count: 55131"
           }
         ]
       }

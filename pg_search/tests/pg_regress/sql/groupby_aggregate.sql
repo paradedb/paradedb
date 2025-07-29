@@ -87,10 +87,10 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
 
 -- Test 1.5: Verify execution plans
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
 
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
 
 -- ===========================================================================
@@ -281,7 +281,7 @@ GROUP BY category, priority;
 -- ---------------------------------------------------------------------------
 -- Test 5.1: Multi-column GROUP BY with NO aggregate function (2 columns)
 -- ---------------------------------------------------------------------------
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, priority
 FROM support_tickets
 WHERE description @@@ 'error'
@@ -297,7 +297,7 @@ ORDER BY category, priority;
 -- ---------------------------------------------------------------------------
 -- Test 5.2: Three-column GROUP BY with COUNT(*)
 -- ---------------------------------------------------------------------------
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, priority, status, COUNT(*)
 FROM support_tickets
 WHERE description @@@ 'error'
@@ -313,7 +313,7 @@ ORDER BY priority, status;
 -- ---------------------------------------------------------------------------
 -- Test 5.3: Three-column GROUP BY without aggregates, descending ORDER BY
 -- ---------------------------------------------------------------------------
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, priority, status
 FROM support_tickets
 WHERE description @@@ 'error'
@@ -391,7 +391,7 @@ WHERE description @@@ 'error'
 GROUP BY category;
 
 -- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
-EXPLAIN (COSTS OFF, VERBOSE)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
 FROM support_tickets
 WHERE description @@@ 'error'

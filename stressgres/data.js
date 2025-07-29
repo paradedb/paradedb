@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753814383102,
+  "lastUpdate": 1753814385930,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15686,6 +15686,114 @@ window.BENCHMARK_DATA = {
             "value": 160.0703125,
             "unit": "median mem",
             "extra": "avg mem: 157.06904773354756, max mem: 161.80078125, count: 55235"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ef675fe021d0dd8eca8fce9b661a1f06e57c08",
+          "message": "perf: Remove StringFastField exec method (#2901)\n\n# Ticket(s) Closed\n\n- Closes #2620\n\n## What\n\nFollowing up on #2887: remove the `StringFastField` execution method,\nsince it is never faster than `Mixed`.\n\nAdditionally: resolve #2620 by removing the planning conditional around\nstring aggregate cardinality.\n\n## Why\n\nSimplified code, faster performance.\n\n## How\n\nThe string agg cardinality check was occasionally preventing parallelism\non smaller datasets, which turned out to be a good thing: you only\nreally need enough parallelism to search the segments that you estimate\nwill be sufficient to answer your query.\n\nThe replacement here is an addition to `compute_nworkers` to explicitly\nlimit the number of workers to the number of segments we think that\nwe'll need to search (when sorting is not in use but a limit is). See\nnew comments in that method.\n\nAdditionally: this fixes our computation of `nworkers` to account for\nthe fact that the leader also takes a segment: we were always requesting\nat least one worker if we had one segment... when in reality we need\n`segments - 1` workers due to the leader. This shifts a lot of explain\nplans in regression and unit tests.\n\n## Tests\n\nAs shown in\nhttps://github.com/paradedb/paradedb/pull/2887#issuecomment-3116181511,\nmicrobenchmarks are unaffected.\n\nThe `docs` dataset has a 1.6x speedup for `line_items-distinct` and ~15%\nfor a few other queries. The `logs` dataset has 1.35x speedups for\n`bucket-string-nofilter` and `bucket-string-filter`.",
+          "timestamp": "2025-07-29T10:50:08-07:00",
+          "tree_id": "143d724002fc9343b1ef56914f272d1dd7945f08",
+          "url": "https://github.com/paradedb/paradedb/commit/f3ef675fe021d0dd8eca8fce9b661a1f06e57c08"
+        },
+        "date": 1753814384710,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.461538,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.524443000417662, max cpu: 41.65863, count: 55214"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 152.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.39466701436683, max mem: 156.0625, count: 55214"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.254175800417897, max cpu: 41.578438, count: 55214"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 146.3125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.93562660738218, max mem: 146.6875, count: 55214"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.647702346300827, max cpu: 27.559809, count: 55214"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 140.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 114.44614979613414, max mem: 156.3515625, count: 55214"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21542.60823341906, max block_count: 44425.0, count: 55214"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7250645141995578, max cpu: 4.6421666, count: 55214"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 96.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 84.49542914840438, max mem: 127.1875, count: 55214"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.261763320896875, max segment_count: 46.0, count: 55214"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.409615645967632, max cpu: 46.198265, count: 110428"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.88355060820172, max mem: 164.18359375, count: 110428"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.806328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.978377026485479, max cpu: 27.826086, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.67594064401692, max mem: 159.18359375, count: 55214"
           }
         ]
       }

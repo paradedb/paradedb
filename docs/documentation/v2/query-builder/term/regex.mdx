@@ -10,7 +10,7 @@ FROM mock_items
 WHERE description @@@ pdb.regex('key.*');
 ```
 
-ParadeDB supports all regex constructs in the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:
+ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:
 
 1. Lazy quantifiers such as `+?`
 2. Word boundaries such as `\b`

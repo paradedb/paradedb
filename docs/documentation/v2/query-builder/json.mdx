@@ -3,10 +3,25 @@ title: JSON Query Syntax
 ---
 
 ParadeDB also supports writing query builder functions as JSON objects.
-This is useful for programmatic generation or client applications that construct search queries as structured JSON
--- for all other use cases, we do not recommend using this syntax.
+This is useful for programmatic generation or client applications that construct search queries as structured JSON.
 
-For example, the previous regex query can be written in JSON form as:
+To write a query as JSON, first call `SELECT` on the desired query builder function, which returns its JSON
+representation:
+
+```sql
+SELECT pdb.regex('key.*');
+```
+
+<Accordion title="Expected Response">
+```csv
+             regex
+-------------------------------
+ {"regex":{"pattern":"key.*"}}
+(1 row)
+```
+</Accordion>
+
+Next, paste this JSON string into the right-hand side of the `@@@` operator and cast it to `pdb.query`:
 
 ```sql
 SELECT description, rating, category
@@ -14,7 +29,7 @@ FROM mock_items
 WHERE description @@@
 '{
     "regex": {
-        "pattern": "key.*rd"
+        "pattern": "key.*"
     }
 }'::pdb.query;
 ```

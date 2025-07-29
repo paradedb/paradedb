@@ -11,7 +11,7 @@ Unlike [match](/documentation/full-text/match) or [phrase](/documentation/full-t
 string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization, lowercasing,
 stemming, etc.
 
-To understand exactly how this works, let's consider the following two term queries:
+Term queries use the `===` operator. To understand exactly how it works, let's consider the following two term queries:
 
 ```sql
 -- Term query 1

@@ -17,9 +17,10 @@ WHERE description @@@ pdb.phrase(ARRAY['running', 'shoes']);
 <div className="mt-8" />
 
 <ParamField body="phrases" required>
-  An `ARRAY` of words that form the search phrase. These words must appear in
+  An `ARRAY` of tokens that form the search phrase. These tokens must appear in
   the specified order within the document for a match to occur, although some
-  flexibility is allowed based on the `slop` parameter.
+  flexibility is allowed based on the `slop` parameter. Because these are tokens, they
+  are not processed further.
 </ParamField>
 <ParamField body="slop" default={0}>
   A slop of `0` requires the terms to appear exactly as they are in the phrase

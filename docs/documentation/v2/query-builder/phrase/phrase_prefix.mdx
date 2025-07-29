@@ -12,7 +12,7 @@ WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 <div className="mt-8" />
 
 <ParamField body="phrases" required>
-  An `ARRAY` of words that the search is looking to match, followed by a term
+  An `ARRAY` of tokens that the search is looking to match, followed by a term
   prefix rather than a complete term.
 </ParamField>
 <ParamField body="max_expansions" default={50}>

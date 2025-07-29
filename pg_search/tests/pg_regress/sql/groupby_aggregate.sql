@@ -222,8 +222,8 @@ CREATE TABLE support_tickets (
 );
 
 INSERT INTO support_tickets (description, priority, status, category) VALUES
-    ('Cannot login to account', 'High', 'Open', 'Authentication'),
-    ('Password reset not working', 'High', 'Open', 'Authentication'),
+    ('Cannot login to failed account', 'High', 'Open', 'Authentication'),
+    ('Password reset not working (failed)', 'High', 'Open', 'Authentication'),
     ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
     ('Export feature broken', 'Low', 'Open', 'Features'),
     ('Payment failed error', 'High', 'Resolved', 'Billing'),
@@ -349,25 +349,40 @@ GROUP BY category;
 
 -- Test 7.1: GROUP BY with integer field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT rating, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating
-ORDER BY rating;
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
 
 -- Aggregate UDF equivalent
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT *
 FROM paradedb.aggregate(
-        index => 'products_idx',
-        query => paradedb.term('description','laptop'),
-        agg   => '{"buckets": {"terms": {"field": "rating"}}}',
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
         solve_mvcc => true
 );
 -- ===========================================================================
 -- Clean up
 -- ===========================================================================
 
+SET paradedb.enable_aggregate_custom_scan TO off;
 DROP TABLE support_tickets CASCADE;
 DROP TABLE type_test CASCADE;
 DROP TABLE products CASCADE; 

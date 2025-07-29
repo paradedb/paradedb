@@ -394,6 +394,41 @@ FROM paradedb.aggregate(
         solve_mvcc => true
 );
 -- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 

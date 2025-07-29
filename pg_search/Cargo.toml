@@ -51,6 +51,13 @@ tinyvec = "1.9.0"
 postcard = { version = "1.1.1", features = [
   "use-std",
 ], default-features = false }
+# same version as tantivy uses
+regex = { version = "1.5.5", default-features = false, features = [
+  "std",
+  "perf",
+  "unicode",
+] }
+tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
 

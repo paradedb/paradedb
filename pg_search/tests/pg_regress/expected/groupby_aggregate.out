@@ -42,7 +42,7 @@ ORDER BY rating;
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
 (4 rows)
 
 SELECT rating, COUNT(*) AS count
@@ -89,7 +89,7 @@ ORDER BY category DESC;
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR shoes","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (4 rows)
 
 SELECT category, COUNT(*) AS count
@@ -112,7 +112,7 @@ SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY 
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (4 rows)
 
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
@@ -128,7 +128,7 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (4 rows)
 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
@@ -146,7 +146,7 @@ SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY ra
    Output: rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
 (5 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE)
@@ -203,7 +203,7 @@ SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int2","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int2"}}}
 (4 rows)
 
 SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
@@ -221,7 +221,7 @@ SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int4","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int4"}}}
 (4 rows)
 
 SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
@@ -239,7 +239,7 @@ SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int8","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int8"}}}
 (4 rows)
 
 SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
@@ -257,7 +257,7 @@ SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float4","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_float4"}}}
 (4 rows)
 
 SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
@@ -275,7 +275,7 @@ SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float8","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_float8"}}}
 (4 rows)
 
 SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
@@ -294,7 +294,7 @@ SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_t
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_text","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_text"}}}
 (4 rows)
 
 SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
@@ -313,7 +313,7 @@ SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_b
  Custom Scan (ParadeDB Aggregate Scan) on type_test
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_bool","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_bool"}}}
 (4 rows)
 
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
@@ -337,7 +337,7 @@ GROUP BY rating;
  Custom Scan (ParadeDB Aggregate Scan) on products
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
 (4 rows)
 
 SELECT rating, COUNT(*) AS count
@@ -362,28 +362,22 @@ SELECT rating, COUNT(*)
 FROM products 
 WHERE description @@@ 'laptop' 
 GROUP BY rating;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize GroupAggregate
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
    Output: rating, count(*)
    Group Key: products.rating
-   ->  Gather Merge
-         Output: rating, (PARTIAL count(*))
-         Workers Planned: 1
-         ->  Partial GroupAggregate
-               Output: rating, PARTIAL count(*)
-               Group Key: products.rating
-               ->  Sort
-                     Output: rating
-                     Sort Key: products.rating
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.products
-                           Output: rating
-                           Table: products
-                           Index: products_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   ->  Sort
+         Output: rating
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -440,7 +434,7 @@ ORDER BY priority;
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"login OR password OR authentication","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"priority"}}}
 (4 rows)
 
 SELECT priority, COUNT(*) as count
@@ -465,7 +459,7 @@ GROUP BY category;
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error OR broken OR failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (4 rows)
 
 SELECT category, COUNT(*) as count
@@ -488,30 +482,24 @@ SELECT category, priority, COUNT(*)
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category, priority;
-                                                                                  QUERY PLAN                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize GroupAggregate
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
    Output: category, priority, count(*)
    Group Key: support_tickets.category, support_tickets.priority
-   ->  Gather Merge
-         Output: category, priority, (PARTIAL count(*))
-         Workers Planned: 1
-         ->  Partial GroupAggregate
-               Output: category, priority, PARTIAL count(*)
-               Group Key: support_tickets.category, support_tickets.priority
-               ->  Sort
-                     Output: category, priority
-                     Sort Key: support_tickets.category, support_tickets.priority
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.support_tickets
-                           Output: category, priority
-                           Table: support_tickets
-                           Index: tickets_idx
-                           Exec Method: MixedFastFieldExecState
-                           Fast Fields: category, priority
-                           String Fast Fields: category, priority
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+   ->  Sort
+         Output: category, priority
+         Sort Key: support_tickets.category, support_tickets.priority
+         ->  Custom Scan (ParadeDB Scan) on public.support_tickets
+               Output: category, priority
+               Table: support_tickets
+               Index: tickets_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, priority
+               String Fast Fields: category, priority
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 -- ===========================================================================
 -- SECTION 6: Verify ORDER BY functionality
@@ -561,7 +549,7 @@ ORDER BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (5 rows)
 
 -- This should use our custom aggregate scan with ORDER BY
@@ -588,7 +576,7 @@ GROUP BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (5 rows)
 
 -- This uses our custom aggregate scan
@@ -615,7 +603,7 @@ ORDER BY category;
    Output: category
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (5 rows)
 
 -- This should use our custom aggregate scan and return distinct categories without COUNT(*)
@@ -645,7 +633,62 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"value_count":{"field":"ctid"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+(4 rows)
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+    category    | count 
+----------------+-------
+ Authentication |     2
+ Billing        |     1
+(2 rows)
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+         QUERY PLAN         
+----------------------------
+ Function Scan on aggregate
+(1 row)
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+                                                                               aggregate                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": {"buckets": [{"key": "Authentication", "doc_count": 2}, {"key": "Billing", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
+(1 row)
+
+-- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on support_tickets
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
 (4 rows)
 
 SELECT category, COUNT(*) as count

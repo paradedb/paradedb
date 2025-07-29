@@ -931,18 +931,18 @@ INTERSECT
                ->  Custom Scan (ParadeDB Scan) on union_test_b
                      Table: union_test_b
                      Index: union_test_b_idx
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Agg Field: author
+                     String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Subquery Scan on "*SELECT* 1"
                ->  Custom Scan (ParadeDB Scan) on union_test_a
                      Table: union_test_a
                      Index: union_test_a_idx
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Agg Field: author
+                     String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
 (20 rows)

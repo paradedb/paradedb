@@ -44,8 +44,8 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
 
             to_search_query_input(field, match_conjunction(query))
         }, |field, rhs| {
-            let field = field.expect("The left hand side of the `|||(field, TEXT)` operator must be a field.");
-            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `|||(field, TEXT)` operator must be a text value");
+            let field = field.expect("The left hand side of the `&&&(field, TEXT)` operator must be a field.");
+            assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `&&&(field, TEXT)` operator must be a text value");
             let mut args = PgList::<pg_sys::Node>::new();
 
             args.push(field.into_const().cast());

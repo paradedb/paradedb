@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753806506977,
+  "lastUpdate": 1753806509295,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13084,6 +13084,66 @@ window.BENCHMARK_DATA = {
             "value": 165.44140625,
             "unit": "median mem",
             "extra": "avg mem: 156.87906668866555, max mem: 175.9296875, count: 57484"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44ea60cecf12427f534d631547935f45f4e4968c",
+          "message": "feat:  \"proximity search\" support (#2685)\n\n## What\n\nThis implements the concept of \"proximity search\" in pg_search. It has a\nlot of overlap in spirit with Lucene's \"span\" queries.\n\nWe support finding a token within some distance (in order, or not) of\nanother token a set of tokens within some distance of a token or a set\nof tokens, and finally one of these proximity clauses within some\ndistance of a token, a set of tokens, or another proximity clause\n\nIntroduces a new datatype named `pdb.proximityclause`, which represents\nthe complex structure of a proximity clause -- the \"left\", \"distance\",\nand \"right\" properties.\n\nAdds a set of new builder functions in the `pdb` schema:\n\n- `pdb.prox_term(term TEXT)`: generates a single term query to be used\nas part of a `pdb.proximityclause`\n- `pdb.prox_regex(pattern TEXT)`: generates a regular expression query\nto be used as part of a `pdb.proximityclause`\n- `pdb.prox_clause`, `pdb.prox_clause_in_order`: forms a\n`pdb.proximityclause`\n- `pdb.prox_array(VARIADIC terms pdb.proximityclause[])`: supports a\nvariadic array of the above, including itself\n\nAnd a new overloaded operator `##(pdb.proximityclause, integer)` and\n`##(pdb.proximityclause, pdb.proximityclause)` to make writing proximity\nclauses via SQL more fluid:\n\n```sql\n--\n-- find all rows where the body matches the term \"bbq\" within 3 tokens (in order) of \"chicken\"\n---\nSELECT *\nFROM t\nWHERE body @@@ 'bbq' ##3## 'chicken';\n```\n\n## Why\n\nIncredibly valuable text search capability. Essentially it's a form of\nfuzzy phrase searching, but with more flexibility.\n\n## How\n\nContinued expansion on our SQL query rewriting capabilities.\n\n## Tests\n\nRegression tests to assert search result correctness along with json\nrepresentation\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-07-29T11:49:25-04:00",
+          "tree_id": "486966d269b5eff1298e3e49a03eb852798fd300",
+          "url": "https://github.com/paradedb/paradedb/commit/44ea60cecf12427f534d631547935f45f4e4968c"
+        },
+        "date": 1753806508099,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.227663893067895, max cpu: 46.242775, count: 57616"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.8507052619932, max mem: 180.73046875, count: 57616"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18314,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16920.26086503749, max block_count: 22194.0, count: 57616"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 41,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.91535337406276, max segment_count: 116.0, count: 57616"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.421001,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.640277203158458, max cpu: 37.907207, count: 57616"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 152.19236301548182, max mem: 172.3203125, count: 57616"
           }
         ]
       }

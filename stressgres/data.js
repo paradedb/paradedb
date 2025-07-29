@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753830580296,
+  "lastUpdate": 1753831243432,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8134,6 +8134,42 @@ window.BENCHMARK_DATA = {
             "value": 5.806320156231629,
             "unit": "median tps",
             "extra": "avg tps: 5.199138228240689, max tps: 6.569376668909793, count: 57682"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b51aa90ba2b8aca73bcf85cfccfc8c6574e4de2",
+          "message": "feat: added support for ORDER BY in GROUP BY aggregate queries  (pushed down to custom scan) (#2909)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-29T15:53:56-07:00",
+          "tree_id": "0e6ff936d83322880b31b283500bf6a28bd57158",
+          "url": "https://github.com/paradedb/paradedb/commit/4b51aa90ba2b8aca73bcf85cfccfc8c6574e4de2"
+        },
+        "date": 1753831242156,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.802345520603832,
+            "unit": "median tps",
+            "extra": "avg tps: 5.813786215169061, max tps: 8.735736486393566, count: 57104"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.886290467675986,
+            "unit": "median tps",
+            "extra": "avg tps: 5.27566091373645, max tps: 6.677978240227659, count: 57104"
           }
         ]
       }

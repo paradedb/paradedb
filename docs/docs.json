@@ -11,10 +11,190 @@
   "navigation": {
     "versions": [
       {
-        "version": "v2 (beta)",
+        "version": "v0.17.2",
         "anchors": [
           {
-            "anchor": "Documentation",
+            "anchor": "Docs v1",
+            "icon": "book-open",
+            "groups": [
+              {
+                "group": "Documentation",
+                "pages": [
+                  {
+                    "group": "Why ParadeDB?",
+                    "pages": [
+                      "welcome/introduction",
+                      "welcome/architecture",
+                      "welcome/guarantees",
+                      "welcome/limitations",
+                      "welcome/roadmap"
+                    ]
+                  },
+                  {
+                    "group": "Getting Started",
+                    "pages": [
+                      "documentation/getting-started/install",
+                      "documentation/getting-started/quickstart",
+                      "documentation/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Reference",
+                    "pages": [
+                      "documentation/overview",
+                      {
+                        "group": "Indexing",
+                        "pages": [
+                          "documentation/indexing/create_index",
+                          "documentation/indexing/inspect_index",
+                          {
+                            "group": "Index Tuning",
+                            "pages": [
+                              "documentation/configuration/overview",
+                              "documentation/configuration/index",
+                              "documentation/configuration/index_size",
+                              "documentation/configuration/segment_count",
+                              "documentation/configuration/segment_size",
+                              "documentation/configuration/write",
+                              "documentation/configuration/parallel"
+                            ]
+                          },
+                          {
+                            "group": "Index Settings",
+                            "pages": [
+                              "documentation/configuration/scan"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "group": "Field Configuration",
+                        "pages": [
+                          "documentation/indexing/field_options",
+                          "documentation/indexing/tokenizers",
+                          "documentation/indexing/token_filters",
+                          "documentation/indexing/fast_fields",
+                          "documentation/indexing/record"
+                        ]
+                      },
+                      {
+                        "group": "Full Text Search",
+                        "pages": [
+                          "documentation/full-text/overview",
+                          "documentation/full-text/boolean",
+                          "documentation/full-text/phrase",
+                          "documentation/full-text/filtering",
+                          "documentation/full-text/pagination",
+                          "documentation/full-text/scoring",
+                          "documentation/full-text/highlighting",
+                          "documentation/full-text/sorting",
+                          "documentation/full-text/boosting"
+                        ]
+                      },
+                      {
+                        "group": "Query Builder",
+                        "pages": [
+                          "documentation/advanced/overview",
+                          {
+                            "group": "Full Text Queries",
+                            "pages": [
+                              "documentation/advanced/full-text/match"
+                            ]
+                          },
+                          {
+                            "group": "Term-Level Queries",
+                            "pages": [
+                              "documentation/advanced/term/exists",
+                              "documentation/advanced/term/fuzzy_term",
+                              "documentation/advanced/term/range",
+                              "documentation/advanced/term/range_term",
+                              "documentation/advanced/term/regex",
+                              "documentation/advanced/term/term",
+                              "documentation/advanced/term/term_set"
+                            ]
+                          },
+                          {
+                            "group": "Phrase-Level Queries",
+                            "pages": [
+                              "documentation/advanced/phrase/phrase",
+                              "documentation/advanced/phrase/phrase_prefix"
+                            ]
+                          },
+                          {
+                            "group": "JSON Queries",
+                            "pages": [
+                              "documentation/advanced/json/overview",
+                              "documentation/advanced/json/arrays",
+                              "documentation/advanced/json/range"
+                            ]
+                          },
+                          {
+                            "group": "Compound Queries",
+                            "pages": [
+                              "documentation/advanced/compound/overview",
+                              "documentation/advanced/compound/all",
+                              "documentation/advanced/compound/boolean",
+                              "documentation/advanced/compound/boost",
+                              "documentation/advanced/compound/const",
+                              "documentation/advanced/compound/disjunction_max",
+                              "documentation/advanced/compound/empty",
+                              "documentation/advanced/compound/parse"
+                            ]
+                          },
+                          {
+                            "group": "Specialized Queries",
+                            "pages": [
+                              "documentation/advanced/specialized/more_like_this"
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "group": "Aggregates",
+                        "pages": [
+                          "documentation/aggregates/overview",
+                          "documentation/aggregates/common",
+                          "documentation/aggregates/limitations"
+                        ]
+                      },
+                      {
+                        "group": "Similarity Search",
+                        "pages": [
+                          "documentation/similarity/overview",
+                          "documentation/similarity/index",
+                          "documentation/similarity/search"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "group": "Tutorials",
+                    "pages": [
+                      "documentation/guides/overview",
+                      "documentation/guides/autocomplete",
+                      "documentation/guides/hybrid"
+                    ]
+                  },
+                  {
+                    "group": "Concepts",
+                    "pages": [
+                      "documentation/concepts/bm25",
+                      "documentation/concepts/index",
+                      "documentation/concepts/matching",
+                      "documentation/concepts/phrase",
+                      "documentation/concepts/search",
+                      "documentation/concepts/stemming",
+                      "documentation/concepts/tantivy",
+                      "documentation/concepts/term"
+                    ]
+                  },
+                  "welcome/support"
+                ]
+              }
+            ]
+          },
+          {
+            "anchor": "Docs v2 (beta)",
             "icon": "book-open",
             "groups": [
               {
@@ -219,9 +399,8 @@
       }
     ],
     "primary": {
-      "type": "button",
-      "label": "Latest Version 0.17.2",
-      "href": "https://github.com/paradedb/paradedb/releases"
+      "type": "github",
+      "href": "https://github.com/paradedb/paradedb"
     }
   },
   "footer": {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753812443743,
+  "lastUpdate": 1753812446097,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6546,6 +6546,126 @@ window.BENCHMARK_DATA = {
             "value": 59.51953125,
             "unit": "median mem",
             "extra": "avg mem: 58.1947773321082, max mem: 83.84765625, count: 55028"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ef675fe021d0dd8eca8fce9b661a1f06e57c08",
+          "message": "perf: Remove StringFastField exec method (#2901)\n\n# Ticket(s) Closed\n\n- Closes #2620\n\n## What\n\nFollowing up on #2887: remove the `StringFastField` execution method,\nsince it is never faster than `Mixed`.\n\nAdditionally: resolve #2620 by removing the planning conditional around\nstring aggregate cardinality.\n\n## Why\n\nSimplified code, faster performance.\n\n## How\n\nThe string agg cardinality check was occasionally preventing parallelism\non smaller datasets, which turned out to be a good thing: you only\nreally need enough parallelism to search the segments that you estimate\nwill be sufficient to answer your query.\n\nThe replacement here is an addition to `compute_nworkers` to explicitly\nlimit the number of workers to the number of segments we think that\nwe'll need to search (when sorting is not in use but a limit is). See\nnew comments in that method.\n\nAdditionally: this fixes our computation of `nworkers` to account for\nthe fact that the leader also takes a segment: we were always requesting\nat least one worker if we had one segment... when in reality we need\n`segments - 1` workers due to the leader. This shifts a lot of explain\nplans in regression and unit tests.\n\n## Tests\n\nAs shown in\nhttps://github.com/paradedb/paradedb/pull/2887#issuecomment-3116181511,\nmicrobenchmarks are unaffected.\n\nThe `docs` dataset has a 1.6x speedup for `line_items-distinct` and ~15%\nfor a few other queries. The `logs` dataset has 1.35x speedups for\n`bucket-string-nofilter` and `bucket-string-filter`.",
+          "timestamp": "2025-07-29T10:50:08-07:00",
+          "tree_id": "143d724002fc9343b1ef56914f272d1dd7945f08",
+          "url": "https://github.com/paradedb/paradedb/commit/f3ef675fe021d0dd8eca8fce9b661a1f06e57c08"
+        },
+        "date": 1753812444870,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.724594086601418, max cpu: 9.402546, count: 55131"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 61.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.49051449615462, max mem: 84.13671875, count: 55131"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.692296705648295, max cpu: 9.266409, count: 55131"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 53.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.0324479280033, max mem: 77.01171875, count: 55131"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.741726015443258, max cpu: 13.859479, count: 55131"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.84813663988954, max mem: 83.38671875, count: 55131"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.389254339264331, max cpu: 4.6511626, count: 55131"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.48462518535398, max mem: 83.76171875, count: 55131"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.169055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.305623399788633, max cpu: 23.4375, count: 110262"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 64.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.49936847860097, max mem: 93.76171875, count: 110262"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3763,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3722.5955814333133, max block_count: 6667.0, count: 55131"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.918140429159639, max segment_count: 28.0, count: 55131"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.184500257877152, max cpu: 14.159292, count: 55131"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 67.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 67.91687788233934, max mem: 95.03515625, count: 55131"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.225723713656349, max cpu: 4.7058825, count: 55131"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.47461692094738, max mem: 82.28515625, count: 55131"
           }
         ]
       }

@@ -20,8 +20,8 @@ mod atatat;
 mod eqeqeq;
 mod hashhashhash;
 mod ororor;
+mod proximity;
 mod searchqueryinput;
-mod tildetildetilde;
 
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;

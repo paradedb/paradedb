@@ -119,32 +119,32 @@ select pdb.prox_clause('a', 42, 'b');
 (1 row)
 
 --
--- use the ~~~ operator
+-- use the #operator
 --
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 24 ~~~ 'z');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##24## 'z');   -- match
                               snippet                              
 -------------------------------------------------------------------
  <b>a</b> b c d e f g h i j k l m n o p q r s t u v w x y <b>z</b>
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 3 ~~~ 'c' ~~~ 2 ~~~ 'g');   -- no match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##2## 'g');   -- no match
  snippet 
 ---------
 (0 rows)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 3 ~~~ 'c' ~~~ 3 ~~~ 'g');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##3## 'c' ##3## 'g');   -- match
                                  snippet                                  
 --------------------------------------------------------------------------
  <b>a</b> b <b>c</b> d e f <b>g</b> h i j k l m n o p q r s t u v w x y z
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ (ARRAY['a', 'b', 'c'] ~~~ 1 ~~~ 'd');   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ (ARRAY['a', 'b', 'c'] ##1## 'd');   -- match
                                      snippet                                     
 ---------------------------------------------------------------------------------
  <b>a</b> <b>b</b> <b>c</b> <b>d</b> e f g h i j k l m n o p q r s t u v w x y z
 (1 row)
 
-SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ~~~ 1 ~~~ ARRAY['b', 'c', 'd']);   -- match
+SELECT paradedb.snippet(text) FROM prox WHERE text @@@ ('a' ##1## ARRAY['b', 'c', 'd']);   -- match
                                      snippet                                     
 ---------------------------------------------------------------------------------
  <b>a</b> <b>b</b> <b>c</b> <b>d</b> e f g h i j k l m n o p q r s t u v w x y z

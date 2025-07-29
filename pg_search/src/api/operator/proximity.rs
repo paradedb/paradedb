@@ -2,7 +2,7 @@ use crate::query::proximity::{ProximityClause, ProximityDistance};
 use pgrx::{opname, pg_operator};
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.~~~)]
+#[opname(pg_catalog.##)]
 fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
@@ -16,7 +16,7 @@ fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
 }
 
 #[pg_operator(immutable, parallel_safe)]
-#[opname(pg_catalog.~~~)]
+#[opname(pg_catalog.##)]
 fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
@@ -30,6 +30,6 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
                 right: Box::new(right),
             }
         }
-        _ => panic!("lhs of ~~~ must be a ProximityClause with an uninitialized rhs"),
+        _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
     }
 }

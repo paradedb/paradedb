@@ -2042,7 +2042,7 @@ CREATE  FUNCTION "lhs_prox"(
 AS 'MODULE_PATHNAME', 'lhs_prox_wrapper';
 -- pg_search/src/api/operator/tildetildetilde.rs:4
 -- pg_search::api::operator::tildetildetilde::lhs_prox
-CREATE OPERATOR pg_catalog.~~~ (
+CREATE OPERATOR pg_catalog.## (
     PROCEDURE="lhs_prox",
     LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     RIGHTARG=INT /* i32 */
@@ -2071,7 +2071,7 @@ CREATE  FUNCTION "rhs_prox"(
     IMMUTABLE STRICT PARALLEL SAFE
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'rhs_prox_wrapper';
-CREATE OPERATOR pg_catalog.~~~ (
+CREATE OPERATOR pg_catalog.## (
     PROCEDURE="rhs_prox",
     LEFTARG=pdb.ProximityClause, /* pg_search::query::proximity::pdb::ProximityClause */
     RIGHTARG=pdb.ProximityClause /* pg_search::query::proximity::pdb::ProximityClause */

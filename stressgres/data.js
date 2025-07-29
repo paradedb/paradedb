@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753805210466,
+  "lastUpdate": 1753805213523,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6360,6 +6360,126 @@ window.BENCHMARK_DATA = {
             "value": 58.0234375,
             "unit": "median mem",
             "extra": "avg mem: 56.84424416329762, max mem: 81.1171875, count: 54788"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44ea60cecf12427f534d631547935f45f4e4968c",
+          "message": "feat:  \"proximity search\" support (#2685)\n\n## What\n\nThis implements the concept of \"proximity search\" in pg_search. It has a\nlot of overlap in spirit with Lucene's \"span\" queries.\n\nWe support finding a token within some distance (in order, or not) of\nanother token a set of tokens within some distance of a token or a set\nof tokens, and finally one of these proximity clauses within some\ndistance of a token, a set of tokens, or another proximity clause\n\nIntroduces a new datatype named `pdb.proximityclause`, which represents\nthe complex structure of a proximity clause -- the \"left\", \"distance\",\nand \"right\" properties.\n\nAdds a set of new builder functions in the `pdb` schema:\n\n- `pdb.prox_term(term TEXT)`: generates a single term query to be used\nas part of a `pdb.proximityclause`\n- `pdb.prox_regex(pattern TEXT)`: generates a regular expression query\nto be used as part of a `pdb.proximityclause`\n- `pdb.prox_clause`, `pdb.prox_clause_in_order`: forms a\n`pdb.proximityclause`\n- `pdb.prox_array(VARIADIC terms pdb.proximityclause[])`: supports a\nvariadic array of the above, including itself\n\nAnd a new overloaded operator `##(pdb.proximityclause, integer)` and\n`##(pdb.proximityclause, pdb.proximityclause)` to make writing proximity\nclauses via SQL more fluid:\n\n```sql\n--\n-- find all rows where the body matches the term \"bbq\" within 3 tokens (in order) of \"chicken\"\n---\nSELECT *\nFROM t\nWHERE body @@@ 'bbq' ##3## 'chicken';\n```\n\n## Why\n\nIncredibly valuable text search capability. Essentially it's a form of\nfuzzy phrase searching, but with more flexibility.\n\n## How\n\nContinued expansion on our SQL query rewriting capabilities.\n\n## Tests\n\nRegression tests to assert search result correctness along with json\nrepresentation\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-07-29T11:49:25-04:00",
+          "tree_id": "486966d269b5eff1298e3e49a03eb852798fd300",
+          "url": "https://github.com/paradedb/paradedb/commit/44ea60cecf12427f534d631547935f45f4e4968c"
+        },
+        "date": 1753805212324,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.713435818650765, max cpu: 9.467456, count: 55028"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 59.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.52953645473668, max mem: 82.58984375, count: 55028"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594049016735115, max cpu: 9.257474, count: 55028"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 53.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.36749898915098, max mem: 76.21484375, count: 55028"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.706089760587613, max cpu: 9.467456, count: 55028"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 59.96783015578433, max mem: 83.71484375, count: 55028"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.413727389411654, max cpu: 4.7197638, count: 55028"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.183731180035615, max mem: 83.33984375, count: 55028"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.385640107973396, max cpu: 18.934912, count: 110056"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 71.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 71.67049242970624, max mem: 106.22265625, count: 110056"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3672,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3700.4649451188484, max block_count: 6628.0, count: 55028"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.910318383368468, max segment_count: 28.0, count: 55028"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.148224153646266, max cpu: 15.2019005, count: 55028"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 75.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 76.79587416008668, max mem: 105.1328125, count: 55028"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.980066146709051, max cpu: 9.230769, count: 55028"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 59.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.1947773321082, max mem: 83.84765625, count: 55028"
           }
         ]
       }

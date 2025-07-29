@@ -24,7 +24,6 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::Cardinality;
 use crate::api::{HashMap, HashSet};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
@@ -419,14 +418,7 @@ impl CustomScan for PdbScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            let mut selectivity = if let Some(limit) = limit {
-                // use the limit
-                limit
-                    / table
-                        .reltuples()
-                        .map(|n| n as Cardinality)
-                        .unwrap_or(UNKNOWN_SELECTIVITY)
-            } else if norm_selec != UNASSIGNED_SELECTIVITY {
+            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else if quals.contains_external_var() {
@@ -478,63 +470,9 @@ impl CustomScan for PdbScan {
                 custom_private.set_sort_direction(Some(SortDirection::None));
             }
 
-            let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(limit, segment_count, custom_private.is_sorted())
-            } else {
-                0
-            };
-
-            // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
-            // as it should likely be checking for `is_mixed_fast_field_capable` as well, and
-            // should probably have different thresholds.
-            // See https://github.com/paradedb/paradedb/issues/2620
-            if pathkey.is_some()
-                && !is_topn
-                && fast_fields::is_string_fast_field_capable(&custom_private).is_some()
-            {
-                let pathkey = pathkey.as_ref().unwrap();
-
-                // we're going to do a StringAgg, and it may or may not be more efficient to use
-                // parallel queries, depending on the cardinality of what we're going to select
-                let parallel_scan_preferred = || -> bool {
-                    let cardinality = {
-                        let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
-                            // NB:  '4' is a magic number
-                            fast_fields::estimate_cardinality(&index, field).unwrap_or(0) * 4
-                        } else {
-                            0
-                        };
-                        estimate as f64 * selectivity
-                    };
-
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
-
-                    // if we only have 1 path key or if our estimated cardinality is over some
-                    // hardcoded value, it's seemingly more efficient to do a parallel scan
-                    pathkey_cnt == 1 || cardinality > 1_000_000.0
-                };
-
-                if nworkers > 0 && parallel_scan_preferred() {
-                    // If we use parallel workers, there is no point in sorting, because the
-                    // plan will already need to sort and merge the outputs from the workers.
-                    // See the TODO below about being able to claim sorting for parallel
-                    // workers.
-                    builder = builder.set_parallel(nworkers);
-                } else {
-                    // otherwise we'll do a regular scan
-                    custom_private.set_sort_info(pathkey);
-                }
-            } else if !quals.contains_external_var() && nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
-            }
-
+            // Choose the exec method type, and make claims about whether it is sorted.
             let exec_method_type = choose_exec_method(&custom_private);
             custom_private.set_exec_method_type(exec_method_type);
-
-            // Once we have chosen an execution method type, we have a final determination of the
-            // properties of the output, and can make claims about whether it is sorted.
             if custom_private.exec_method_type().is_sorted() {
                 if let Some(pathkey) = pathkey.as_ref() {
                     builder = builder.add_path_key(pathkey);
@@ -542,23 +480,47 @@ impl CustomScan for PdbScan {
             }
 
             //
-            // finally, we have enough information to set the cost and estimation information
+            // finally, we have enough information to set the cost and estimation information, and
+            // to decide on parallelism
             //
 
-            if builder.is_parallel() {
-                // if we're likely to do a parallel scan, divide the selectivity up by the number of
-                // workers we're likely to use.  this lets Postgres make better decisions based on what
+            // calculate the total number of rows that might match the query, and the number of
+            // rows that we expect that scan to return: these may be different in the case of a
+            // `limit`.
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let total_rows = (reltuples * selectivity).max(1.0);
+            let mut result_rows = total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0);
+
+            let nworkers = if (*builder.args().rel).consider_parallel {
+                compute_nworkers(
+                    custom_private.exec_method_type(),
+                    limit,
+                    total_rows,
+                    segment_count,
+                    quals.contains_external_var(),
+                )
+            } else {
+                0
+            };
+
+            if nworkers > 0 {
+                builder = builder.set_parallel(nworkers);
+
+                // if we're likely to do a parallel scan, divide the result_rows by the number of workers
+                // we're likely to use.  this lets Postgres make better decisions based on what
                 // an individual parallel scan is actually going to return
-                selectivity /= (nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    }) as f64;
+                let processes = std::cmp::max(
+                    1,
+                    nworkers
+                        + if pg_sys::parallel_leader_participation {
+                            1
+                        } else {
+                            0
+                        },
+                );
+                result_rows /= processes as f64;
             }
 
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let rows = (reltuples * selectivity).max(1.0);
             let per_tuple_cost = {
                 if maybe_ff {
                     // returning fields from fast fields
@@ -570,9 +532,9 @@ impl CustomScan for PdbScan {
             };
 
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + (rows * per_tuple_cost);
+            let total_cost = startup_cost + (result_rows * per_tuple_cost);
 
-            builder = builder.set_rows(rows);
+            builder = builder.set_rows(result_rows);
             builder = builder.set_startup_cost(startup_cost);
             builder = builder.set_total_cost(total_cost);
 
@@ -1105,8 +1067,7 @@ impl CustomScan for PdbScan {
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
+/// We support [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
 /// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
 /// and numeric fast fields.
 ///
@@ -1129,11 +1090,6 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
     } else if fast_fields::is_numeric_fast_field_capable(privdata) {
         // Check for numeric-only fast fields first because they're more selective
         ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-        }
-    } else if let Some(field) = fast_fields::is_string_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldString {
-            field,
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
         }
     } else if fast_fields::is_mixed_fast_field_capable(privdata) {
@@ -1167,27 +1123,6 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
             None,
         ),
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields,
-        } => {
-            if let Some(which_fast_fields) =
-                compute_exec_which_fast_fields(builder, which_fast_fields)
-            {
-                builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                        field,
-                        which_fast_fields,
-                    ),
-                    None,
-                )
-            } else {
-                builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
-                    Some(ExecMethodType::Normal),
-                )
-            }
-        }
         ExecMethodType::FastFieldNumeric { which_fast_fields } => {
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
@@ -1618,6 +1553,7 @@ fn base_query_has_search_predicates(
         | SearchQueryInput::FieldedQuery { query: pdb::Query::TermSet { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Term { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::Phrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Proximity { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::TokenizedPhrase { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::PhrasePrefix { .. }, .. }
         | SearchQueryInput::FieldedQuery { query: pdb::Query::FuzzyTerm { .. }, .. }

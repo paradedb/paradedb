@@ -16,6 +16,8 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::query::proximity::query::ProximityQuery;
+use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
 use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
@@ -27,7 +29,7 @@ use std::collections::Bound;
 use std::error::Error;
 use tantivy::query::{
     BooleanQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
-    PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, QueryParser, RangeQuery,
+    PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, Query, QueryParser, RangeQuery,
     RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
@@ -41,6 +43,7 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
 
 #[pg_schema]
 pub mod pdb {
+    use crate::query::proximity::{ProximityClause, ProximityDistance};
     use crate::query::range::{deserialize_bound, serialize_bound};
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
@@ -89,6 +92,11 @@ pub mod pdb {
         PhrasePrefix {
             phrases: Vec<String>,
             max_expansions: Option<u32>,
+        },
+        Proximity {
+            left: ProximityClause,
+            distance: ProximityDistance,
+            right: ProximityClause,
         },
         TokenizedPhrase {
             phrase: String,
@@ -233,6 +241,11 @@ impl pdb::Query {
                 phrases,
                 max_expansions,
             } => phrase_prefix(&field, schema, phrases, max_expansions)?,
+            pdb::Query::Proximity {
+                left,
+                distance,
+                right,
+            } => proximity(&field, schema, left, distance, right)?,
             pdb::Query::TokenizedPhrase { phrase, slop } => {
                 tokenized_phrase(&field, schema, searcher, &phrase, slop)
             }
@@ -271,6 +284,28 @@ impl pdb::Query {
 
         Ok(query)
     }
+}
+
+fn proximity(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    left: ProximityClause,
+    distance: ProximityDistance,
+    right: ProximityClause,
+) -> anyhow::Result<Box<dyn Query>> {
+    if left.is_empty() || right.is_empty() {
+        return Ok(Box::new(EmptyQuery));
+    }
+
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    if !search_field.is_tokenized_with_freqs_and_positions() {
+        return Err(QueryError::InvalidTokenizer.into());
+    }
+
+    let prox = ProximityQuery::new(search_field.field(), left, distance, right);
+    Ok(Box::new(prox))
 }
 
 fn term_set(

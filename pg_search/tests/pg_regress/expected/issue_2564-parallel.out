@@ -122,7 +122,7 @@ ORDER BY d.id, f.id, p.id;
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
-   Workers Planned: 2
+   Workers Planned: 1
    ->  Sort
          Sort Key: d.id, p.fileid, p.id
          ->  Parallel Hash Join
@@ -179,7 +179,7 @@ ORDER BY d.id;
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
-   Workers Planned: 2
+   Workers Planned: 1
    ->  Sort
          Sort Key: d.id
          ->  Parallel Custom Scan (ParadeDB Scan) on documents d

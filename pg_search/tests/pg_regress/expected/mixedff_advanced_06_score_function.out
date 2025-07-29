@@ -700,14 +700,12 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
-                     Exec Method: StringFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Agg Field: author
+                     String Fast Fields: author
                      Scores: false
-                        Sort Field: title
-                        Sort Direction: asc
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(30 rows)
+(28 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (

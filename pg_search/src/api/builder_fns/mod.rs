@@ -17,6 +17,8 @@
 
 mod paradedb;
 mod pdb;
+mod proximity;
 
 pub use paradedb::*;
 pub use pdb::*;
+pub use proximity::*;

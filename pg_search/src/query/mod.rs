@@ -19,6 +19,7 @@ pub mod heap_field_filter;
 pub mod iter_mut;
 mod more_like_this;
 pub mod pdb_query;
+pub(crate) mod proximity;
 mod range;
 mod score;
 
@@ -104,6 +105,7 @@ pub enum SearchQueryInput {
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
     },
+
     TermSet {
         terms: Vec<TermInput>,
     },
@@ -285,7 +287,7 @@ fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>)> {
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
     let one_day_nanos: i64 = 86_400_000_000_000;
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
@@ -583,7 +585,6 @@ impl SearchQueryInput {
                     }
                 }
             }
-
             SearchQueryInput::TermSet { terms: fields } => {
                 let mut terms = vec![];
                 for TermInput {
@@ -766,9 +767,9 @@ impl TryFrom<&str> for TantivyDateTime {
 
 #[allow(dead_code)]
 #[derive(Debug, Error)]
-enum QueryError {
+pub enum QueryError {
     #[error("wrong field type for field: {0}")]
-    WrongFieldType(String),
+    WrongFieldType(FieldName),
     #[error("invalid field map json: {0}")]
     FieldMapJsonValue(#[source] serde_json::Error),
     #[error("field map json must be an object")]
@@ -786,6 +787,22 @@ enum QueryError {
            make sure to use column:term pairs, and to capitalize AND/OR."#
     )]
     ParseError(#[source] tantivy::query::QueryParserError, String),
+    #[error("{0}")]
+    TantivyError(#[source] tantivy::TantivyError),
+    #[error("{0}")]
+    InternalError(#[source] anyhow::Error),
+}
+
+impl From<tantivy::TantivyError> for QueryError {
+    fn from(err: tantivy::TantivyError) -> QueryError {
+        QueryError::TantivyError(err)
+    }
+}
+
+impl From<anyhow::Error> for QueryError {
+    fn from(err: anyhow::Error) -> QueryError {
+        QueryError::InternalError(err)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

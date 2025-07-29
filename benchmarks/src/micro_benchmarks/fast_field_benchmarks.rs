@@ -15,13 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Instant;
+
 use crate::median;
 use crate::micro_benchmarks::setup_benchmark_database;
+
 use anyhow::Result;
+use futures::StreamExt;
 use pretty_assertions::{assert_eq, assert_ne};
 use serde_json::Value;
 use sqlx::{PgConnection, Row};
-use std::time::Instant;
 
 pub const ASSERT_HEAP_VIRTUAL_TUPLES: bool = false;
 
@@ -100,7 +103,6 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
         if ASSERT_HEAP_VIRTUAL_TUPLES {
             if execution_method == "MixedFastFieldExec"
                 || execution_method == "NumericFastFieldExec"
-                || execution_method == "StringFastFieldExec"
             {
                 values.iter().for_each(|v| {
                     assert!(v.is_number());
@@ -147,8 +149,6 @@ pub fn detect_exec_method(plan: &Value) -> String {
     if plan_str.contains("Exec Method") {
         if plan_str.contains("MixedFastFieldExecState") {
             return "MixedFastFieldExec".to_string();
-        } else if plan_str.contains("StringFastFieldExecState") {
-            return "StringFastFieldExec".to_string();
         } else if plan_str.contains("NumericFastFieldExecState") {
             return "NumericFastFieldExec".to_string();
         } else if plan_str.contains("NormalScanExecState") {
@@ -181,7 +181,7 @@ pub async fn run_benchmark(
 
     // Warmup runs to ensure caches are primed
     for _ in 0..config.warmup_iterations {
-        let _ = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
+        fetch_and_discard(conn, &query_to_run).await?;
     }
 
     // Get the execution plan to determine which execution method is used
@@ -200,7 +200,7 @@ pub async fn run_benchmark(
     let mut timings = Vec::with_capacity(config.iterations);
     for _i in 0..config.iterations {
         let start = Instant::now();
-        let _res = sqlx::query(&query_to_run).fetch_all(&mut *conn).await?;
+        fetch_and_discard(conn, &query_to_run).await?;
         let elapsed = start.elapsed();
         let time_ms = elapsed.as_secs_f64() * 1000.0;
 
@@ -274,7 +274,6 @@ pub fn display_results(results: &[BenchmarkResult]) {
         // Identify results by their test names, which include the execution method
         let mixed_result = group_results.iter().find(|r| {
             r.test_name.contains("MixedFastFieldExec")
-                || r.test_name.contains("StringFastFieldExec")
                 || r.test_name.contains("NumericFastFieldExec")
         });
 
@@ -306,6 +305,14 @@ pub fn display_results(results: &[BenchmarkResult]) {
             );
         }
     }
+}
+
+async fn fetch_and_discard(conn: &mut PgConnection, query: &str) -> sqlx::Result<()> {
+    let mut query = sqlx::query(query).fetch(conn);
+    while let Some(row) = query.next().await {
+        let _ = row?;
+    }
+    Ok(())
 }
 
 /// Helper function to run benchmarks with multiple execution methods
@@ -349,7 +356,7 @@ pub async fn set_execution_method(
     table_name: &str,
 ) -> Result<()> {
     // Create appropriate index if execution method is specified
-    // This should be either "MixedFastFieldExec" or "StringFastFieldExec" or "NumericFastFieldExec"
+    // This should be either "MixedFastFieldExec" or "NumericFastFieldExec"
     if execution_method == "MixedFastFieldExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
@@ -357,9 +364,7 @@ pub async fn set_execution_method(
         sqlx::query("SET paradedb.enable_mixed_fast_field_exec = true")
             .execute(&mut *conn)
             .await?;
-    } else if execution_method == "StringFastFieldExec"
-        || execution_method == "NumericFastFieldExec"
-    {
+    } else if execution_method == "NumericFastFieldExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = true")
             .execute(&mut *conn)
             .await?;
@@ -551,17 +556,6 @@ pub async fn benchmark_mixed_fast_fields(
     run_benchmarks_with_methods(
         conn,
         json_query,
-        "JSON Query - StringFF",
-        &["StringFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
-
-    // Run the benchmarks with different execution methods
-    run_benchmarks_with_methods(
-        conn,
-        json_query,
         "JSON Query - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
         &mut results,
@@ -577,17 +571,6 @@ pub async fn benchmark_mixed_fast_fields(
         WHERE 
             long_text @@@ '\"database\" AND \"performance\"'
         ORDER BY string_field1";
-
-    // Run the benchmarks with different execution methods
-    run_benchmarks_with_methods(
-        conn,
-        long_text_query,
-        "Long Text Query - StringFF",
-        &["StringFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
 
     // Run the benchmarks with different execution methods
     run_benchmarks_with_methods(
@@ -698,16 +681,6 @@ pub async fn benchmark_mixed_fast_fields(
         string_group_query,
         "String Group Count - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
-
-    run_benchmarks_with_methods(
-        conn,
-        string_group_query,
-        "String Group Count - StringFF",
-        &["StringFastFieldExec", "NormalScanExecState"],
         &mut results,
         &config,
     )

@@ -375,28 +375,22 @@ SELECT rating, COUNT(*)
 FROM products 
 WHERE description @@@ 'laptop' 
 GROUP BY rating;
-                                                                                  QUERY PLAN                                                                                   
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Finalize GroupAggregate
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
    Output: rating, count(*)
    Group Key: products.rating
-   ->  Gather Merge
-         Output: rating, (PARTIAL count(*))
-         Workers Planned: 1
-         ->  Partial GroupAggregate
-               Output: rating, PARTIAL count(*)
-               Group Key: products.rating
-               ->  Sort
-                     Output: rating
-                     Sort Key: products.rating
-                     ->  Parallel Custom Scan (ParadeDB Scan) on public.products
-                           Output: rating
-                           Table: products
-                           Index: products_idx
-                           Exec Method: NormalScanExecState
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(19 rows)
+   ->  Sort
+         Output: rating
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
 
 -- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -714,6 +708,61 @@ ORDER BY category;
  Billing
  Features
 (2 rows)
+
+-- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on support_tickets
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+(4 rows)
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+    category    | count 
+----------------+-------
+ Authentication |     2
+ Billing        |     1
+(2 rows)
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+         QUERY PLAN         
+----------------------------
+ Function Scan on aggregate
+(1 row)
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+                                                                               aggregate                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": {"buckets": [{"key": "Authentication", "doc_count": 2}, {"key": "Billing", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
+(1 row)
 
 -- ===========================================================================
 -- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate

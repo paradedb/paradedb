@@ -53,22 +53,10 @@ fn generates_custom_scan_for_or(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-
-    let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .get(0)
-        .unwrap();
-
     eprintln!("{plan:#?}");
+
+    let plan = plan.pointer("/0/Plan").unwrap();
+
     assert_eq!(
         plan.get("Custom Plan Provider"),
         Some(&Value::String(String::from("ParadeDB Scan")))
@@ -84,8 +72,8 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
     eprintln!("{plan:#?}");
+    let plan = plan.pointer("/0/Plan").unwrap();
     assert_eq!(
         plan.get("Custom Plan Provider"),
         Some(&Value::String(String::from("ParadeDB Scan")))
@@ -101,7 +89,8 @@ fn includes_segment_count(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
+    eprintln!("{plan:#?}");
+    let plan = plan.pointer("/0/Plan").unwrap();
     assert!(plan.get("Segment Count").is_some());
 }
 
@@ -521,15 +510,18 @@ fn without_operator_guc(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING bm25 (id, description, rating)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
 
-    "SET enable_indexscan TO OFF;".execute(&mut conn);
+    // This is a small table, and our startup cost (rightly!) dominates the time taken to scan it.
+    // To force the index or custom scan to be used, disable sequential scans.
+    "SET enable_seqscan TO OFF;".execute(&mut conn);
 
     fn plan_uses_custom_scan(conn: &mut PgConnection, query_string: &str) -> bool {
         let (plan,) = format!("EXPLAIN (FORMAT JSON) {query_string}").fetch_one::<(Value,)>(conn);
+        eprintln!("{query_string}");
         eprintln!("{plan:#?}");
         format!("{plan:?}").contains("ParadeDB Scan")
     }
@@ -542,7 +534,7 @@ fn without_operator_guc(mut conn: PgConnection) {
 
         // Confirm that a plan which doesn't use our operator is affected by the GUC.
         let uses_custom_scan =
-            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id = 1");
+            plan_uses_custom_scan(&mut conn, "SELECT id FROM mock_items WHERE rating = 3");
         if custom_scan_without_operator {
             assert!(
                 uses_custom_scan,
@@ -551,13 +543,13 @@ fn without_operator_guc(mut conn: PgConnection) {
         } else {
             assert!(
                 !uses_custom_scan,
-                "Should not the custom scan when the GUC is disabled."
+                "Should not use the custom scan when the GUC is disabled."
             );
         }
 
         // And that a plan which does use our operator is not affected by the GUC.
         let uses_custom_scan =
-            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id @@@ '1'");
+            plan_uses_custom_scan(&mut conn, "SELECT id FROM mock_items WHERE id @@@ '1'");
         assert!(
             uses_custom_scan,
             "Should use the custom scan when our operator is used, regardless of \

@@ -30,10 +30,51 @@ use pgrx::{
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
+
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct Regex(regex::Regex);
+impl Deref for Regex {
+    type Target = regex::Regex;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl Eq for Regex {}
+impl PartialEq for Regex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+impl Serialize for Regex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.0.as_str())
+    }
+}
+impl<'de> Deserialize<'de> for Regex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let pattern = String::deserialize(deserializer)?;
+        regex::Regex::new(&pattern)
+            .map(Regex)
+            .map_err(serde::de::Error::custom)
+    }
+}
+impl Regex {
+    pub fn new(pattern: &str) -> Result<Self, regex::Error> {
+        regex::Regex::new(pattern).map(Regex)
+    }
+}
 
 #[macro_export]
 macro_rules! nodecast {

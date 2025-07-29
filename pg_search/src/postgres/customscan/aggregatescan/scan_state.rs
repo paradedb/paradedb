@@ -149,6 +149,7 @@ impl AggregateScanState {
         TantivyValue::json_value_to_owned_value(&search_field, json_value)
     }
 
+    #[allow(unreachable_patterns)]
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row

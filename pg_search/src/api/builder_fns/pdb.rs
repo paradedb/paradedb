@@ -537,7 +537,10 @@ mod pdb {
         ($func_name:ident, $value_type:ty, $is_datetime:expr, $default:expr) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
-            pub fn $func_name(range: $value_type, relation: RangeRelation) -> pdb::Query {
+            pub fn $func_name(
+                range: $value_type,
+                relation: super::super::RangeRelation,
+            ) -> pdb::Query {
                 let (lower_bound, upper_bound) = match range.into_inner() {
                     None => (Bound::Included($default), Bound::Excluded($default)),
                     Some((lower, upper)) => {

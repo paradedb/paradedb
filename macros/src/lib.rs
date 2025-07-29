@@ -116,7 +116,6 @@ fn build_function(item_fn: &ItemFn) -> Result<proc_macro2::TokenStream, syn::Err
         mod #mod_name {
             use pgrx::{default, pg_extern, AnyElement, AnyNumeric, PostgresEnum, Range};
             use crate::schema::AnyEnum;
-            use super::super::RangeRelation;
 
             #(#attributes)*
             pub fn #fn_name_decorated(field: crate::api::FieldName, #(#args),*) -> crate::query::SearchQueryInput {

@@ -50,7 +50,28 @@
                       {
                         "group": "Query Builder",
                         "pages": [
-                          "documentation/v2/query-builder/overview"
+                          "documentation/v2/query-builder/overview",
+                          {
+                            "group": "Term",
+                            "pages": [
+                              "documentation/v2/query-builder/term/exists",
+                              "documentation/v2/query-builder/term/fuzzy_term",
+                              "documentation/v2/query-builder/term/range",
+                              "documentation/v2/query-builder/term/range_term",
+                              "documentation/v2/query-builder/term/regex",
+                              "documentation/v2/query-builder/term/term",
+                              "documentation/v2/query-builder/term/term_set"
+                            ]
+                          },
+                          {
+                            "group": "Phrase",
+                            "pages": [
+                              "documentation/v2/query-builder/phrase/phrase",
+                              "documentation/v2/query-builder/phrase/phrase_prefix",
+                              "documentation/v2/query-builder/phrase/regex_phrase"
+                            ]
+                          },
+                          "documentation/v2/query-builder/json"
                         ]
                       },
                       {

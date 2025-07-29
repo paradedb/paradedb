@@ -5,6 +5,10 @@ title: Phrase
 Phrase queries work exactly like [match conjunction](/documentation/full-text/match#match-conjunction), but are more strict in that they require the
 order and position of tokens to be the same.
 
+<Note>
+Phrase queries require that the field is indexed with a [record](/documentation/indexing/record) of `position`.
+</Note>
+
 ## Overview
 
 Suppose our query is `running shoes`, and we want to omit results like

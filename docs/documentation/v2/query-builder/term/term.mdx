@@ -1,0 +1,42 @@
+---
+title: Term
+---
+
+A term query treats the query as a single token. Because it does not apply any additional tokenization or processing
+to the query, it is useful when looking for **exact** matches.
+
+Under the hood, the [term operator](/documentation/v2/full-text/term) gets rewritten to this query builder function.
+By default we recommend using the [term operator](/documentation/v2/full-text/term) instead of this function.
+
+## Basic Usage
+
+Matches documents containing a specified [term](/documentation/concepts/term).
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.term('shoes');
+```
+
+Numeric, boolean, or datetime fields can also be passed into the `term` query. Doing so is equivalent to using the
+`=` equality operator.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE rating @@@ pdb.term(4);
+```
+
+## Enumerated Types
+
+`term` can be used to filter over custom Postgres [enums](/documentation/indexing/create_index#enumerated-types)
+if the query term is explicitly cast to the enum type.
+
+In this example, `color` is a custom enum:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE color @@@ pdb.term('red'::color);
+```
+

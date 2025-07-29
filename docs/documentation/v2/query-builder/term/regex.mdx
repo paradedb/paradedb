@@ -1,0 +1,30 @@
+---
+title: Regex
+---
+
+Regex queries search for terms that follow a pattern. For example, the wildcard pattern `key.*` finds all terms that start with `key`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*');
+```
+
+ParadeDB supports all regex constructs in the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:
+
+1. Lazy quantifiers such as `+?`
+2. Word boundaries such as `\b`
+
+Otherwise, the full syntax of the [regex](https://docs.rs/regex/latest/regex/) crate is supported, including all Unicode support and relevant flags.
+
+<Note>
+Regex queries operate at the token level. To execute regex over the original text,
+use the keyword tokenizer.
+</Note>
+
+## Performance Considerations
+
+During a regex query, ParadeDB doesn't scan through every single word. Instead, it uses a highly optimized structure called a [finite state transducer (FST)](https://en.wikipedia.org/wiki/Finite-state_transducer) that makes it possible to jump straight to the matching terms.
+Even if the index contains millions of words, the regex query only looks at the ones that have a chance of matching, skipping everything else.
+
+This is why the certain regex constructs are not supported -- they are difficult to implement efficiently.

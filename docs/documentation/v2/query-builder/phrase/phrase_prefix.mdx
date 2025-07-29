@@ -1,0 +1,30 @@
+---
+title: Phrase Prefix
+---
+
+Phrase prefix identifies documents containing a [phrase](/documentation/concepts/phrase) followed by a term prefix.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
+```
+<div className="mt-8" />
+
+<ParamField body="phrases" required>
+  An `ARRAY` of words that the search is looking to match, followed by a term
+  prefix rather than a complete term.
+</ParamField>
+<ParamField body="max_expansions" default={50}>
+  Limits the number of term variations that the prefix can expand to during the
+  search. This helps in controlling the breadth of the search by setting a cap
+  on how many different terms the prefix can match.
+</ParamField>
+
+## Performance Considerations
+
+Expanding a prefix like might lead to thousands of matching terms, which impacts search times.
+
+With `max_expansions`, the prefix term is expanded to the first `max_expansions` terms
+in lexicographic order. For instance, if `sh` matches `shall`, `share`, `shoe`, and `shore`  but `max_expansions` is set to 3,
+`sh` will only be expanded to `shall`, `share`, and `shoe`.

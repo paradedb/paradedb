@@ -63,7 +63,7 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
 
         // We can only handle single relations.
@@ -145,14 +145,10 @@ impl CustomScan for AggregateScan {
 
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
-        let builder = if let Some(ref pathkeys) = order_pathkeys {
-            let mut builder = builder;
+        if let Some(ref pathkeys) = order_pathkeys {
             for pathkey_style in pathkeys {
                 builder = builder.add_path_key(pathkey_style);
             }
-            builder
-        } else {
-            builder
         };
 
         Some(builder.build(PrivateData {

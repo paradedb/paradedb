@@ -21,7 +21,6 @@ jobs:
   lint-docker:
     name: Lint Dockerfiles
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

@@ -22,7 +22,6 @@ jobs:
   lint-rust:
     name: Lint Rust Files
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [17]

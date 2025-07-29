@@ -21,7 +21,6 @@ jobs:
   lint-bash:
     name: Lint Bash Scripts
     runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

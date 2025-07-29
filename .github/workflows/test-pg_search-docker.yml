@@ -26,7 +26,6 @@ jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image
     runs-on: ubicloud-standard-8
-    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

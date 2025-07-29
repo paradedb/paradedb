@@ -106,7 +106,6 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
-            terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
@@ -116,10 +115,13 @@ impl AggregateScanState {
                 if !self.aggregate_types.is_empty() {
                     let mut sub_aggs = serde_json::Map::new();
                     for (j, aggregate) in self.aggregate_types.iter().enumerate() {
-                        let (name, agg) = aggregate.to_json_for_group(j);
-                        sub_aggs.insert(name, agg);
+                        if let Some((name, agg)) = aggregate.to_json_for_group(j) {
+                            sub_aggs.insert(name, agg);
+                        }
                     }
-                    terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
+                    if !sub_aggs.is_empty() {
+                        terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
+                    }
                 }
             } else {
                 // Not deepest – nest previously built aggs
@@ -189,6 +191,7 @@ impl AggregateScanState {
         rows
     }
 
+    #[allow(unreachable_patterns)]
     fn extract_bucket_results(
         &self,
         json: &serde_json::Value,
@@ -221,13 +224,21 @@ impl AggregateScanState {
                         .iter()
                         .enumerate()
                         .map(|(idx, aggregate)| {
-                            let agg_name = format!("agg_{idx}");
-                            let agg_result = bucket_obj
-                                .get(&agg_name)
-                                .and_then(|v| v.as_object())
-                                .and_then(|v| v.get("value"))
-                                .and_then(|v| v.as_number())
-                                .expect("missing aggregate result");
+                            let agg_result = match aggregate {
+                                AggregateType::Count => bucket_obj
+                                    .get("doc_count")
+                                    .and_then(|v| v.as_number())
+                                    .expect("missing doc_count"),
+                                _ => {
+                                    let agg_name = format!("agg_{idx}");
+                                    bucket_obj
+                                        .get(&agg_name)
+                                        .and_then(|v| v.as_object())
+                                        .and_then(|v| v.get("value"))
+                                        .and_then(|v| v.as_number())
+                                        .expect("missing aggregate result")
+                                }
+                            };
                             aggregate.result_from_json(agg_result)
                         })
                         .collect()

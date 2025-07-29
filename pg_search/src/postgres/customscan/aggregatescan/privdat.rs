@@ -34,9 +34,11 @@ impl AggregateType {
         serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
     }
 
-    pub fn to_json_for_group(&self, idx: usize) -> (String, serde_json::Value) {
+    #[allow(unreachable_patterns)]
+    pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::Count => (format!("agg_{idx}"), self.to_json()),
+            AggregateType::Count => None, // 'terms' bucket already has a 'doc_count'
+            _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
 

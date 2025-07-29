@@ -630,6 +630,48 @@ ORDER BY category;
 (2 rows)
 
 -- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) AS count
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate
+   Group Key: rating
+   ->  Gather Merge
+         Workers Planned: 1
+         ->  Partial GroupAggregate
+               Group Key: rating
+               ->  Sort
+                     Sort Key: rating
+                     ->  Parallel Custom Scan (ParadeDB Scan) on products
+                           Table: products
+                           Index: products_idx
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'products_idx',
+        query => paradedb.term('description','laptop'),
+        agg   => '{"buckets": {"terms": {"field": "rating"}}}',
+        solve_mvcc => true
+);
+         QUERY PLAN         
+----------------------------
+ Function Scan on aggregate
+(1 row)
+
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 DROP TABLE support_tickets CASCADE;

@@ -259,12 +259,18 @@ impl AggregateScanState {
                     // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
                     let tantivy_a = val_a.map(|v| TantivyValue(v.clone()));
                     let tantivy_b = val_b.map(|v| TantivyValue(v.clone()));
-                    let base_cmp = tantivy_a.cmp(&tantivy_b);
+                    let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
 
-                    if order_info.is_desc {
-                        base_cmp.reverse()
+                    if let Some(base_cmp) = base_cmp {
+                        if order_info.is_desc {
+                            base_cmp.reverse()
+                        } else {
+                            base_cmp
+                        }
                     } else {
-                        base_cmp
+                        panic!(
+                            "Cannot ORDER BY {order_info:?} for {tantivy_a:?} and {tantivy_b:?}."
+                        );
                     }
                 } else {
                     std::cmp::Ordering::Equal

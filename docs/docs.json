@@ -20,13 +20,13 @@
               {
                 "group": "Documentation",
                 "pages": [
-                  "documentation/v2/overview",
+                  "v2/overview",
                   {
                     "group": "Getting Started",
                     "pages": [
-                      "documentation/v2/getting-started/install",
-                      "documentation/v2/getting-started/quickstart",
-                      "documentation/v2/getting-started/load"
+                      "v2/getting-started/install",
+                      "v2/getting-started/quickstart",
+                      "v2/getting-started/load"
                     ]
                   },
                   {
@@ -35,55 +35,55 @@
                       {
                         "group": "Indexing",
                         "pages": [
-                          "documentation/v2/indexing/create_index"
+                          "v2/indexing/create_index"
                         ]
                       },
                       {
                         "group": "Full Text Search",
                         "pages": [
-                          "documentation/v2/full-text/overview",
-                          "documentation/v2/full-text/match",
-                          "documentation/v2/full-text/phrase",
-                          "documentation/v2/full-text/term"
+                          "v2/full-text/overview",
+                          "v2/full-text/match",
+                          "v2/full-text/phrase",
+                          "v2/full-text/term"
                         ]
                       },
                       {
                         "group": "Query Builder",
                         "pages": [
-                          "documentation/v2/query-builder/overview",
+                          "v2/query-builder/overview",
                           {
                             "group": "Term",
                             "pages": [
-                              "documentation/v2/query-builder/term/exists",
-                              "documentation/v2/query-builder/term/fuzzy_term",
-                              "documentation/v2/query-builder/term/range",
-                              "documentation/v2/query-builder/term/range_term",
-                              "documentation/v2/query-builder/term/regex",
-                              "documentation/v2/query-builder/term/term",
-                              "documentation/v2/query-builder/term/term_set"
+                              "v2/query-builder/term/exists",
+                              "v2/query-builder/term/fuzzy_term",
+                              "v2/query-builder/term/range",
+                              "v2/query-builder/term/range_term",
+                              "v2/query-builder/term/regex",
+                              "v2/query-builder/term/term",
+                              "v2/query-builder/term/term_set"
                             ]
                           },
                           {
                             "group": "Phrase",
                             "pages": [
-                              "documentation/v2/query-builder/phrase/phrase",
-                              "documentation/v2/query-builder/phrase/phrase_prefix",
-                              "documentation/v2/query-builder/phrase/regex_phrase"
+                              "v2/query-builder/phrase/phrase",
+                              "v2/query-builder/phrase/phrase_prefix",
+                              "v2/query-builder/phrase/regex_phrase"
                             ]
                           },
                           {
                             "group": "Match",
                             "pages": [
-                              "documentation/v2/query-builder/match/match"
+                              "v2/query-builder/match/match"
                             ]
                           },
-                          "documentation/v2/query-builder/json"
+                          "v2/query-builder/json"
                         ]
                       },
                       {
                         "group": "Aggregates",
                         "pages": [
-                          "documentation/v2/aggregates/overview"
+                          "v2/aggregates/overview"
                         ]
                       }
                     ]

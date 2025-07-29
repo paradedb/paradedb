@@ -416,17 +416,6 @@ impl PartialOrd for TantivyValue {
     }
 }
 
-impl Ord for TantivyValue {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // First, try partial_cmp - if it returns Some(ordering), use that
-        if let Some(ordering) = self.partial_cmp(other) {
-            return ordering;
-        }
-
-        panic!("TantivyValue does not implement Ord if PartialOrd fails.");
-    }
-}
-
 impl Serialize for TantivyValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where

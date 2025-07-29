@@ -65,11 +65,11 @@ use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchField, SearchIndexSchema};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
@@ -1270,62 +1270,138 @@ unsafe fn pullup_orderby_pathkey(
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
 ) -> Option<OrderByStyle> {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
+    let pathkey_styles = extract_pathkey_styles(root, rti, schema, Some(1));
+    pathkey_styles.into_iter().next()
+}
 
-    if let Some(first_pathkey) = pathkeys.get_ptr(0) {
-        let equivclass = (*first_pathkey).pk_eclass;
+/// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
+/// This function handles score functions, lower functions, relabel types, and regular variables
+/// Returns up to `max_pathkeys` OrderByStyle objects (None = no limit)
+pub unsafe fn extract_pathkey_styles(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+    max_pathkeys: Option<usize>,
+) -> Vec<OrderByStyle> {
+    extract_pathkey_styles_with_sortability_check(
+        root,
+        rti,
+        schema,
+        max_pathkeys,
+        |search_field| search_field.is_raw_sortable(),
+        |search_field| search_field.is_lower_sortable(),
+    )
+}
+
+/// Extract pathkeys with custom sortability checks for different use cases
+pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+    max_pathkeys: Option<usize>,
+    regular_sortability_check: F1,
+    lower_sortability_check: F2,
+) -> Vec<OrderByStyle>
+where
+    F1: Fn(&SearchField) -> bool,
+    F2: Fn(&SearchField) -> bool,
+{
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return Vec::new();
+    }
+
+    let mut pathkey_styles = Vec::new();
+    let limit = max_pathkeys.unwrap_or(pathkeys.len());
+
+    for pathkey_ptr in pathkeys.iter_ptr().take(limit) {
+        let pathkey = pathkey_ptr;
+        let equivclass = (*pathkey).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+        let mut found_valid_member = false;
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            if is_score_func(expr.cast(), rti as _) {
-                return Some(OrderByStyle::Score(first_pathkey));
-            } else if let Some(var) = is_lower_func(expr.cast(), rti as _) {
+            // Check if this is a score function
+            if is_score_func(expr.cast(), rti) {
+                pathkey_styles.push(OrderByStyle::Score(pathkey));
+                found_valid_member = true;
+                break;
+            }
+            // Check if this is a lower function
+            else if let Some(var) = is_lower_func(expr.cast(), rti) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_lower_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
-                        }
-                    }
-                }
-            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {
-                            if search_field.is_raw_sortable() {
-                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                            if lower_sortability_check(&search_field) {
+                                pathkey_styles
+                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                found_valid_member = true;
+                                break;
                             }
                         }
                     }
                 }
-            } else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid == pg_sys::Oid::INVALID {
-                    return None;
+            }
+            // Check if this is a RelabelType expression
+            else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid != pg_sys::Oid::INVALID {
+                        let heaprel =
+                            PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                        let tupdesc = heaprel.tuple_desc();
+                        if let Some(att) = tupdesc.get(attno as usize - 1) {
+                            if let Some(search_field) = schema.search_field(att.name()) {
+                                if regular_sortability_check(&search_field) {
+                                    pathkey_styles
+                                        .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                    found_valid_member = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_raw_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+            }
+            // Check if this is a regular Var (column reference)
+            else if let Some(var) = nodecast!(Var, T_Var, expr) {
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if regular_sortability_check(&search_field) {
+                                pathkey_styles
+                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                found_valid_member = true;
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
+
+        // If we couldn't find any valid member for this pathkey, skip it
+        if !found_valid_member {
+            continue;
+        }
     }
-    None
+
+    pathkey_styles
 }
 
-unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys::Var> {
+/// Check if a node is a lower() function call for a specific relation
+unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> Option<*mut pg_sys::Var> {
     let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
     if (*funcexpr).funcid == text_lower_funcoid() {
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
@@ -1351,6 +1427,7 @@ unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys
     None
 }
 
+/// Helper function to get the OID of the text lower function
 pub fn text_lower_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(

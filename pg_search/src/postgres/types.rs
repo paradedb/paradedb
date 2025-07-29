@@ -361,6 +361,7 @@ impl Hash for TantivyValue {
     }
 }
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.tantivy_schema_value() {

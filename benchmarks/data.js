@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753805561218,
+  "lastUpdate": 1753806600341,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -10978,6 +10978,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 87.3945,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "44ea60cecf12427f534d631547935f45f4e4968c",
+          "message": "feat:  \"proximity search\" support (#2685)\n\n## What\n\nThis implements the concept of \"proximity search\" in pg_search. It has a\nlot of overlap in spirit with Lucene's \"span\" queries.\n\nWe support finding a token within some distance (in order, or not) of\nanother token a set of tokens within some distance of a token or a set\nof tokens, and finally one of these proximity clauses within some\ndistance of a token, a set of tokens, or another proximity clause\n\nIntroduces a new datatype named `pdb.proximityclause`, which represents\nthe complex structure of a proximity clause -- the \"left\", \"distance\",\nand \"right\" properties.\n\nAdds a set of new builder functions in the `pdb` schema:\n\n- `pdb.prox_term(term TEXT)`: generates a single term query to be used\nas part of a `pdb.proximityclause`\n- `pdb.prox_regex(pattern TEXT)`: generates a regular expression query\nto be used as part of a `pdb.proximityclause`\n- `pdb.prox_clause`, `pdb.prox_clause_in_order`: forms a\n`pdb.proximityclause`\n- `pdb.prox_array(VARIADIC terms pdb.proximityclause[])`: supports a\nvariadic array of the above, including itself\n\nAnd a new overloaded operator `##(pdb.proximityclause, integer)` and\n`##(pdb.proximityclause, pdb.proximityclause)` to make writing proximity\nclauses via SQL more fluid:\n\n```sql\n--\n-- find all rows where the body matches the term \"bbq\" within 3 tokens (in order) of \"chicken\"\n---\nSELECT *\nFROM t\nWHERE body @@@ 'bbq' ##3## 'chicken';\n```\n\n## Why\n\nIncredibly valuable text search capability. Essentially it's a form of\nfuzzy phrase searching, but with more flexibility.\n\n## How\n\nContinued expansion on our SQL query rewriting capabilities.\n\n## Tests\n\nRegression tests to assert search result correctness along with json\nrepresentation\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-07-29T11:49:25-04:00",
+          "tree_id": "486966d269b5eff1298e3e49a03eb852798fd300",
+          "url": "https://github.com/paradedb/paradedb/commit/44ea60cecf12427f534d631547935f45f4e4968c"
+        },
+        "date": 1753806599156,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1172.4969999999998,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 713.9465,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1450.681,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 773.8,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 748.8775,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 2640.3765000000003,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 21.926000000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 59.415499999999994,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 86.91499999999999,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

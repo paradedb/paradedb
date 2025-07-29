@@ -46,16 +46,78 @@ is actually a collection of many inverted/columnar indexes, each of which allows
 
 ## Query Execution
 
-### Custom Operator
+### Custom Operators
 
-ParadeDB introduces a new operator, `@@@`, to Postgres. `@@@` means "find me all rows that match the following full-text query."
+ParadeDB introduces a set of new text search operators to Postgres.
+
+<table>
+  <thead>
+    <tr>
+      <th>Operator</th>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+        <code>===</code>
+      </td>
+      <td>
+        <a href="/documentation/full-text/term">Term</a>
+      </td>
+      <td>Finds documents that contain an exact token.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>###</code>
+      </td>
+      <td>
+        <a href="/documentation/full-text/phrase">Phrase</a>
+      </td>
+      <td>Find documents that match a phrase.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>&&&</code>
+      </td>
+      <td>
+        <a href="/documentation/full-text/match">Match Conjunction</a>
+      </td>
+      <td>Find documents that contain all tokens in a query.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>|||</code>
+      </td>
+      <td>
+        <a href="/documentation/full-text/term">Match Disjunction</a>
+      </td>
+      <td>Find documents that contain any one of the tokens in a query.</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@@@</code>
+      </td>
+      <td>
+        <a href="/documentation/advanced">Advanced</a>
+      </td>
+      <td>
+        Find all documents using an advanced{" "}
+        <a href="/documentation/advanced">query builder function</a>.
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+For example, the following query says "find me all documents matching either `running` or `shoes`."
 
 ```sql
 SELECT * FROM mock_items
-WHERE description @@@ 'running shoes';
+WHERE description ||| 'running shoes';
 ```
 
-ParadeDB’s custom query execution paths are only triggered when `@@@` is present _at least once_ in the query. If the query does not include `@@@`, it is executed entirely by native Postgres.
+ParadeDB’s custom query execution paths are only triggered when at least one of these operators is present in the query. If the query does not include these operators, it is executed entirely by native Postgres.
 
 ### Custom Scan
 

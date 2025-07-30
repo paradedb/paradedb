@@ -350,8 +350,16 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        datums[i] = row.aggregate_values[*agg_idx].clone().into_datum();
-                        isnull[i] = false;
+                        match row.aggregate_values[*agg_idx].clone().into_datum() {
+                            Some(datum) => {
+                                datums[i] = datum;
+                                isnull[i] = false;
+                            }
+                            None => {
+                                datums[i] = pg_sys::Datum::from(0);
+                                isnull[i] = true;
+                            }
+                        }
                     }
                 }
             }
@@ -430,6 +438,15 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
         return None;
     }
 
+    // Get the relation OID for field name lookup
+    let parent_relids = args.input_rel().relids;
+    let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+    let heap_rte = unsafe {
+        let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
+        rt.get_ptr((heap_rti - 1) as usize)?
+    };
+    let relation_oid = unsafe { (*heap_rte).relid };
+
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
     for expr in target_list.iter_ptr() {
@@ -443,7 +460,7 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                     aggregate_types.push(AggregateType::Count);
                 } else {
                     // Check for other aggregate functions with arguments
-                    let agg_type = identify_aggregate_function(aggref)?;
+                    let agg_type = identify_aggregate_function(aggref, relation_oid)?;
                     aggregate_types.push(agg_type);
                 }
             } else {
@@ -462,14 +479,17 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
 }
 
 /// Identify an aggregate function by its OID and extract field name from its arguments
-unsafe fn identify_aggregate_function(aggref: *mut pg_sys::Aggref) -> Option<AggregateType> {
+unsafe fn identify_aggregate_function(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<AggregateType> {
     let aggfnoid = (*aggref).aggfnoid;
 
     // Get the function name to identify the aggregate
     let func_name = get_aggregate_function_name(aggfnoid)?;
 
     // Extract the field name from the first argument
-    let field_name = extract_field_name_from_aggref(aggref);
+    let field_name = extract_field_name_from_aggref(aggref, relation_oid);
 
     match func_name.as_str() {
         "count" => Some(AggregateType::Count),
@@ -512,34 +532,35 @@ unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<String> {
 }
 
 /// Extract field name from the first argument of an aggregate function
-unsafe fn extract_field_name_from_aggref(aggref: *mut pg_sys::Aggref) -> Option<String> {
-    let args = PgList::<pg_sys::Node>::from_pg((*aggref).args);
+unsafe fn extract_field_name_from_aggref(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
     if args.is_empty() {
         return None;
     }
 
     let first_arg = args.get_ptr(0)?;
-
-    // Handle TargetEntry nodes (common in aggregate expressions)
-    if let Some(target_entry) = nodecast!(TargetEntry, T_TargetEntry, first_arg) {
-        let expr = (*target_entry).expr;
-        if let Some(var) = nodecast!(Var, T_Var, expr) {
-            return get_var_field_name(var);
-        }
-    }
-
-    // Handle direct Var nodes
-    if let Some(var) = nodecast!(Var, T_Var, first_arg) {
-        return get_var_field_name(var);
+    if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+        return get_var_field_name(var, relation_oid);
     }
 
     None
 }
 
 /// Get the field name from a Var node
-unsafe fn get_var_field_name(var: *mut pg_sys::Var) -> Option<String> {
+unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -> Option<String> {
     let varattno = (*var).varattno;
-    Some(format!("field_{}", varattno))
+
+    // Get the actual column name from the relation
+    let attname = pg_sys::get_attname(relation_oid, varattno, false);
+    if !attname.is_null() {
+        let name = std::ffi::CStr::from_ptr(attname).to_str().ok()?;
+        return Some(name.to_string());
+    }
+
+    None
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

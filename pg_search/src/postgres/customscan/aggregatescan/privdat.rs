@@ -44,6 +44,19 @@ impl Default for AggregateValue {
     }
 }
 
+impl pgrx::IntoDatum for AggregateValue {
+    fn into_datum(self) -> Option<pgrx::pg_sys::Datum> {
+        match self {
+            AggregateValue::Int(i) => i.into_datum(),
+            AggregateValue::Float(f) => f.into_datum(),
+        }
+    }
+
+    fn type_oid() -> pgrx::pg_sys::Oid {
+        pgrx::pg_sys::NUMERICOID
+    }
+}
+
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
@@ -103,6 +116,7 @@ impl AggregateType {
     }
 
     pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
+
         match self {
             AggregateType::Count => {
                 let num = result.as_number().expect("COUNT result should be a number");

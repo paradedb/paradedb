@@ -170,7 +170,7 @@ impl AggregateScanState {
                         .get("value")
                         .expect("missing aggregate result value");
 
-                    aggregate.result_from_json(&aggregate_val)
+                    aggregate.result_from_json(aggregate_val)
                 })
                 .collect::<AggregateRow>();
 
@@ -229,14 +229,19 @@ impl AggregateScanState {
                                 }
                                 _ => {
                                     let agg_name = format!("agg_{idx}");
-                                    bucket_obj
-                                        .get(&agg_name)
-                                        .and_then(|v| v.as_object())
-                                        .and_then(|v| v.get("value"))
-                                        .expect("missing aggregate result")
+                                    let agg_obj = bucket_obj.get(&agg_name).expect(&format!(
+                                        "missing aggregate result for '{}'",
+                                        agg_name
+                                    ));
+
+                                    // Handle different aggregate result structures
+                                    agg_obj
+                                        .as_object()
+                                        .and_then(|obj| obj.get("value"))
+                                        .unwrap_or(agg_obj)
                                 }
                             };
-                            aggregate.result_from_json(&agg_result)
+                            aggregate.result_from_json(agg_result)
                         })
                         .collect()
                 };

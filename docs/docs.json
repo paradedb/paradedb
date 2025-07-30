@@ -231,6 +231,15 @@
                         "group": "Query Builder",
                         "pages": [
                           "v2/query-builder/overview",
+                          "v2/query-builder/match",
+                          {
+                            "group": "Phrase",
+                            "pages": [
+                              "v2/query-builder/phrase/phrase",
+                              "v2/query-builder/phrase/phrase_prefix",
+                              "v2/query-builder/phrase/regex_phrase"
+                            ]
+                          },
                           {
                             "group": "Term",
                             "pages": [
@@ -241,20 +250,6 @@
                               "v2/query-builder/term/regex",
                               "v2/query-builder/term/term",
                               "v2/query-builder/term/term_set"
-                            ]
-                          },
-                          {
-                            "group": "Phrase",
-                            "pages": [
-                              "v2/query-builder/phrase/phrase",
-                              "v2/query-builder/phrase/phrase_prefix",
-                              "v2/query-builder/phrase/regex_phrase"
-                            ]
-                          },
-                          {
-                            "group": "Match",
-                            "pages": [
-                              "v2/query-builder/match/match"
                             ]
                           },
                           "v2/query-builder/json"

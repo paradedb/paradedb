@@ -3,12 +3,12 @@ title: Match
 ---
 
 <Note>
-  Highlighting is not supported for `paradedb.match` if `distance` is greater
-  than zero.
+  Highlighting is not supported for `pdb.match` if `distance` is greater than
+  zero.
 </Note>
 
 Under the hood, the [match](/documentation/v2/full-text/match) conjunction and disjunction operators get rewritten to this query builder function.
-By default we recommend using [match](/documentation/v2/full-text/term) instead of this function.
+This function exposes a few advanced configuration options like the ability to use a custom tokenizer.
 
 ```sql
 SELECT description, rating, category

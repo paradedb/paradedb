@@ -5,14 +5,12 @@ title: Range
 Finds documents containing a term that falls within a specified range of values. This produces the same results as using
 Postgres' `<`, `>`, etc. range operators.
 
-<Note>
-Will error if the field has not been indexed as a fast field.
-</Note>
+<Note>Will error if the field has not been indexed as a fast field.</Note>
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE rating @@@ pdb.range(int4range(1, 3, '[)');
+WHERE rating @@@ pdb.range(int4range(1, 3, '[)'));
 ```
 
 <div className="mt-8" />

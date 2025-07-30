@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753909953757,
+  "lastUpdate": 1753910614201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8578,6 +8578,42 @@ window.BENCHMARK_DATA = {
             "value": 5.839214322890334,
             "unit": "median tps",
             "extra": "avg tps: 5.221150547665725, max tps: 6.633591937309678, count: 57814"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5b90b4662fd56e52166933e55ea8ff54e1e8ea80",
+          "message": "feat: added support for multiple group-by columns (to be pushed down to custom scan). (#2915)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-30T13:56:20-07:00",
+          "tree_id": "0c7b710b348ed06638d233e3e03c8b03689f1f98",
+          "url": "https://github.com/paradedb/paradedb/commit/5b90b4662fd56e52166933e55ea8ff54e1e8ea80"
+        },
+        "date": 1753910612899,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.6851690969793935,
+            "unit": "median tps",
+            "extra": "avg tps: 5.718479050382773, max tps: 8.579209101688608, count: 57081"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.7903503396903915,
+            "unit": "median tps",
+            "extra": "avg tps: 5.182799088012045, max tps: 6.55281296811007, count: 57081"
           }
         ]
       }

@@ -194,6 +194,86 @@
             ]
           },
           {
+            "anchor": "Docs v2 (beta)",
+            "icon": "sparkles",
+            "groups": [
+              {
+                "group": "Documentation",
+                "pages": [
+                  "v2/overview",
+                  {
+                    "group": "Getting Started",
+                    "pages": [
+                      "v2/getting-started/install",
+                      "v2/getting-started/quickstart",
+                      "v2/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Reference",
+                    "pages": [
+                      {
+                        "group": "Indexing",
+                        "pages": [
+                          "v2/indexing/create_index"
+                        ]
+                      },
+                      {
+                        "group": "Full Text Search",
+                        "pages": [
+                          "v2/full-text/overview",
+                          "v2/full-text/match",
+                          "v2/full-text/phrase",
+                          "v2/full-text/term",
+                          "v2/full-text/highlight"
+                        ]
+                      },
+                      {
+                        "group": "Query Builder",
+                        "pages": [
+                          "v2/query-builder/overview",
+                          "v2/query-builder/match",
+                          {
+                            "group": "Phrase",
+                            "pages": [
+                              "v2/query-builder/phrase/phrase",
+                              "v2/query-builder/phrase/phrase_prefix",
+                              "v2/query-builder/phrase/regex_phrase"
+                            ]
+                          },
+                          {
+                            "group": "Term",
+                            "pages": [
+                              "v2/query-builder/term/exists",
+                              "v2/query-builder/term/fuzzy_term",
+                              "v2/query-builder/term/range",
+                              "v2/query-builder/term/range_term",
+                              "v2/query-builder/term/regex",
+                              "v2/query-builder/term/term",
+                              "v2/query-builder/term/term_set"
+                            ]
+                          },
+                          "v2/query-builder/json"
+                        ]
+                      },
+                      {
+                        "group": "Aggregates",
+                        "pages": [
+                          "v2/aggregates/overview"
+                        ]
+                      }
+                    ]
+                  },
+                  "welcome/support",
+                  {
+                    "group": "Latest Version: v0.17.2",
+                    "pages": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "anchor": "Deploy",
             "icon": "server",
             "groups": [

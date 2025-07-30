@@ -18,6 +18,7 @@
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
+use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
@@ -54,6 +55,8 @@ pub struct AggregateScanState {
     pub aggregate_types: Vec<AggregateType>,
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
+    // The ORDER BY information for sorting
+    pub order_by_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -110,7 +113,6 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
-            terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
@@ -119,10 +121,13 @@ impl AggregateScanState {
             if i == self.grouping_columns.len() - 1 {
                 let mut sub_aggs = serde_json::Map::new();
                 for (j, aggregate) in self.aggregate_types.iter().enumerate() {
-                    let (name, agg) = aggregate.to_json_for_group(j);
-                    sub_aggs.insert(name, agg);
+                    if let Some((name, agg)) = aggregate.to_json_for_group(j) {
+                        sub_aggs.insert(name, agg);
+                    }
                 }
-                terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
+                if !sub_aggs.is_empty() {
+                    terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
+                }
             }
 
             bucket_agg.insert(bucket_name.clone(), serde_json::Value::Object(terms_agg));
@@ -151,6 +156,7 @@ impl AggregateScanState {
         TantivyValue::json_value_to_owned_value(&search_field, json_value)
     }
 
+    #[allow(unreachable_patterns)]
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row
@@ -177,12 +183,12 @@ impl AggregateScanState {
                 })
                 .collect::<AggregateRow>();
 
+            // No sorting needed for single aggregate result
             return vec![GroupedAggregateRow {
                 group_keys: vec![],
                 aggregate_values: row,
             }];
         }
-
         // GROUP BY - extract bucket results
         let mut rows = Vec::new();
 
@@ -213,13 +219,22 @@ impl AggregateScanState {
                 .iter()
                 .enumerate()
                 .map(|(idx, aggregate)| {
-                    let agg_name = format!("agg_{idx}");
-                    let agg_result = bucket_obj
-                        .get(&agg_name)
-                        .and_then(|v| v.as_object())
-                        .and_then(|v| v.get("value"))
-                        .and_then(|v| v.as_number())
-                        .expect("missing aggregate result");
+                    let agg_result = match aggregate {
+                        // Count is handled by the 'terms' bucket
+                        AggregateType::Count => bucket_obj
+                            .get("doc_count")
+                            .and_then(|v| v.as_number())
+                            .expect("missing doc_count"),
+                        _ => {
+                            let agg_name = format!("agg_{idx}");
+                            bucket_obj
+                                .get(&agg_name)
+                                .and_then(|v| v.as_object())
+                                .and_then(|v| v.get("value"))
+                                .and_then(|v| v.as_number())
+                                .expect("missing aggregate result")
+                        }
+                    };
 
                     aggregate.result_from_json(agg_result)
                 })
@@ -231,7 +246,54 @@ impl AggregateScanState {
             });
         }
 
+        // Sort the rows according to ORDER BY specification
+        self.sort_rows(&mut rows);
         rows
+    }
+
+    fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
+        if self.order_by_info.is_empty() {
+            return;
+        }
+
+        rows.sort_by(|a, b| {
+            for order_info in &self.order_by_info {
+                // Find the index of this grouping column
+                let col_index = self
+                    .grouping_columns
+                    .iter()
+                    .position(|gc| gc.field_name == order_info.field_name);
+
+                let cmp = if let Some(idx) = col_index {
+                    let val_a = a.group_keys.get(idx);
+                    let val_b = b.group_keys.get(idx);
+
+                    // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
+                    let tantivy_a = val_a.map(|v| TantivyValue(v.clone()));
+                    let tantivy_b = val_b.map(|v| TantivyValue(v.clone()));
+                    let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
+
+                    if let Some(base_cmp) = base_cmp {
+                        if order_info.is_desc {
+                            base_cmp.reverse()
+                        } else {
+                            base_cmp
+                        }
+                    } else {
+                        panic!(
+                            "Cannot ORDER BY {order_info:?} for {tantivy_a:?} and {tantivy_b:?}."
+                        );
+                    }
+                } else {
+                    std::cmp::Ordering::Equal
+                };
+
+                if cmp != std::cmp::Ordering::Equal {
+                    return cmp;
+                }
+            }
+            std::cmp::Ordering::Equal
+        });
     }
 }
 

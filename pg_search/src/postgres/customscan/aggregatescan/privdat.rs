@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::AsCStr;
+use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -33,9 +34,11 @@ impl AggregateType {
         serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
     }
 
-    pub fn to_json_for_group(&self, idx: usize) -> (String, serde_json::Value) {
+    #[allow(unreachable_patterns)]
+    pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::Count => (format!("agg_{idx}"), self.to_json()),
+            AggregateType::Count => None, // 'terms' bucket already has a 'doc_count'
+            _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
 
@@ -71,6 +74,7 @@ pub struct PrivateData {
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
+    pub order_by_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 

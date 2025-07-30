@@ -105,6 +105,39 @@ impl OrderByStyle {
     }
 }
 
+/// Simple ORDER BY information for serialization in PrivateData
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrderByInfo {
+    pub field_name: String,
+    pub is_desc: bool, // true for descending, false for ascending
+}
+
+impl OrderByInfo {
+    /// Extract ORDER BY information from query pathkeys
+    /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
+    pub fn extract_order_by_info(
+        root: *mut pg_sys::PlannerInfo,
+        order_pathkeys: &Option<Vec<OrderByStyle>>,
+    ) -> Vec<OrderByInfo> {
+        order_pathkeys
+            .as_ref()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|style| {
+                let field_name = match style {
+                    OrderByStyle::Field(_, name) => name.to_string(),
+                    OrderByStyle::Score(_) => "score".to_string(),
+                };
+                let is_desc = matches!(style.direction(), SortDirection::Desc);
+                OrderByInfo {
+                    field_name,
+                    is_desc,
+                }
+            })
+            .collect()
+    }
+}
+
 ///
 /// The type of ExecMethod that was chosen at planning time. We fully select an ExecMethodType at
 /// planning time in order to be able to make claims about the sortedness and estimates for our

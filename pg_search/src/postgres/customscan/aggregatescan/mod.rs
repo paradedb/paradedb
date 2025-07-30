@@ -32,13 +32,14 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, RestrictInfoType,
+    restrict_info, CustomPathBuilder, OrderByInfo, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -62,7 +63,7 @@ impl CustomScan for AggregateScan {
     type State = AggregateScanState;
     type PrivateData = PrivateData;
 
-    fn create_custom_path(builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
 
         // We can only handle single relations.
@@ -92,20 +93,6 @@ impl CustomScan for AggregateScan {
             Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
         };
 
-        // Check if there's an explicit ORDER BY clause in the query
-        // We check the parse tree's sortClause to detect explicit ORDER BY
-        let has_explicit_order_by = unsafe {
-            let parse = args.root().parse;
-            !parse.is_null()
-                && !(*parse).sortClause.is_null()
-                && !PgList::<pg_sys::Node>::from_pg((*parse).sortClause).is_empty()
-        };
-
-        if has_explicit_order_by && group_pathkeys.is_some() {
-            // We don't support ORDER BY in GROUP BY aggregate queries yet
-            return None;
-        }
-
         // Is the target list entirely aggregates?
         let aggregate_types = extract_aggregates(args)?;
 
@@ -130,14 +117,18 @@ impl CustomScan for AggregateScan {
             .expect("aggregate_custom_scan: should have a schema");
 
         // Extract grouping columns and validate they are fast fields
-        let grouping_columns = if let Some(pathkeys) = group_pathkeys {
+        let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
             // This will return None if:
             // 1. Any grouping column is not a fast field
             // 2. There are multiple grouping columns (not yet supported)
-            extract_grouping_columns(&pathkeys, args.root, heap_rti, &schema)?
+            extract_grouping_columns(pathkeys, args.root, heap_rti, &schema)?
         } else {
             vec![]
         };
+
+        // Extract ORDER BY pathkeys if present
+        let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
+        let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -154,12 +145,21 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
+        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
+        // To do this, we set pathkeys for ORDER BY if present.
+        if let Some(ref pathkeys) = order_pathkeys {
+            for pathkey_style in pathkeys {
+                builder = builder.add_path_key(pathkey_style);
+            }
+        };
+
         Some(builder.build(PrivateData {
             aggregate_types,
             indexrelid: bm25_index.oid(),
             heap_rti,
             query,
             grouping_columns,
+            order_by_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
         }))
     }
@@ -227,6 +227,7 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
+        builder.custom_state().order_by_info = builder.custom_private().order_by_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
@@ -507,3 +508,27 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
+
+/// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
+fn extract_order_by_pathkeys(
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+) -> Option<Vec<OrderByStyle>> {
+    unsafe {
+        let pathkey_styles = extract_pathkey_styles_with_sortability_check(
+            root,
+            heap_rti,
+            schema,
+            None,                                  // No limit on pathkeys for aggregatescan
+            |search_field| search_field.is_fast(), // Use is_fast() for regular vars
+            |_search_field| false,                 // Don't accept lower functions in aggregatescan
+        );
+
+        if pathkey_styles.is_empty() {
+            None
+        } else {
+            Some(pathkey_styles)
+        }
+    }
+}

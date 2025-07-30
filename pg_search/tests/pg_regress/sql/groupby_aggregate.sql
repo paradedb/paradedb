@@ -7,8 +7,6 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 -- ===========================================================================
 -- SECTION 1: Basic GROUP BY Tests with Numeric Fields
 -- ===========================================================================
--- Note: ORDER BY aggregate columns (e.g., ORDER BY COUNT(*)) is not yet supported
--- in the custom scan implementation. This is a known limitation.
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (
@@ -43,14 +41,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating;
--- ORDER BY rating;
+GROUP BY rating
+ORDER BY rating;
 
 SELECT rating, COUNT(*) AS count
 FROM products 
 WHERE description @@@ 'laptop' 
-GROUP BY rating;
--- ORDER BY rating;
+GROUP BY rating
+ORDER BY rating;
 
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -66,15 +64,15 @@ WHERE description @@@ 'laptop';
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT category, COUNT(*) AS count
 FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category;
--- ORDER BY category;
+WHERE description @@@ 'laptop OR keyboard OR shoes' 
+GROUP BY category
+ORDER BY category DESC;
 
 SELECT category, COUNT(*) AS count
 FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category;
--- ORDER BY category;
+WHERE description @@@ 'laptop OR keyboard OR shoes' 
+GROUP BY category
+ORDER BY category DESC;
 
 -- Test 1.4: Test different column orders (COUNT(*) first vs last)
 -- Verify that both column orders work correctly
@@ -136,41 +134,41 @@ WITH (
 
 -- Test 2.1: GROUP BY different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2; -- ORDER BY val_int2;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
-
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4; -- ORDER BY val_int4;
+SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8; -- ORDER BY val_int8;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
-
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4; -- ORDER BY val_float4;
+SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
 
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8; -- ORDER BY val_float8;
+SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
+
+SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
+
+SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
 
 -- Test 2.2: GROUP BY text field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text; -- ORDER BY val_text;
+SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
 
 -- Test 2.3: GROUP BY boolean field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
 
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool; -- ORDER BY val_bool;
+SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
 
 -- ===========================================================================
 -- SECTION 3: Edge Cases and Negative Tests
@@ -224,8 +222,8 @@ CREATE TABLE support_tickets (
 );
 
 INSERT INTO support_tickets (description, priority, status, category) VALUES
-    ('Cannot login to account', 'High', 'Open', 'Authentication'),
-    ('Password reset not working', 'High', 'Open', 'Authentication'),
+    ('Cannot login to failed account', 'High', 'Open', 'Authentication'),
+    ('Password reset not working (failed)', 'High', 'Open', 'Authentication'),
     ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
     ('Export feature broken', 'Low', 'Open', 'Features'),
     ('Payment failed error', 'High', 'Resolved', 'Billing'),
@@ -248,14 +246,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
--- ORDER BY priority;
+GROUP BY priority
+ORDER BY priority;
 
 SELECT priority, COUNT(*) as count
 FROM support_tickets
 WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority;
--- ORDER BY priority;
+GROUP BY priority
+ORDER BY priority;
 
 -- Test 4.2: Status breakdown by category (without ORDER BY)
 -- Note: ORDER BY aggregate columns is not yet supported in custom scan
@@ -282,13 +280,12 @@ WHERE description @@@ 'error'
 GROUP BY category, priority;
 
 -- ===========================================================================
--- SECTION 6: Verify ORDER BY on aggregate columns falls back to standard PostgreSQL
+-- SECTION 6: Verify ORDER BY functionality
 -- ===========================================================================
--- Note: Our custom aggregate scan doesn't support ORDER BY yet, so these queries
--- will use PostgreSQL's standard GroupAggregate + Sort approach. This is intentional
--- and ensures the queries still work correctly.
+-- Note: Our custom aggregate scan supports ORDER BY on grouping columns,
+-- but ORDER BY on aggregate columns falls back to PostgreSQL.
 
--- Test 6.1: ORDER BY COUNT(*) should NOT use aggregate custom scan
+-- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 
@@ -296,14 +293,14 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
--- The query should still work, just not with our custom scan
+-- The query should work with PostgreSQL's standard execution
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY COUNT(*) DESC;
 
--- Test 6.2: ORDER BY alias should also NOT use aggregate custom scan
+-- Test 6.2: ORDER BY alias should also fall back to PostgreSQL
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 
@@ -311,16 +308,29 @@ WHERE description @@@ 'error'
 GROUP BY category
 ORDER BY count DESC;
 
--- The query should still work
+-- The query should work with PostgreSQL's standard execution
 SELECT category, COUNT(*) as count
 FROM support_tickets 
 WHERE description @@@ 'error' 
 GROUP BY category
 ORDER BY count DESC;
 
--- Test 6.3: Verify GROUP BY without ORDER BY uses our custom aggregate scan
--- GROUP BY queries without ORDER BY can use our custom scan, while queries
--- with ORDER BY fall back to PostgreSQL's standard execution
+-- Test 6.3: ORDER BY grouping column should use custom aggregate scan
+EXPLAIN (COSTS OFF, VERBOSE) 
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY category;
+
+-- This should use our custom aggregate scan with ORDER BY
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'error' 
+GROUP BY category
+ORDER BY category;
+
+-- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
 EXPLAIN (COSTS OFF, VERBOSE) 
 SELECT category, COUNT(*) as count
 FROM support_tickets 
@@ -334,9 +344,45 @@ WHERE description @@@ 'error'
 GROUP BY category;
 
 -- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 
+SET paradedb.enable_aggregate_custom_scan TO off;
 DROP TABLE support_tickets CASCADE;
 DROP TABLE type_test CASCADE;
 DROP TABLE products CASCADE; 

@@ -18,7 +18,7 @@ In contrast, a [match conjunction](/v2/full-text/match#match-conjunction) query 
 While ParadeDB supports substring matching via [regex](/v2/query-builder/term/regex) queries, it's important to note that token matching is **not** the
 same as substring matching.
 
-Token matching is a much more expressive and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
+Token matching is a much more versatile and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
 
 For example, a substring search for `run` might miss `running`, while a token-based match query will correctly match if the tokenizer includes [stemming](documentation/indexing/token_filters#stemmer). This makes token matching a fit for search and discovery use cases where users expect flexible, intelligent results.
 
@@ -27,7 +27,7 @@ For example, a substring search for `run` might miss `running`, while a token-ba
 Text search is different than similarity search, also known as vector search. Whereas text search matches based on token matches, similarity search
 matches based on semantic meaning.
 
-ParadeDB currently does not do any engineering around similarity search. Most ParadeDB users install [pgvector](https://github.com/pgvector/pgvector), the
+ParadeDB currently does not build its own extensions for similarity search. Most ParadeDB users install [pgvector](https://github.com/pgvector/pgvector), the
 Postgres extension for vector search, for this use case.
 
 We have tentative long-term plans in our [roadmap](/welcome/roadmap#vector-search-improvements) to make improvements to Postgres' vector search.

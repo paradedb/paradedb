@@ -24,8 +24,8 @@ WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 
 ## Performance Considerations
 
-Expanding a prefix like might lead to thousands of matching terms, which impacts search times.
+Expanding a prefix might lead to thousands of matching terms, which impacts search times.
 
-With `max_expansions`, the prefix term is expanded to the first `max_expansions` terms
+With `max_expansions`, the prefix term is expanded to at most `max_expansions` terms
 in lexicographic order. For instance, if `sh` matches `shall`, `share`, `shoe`, and `shore` but `max_expansions` is set to 3,
 `sh` will only be expanded to `shall`, `share`, and `shoe`.

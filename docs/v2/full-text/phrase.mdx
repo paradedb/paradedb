@@ -46,12 +46,12 @@ Let’s consider a few more hypothetical documents to see whether they would be 
 These examples assume that index uses the default tokenizer and token filters, and that the query is
 `running shoes`.
 
-| Original Text       | Tokens                    | Match | Reason                                         | Related                                                                  |
-| ------------------- | ------------------------- | ----- | ---------------------------------------------- | ------------------------------------------------------------------------ |
+| Original Text       | Tokens                    | Match | Reason                                         | Related                                                    |
+| ------------------- | ------------------------- | ----- | ---------------------------------------------- | ---------------------------------------------------------- |
 | Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. |
-| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/documentation/v2/full-text/match#match-conjunction) |
-| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/documentation/v2/indexing)                                |
-| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](<(/documentation/v2/indexing)>)                               |
+| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/v2/full-text/match#match-conjunction) |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](<(/v2/indexing)>)                               |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`.   |
 | White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`.   |
 

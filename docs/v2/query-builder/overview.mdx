@@ -2,8 +2,8 @@
 title: Overview
 ---
 
-In addition to basic [match](/documentation/v2/full-text/match), [phrase](/documentation/v2/full-text/phrase), and
-[term](/documentation/v2/full-text/term) queries, additional advanced query types are exposed as query builder functions.
+In addition to basic [match](/v2/full-text/match), [phrase](/v2/full-text/phrase), and
+[term](/v2/full-text/term) queries, additional advanced query types are exposed as query builder functions.
 
 Users familiar with Elasticsearch may notice that these query types are similar to those found in Elastic’s query DSL.
 This is intentional — ParadeDB uses the same terminology as Elasticsearch for its query types.
@@ -31,11 +31,11 @@ WHERE description @@@ pdb.regex('key.*rd');
 ```
 </Accordion>
 
-This uses the [regex](/documentation/v2/query-builder/regex) query builder function to match all rows where `description` matches the regex expression `key.*rd`.
+This uses the [regex](/v2/query-builder/regex) query builder function to match all rows where `description` matches the regex expression `key.*rd`.
 
 ## When to Use Query Builder Functions
 
-For most use cases, we recommend using the [full text search](/documentation/v2/full-text) operators instead of query builder
+For most use cases, we recommend using the [full text search](/v2/full-text) operators instead of query builder
 functions. However, there are two scenarios where query builder functions are useful. The first is if you need an **advanced query type**, like the regex query.
 
 The second is if you want to **force query pushdown** into the ParadeDB [custom scan](/welcome/architecture#custom-scan). In order for a query to be executed by ParadeDB,

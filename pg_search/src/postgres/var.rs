@@ -2,13 +2,38 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
 use crate::nodecast;
-use pgrx::pg_sys::NodeTag::{T_Const, T_OpExpr, T_Var};
-use pgrx::pg_sys::{expression_tree_walker, Const, OpExpr, Var};
+use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
+use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::PgOid;
 use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
+
+pub enum VarContext {
+    Planner(*mut pg_sys::PlannerInfo),
+    Exec(pg_sys::Oid, pg_sys::AttrNumber),
+}
+
+impl VarContext {
+    pub fn from_planner(root: *mut pg_sys::PlannerInfo) -> Self {
+        Self::Planner(root)
+    }
+
+    pub fn from_exec(heaprelid: pg_sys::Oid, varattno: pg_sys::AttrNumber) -> Self {
+        Self::Exec(heaprelid, varattno)
+    }
+
+    pub fn var_relation(&self, var: *mut pg_sys::Var) -> (pg_sys::Oid, pg_sys::AttrNumber) {
+        match self {
+            Self::Planner(root) => {
+                let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
+                (heaprelid, varattno)
+            }
+            Self::Exec(heaprelid, varattno) => (*heaprelid, *varattno),
+        }
+    }
+}
 
 /// Given a [`pg_sys::Var`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
 /// contains the var.
@@ -177,7 +202,7 @@ pub unsafe fn find_one_var(node: *mut pg_sys::Node) -> Option<*mut pg_sys::Var> 
 ///
 /// It is the caller's responsibility to ensure that the node contains a Var with a valid FieldName.
 pub unsafe fn find_one_var_and_fieldname(
-    root: *mut pg_sys::PlannerInfo,
+    context: VarContext,
     node: *mut pg_sys::Node,
 ) -> Option<(*mut pg_sys::Var, FieldName)> {
     if is_a(node, T_OpExpr) {
@@ -188,14 +213,23 @@ pub unsafe fn find_one_var_and_fieldname(
             .contains(&(*opexpr).opno)
         {
             let var = find_one_var(node)?;
-            let path = find_json_path(root, node);
+            let path = find_json_path(&context, node);
+            pgrx::info!("path: {:?}", path);
             return Some((var, path.join(".").into()));
         }
         None
     } else if is_a(node, T_Var) {
         let var = node.cast::<Var>();
-        let (heaprelid, varattno, _) = find_var_relation(var, root);
+        let (heaprelid, varattno) = context.var_relation(var);
         Some((var, fieldname_from_var(heaprelid, var, varattno)?))
+    } else if is_a(node, T_CoerceViaIO) {
+        let expr = node.cast::<CoerceViaIO>();
+        let arg = (*expr).arg;
+        find_one_var_and_fieldname(context, arg as *mut pg_sys::Node)
+    } else if is_a(node, T_RelabelType) {
+        let relabel_type = node.cast::<RelabelType>();
+        let arg = (*relabel_type).arg;
+        find_one_var_and_fieldname(context, arg as *mut pg_sys::Node)
     } else {
         None
     }
@@ -206,12 +240,12 @@ pub unsafe fn find_one_var_and_fieldname(
 ///
 /// It is the caller's responsibility to ensure that the node is a JSON path expression.
 #[inline(always)]
-unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node) -> Vec<String> {
+unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> Vec<String> {
     let mut path = Vec::new();
 
     if is_a(node, T_Var) {
         let node = node as *mut Var;
-        let (heaprelid, varattno, _) = find_var_relation(node, root);
+        let (heaprelid, varattno) = context.var_relation(node);
         let field_name = fieldname_from_var(heaprelid, node, varattno)
             .expect("find_json_path: var should have a valid FieldName");
         path.push(field_name.root());
@@ -240,7 +274,7 @@ unsafe fn find_json_path(root: *mut pg_sys::PlannerInfo, node: *mut pg_sys::Node
     } else if is_a(node, T_OpExpr) {
         let node = node as *mut OpExpr;
         for expr in PgList::from_pg((*node).args).iter_ptr() {
-            path.extend(find_json_path(root, expr));
+            path.extend(find_json_path(context, expr));
         }
     }
 

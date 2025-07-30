@@ -484,6 +484,7 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
+    pgrx::info!("node: {:?}", (*node).type_);
     if node.is_null() {
         return None;
     }
@@ -571,14 +572,14 @@ pub unsafe fn extract_quals(
         }
 
         pg_sys::NodeTag::T_Var => {
-            let var_node = nodecast!(Var, T_Var, node)?;
-
-            // Check if this is a boolean field reference to our relation
-            if (*var_node).varno as pg_sys::Index != rti {
-                return None;
-            }
             // First, try to create a PushdownField to see if this is an indexed boolean field
-            if let Some(field) = PushdownField::try_new(root, var_node, schema) {
+            if let Some(field) = PushdownField::try_new(root, node, schema) {
+                pgrx::info!("field: {:?}", field);
+                // Check if this is a boolean field reference to our relation
+                if field.varno() != rti {
+                    return None;
+                }
+
                 if let Some(search_field) = schema.search_field(field.attname()) {
                     if search_field.is_fast() {
                         // This is an indexed boolean field, create proper pushdown qual
@@ -589,10 +590,12 @@ pub unsafe fn extract_quals(
                 }
             }
 
+            pgrx::info!("not indexed");
             // If we reach here, the field is not indexed or not fast, so create HeapExpr
             // T_Var nodes represent boolean field references without explicit "= true" comparison
             // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"
             // We need to handle both cases since they're semantically equivalent
+            let var_node = nodecast!(Var, T_Var, node)?;
             try_create_heap_expr_from_var(root, var_node, rti, &mut state.uses_tantivy_to_query)
         }
 
@@ -1034,8 +1037,7 @@ unsafe fn booltest(
 
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
-    let arg_var = nodecast!(Var, T_Var, arg)?;
-    let field = PushdownField::try_new(root, arg_var, schema)?;
+    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, schema)?;
 
     // It's a simple field reference, handle as specific cases
     let qual = match (*booltest).booltesttype {

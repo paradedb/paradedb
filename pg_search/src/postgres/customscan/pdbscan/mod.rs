@@ -374,8 +374,8 @@ impl CustomScan for PdbScan {
                     target_list,
                     &referenced_columns,
                     rti,
-                    &schema,
                     &table,
+                    &bm25_index,
                     false,
                 )
                 .into_iter()
@@ -1173,26 +1173,24 @@ fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
+    let target_list = builder.target_list().as_ptr();
     let exec_which_fast_fields = unsafe {
-        let indexrel = builder.custom_state().indexrel();
-        let schema = indexrel
-            .schema()
-            .expect("create_custom_scan_state: should have a schema");
-
-        // Calculate the ordered set of fast fields which have actually been requested in
-        // the target list.
+        let custom_state = builder.custom_state();
+        let indexrel = custom_state.indexrel();
+        let execution_rti = custom_state.execution_rti;
+        let heaprel = custom_state.heaprel();
         //
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
-            builder.target_list().as_ptr(),
+            target_list,
             // At this point, all fast fields which we need to extract are listed directly
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            builder.custom_state().execution_rti,
-            &schema,
-            builder.custom_state().heaprel(),
+            execution_rti,
+            heaprel,
+            indexrel,
             true,
         )
     };

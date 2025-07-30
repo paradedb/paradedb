@@ -18,9 +18,10 @@
 pub mod mixed;
 pub mod numeric;
 
+use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
-use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
+use crate::index::fast_fields_helper::{FFDynamic, FFHelper, FastFieldType, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
@@ -29,6 +30,7 @@ use crate::postgres::customscan::pdbscan::projections::score::uses_scores;
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
 use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
@@ -155,15 +157,15 @@ pub unsafe fn collect_fast_fields(
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
+    index: &PgSearchRelation,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
         target_list,
         referenced_columns,
-        schema,
         heaprel,
+        index,
         rti,
         is_execution_time,
     );
@@ -179,7 +181,8 @@ fn collect_fast_field_try_for_attno(
     matches: &mut Vec<WhichFastField>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgSearchRelation,
-    schema: &SearchIndexSchema,
+    index: &PgSearchRelation,
+    fieldname: Option<&FieldName>,
 ) -> bool {
     // Skip if we've already processed this attribute number
     if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
@@ -218,8 +221,26 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                let schema = index
+                    .schema()
+                    .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
+                    pgrx::info!("search_field: {:?}", search_field);
                     if search_field.is_fast() {
+                        if att.type_oid().value() == pg_sys::JSONOID
+                            || att.type_oid().value() == pg_sys::JSONBOID
+                        {
+                            pgrx::info!("json {:?}", fieldname);
+                            if let Some(fieldname) = fieldname {
+                                if let Some(ff_type) = FFDynamic::try_new(index, fieldname) {
+                                    pgrx::info!("ff_type: {:?}", ff_type);
+                                    matches.push(ff_type.which_fast_field());
+                                }
+                            }
+
+                            return true;
+                        }
+
                         let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                             || att.type_oid().value() == pg_sys::VARCHAROID
                             || att.type_oid().value() == pg_sys::UUIDOID
@@ -243,8 +264,8 @@ fn collect_fast_field_try_for_attno(
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
+    index: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
@@ -262,7 +283,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+        if let Some(var) = find_one_var((*te).expr.cast()) {
             if (*var).varno as i32 != rti as i32 {
                 // We expect all Vars in the target list to be from the same range table as the
                 // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -279,14 +300,24 @@ pub unsafe fn pullup_fast_fields(
                 }
                 continue;
             }
-            let attno = (*var).varattno as i32;
+            let attno = (*var).varattno;
+            let fieldname = if let Some((_, fieldname)) = find_one_var_and_fieldname(
+                VarContext::from_exec(heaprel.oid(), attno),
+                (*te).expr.cast(),
+            ) {
+                Some(fieldname)
+            } else {
+                None
+            };
+            pgrx::info!("collected fieldname: {:?}", fieldname);
             if !collect_fast_field_try_for_attno(
-                attno,
+                attno as i32,
                 &mut processed_attnos,
                 &mut matches,
                 &tupdesc,
                 heaprel,
-                schema,
+                index,
+                fieldname.as_ref(),
             ) {
                 return None;
             }
@@ -332,7 +363,8 @@ pub unsafe fn pullup_fast_fields(
             &mut matches,
             &tupdesc,
             heaprel,
-            schema,
+            index,
+            None,
         ) {
             return None;
         }

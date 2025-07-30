@@ -31,7 +31,6 @@ use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
-use crate::schema::SearchIndexSchema;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
@@ -225,16 +224,13 @@ fn collect_fast_field_try_for_attno(
                     .schema()
                     .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
-                    pgrx::info!("search_field: {:?}", search_field);
                     if search_field.is_fast() {
                         if att.type_oid().value() == pg_sys::JSONOID
                             || att.type_oid().value() == pg_sys::JSONBOID
                         {
-                            pgrx::info!("json {:?}", fieldname);
                             if let Some(fieldname) = fieldname {
-                                if let Some(ff_type) = FFDynamic::try_new(index, fieldname) {
-                                    pgrx::info!("ff_type: {:?}", ff_type);
-                                    matches.push(ff_type.which_fast_field());
+                                if let Some(ff) = FFDynamic::try_new(index, fieldname) {
+                                    matches.push(ff.which_fast_field());
                                 }
                             }
 
@@ -309,7 +305,6 @@ pub unsafe fn pullup_fast_fields(
             } else {
                 None
             };
-            pgrx::info!("collected fieldname: {:?}", fieldname);
             if !collect_fast_field_try_for_attno(
                 attno as i32,
                 &mut processed_attnos,

@@ -122,6 +122,7 @@ pub enum FFType {
     U64(Column<u64>),
     Bool(Column<bool>),
     Date(Column<tantivy::DateTime>),
+    #[allow(dead_code)]
     Json(FFDynamic),
 }
 

@@ -214,7 +214,6 @@ pub unsafe fn find_one_var_and_fieldname(
         {
             let var = find_one_var(node)?;
             let path = find_json_path(&context, node);
-            pgrx::info!("path: {:?}", path);
             return Some((var, path.join(".").into()));
         }
         None

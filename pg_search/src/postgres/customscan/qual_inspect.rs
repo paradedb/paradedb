@@ -484,7 +484,6 @@ pub unsafe fn extract_quals(
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
-    pgrx::info!("node: {:?}", (*node).type_);
     if node.is_null() {
         return None;
     }
@@ -574,7 +573,6 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_Var => {
             // First, try to create a PushdownField to see if this is an indexed boolean field
             if let Some(field) = PushdownField::try_new(root, node, schema) {
-                pgrx::info!("field: {:?}", field);
                 // Check if this is a boolean field reference to our relation
                 if field.varno() != rti {
                     return None;
@@ -590,7 +588,6 @@ pub unsafe fn extract_quals(
                 }
             }
 
-            pgrx::info!("not indexed");
             // If we reach here, the field is not indexed or not fast, so create HeapExpr
             // T_Var nodes represent boolean field references without explicit "= true" comparison
             // PostgreSQL parser generates T_Var for "WHERE bool_field" vs T_OpExpr for "WHERE bool_field = true"

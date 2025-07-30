@@ -31,7 +31,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -213,22 +213,16 @@ pub unsafe fn tantivy_field_name_from_node(
     node: *mut pg_sys::Node,
 ) -> Option<(pg_sys::Oid, Option<FieldName>)> {
     match (*node).type_ {
-        pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_OpExpr => {
-            use crate::PG_SEARCH_PREFIX;
-
-            // We expect the funcexpr/opexpr to contain the var of the field name we're looking for
-            let (heaprelid, _, _) = find_node_relation(node, root);
-            if heaprelid == pg_sys::Oid::INVALID {
-                panic!("could not find heap relation for node");
+        pg_sys::NodeTag::T_FuncExpr => tantivy_field_name_from_func_expr(root, node),
+        pg_sys::NodeTag::T_OpExpr => match tantivy_field_name_from_func_expr(root, node) {
+            Some((oid, attname)) => Some((oid, attname)),
+            None => {
+                let (var, fieldname) =
+                    find_one_var_and_fieldname(VarContext::from_planner(root), node)?;
+                let (oid, _) = VarContext::from_planner(root).var_relation(var);
+                Some((oid, Some(fieldname)))
             }
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-                .expect("could not find bm25 index for heaprelid");
-
-            let attnum = find_expr_attnum(&indexrel, node)?;
-            let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
-            Some((heaprelid, Some(expression_str)))
-        }
+        },
         pg_sys::NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
             let (oid, attname) = attname_from_var(root, var);
@@ -236,6 +230,25 @@ pub unsafe fn tantivy_field_name_from_node(
         }
         _ => None,
     }
+}
+
+unsafe fn tantivy_field_name_from_func_expr(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<(pg_sys::Oid, Option<FieldName>)> {
+    use crate::PG_SEARCH_PREFIX;
+
+    let (heaprelid, _, _) = find_node_relation(node, root);
+    if heaprelid == pg_sys::Oid::INVALID {
+        panic!("could not find heap relation for node");
+    }
+    let heaprel = PgSearchRelation::open(heaprelid);
+    let indexrel =
+        locate_bm25_index_from_heaprel(&heaprel).expect("could not find bm25 index for heaprelid");
+
+    let attnum = find_expr_attnum(&indexrel, node)?;
+    let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
+    Some((heaprelid, Some(expression_str)))
 }
 
 fn find_expr_attnum(indexrel: &PgSearchRelation, node: *mut pg_sys::Node) -> Option<i32> {

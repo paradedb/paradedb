@@ -21,9 +21,7 @@ use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::qual_inspect::Qual;
-use crate::postgres::var::{
-    fieldname_from_var, find_one_var_and_fieldname, find_var_relation, VarContext,
-};
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
@@ -46,7 +44,7 @@ impl PushdownField {
         schema: &SearchIndexSchema,
     ) -> Option<Self> {
         let (var, field) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
-        schema.search_field(&field).map(|_| Self {
+        schema.search_field(field.root()).map(|_| Self {
             field_name: field,
             varno: (*var).varno as pg_sys::Index,
         })
@@ -67,7 +65,7 @@ impl PushdownField {
     }
 
     pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<SearchField> {
-        schema.search_field(&self.field_name.root())
+        schema.search_field(self.field_name.root())
     }
 
     pub fn varno(&self) -> pg_sys::Index {
@@ -151,7 +149,6 @@ pub unsafe fn try_pushdown_inner(
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
     let pushdown = PushdownField::try_new(root, lhs, schema)?;
-    pgrx::info!("pushdown: {:?}", pushdown);
     let field = pushdown.search_field(schema)?;
     if field.is_text() && !field.is_keyword() {
         return None;

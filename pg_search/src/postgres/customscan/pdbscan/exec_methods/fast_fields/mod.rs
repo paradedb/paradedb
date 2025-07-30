@@ -279,7 +279,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if let Some(var) = find_one_var((*te).expr.cast()) {
+        let maybe_var = if let Some(var) = find_one_var((*te).expr.cast()) {
             if (*var).varno as i32 != rti as i32 {
                 // We expect all Vars in the target list to be from the same range table as the
                 // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -296,23 +296,23 @@ pub unsafe fn pullup_fast_fields(
                 }
                 continue;
             }
-            let attno = (*var).varattno;
-            let fieldname = if let Some((_, fieldname)) = find_one_var_and_fieldname(
-                VarContext::from_exec(heaprel.oid(), attno),
+            find_one_var_and_fieldname(
+                VarContext::from_exec(heaprel.oid(), (*var).varattno as i16),
                 (*te).expr.cast(),
-            ) {
-                Some(fieldname)
-            } else {
-                None
-            };
+            )
+        } else {
+            None
+        };
+
+        if let Some((var, fieldname)) = maybe_var {
             if !collect_fast_field_try_for_attno(
-                attno as i32,
+                (*var).varattno as i32,
                 &mut processed_attnos,
                 &mut matches,
                 &tupdesc,
                 heaprel,
                 index,
-                fieldname.as_ref(),
+                Some(&fieldname),
             ) {
                 return None;
             }

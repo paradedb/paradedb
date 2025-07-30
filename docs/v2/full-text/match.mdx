@@ -1,0 +1,102 @@
+---
+title: Match
+---
+
+Match queries are the go-to query type for text search in ParadeDB. There are two types of match queries:
+[match disjunction](#match-disjunction) and [match conjunction](#match-conjunction).
+
+## Match Disjunction
+
+Match disjunction uses the `|||` operator and means "find all documents that contain one or more of the terms tokenized from this text input."
+
+To understand what this looks like in practice, let's consider the following query:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes';
+```
+
+This query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+(3 rows)
+```
+
+### How It Works
+
+Let's look at what the `|||` operator does:
+
+1. Retrieves the [tokenizer configuration](/documentation/indexing/tokenizers) of the `description` column. In this example,
+   let's assume `description` uses the [default](/documentation/indexing/tokenizers#default) tokenizer, which splits on whitespace
+   and punctuation.
+2. Tokenizes the query string with the same tokenizer. This means `running shoes` becomes two tokens: `running` and `shoes`.
+3. Finds all rows where `description` contains **any one** of the tokens, `running` or `shoes`.
+
+This is why all results have either `running` or `shoes` tokens in `description`.
+
+### Examples
+
+Let's consider a few more hypothetical documents to see whether they would be returned by match disjunction.
+These examples assume that the index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
+
+| Original Text       | Tokens                    | Match | Reason                                  | Related                                                    |
+| ------------------- | ------------------------- | ----- | --------------------------------------- | ---------------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Phrase](/v2/full-text/phrase)                             |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/v2/indexing/create_index)                   |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](/v2/indexing/create_index)                      |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy match](/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/v2/full-text/match#match-conjunction) |
+
+## Match Conjunction
+
+Suppose we want to find rows that contain both `running` **and** `shoes`. This is where the `&&&` match conjunction operator comes in.
+`&&&` means "find all documents that contain all terms tokenized from this text input."
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes';
+```
+
+This query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+Note that `White jogging shoes` and `Generic shoes` are no longer returned because they do not have the token `running`.
+
+### How It Works
+
+Match conjunction works exactly like match disjunction, except for one key distinction. Instead of finding documents containing
+at least one matching token from the query, it finds documents where **all tokens** from the query are a match.
+
+### Examples
+
+Let’s consider a few more hypothetical documents to see whether they would be returned by match conjunction.
+These examples assume that the index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
+
+| Original Text       | Tokens                    | Match | Reason                                       | Related                                                    |
+| ------------------- | ------------------------- | ----- | -------------------------------------------- | ---------------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         |
+| Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Phrase](/v2/full-text/phrase)                             |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Lowercasing](/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](/v2/indexing)                                   |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy match](/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/v2/full-text/match#match-conjunction) |
+
+## Fuzzy Match
+
+Fuzzy matching has not yet been implemented in `v2`. Please continue to use `v1` for this capability.

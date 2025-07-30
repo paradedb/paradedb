@@ -1,0 +1,34 @@
+---
+title: Overview
+---
+
+## How Text Search Works
+
+Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
+
+Token matching consists of two steps. First, at indexing time, text is first processed by a tokenizer, which breaks input into discrete units called **tokens** or
+**terms**. For example, the [default](/documentation/indexing/) tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
+
+Second, at query time, the query engine looks for token matches based on the query type.
+For example, a [match disjunction](/v2/full-text/match#match-disjunction) query for `running shoes` will match any document that contains at least one of the tokens `running` or `shoes`.
+In contrast, a [match conjunction](/v2/full-text/match#match-conjunction) query requires all tokens to be present in the document — `running` and `shoes` must both appear.
+
+## Not Substring Matching
+
+While ParadeDB supports substring matching via [regex](/v2/query-builder/term/regex) queries, it's important to note that token matching is **not** the
+same as substring matching.
+
+Token matching is a much more versatile and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
+
+For example, a substring search for `run` might miss `running`, while a token-based match query will correctly match if the tokenizer includes [stemming](documentation/indexing/token_filters#stemmer). This makes token matching a fit for search and discovery use cases where users expect flexible, intelligent results.
+
+## Similarity Search
+
+Text search is different than similarity search, also known as vector search. Whereas text search matches based on token matches, similarity search
+matches based on semantic meaning.
+
+ParadeDB currently does not build its own extensions for similarity search. Most ParadeDB users install [pgvector](https://github.com/pgvector/pgvector), the
+Postgres extension for vector search, for this use case.
+
+We have tentative long-term plans in our [roadmap](/welcome/roadmap#vector-search-improvements) to make improvements to Postgres' vector search.
+If this is useful to you, please [reach out](mailto:support@paradedb.com).

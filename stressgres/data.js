@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753900421125,
+  "lastUpdate": 1753900423608,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10598,6 +10598,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.64240683664892, max segment_count: 97.0, count: 57104"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fb79113eb844aec4f9309f9e4ef06a08cfa9692",
+          "message": "feat: GROUP BY without an aggregation function (#2914)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nThis PR adds support for GROUP BY queries that do not have an\naggregation function\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-30T11:06:20-07:00",
+          "tree_id": "dedee0889774880d608ffdbc3a39be971568e4b0",
+          "url": "https://github.com/paradedb/paradedb/commit/9fb79113eb844aec4f9309f9e4ef06a08cfa9692"
+        },
+        "date": 1753900422349,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.50082842732716, max cpu: 42.64561, count: 57814"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 227.45542494032588, max mem: 232.03515625, count: 57814"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.241164379482075, max cpu: 33.168808, count: 57814"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.56549505742555, max mem: 162.3515625, count: 57814"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22168,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20819.089078769848, max block_count: 23681.0, count: 57814"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.87573944027399, max segment_count: 98.0, count: 57814"
           }
         ]
       }

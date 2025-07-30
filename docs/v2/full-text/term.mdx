@@ -7,7 +7,7 @@ token level.
 
 ## Overview
 
-Unlike [match](/documentation/full-text/match) or [phrase](/documentation/full-text/phrase) queries, term queries treat the query
+Unlike [match](/v2/full-text/match) or [phrase](/v2/full-text/phrase) queries, term queries treat the query
 string as a **finalized token**. This means that the query string is taken as-is, without any further tokenization, lowercasing,
 stemming, etc.
 
@@ -48,12 +48,12 @@ Let’s consider a few more hypothetical documents to see whether they would be 
 These examples assume that index uses the default tokenizer and token filters, and that the term query is
 `running`.
 
-| Original Text       | Tokens                    | Match | Reason                                | Related                      |
-| ------------------- | ------------------------- | ----- | ------------------------------------- | ---------------------------- |
+| Original Text       | Tokens                    | Match | Reason                                | Related                     |
+| ------------------- | ------------------------- | ----- | ------------------------------------- | --------------------------- |
 | Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
 | Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         |
-| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         | [Lowercasing](/v2/indexing)  |
-| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain the token `running`. | [Stemming](<(/v2/indexing)>) |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains the token `running`.         | [Lowercasing](/v2/indexing) |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain the token `running`. | [Stemming](/v2/indexing)    |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain the token `running`. |
 | White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain the token `running`. |
 

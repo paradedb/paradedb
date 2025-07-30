@@ -75,10 +75,10 @@ LIMIT 5;
 ```
 </Accordion>
 
-`|||` is ParadeDB's custom [match disjunction](/documentation/full-text/match#disjunction) operator, which means "find me all documents containing
+`|||` is ParadeDB's custom [match disjunction](/v2/full-text/match#disjunction) operator, which means "find me all documents containing
 `running OR shoes`.
 
-If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/documentation/full-text/match#conjunction) operator.
+If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/v2/full-text/match#conjunction) operator.
 
 ```sql
 SELECT description, rating, category

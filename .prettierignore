@@ -25,4 +25,5 @@
 /docs/integrations/overview.mdx
 /docs/v2/getting-started/quickstart.mdx
 /docs/v2/query-builder/overview.mdx
+/docs/v2/full-text/highlight.mdx
 /pg_search/benchmarks/out/

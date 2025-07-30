@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 009f188d0578e47073f3145728f8d2ea1e25f044829c989e78435fc58bb191aa # shrinks to (expr, selected_values) = (JsonExpr { json_operator: TextExtract, path: Simple("name"), operation: Comparison { operator: Eq, value: Text } }, ["'apple'"]), gucs = PgGucs { aggregate_custom_scan: false, custom_scan: false, custom_scan_without_operator: false, seqscan: false, indexscan: false, parallel_workers: false }
+cc d580a18c0bc2ac320a567fd1105ffc22e52ff1f752d133353451e4e3c4d2f913 # shrinks to (expr, selected_values) = (JsonExpr { json_operator: TextExtract, path: Simple("name"), operation: In { values: [Numeric] } }, ["'apple'"]), gucs = PgGucs { aggregate_custom_scan: false, custom_scan: false, custom_scan_without_operator: false, seqscan: false, indexscan: false, parallel_workers: false }
+cc ba023909f65a7f8d1140a726784a207d0484c9d697a252cba7109fa4d85494fa # shrinks to (expr, selected_values) = (JsonExpr { json_operator: TextExtract, path: Nested("user", "number"), operation: Comparison { operator: Eq, value: Text } }, ["'apple'"]), gucs = PgGucs { aggregate_custom_scan: false, custom_scan: false, custom_scan_without_operator: false, seqscan: false, indexscan: false, parallel_workers: false }
+cc 50e95ef3a381ffbd9baaf77bd686e2475a7dfdc8eb87ff4081b6250c85321922 # shrinks to (expr, selected_values) = (JsonExpr { json_operator: NumericExtract, path: Simple("active"), operation: IsTrue }, []), gucs = PgGucs { aggregate_custom_scan: false, custom_scan: false, custom_scan_without_operator: false, seqscan: false, indexscan: false, parallel_workers: false }
+cc e8428262738387a4d36668541d3c3b9ec58d94741f16eb492012e7bb6b1e7ccc # shrinks to (expr, selected_values) = (JsonExpr { json_operator: TextExtract, path: Simple("tags"), operation: NotIn { values: [Text] } }, ["'apple'"]), index_config = IndexConfig { tokenizer: Default, fast: false }, gucs = PgGucs { aggregate_custom_scan: false, custom_scan: true, custom_scan_without_operator: false, seqscan: false, indexscan: false, parallel_workers: false }

@@ -18,6 +18,7 @@
 use crate::nodecast;
 use pgrx::{pg_sys, PgList};
 
+#[derive(Debug)]
 pub(crate) enum OpExpr {
     Array(*mut pg_sys::ScalarArrayOpExpr),
     Single(*mut pg_sys::OpExpr),

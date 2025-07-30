@@ -93,11 +93,22 @@ type TantivyOperator = &'static str;
 
 trait TantivyOperatorExt {
     fn is_range(&self) -> bool;
+    #[allow(unused)]
+    fn is_eq(&self) -> bool;
+    fn is_neq(&self) -> bool;
 }
 
 impl TantivyOperatorExt for &str {
     fn is_range(&self) -> bool {
         *self == ">" || *self == ">=" || *self == "<" || *self == "<="
+    }
+
+    fn is_eq(&self) -> bool {
+        *self == "="
+    }
+
+    fn is_neq(&self) -> bool {
+        *self == "<>"
     }
 }
 
@@ -167,7 +178,13 @@ pub unsafe fn try_pushdown_inner(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
+            // we don't support metadata->>'value' > 5 if `metadata` is not fast
             if field.is_json() && !field.is_fast() && (*pgsearch_operator).is_range() {
+                return None;
+            }
+
+            // we don't support metadata->>'value' NOT IN ('test') if `metadata` is not fast
+            if field.is_json() && (*pgsearch_operator).is_neq() {
                 return None;
             }
 

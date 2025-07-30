@@ -408,7 +408,7 @@ INSERT INTO support_tickets (description, priority, status, category) VALUES
     ('Cannot login to failed account', 'High', 'Open', 'Authentication'),
     ('Password reset not working (failed)', 'High', 'Open', 'Authentication'),
     ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
-    ('Export feature broken', 'Low', 'Open', 'Features'),
+    ('Export feature broken error', 'Low', 'Open', 'Features'),
     ('Payment failed error', 'High', 'Resolved', 'Billing'),
     ('Missing invoice', 'Low', 'Resolved', 'Billing');
 CREATE INDEX tickets_idx ON support_tickets
@@ -561,7 +561,8 @@ ORDER BY category;
  category | count 
 ----------+-------
  Billing  |     1
-(1 row)
+ Features |     1
+(2 rows)
 
 -- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
 EXPLAIN (COSTS OFF, VERBOSE) 
@@ -586,6 +587,90 @@ GROUP BY category;
  category | count 
 ----------+-------
  Billing  |     1
+ Features |     1
+(2 rows)
+
+-- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
+EXPLAIN (COSTS OFF, VERBOSE)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
+   Output: category
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+(5 rows)
+
+-- This should use our custom aggregate scan and return distinct categories without COUNT(*)
+SELECT category
+FROM support_tickets
+WHERE description @@@ 'error'
+GROUP BY category
+ORDER BY category;
+ category 
+----------
+ Billing
+ Features
+(2 rows)
+
+-- ===========================================================================
+-- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
+-- ===========================================================================
+-- Test 7.1: GROUP BY with integer field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on support_tickets
+   Index: tickets_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+(4 rows)
+
+SELECT category, COUNT(*) as count
+FROM support_tickets 
+WHERE description @@@ 'failed' 
+GROUP BY category
+ORDER BY category;
+    category    | count 
+----------------+-------
+ Authentication |     2
+ Billing        |     1
+(2 rows)
+
+-- Aggregate UDF equivalent
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+         QUERY PLAN         
+----------------------------
+ Function Scan on aggregate
+(1 row)
+
+SELECT *
+FROM paradedb.aggregate(
+        index => 'tickets_idx',
+        query => paradedb.term('description','failed'),
+        agg   => '{"buckets": {"terms": {"field": "category"}}}',
+        solve_mvcc => true
+);
+                                                                               aggregate                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {"buckets": {"buckets": [{"key": "Authentication", "doc_count": 2}, {"key": "Billing", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
 (1 row)
 
 -- ===========================================================================

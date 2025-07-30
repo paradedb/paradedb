@@ -450,12 +450,12 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
         }
     }
 
-    // We need at least one aggregate
-    if aggregate_types.is_empty() {
-        None
-    } else {
-        Some(aggregate_types)
-    }
+    // It's valid to have zero aggregates when the query is only a GROUP BY on fast fields
+    // (e.g., SELECT category FROM .. GROUP BY category). In that case, we can still build
+    // a ParadeDB Aggregate Scan that only returns the grouping keys. Therefore we return
+    // an empty vector instead of rejecting the plan.
+
+    Some(aggregate_types)
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

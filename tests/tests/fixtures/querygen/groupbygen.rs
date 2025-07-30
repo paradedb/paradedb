@@ -65,43 +65,60 @@ pub fn arb_group_by(
 
     // Generate 0-3 grouping columns from the available columns
     proptest::sample::subsequence(columns, 0..3).prop_flat_map(move |selected_columns| {
-        if selected_columns.is_empty() {
-            // No GROUP BY - just aggregates
-            let target_list = aggregates
-                .iter()
-                .map(|&agg| SelectItem::Aggregate(agg.to_string()))
-                .collect();
-
-            Just(GroupByExpr {
-                group_by_columns: vec![],
-                target_list,
-            })
-            .boxed()
+        // Generate 0-3 aggregates from the available aggregates
+        let max_aggregates = std::cmp::min(aggregates.len(), 3);
+        let agg_range = if selected_columns.is_empty() {
+            // No GROUP BY - need at least one aggregate
+            1..=max_aggregates
         } else {
-            // Choose a subset of columns for grouping
-            let aggregates_clone = aggregates.clone();
-            // Create select items for columns and aggregates
-            let mut select_items = Vec::new();
+            // GROUP BY - can have 0 to max_aggregates
+            0..=max_aggregates
+        };
 
-            // Add all selected columns as SelectItem::Column
-            for col in &selected_columns {
-                select_items.push(SelectItem::Column(col.clone()));
-            }
+        proptest::sample::subsequence(aggregates.clone(), agg_range).prop_flat_map(
+            move |selected_aggregates| {
+                if selected_columns.is_empty() {
+                    // No GROUP BY - just aggregates
+                    let target_list = selected_aggregates
+                        .iter()
+                        .map(|&agg| SelectItem::Aggregate(agg.to_string()))
+                        .collect();
 
-            // Add all aggregates as SelectItem::Aggregate
-            for &agg in &aggregates_clone {
-                select_items.push(SelectItem::Aggregate(agg.to_string()));
-            }
+                    Just(GroupByExpr {
+                        group_by_columns: vec![],
+                        target_list,
+                    })
+                    .boxed()
+                } else {
+                    // GROUP BY - aggregates and columns.
+                    // Choose a subset of columns for grouping
+                    let aggregates_clone = selected_aggregates.clone();
+                    // Create select items for columns and aggregates
+                    let mut select_items = Vec::new();
 
-            // Generate a random permutation of the target list
-            Just(select_items)
-                .prop_shuffle()
-                .prop_map(move |permuted_target_list| GroupByExpr {
-                    group_by_columns: selected_columns.clone(),
-                    target_list: permuted_target_list,
-                })
-                .boxed()
-        }
+                    // Add all selected columns as SelectItem::Column
+                    for col in &selected_columns {
+                        select_items.push(SelectItem::Column(col.clone()));
+                    }
+
+                    // Add all aggregates as SelectItem::Aggregate
+                    for &agg in &aggregates_clone {
+                        select_items.push(SelectItem::Aggregate(agg.to_string()));
+                    }
+
+                    let selected_columns_clone = selected_columns.clone();
+
+                    // Generate a random permutation of the target list
+                    Just(select_items)
+                        .prop_shuffle()
+                        .prop_map(move |permuted_target_list| GroupByExpr {
+                            group_by_columns: selected_columns_clone.clone(),
+                            target_list: permuted_target_list,
+                        })
+                        .boxed()
+                }
+            },
+        )
     })
 }
 

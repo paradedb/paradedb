@@ -7,7 +7,7 @@ title: Overview
 Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
 
 Token matching consists of two steps. First, at indexing time, text is first processed by a tokenizer, which breaks input into discrete units called **tokens** or
-**terms**. For example, the [default]() tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
+**terms**. For example, the [default](/documentation/indexing/) tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
 
 Second, at query time, the query engine looks for token matches based on the query type.
 For example, a [match disjunction](/documentation/v2/full-text/match#match-disjunction) query for `running shoes` will match any document that contains at least one of the tokens `running` or `shoes`.
@@ -20,4 +20,4 @@ same as substring matching.
 
 Token matching is a much more expressive and powerful technique. It enables relevance scoring, language-specific analysis, typo tolerance, and more expressive query types — capabilities that go far beyond simply looking for a sequence of characters.
 
-For example, a substring search for `run` might miss `running`, while a token-based match query will correctly match if the tokenizer includes [stemming](). This makes token matching a fit for search and discovery use cases where users expect flexible, intelligent results.
+For example, a substring search for `run` might miss `running`, while a token-based match query will correctly match if the tokenizer includes [stemming](documentation/indexing/token_filters#stemmer). This makes token matching a fit for search and discovery use cases where users expect flexible, intelligent results.

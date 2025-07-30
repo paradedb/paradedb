@@ -22,9 +22,13 @@ WHERE description @@@ pdb.regex('key.*rd');
 ```
 
 <Accordion title="Expected Output">
-  ```csv description | rating | category
-  --------------------------+--------+------------- Ergonomic metal keyboard | 4
-  | Electronics Plastic Keyboard | 4 | Electronics (2 rows) ```
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+(2 rows)
+```
 </Accordion>
 
 This uses the [regex](/documentation/v2/query-builder/regex) query builder function to match all rows where `description` matches the regex expression `key.*rd`.
@@ -40,7 +44,7 @@ operator can be more efficiently executed by ParadeDB vs. standard Postgres. For
 
 In these scenarios, query builder functions provide ParadeDB-compatible equivalents of common SQL constructs, such as:
 
-- `pdb.range` is the equivalent of SQL range operators, i.e. `<`, `>`, etc.
+- `pdb.range`  is the equivalent of SQL range operators, i.e. `<`, `>`, etc.
 - `pdb.exists` is the equivalent of `IS NOT NULL`
 - `pdb.term` is the equivalent of `=` for non-text fields and for text fields that use the keyword tokenizer
 

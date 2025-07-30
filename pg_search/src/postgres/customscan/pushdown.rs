@@ -91,6 +91,16 @@ macro_rules! pushdown {
 type PostgresOperatorOid = pg_sys::Oid;
 type TantivyOperator = &'static str;
 
+trait TantivyOperatorExt {
+    fn is_range(&self) -> bool;
+}
+
+impl TantivyOperatorExt for &str {
+    fn is_range(&self) -> bool {
+        *self == ">" || *self == ">=" || *self == "<" || *self == "<="
+    }
+}
+
 unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, TantivyOperator> {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
     const TYPE_PAIRS: &[[&str; 2]] = &[
@@ -157,6 +167,10 @@ pub unsafe fn try_pushdown_inner(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
+            if field.is_json() && !field.is_fast() && (*pgsearch_operator).is_range() {
+                return None;
+            }
+
             // the `opexpr` is one we can pushdown
             if pushdown.varno() == rti {
                 let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);

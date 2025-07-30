@@ -25,13 +25,73 @@ use pgrx::PgList;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     Count,
+    Sum { field: String },
+    Avg { field: String },
+    Min { field: String },
+    Max { field: String },
+    Stats { field: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AggregateValue {
+    Int(i64),
+    Float(f64),
+}
+
+impl Default for AggregateValue {
+    fn default() -> Self {
+        AggregateValue::Int(0)
+    }
 }
 
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
+        match self {
+            AggregateType::Count => {
+                serde_json::json!({
+                    "value_count": {
+                        "field": "ctid"
+                    }
+                })
+            }
+            AggregateType::Sum { field } => {
+                serde_json::json!({
+                    "sum": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Avg { field } => {
+                serde_json::json!({
+                    "avg": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Min { field } => {
+                serde_json::json!({
+                    "min": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Max { field } => {
+                serde_json::json!({
+                    "max": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Stats { field } => {
+                serde_json::json!({
+                    "stats": {
+                        "field": field
+                    }
+                })
+            }
+        }
     }
 
     #[allow(unreachable_patterns)]
@@ -42,16 +102,69 @@ impl AggregateType {
         }
     }
 
-    pub fn result_from_json(&self, result: &serde_json::Number) -> i64 {
-        let f64_val = result.as_f64().expect("invalid aggregate result size");
+    pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
+        match self {
+            AggregateType::Count => {
+                let num = result.as_number().expect("COUNT result should be a number");
+                let f64_val = num.as_f64().expect("invalid aggregate result size");
 
-        if f64_val.fract() != 0.0 {
-            panic!("COUNT should not have a fractional result");
+                if f64_val.fract() != 0.0 {
+                    panic!("COUNT should not have a fractional result");
+                }
+                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+                    panic!("COUNT value was out of range");
+                }
+                AggregateValue::Int(f64_val as i64)
+            }
+            AggregateType::Sum { .. } => {
+                let num = result.as_number().expect("SUM result should be a number");
+                if let Some(int_val) = num.as_i64() {
+                    AggregateValue::Int(int_val)
+                } else if let Some(f64_val) = num.as_f64() {
+                    AggregateValue::Float(f64_val)
+                } else {
+                    panic!("SUM result should be a valid number");
+                }
+            }
+            AggregateType::Avg { .. } => {
+                let f64_val = result
+                    .as_number()
+                    .and_then(|n| n.as_f64())
+                    .expect("AVG result should be a float");
+                AggregateValue::Float(f64_val)
+            }
+            AggregateType::Min { .. } | AggregateType::Max { .. } => {
+                let num = result
+                    .as_number()
+                    .expect("MIN/MAX result should be a number");
+                if let Some(int_val) = num.as_i64() {
+                    AggregateValue::Int(int_val)
+                } else if let Some(f64_val) = num.as_f64() {
+                    AggregateValue::Float(f64_val)
+                } else {
+                    panic!("MIN/MAX result should be a valid number");
+                }
+            }
+            AggregateType::Stats { .. } => {
+                // Stats returns an object with multiple values, for now we'll return the count
+                // In the future we might want to return a more complex structure
+                let count = result
+                    .get("count")
+                    .and_then(|v| v.as_number())
+                    .and_then(|n| n.as_i64())
+                    .expect("STATS result should contain count");
+                AggregateValue::Int(count)
+            }
         }
-        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-            panic!("COUNT value was out of range");
+    }
+}
+
+impl AggregateValue {
+    pub fn into_datum(self) -> pg_sys::Datum {
+        match self {
+            AggregateValue::Int(val) => val.into_datum().unwrap(),
+            AggregateValue::Float(val) => val.into_datum().unwrap(),
         }
-        f64_val as i64
     }
 }
 

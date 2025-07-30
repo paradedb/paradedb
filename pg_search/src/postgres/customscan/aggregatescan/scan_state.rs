@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, TargetListEntry,
+    AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
 use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
@@ -28,9 +28,9 @@ use tantivy::schema::OwnedValue;
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
 
-// TODO: This should match the output types of the extracted aggregate functions. For now we only
-// support COUNT.
-pub type AggregateRow = TinyVec<[i64; 4]>;
+// TODO: This should match the output types of the extracted aggregate functions. We now support
+// multiple aggregate types with different return types.
+pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
 
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
@@ -168,11 +168,9 @@ impl AggregateScanState {
                         .as_object()
                         .expect("unexpected aggregate structure")
                         .get("value")
-                        .expect("missing aggregate result value")
-                        .as_number()
-                        .expect("unexpected aggregate result type");
+                        .expect("missing aggregate result value");
 
-                    aggregate.result_from_json(aggregate_val)
+                    aggregate.result_from_json(&aggregate_val)
                 })
                 .collect::<AggregateRow>();
 
@@ -226,21 +224,19 @@ impl AggregateScanState {
                         .enumerate()
                         .map(|(idx, aggregate)| {
                             let agg_result = match aggregate {
-                                AggregateType::Count => bucket_obj
-                                    .get("doc_count")
-                                    .and_then(|v| v.as_number())
-                                    .expect("missing doc_count"),
+                                AggregateType::Count => {
+                                    bucket_obj.get("doc_count").expect("missing doc_count")
+                                }
                                 _ => {
                                     let agg_name = format!("agg_{idx}");
                                     bucket_obj
                                         .get(&agg_name)
                                         .and_then(|v| v.as_object())
                                         .and_then(|v| v.get("value"))
-                                        .and_then(|v| v.as_number())
                                         .expect("missing aggregate result")
                                 }
                             };
-                            aggregate.result_from_json(agg_result)
+                            aggregate.result_from_json(&agg_result)
                         })
                         .collect()
                 };

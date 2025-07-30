@@ -50,6 +50,62 @@ WHERE description @@@ 'laptop'
 GROUP BY rating
 ORDER BY rating;
 
+-- Test 1.2: GROUP BY with SUM aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) AS total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, SUM(price) AS total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+-- Test 1.3: GROUP BY with AVG aggregate  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, AVG(price) AS avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, AVG(price) AS avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+-- Test 1.4: GROUP BY with MIN and MAX aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+-- Test 1.5: GROUP BY with multiple aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
+SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+
 -- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) AS total_laptops

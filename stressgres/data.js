@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753901061482,
+  "lastUpdate": 1753901698761,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15090,6 +15090,60 @@ window.BENCHMARK_DATA = {
             "value": 19.07844036771542,
             "unit": "median tps",
             "extra": "avg tps: 18.930066114118834, max tps: 20.521182561464336, count: 55233"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fb79113eb844aec4f9309f9e4ef06a08cfa9692",
+          "message": "feat: GROUP BY without an aggregation function (#2914)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nThis PR adds support for GROUP BY queries that do not have an\naggregation function\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-30T11:06:20-07:00",
+          "tree_id": "dedee0889774880d608ffdbc3a39be971568e4b0",
+          "url": "https://github.com/paradedb/paradedb/commit/9fb79113eb844aec4f9309f9e4ef06a08cfa9692"
+        },
+        "date": 1753901697500,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 40.09558943909917,
+            "unit": "median tps",
+            "extra": "avg tps: 40.15072630243857, max tps: 40.84533917503487, count: 55315"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 257.8835906887987,
+            "unit": "median tps",
+            "extra": "avg tps: 291.8262394620155, max tps: 2660.7971095035327, count: 55315"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 133.30097550253578,
+            "unit": "median tps",
+            "extra": "avg tps: 133.89394737485384, max tps: 137.36050904106273, count: 55315"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 81.46121952764058,
+            "unit": "median tps",
+            "extra": "avg tps: 73.5372892240742, max tps: 138.8466461835206, count: 110630"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.14276545382213,
+            "unit": "median tps",
+            "extra": "avg tps: 18.418706180435265, max tps: 20.674555304201817, count: 55315"
           }
         ]
       }

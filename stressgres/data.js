@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753900423608,
+  "lastUpdate": 1753901059069,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11976,6 +11976,42 @@ window.BENCHMARK_DATA = {
             "value": 134.4261060861339,
             "unit": "median tps",
             "extra": "avg tps: 133.58347577268998, max tps: 136.52668834863678, count: 57641"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fb79113eb844aec4f9309f9e4ef06a08cfa9692",
+          "message": "feat: GROUP BY without an aggregation function (#2914)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nThis PR adds support for GROUP BY queries that do not have an\naggregation function\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-07-30T11:06:20-07:00",
+          "tree_id": "dedee0889774880d608ffdbc3a39be971568e4b0",
+          "url": "https://github.com/paradedb/paradedb/commit/9fb79113eb844aec4f9309f9e4ef06a08cfa9692"
+        },
+        "date": 1753901057789,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.40510121317999,
+            "unit": "median tps",
+            "extra": "avg tps: 27.282125420501572, max tps: 27.599953370996143, count: 56519"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 138.2379611107083,
+            "unit": "median tps",
+            "extra": "avg tps: 137.62543792834904, max tps: 140.13779252636775, count: 56519"
           }
         ]
       }

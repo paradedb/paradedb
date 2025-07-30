@@ -6,7 +6,8 @@ Phrase queries work exactly like [match conjunction](/documentation/full-text/ma
 order and position of tokens to be the same.
 
 <Note>
-Phrase queries require that the field is indexed with a [record](/documentation/indexing/record) of `position`.
+  Phrase queries require that the field is indexed with a
+  [record](/documentation/indexing/record) of `position`.
 </Note>
 
 ## Overview
@@ -48,7 +49,7 @@ These examples assume that index uses the default tokenizer and token filters, a
 | Original Text       | Tokens                    | Match | Reason                                         | Related                                                                  |
 | ------------------- | ------------------------- | ----- | ---------------------------------------------- | ------------------------------------------------------------------------ |
 | Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. |
-| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
+| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/documentation/v2/full-text/match#match-conjunction) |
 | SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/documentation/v2/indexing)                                |
 | Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](<(/documentation/v2/indexing)>)                               |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`.   |

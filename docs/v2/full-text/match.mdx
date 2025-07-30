@@ -52,8 +52,8 @@ These examples assume that the index uses the default tokenizer and token filter
 | Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Phrase](/documentation/v2/full-text/phrase)                             |
 | SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.    | [Lowercasing](/documentation/v2/indexing)                                |
 | Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Contains neither `running` nor `shoes`. | [Stemming](<(/documentation/v2/indexing)>)                               |
-| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy match](/documetnation/v2/full-text/match#fuzzy-match)             |
-| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Contains neither `running` nor `shoes`. | [Fuzzy match](/documentation/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ✅    | Contains `shoes`.                       | [Match conjunction](/documentation/v2/full-text/match#match-conjunction) |
 
 ## Match Conjunction
 
@@ -94,8 +94,8 @@ These examples assume that the index uses the default tokenizer and token filter
 | Running shoes sleek | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Phrase](/documentation/v2/full-text/phrase)                             |
 | SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains both `running` and `shoes`.         | [Lowercasing](/documentation/v2/indexing)                                |
 | Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](<(/documentation/v2/indexing)>)                               |
-| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy match](/documetnation/v2/full-text/match#fuzzy-match)             |
-| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/documetnation/v2/full-text/match#match-conjunction) |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy match](/documentation/v2/full-text/match#fuzzy-match)             |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/documentation/v2/full-text/match#match-conjunction) |
 
 ## Fuzzy Match
 

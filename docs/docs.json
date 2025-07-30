@@ -14,7 +14,7 @@
         "version": "v0.17.2",
         "anchors": [
           {
-            "anchor": "Docs v1",
+            "anchor": "Documentation",
             "icon": "book-open",
             "groups": [
               {
@@ -195,7 +195,7 @@
           },
           {
             "anchor": "Docs v2 (beta)",
-            "icon": "book-open",
+            "icon": "sparkles",
             "groups": [
               {
                 "group": "Documentation",

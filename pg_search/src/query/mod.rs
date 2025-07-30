@@ -410,7 +410,7 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-    ) -> Result<Box<dyn TantivyQuery>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn TantivyQuery>> {
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")

@@ -17,12 +17,14 @@
 
 mod andandand;
 mod atatat;
+mod boost;
 mod eqeqeq;
 mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
 
+use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -127,6 +129,20 @@ pub fn pdb_query_typoid() -> pg_sys::Oid {
                 .expect("type `pdb.Query` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `pdb.Query` should exist");
+        }
+        oid
+    }
+}
+
+pub fn boost_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.boost".into_datum()],
+        )
+        .expect("type `pg_catalog.boost` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.boost` should exist");
         }
         oid
     }
@@ -454,6 +470,13 @@ where
                 pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
             ),
+
+            other if other == boost_typoid() => {
+                let boost = BoostType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs boost value must not be NULL");
+                let boost = boost_to_boost(boost, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(boost.into())
+            }
 
             other if other == pdb_proximityclause_typoid() => {
                 let prox = ProximityClause::from_datum((*const_).constvalue, (*const_).constisnull)

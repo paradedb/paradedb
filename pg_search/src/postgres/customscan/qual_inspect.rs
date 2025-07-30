@@ -21,6 +21,7 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoid};
+use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -616,7 +617,12 @@ pub unsafe fn extract_quals(
             } else {
                 // Try to create a HeapExpr for non-indexed field NULL tests
             }
-            try_create_heap_expr_from_null_test(nulltest, rti, &mut state.uses_tantivy_to_query)
+            try_create_heap_expr_from_null_test(
+                nulltest,
+                rti,
+                root,
+                &mut state.uses_tantivy_to_query,
+            )
         }
 
         pg_sys::NodeTag::T_BooleanTest => booltest(
@@ -1456,11 +1462,14 @@ unsafe fn try_create_heap_expr_from_var(
 unsafe fn try_create_heap_expr_from_null_test(
     nulltest: *mut pg_sys::NullTest,
     rti: pg_sys::Index,
+    root: *mut pg_sys::PlannerInfo,
     uses_tantivy_to_query: &mut bool,
 ) -> Option<Qual> {
     // Extract the field being tested
     let arg = (*nulltest).arg;
-    if let Some(var) = nodecast!(Var, T_Var, arg) {
+    if let Some((var, fieldname)) =
+        find_one_var_and_fieldname(VarContext::from_planner(root), arg as *mut pg_sys::Node)
+    {
         let attno = (*var).varattno;
         let test_type = if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NULL {
             "IS NULL"

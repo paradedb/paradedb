@@ -296,10 +296,7 @@ pub unsafe fn pullup_fast_fields(
                 }
                 continue;
             }
-            find_one_var_and_fieldname(
-                VarContext::from_exec(heaprel.oid(), (*var).varattno as i16),
-                (*te).expr.cast(),
-            )
+            find_one_var_and_fieldname(VarContext::from_exec(heaprel.oid()), (*te).expr.cast())
         } else {
             None
         };

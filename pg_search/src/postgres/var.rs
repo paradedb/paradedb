@@ -12,7 +12,7 @@ use std::sync::OnceLock;
 
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),
-    Exec(pg_sys::Oid, pg_sys::AttrNumber),
+    Exec(pg_sys::Oid),
 }
 
 impl VarContext {
@@ -20,8 +20,8 @@ impl VarContext {
         Self::Planner(root)
     }
 
-    pub fn from_exec(heaprelid: pg_sys::Oid, varattno: pg_sys::AttrNumber) -> Self {
-        Self::Exec(heaprelid, varattno)
+    pub fn from_exec(heaprelid: pg_sys::Oid) -> Self {
+        Self::Exec(heaprelid)
     }
 
     pub fn var_relation(&self, var: *mut pg_sys::Var) -> (pg_sys::Oid, pg_sys::AttrNumber) {
@@ -30,7 +30,7 @@ impl VarContext {
                 let (heaprelid, varattno, _) = unsafe { find_var_relation(var, *root) };
                 (heaprelid, varattno)
             }
-            Self::Exec(heaprelid, varattno) => (*heaprelid, *varattno),
+            Self::Exec(heaprelid) => (*heaprelid, unsafe { (*var).varattno }),
         }
     }
 }

@@ -44,16 +44,12 @@ impl Default for AggregateValue {
     }
 }
 
-impl pgrx::IntoDatum for AggregateValue {
-    fn into_datum(self) -> Option<pgrx::pg_sys::Datum> {
+impl AggregateValue {
+    pub fn to_datum(self) -> Option<pgrx::pg_sys::Datum> {
         match self {
             AggregateValue::Int(i) => i.into_datum(),
             AggregateValue::Float(f) => f.into_datum(),
         }
-    }
-
-    fn type_oid() -> pgrx::pg_sys::Oid {
-        pgrx::pg_sys::NUMERICOID
     }
 }
 
@@ -116,7 +112,6 @@ impl AggregateType {
     }
 
     pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
-
         match self {
             AggregateType::Count => {
                 let num = result.as_number().expect("COUNT result should be a number");

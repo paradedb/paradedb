@@ -313,8 +313,11 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
+            // Properly clear the slot first
+            pg_sys::ExecClearTuple(slot);
+
+            // Set up the slot for virtual tuple storage
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as _;
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
@@ -350,20 +353,29 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        match row.aggregate_values[*agg_idx].clone().into_datum() {
+                        pgrx::warning!(
+                            "Converting aggregate value at index {}: {:?}",
+                            agg_idx,
+                            &row.aggregate_values[*agg_idx]
+                        );
+                        let agg_value = &row.aggregate_values[*agg_idx];
+                        match agg_value.clone().to_datum() {
                             Some(datum) => {
                                 datums[i] = datum;
                                 isnull[i] = false;
+                                pgrx::warning!("Successfully converted aggregate value to datum");
                             }
                             None => {
                                 datums[i] = pg_sys::Datum::from(0);
                                 isnull[i] = true;
+                                pgrx::warning!("Aggregate value was NULL");
                             }
                         }
                     }
                 }
             }
 
+            pg_sys::ExecStoreVirtualTuple(slot);
             slot
         }
     }

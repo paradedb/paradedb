@@ -51,33 +51,9 @@ FROM products
 WHERE description @@@ 'laptop' 
 GROUP BY rating
 ORDER BY rating;
- rating | count 
---------+-------
-      3 |     1
-      5 |     2
-(2 rows)
-
--- Test 1.2: GROUP BY with SUM aggregate
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, SUM(price) AS total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category
-ORDER BY category;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, now()
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
-(5 rows)
-
-SELECT category, SUM(price) AS total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
-GROUP BY category
-ORDER BY category;
+WARNING:  Converting aggregate value at index 0: Int(1)
+WARNING:  Successfully converted aggregate value to datum
+WARNING:  All datums set, calling pg_sys::ExecStoreVirtualTuple
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.

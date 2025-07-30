@@ -96,18 +96,11 @@ impl AggregateScanState {
                     .collect(),
             );
         }
-        // GROUP BY - bucket aggregation
-        let mut root = serde_json::Map::new();
+        // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
+        // We build the JSON bottom-up so that each grouping column nests the next one.
+        let mut current_aggs: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 
-        // Build nested bucket aggregations for each grouping column
-        let current_level = &mut root;
-        let _ = current_level; // Mark as used
-
-        for (i, group_col) in self.grouping_columns.iter().enumerate() {
-            let bucket_name = format!("group_{i}");
-            let mut bucket_agg = serde_json::Map::new();
-
-            // Terms aggregation for grouping
+        for (i, group_col) in self.grouping_columns.iter().enumerate().rev() {
             let mut terms = serde_json::Map::new();
             terms.insert(
                 "field".to_string(),
@@ -117,30 +110,30 @@ impl AggregateScanState {
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
 
-            // If this is the last grouping column, add the metric aggregations
             if i == self.grouping_columns.len() - 1 {
-                let mut sub_aggs = serde_json::Map::new();
-                for (j, aggregate) in self.aggregate_types.iter().enumerate() {
-                    if let Some((name, agg)) = aggregate.to_json_for_group(j) {
-                        sub_aggs.insert(name, agg);
+                // Deepest level – attach metric aggregations (may be empty)
+                if !self.aggregate_types.is_empty() {
+                    let mut sub_aggs = serde_json::Map::new();
+                    for (j, aggregate) in self.aggregate_types.iter().enumerate() {
+                        if let Some((name, agg)) = aggregate.to_json_for_group(j) {
+                            sub_aggs.insert(name, agg);
+                        }
+                    }
+                    if !sub_aggs.is_empty() {
+                        terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
                     }
                 }
-                if !sub_aggs.is_empty() {
-                    terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
-                }
+            } else {
+                // Not deepest – nest previously built aggs
+                terms_agg.insert("aggs".to_string(), serde_json::Value::Object(current_aggs));
             }
 
-            bucket_agg.insert(bucket_name.clone(), serde_json::Value::Object(terms_agg));
-            current_level.insert("aggs".to_string(), serde_json::Value::Object(bucket_agg));
-
-            // For nested buckets, we'd need to traverse deeper, but for now we'll handle single-level
-            if i < self.grouping_columns.len() - 1 {
-                // This should never happen since we reject multiple grouping columns at planning time
-                unreachable!("Multiple grouping columns should have been rejected during planning");
-            }
+            let mut bucket_container = serde_json::Map::new();
+            bucket_container.insert(format!("group_{i}"), serde_json::Value::Object(terms_agg));
+            current_aggs = bucket_container;
         }
 
-        serde_json::Value::Object(root.get("aggs").unwrap().as_object().unwrap().clone())
+        serde_json::Value::Object(current_aggs)
     }
 
     /// Convert a JSON value to an OwnedValue based on the field type from the schema
@@ -189,66 +182,80 @@ impl AggregateScanState {
                 aggregate_values: row,
             }];
         }
-        // GROUP BY - extract bucket results
+        // GROUP BY - extract nested bucket results recursively
         let mut rows = Vec::new();
 
-        // Navigate to the bucket results
-        let bucket_name = "group_0"; // For now, we only support single grouping column
-        let bucket_results = result
-            .get(bucket_name)
+        self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
+
+        // Sort according to ORDER BY
+        self.sort_rows(&mut rows);
+        rows
+    }
+
+    #[allow(unreachable_patterns)]
+    fn extract_bucket_results(
+        &self,
+        json: &serde_json::Value,
+        depth: usize,
+        prefix_keys: &mut Vec<OwnedValue>,
+        rows: &mut Vec<GroupedAggregateRow>,
+    ) {
+        let bucket_name = format!("group_{depth}");
+        let buckets = json
+            .get(&bucket_name)
             .and_then(|v| v.get("buckets"))
             .and_then(|v| v.as_array())
             .expect("missing bucket results");
 
-        for bucket in bucket_results {
+        for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
-            // Extract the group key - can be either string or number
-            let grouping_column = &self.grouping_columns[0]; // We only support single grouping column for now
-            let key = bucket_obj
-                .get("key")
-                .map(|k| {
-                    // Create OwnedValue from JSON value based on the field type
-                    self.json_value_to_owned_value(k, &grouping_column.field_name)
-                })
-                .expect("missing bucket key");
+            // Current grouping key
+            let grouping_column = &self.grouping_columns[depth];
+            let key_json = bucket_obj.get("key").expect("missing bucket key");
+            let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
+            prefix_keys.push(key_owned);
 
-            // Extract aggregate values
-            let aggregate_values = self
-                .aggregate_types
-                .iter()
-                .enumerate()
-                .map(|(idx, aggregate)| {
-                    let agg_result = match aggregate {
-                        // Count is handled by the 'terms' bucket
-                        AggregateType::Count => bucket_obj
-                            .get("doc_count")
-                            .and_then(|v| v.as_number())
-                            .expect("missing doc_count"),
-                        _ => {
-                            let agg_name = format!("agg_{idx}");
-                            bucket_obj
-                                .get(&agg_name)
-                                .and_then(|v| v.as_object())
-                                .and_then(|v| v.get("value"))
-                                .and_then(|v| v.as_number())
-                                .expect("missing aggregate result")
-                        }
-                    };
+            if depth + 1 == self.grouping_columns.len() {
+                // Deepest level – collect aggregates (may be empty)
+                let aggregate_values: AggregateRow = if self.aggregate_types.is_empty() {
+                    AggregateRow::default()
+                } else {
+                    self.aggregate_types
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, aggregate)| {
+                            let agg_result = match aggregate {
+                                AggregateType::Count => bucket_obj
+                                    .get("doc_count")
+                                    .and_then(|v| v.as_number())
+                                    .expect("missing doc_count"),
+                                _ => {
+                                    let agg_name = format!("agg_{idx}");
+                                    bucket_obj
+                                        .get(&agg_name)
+                                        .and_then(|v| v.as_object())
+                                        .and_then(|v| v.get("value"))
+                                        .and_then(|v| v.as_number())
+                                        .expect("missing aggregate result")
+                                }
+                            };
+                            aggregate.result_from_json(agg_result)
+                        })
+                        .collect()
+                };
 
-                    aggregate.result_from_json(agg_result)
-                })
-                .collect::<AggregateRow>();
+                rows.push(GroupedAggregateRow {
+                    group_keys: prefix_keys.clone(),
+                    aggregate_values,
+                });
+            } else {
+                // Recurse into next level
+                self.extract_bucket_results(bucket, depth + 1, prefix_keys, rows);
+            }
 
-            rows.push(GroupedAggregateRow {
-                group_keys: vec![key],
-                aggregate_values,
-            });
+            prefix_keys.pop();
         }
-
-        // Sort the rows according to ORDER BY specification
-        self.sort_rows(&mut rows);
-        rows
     }
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {

@@ -24,6 +24,7 @@ point with the query range:
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects');
 ```
+
 ## Range Contains
 
 The following query finds all ranges that are contained by the query range:

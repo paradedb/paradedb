@@ -9,6 +9,7 @@ SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
+
 <div className="mt-8" />
 
 <ParamField body="phrases" required>
@@ -26,5 +27,5 @@ WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 Expanding a prefix like might lead to thousands of matching terms, which impacts search times.
 
 With `max_expansions`, the prefix term is expanded to the first `max_expansions` terms
-in lexicographic order. For instance, if `sh` matches `shall`, `share`, `shoe`, and `shore`  but `max_expansions` is set to 3,
+in lexicographic order. For instance, if `sh` matches `shall`, `share`, `shoe`, and `shore` but `max_expansions` is set to 3,
 `sh` will only be expanded to `shall`, `share`, and `shoe`.

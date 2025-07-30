@@ -5,9 +5,7 @@ title: Exists
 Matches all documents with a non-null value in the specified field. All matched documents get a BM25 score of `1.0`.
 This query produces the same results as Postgres' `IS NOT NULL`.
 
-<Note>
-Will error if the field has not been indexed as a fast field.
-</Note>
+<Note>Will error if the field has not been indexed as a fast field.</Note>
 
 ```sql
 SELECT description, rating, category

@@ -18,8 +18,10 @@
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
-use crate::postgres::customscan::operator_oid;
-use crate::postgres::customscan::opexpr::OpExpr;
+use crate::postgres::customscan::opexpr::{
+    initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
+    TantivyOperator, TantivyOperatorExt,
+};
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
@@ -96,73 +98,6 @@ macro_rules! pushdown {
     }};
 }
 
-type PostgresOperatorOid = pg_sys::Oid;
-type TantivyOperator = &'static str;
-
-trait TantivyOperatorExt {
-    fn is_range(&self) -> bool;
-    #[allow(unused)]
-    fn is_eq(&self) -> bool;
-    fn is_neq(&self) -> bool;
-}
-
-impl TantivyOperatorExt for &str {
-    fn is_range(&self) -> bool {
-        *self == ">" || *self == ">=" || *self == "<" || *self == "<="
-    }
-
-    fn is_eq(&self) -> bool {
-        *self == "="
-    }
-
-    fn is_neq(&self) -> bool {
-        *self == "<>"
-    }
-}
-
-unsafe fn initialize_equality_operator_lookup() -> HashMap<PostgresOperatorOid, TantivyOperator> {
-    const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
-    const TYPE_PAIRS: &[[&str; 2]] = &[
-        // integers
-        ["int2", "int2"],
-        ["int4", "int4"],
-        ["int8", "int8"],
-        ["int2", "int4"],
-        ["int2", "int8"],
-        ["int4", "int8"],
-        // floats
-        ["float4", "float4"],
-        ["float8", "float8"],
-        ["float4", "float8"],
-        // dates
-        ["date", "date"],
-        ["time", "time"],
-        ["timetz", "timetz"],
-        ["timestamp", "timestamp"],
-        ["timestamptz", "timestamptz"],
-        // text
-        ["text", "text"],
-        ["uuid", "uuid"],
-    ];
-
-    let mut lookup = HashMap::default();
-
-    // tantivy doesn't support range operators on bools, so we can only support the equality operator
-    lookup.insert(operator_oid("=(bool,bool)"), "=");
-
-    for o in OPERATORS {
-        for [l, r] in TYPE_PAIRS {
-            lookup.insert(operator_oid(&format!("{o}({l},{r})")), o);
-            if l != r {
-                // types can be reversed too
-                lookup.insert(operator_oid(&format!("{o}({r},{l})")), o);
-            }
-        }
-    }
-
-    lookup
-}
-
 /// Take a Postgres [`pg_sys::OpExpr`] pointer that is **not** of our `@@@` operator and try  to
 /// convert it into one that is.
 ///
@@ -180,8 +115,8 @@ pub unsafe fn try_pushdown_inner(
     let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
     let search_field = pushdown.search_field();
 
-    static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
-    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
+    static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
+    match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
             if opexpr.is_text() && !search_field.is_keyword() {
                 return None;

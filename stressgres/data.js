@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753987432766,
+  "lastUpdate": 1753987435531,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17846,6 +17846,114 @@ window.BENCHMARK_DATA = {
             "value": 158.7578125,
             "unit": "median mem",
             "extra": "avg mem: 156.16777307002587, max mem: 160.56640625, count: 55276"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753987434247,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.497108,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.603359792196855, max cpu: 41.618496, count: 55377"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 152.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.44055724003195, max mem: 156.3984375, count: 55377"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.243711982714645, max cpu: 27.87996, count: 55377"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 145.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.60684511112464, max mem: 145.984375, count: 55377"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.110275806435, max cpu: 27.77242, count: 55377"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 145.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 117.39139676952976, max mem: 155.6796875, count: 55377"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20499,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21233.26552539863, max block_count: 43492.0, count: 55377"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.356881633021872, max cpu: 4.64666, count: 55377"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 83.54787277716832, max mem: 126.0703125, count: 55377"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.223775213536307, max segment_count: 51.0, count: 55377"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.779254847418091, max cpu: 32.43243, count: 110754"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.93730749848763, max mem: 171.26171875, count: 110754"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.578112233673687, max cpu: 27.799229, count: 55377"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.22734019482365, max mem: 159.8125, count: 55377"
           }
         ]
       }

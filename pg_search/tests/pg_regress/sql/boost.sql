@@ -38,11 +38,16 @@ SELECT 'foo'::boost(3);
 SELECT pdb.term('foo')::boost(3);
 
 --
+-- oob cases.  these all get clamped to [-2048..2048]
+--
+SELECT 'foo'::boost(2049);
+SELECT 'foo'::boost(-2049);
+SELECT 'foo'::boost(Inf);
+
+--
 -- error cases
 --
 SELECT 'foo'::boost(hi_mom);
 SELECT 'foo'::boost(1,2);
 SELECT 'foo'::boost(NaN);
-SELECT 'foo'::boost(Inf);
-SELECT 'foo'::boost(65520); -- any boost >= this is invalid
-SELECT 'foo'::boost(-65520); -- any boost <= this is invalid
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'shoes'::boost;

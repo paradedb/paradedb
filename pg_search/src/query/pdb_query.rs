@@ -213,7 +213,11 @@ impl pdb::Query {
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
             pdb::Query::UnclassifiedString { .. } => {
-                panic!("pdb::Query::RawString cannot be converted into a TantivyQuery")
+                // this would indicate a problem with the various operator SUPPORT functions failing
+                // to convert the UnclassifiedString into the pdb::Query variant they require
+                unreachable!(
+                    "pdb::Query::UnclassifiedString cannot be converted into a TantivyQuery"
+                )
             }
             pdb::Query::Exists => exists(field, searcher),
             pdb::Query::Boost { query, boost } => boost_query(

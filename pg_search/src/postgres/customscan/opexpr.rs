@@ -16,7 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::nodecast;
+use crate::postgres::customscan::operator_oid;
 use pgrx::{pg_sys, PgList};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 pub(crate) enum OpExpr {
@@ -67,4 +70,26 @@ impl OpExpr {
             OpExpr::Single(expr) => (*(*expr)).location,
         }
     }
+
+    pub fn is_text(&self) -> bool {
+        static TEXT_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, bool>> = OnceLock::new();
+        let opno = unsafe { self.opno() };
+
+        TEXT_OPERATOR_LOOKUP
+            .get_or_init(|| unsafe { initialize_text_operator_lookup() })
+            .contains_key(&opno)
+    }
+}
+
+unsafe fn initialize_text_operator_lookup() -> HashMap<pg_sys::Oid, bool> {
+    const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
+    const TYPES: [&str; 2] = ["text", "uuid"];
+
+    let mut lookup = HashMap::default();
+    for op in OPERATORS {
+        for typ in TYPES {
+            lookup.insert(operator_oid(&format!("{op}({typ},{typ})")), true);
+        }
+    }
+    lookup
 }

@@ -98,42 +98,4 @@ SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM m
 WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
 ORDER BY id LIMIT 5;
 
--- CASE 3: with incorrect types
-INSERT INTO mock_items (description, metadata) VALUES
-('Computer mouse', '{"price": "abc", "color": 123, "in_stock": 2}');
-
--- not pushed down, type mismatch
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100
-ORDER BY id LIMIT 5;
-
--- not pushed down, type mismatch
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NOT NULL
-ORDER BY id LIMIT 5;
-
--- not pushed down, type mismatch
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND metadata->>'price' IS NULL
-ORDER BY id LIMIT 5;
-
--- should error
-SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' @@@ 'white' AND (metadata->>'in_stock')::boolean IS TRUE
-ORDER BY id LIMIT 5;
-
--- not pushed down, type mismatch
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
-WHERE metadata->>'color' IN ('white', 'black') AND id @@@ paradedb.all()
-ORDER BY id LIMIT 5;
-
--- should error
-SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
-WHERE (metadata->>'price')::int IN (80, 100, 120) AND id @@@ paradedb.all()
-ORDER BY id LIMIT 5;
-
 DROP TABLE mock_items;

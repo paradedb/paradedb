@@ -17,7 +17,6 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
-use crate::index::fast_fields_helper::FFDynamic;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::OpExpr;
@@ -49,22 +48,6 @@ impl PushdownField {
         let (var, field_name) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
         let schema = indexrel.schema().ok()?;
         let search_field = schema.search_field(field_name.root())?;
-
-        if search_field.is_text() && !search_field.is_keyword() {
-            return None;
-        }
-
-        if search_field.is_json() {
-            if let Some(ff) = FFDynamic::try_new(indexrel, &field_name) {
-                if matches!(ff, FFDynamic::Text(..)) && !search_field.is_keyword() {
-                    return None;
-                }
-            } else {
-                // this means there are different types for this json subpath, so we can't push down
-                return None;
-            }
-        }
-
         Some(Self {
             field_name,
             varno: (*var).varno as pg_sys::Index,
@@ -195,12 +178,16 @@ pub unsafe fn try_pushdown_inner(
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
     let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
+    let search_field = pushdown.search_field();
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
+            if opexpr.is_text() && !search_field.is_keyword() {
+                return None;
+            }
+
             // we don't support metadata->>'value' > 5 if `metadata` is not fast
-            let search_field = pushdown.search_field();
             if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_range() {
                 return None;
             }

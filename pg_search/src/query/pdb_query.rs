@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::query::pdb_query::pdb::FuzzyData;
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
@@ -48,7 +49,50 @@ pub mod pdb {
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
+    use std::fmt::{Display, Formatter};
     use tantivy::schema::OwnedValue;
+
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub struct FuzzyData {
+        pub distance: u8,
+        pub prefix: bool,
+        pub transposition_cost_one: bool,
+    }
+
+    impl Display for FuzzyData {
+        #[rustfmt::skip]
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{},{},{}",
+                self.distance,
+                if self.prefix { "t" } else { "f" },
+                if self.transposition_cost_one { "t" } else { "f" }
+            )
+        }
+    }
+
+    impl From<i32> for FuzzyData {
+        fn from(value: i32) -> Self {
+            let distance = (value >> 2) as u8;
+            let prefix = (value & 2) != 0;
+            let transposition_cost_one = (value & 1) != 0;
+            FuzzyData {
+                distance,
+                prefix,
+                transposition_cost_one,
+            }
+        }
+    }
+
+    impl From<FuzzyData> for i32 {
+        fn from(data: FuzzyData) -> Self {
+            ((data.distance as i32) << 2)
+                | ((data.prefix as i32) << 1)
+                | (data.transposition_cost_one as i32)
+        }
+    }
 
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
@@ -66,9 +110,10 @@ pub mod pdb {
         ///
         /// For example, the `===` operator will rewrite it to a [`Query::Term`] and `@@@` to
         /// a [`Query::ParseWithField`].
-        ///
         UnclassifiedString {
             string: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            fuzzy_data: Option<FuzzyData>,
         },
         Boost {
             query: Box<Query>,
@@ -204,6 +249,69 @@ pub mod pdb {
 }
 
 impl pdb::Query {
+    pub fn unclassified_string(s: &str) -> pdb::Query {
+        pdb::Query::UnclassifiedString {
+            string: s.to_string(),
+            fuzzy_data: None,
+        }
+    }
+
+    pub fn unclassified_string_with_fuzz(s: &str, fuzz: FuzzyData) -> pdb::Query {
+        pdb::Query::UnclassifiedString {
+            string: s.to_string(),
+            fuzzy_data: Some(fuzz),
+        }
+    }
+
+    pub fn apply_fuzzy_data(&mut self, new_fuzzy_data: Option<FuzzyData>) {
+        if new_fuzzy_data.is_none() {
+            return;
+        }
+        let new_fuzzy_data = new_fuzzy_data.unwrap();
+        match self {
+            pdb::Query::UnclassifiedString { fuzzy_data, .. } => {
+                *fuzzy_data = Some(new_fuzzy_data);
+            }
+
+            pdb::Query::Term {
+                value: OwnedValue::Str(value),
+                is_datetime,
+            } if !*is_datetime => {
+                *self = pdb::Query::FuzzyTerm {
+                    value: value.to_string(),
+                    distance: Some(new_fuzzy_data.distance),
+                    transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
+                    prefix: Some(new_fuzzy_data.prefix),
+                }
+            }
+
+            pdb::Query::FuzzyTerm {
+                distance,
+                transposition_cost_one,
+                prefix,
+                ..
+            } => {
+                *distance = Some(new_fuzzy_data.distance);
+                *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
+                *prefix = Some(new_fuzzy_data.prefix);
+            }
+
+            pdb::Query::Match {
+                distance,
+                transposition_cost_one,
+                prefix,
+                ..
+            } => {
+                *distance = Some(new_fuzzy_data.distance);
+                *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
+                *prefix = Some(new_fuzzy_data.prefix);
+            }
+
+            // TODO:  we could silently ignore
+            _ => panic!("query type is not compatible with fuzzy"),
+        }
+    }
+
     pub fn into_tantivy_query(
         self,
         field: FieldName,
@@ -336,6 +444,7 @@ impl InOutFuncs for pdb::Query {
                     .to_str()
                     .expect("input should be valid UTF8")
                     .to_string(),
+                fuzzy_data: None,
             }
         }
     }

@@ -139,9 +139,8 @@ mod typedef {
 
     #[pg_extern(immutable, parallel_safe)]
     fn boost_in(input: &CStr, _typoid: pg_sys::Oid, typmod: i32) -> BoostType {
-        let query = pdb::Query::UnclassifiedString {
-            string: input.to_str().expect("input must not be NULL").to_string(),
-        };
+        let query =
+            pdb::Query::unclassified_string(input.to_str().expect("input must not be NULL"));
         BoostType(pdb::Query::Boost {
             query: Box::new(query),
             boost: (typmod != -1).then(|| deserialize_i32_to_f32(typmod)),
@@ -202,7 +201,7 @@ mod typedef {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> BoostType {
+pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
     BoostType(pdb::Query::Boost {
         query: Box::new(input),

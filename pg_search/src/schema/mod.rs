@@ -203,7 +203,8 @@ impl SearchIndexSchema {
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
-        match self.schema.get_field(name.as_ref()) {
+        let field_name = FieldName::from(name.as_ref());
+        match self.schema.get_field(&field_name.root()) {
             Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
             Err(_) => None,
         }

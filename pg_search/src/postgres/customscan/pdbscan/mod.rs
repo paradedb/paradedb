@@ -183,7 +183,7 @@ impl PdbScan {
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
         ri_type: RestrictInfoType,
-        schema: &SearchIndexSchema,
+        indexrel: &PgSearchRelation,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
@@ -192,7 +192,7 @@ impl PdbScan {
             restrict_info.as_ptr().cast(),
             anyelement_query_input_opoid(),
             ri_type,
-            schema,
+            indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
         );
@@ -208,7 +208,7 @@ impl PdbScan {
                 joinri.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
-                schema,
+                indexrel,
                 true, // Join quals should convert external to all
                 &mut state,
             );
@@ -374,8 +374,8 @@ impl CustomScan for PdbScan {
                     target_list,
                     &referenced_columns,
                     rti,
-                    &schema,
                     &table,
+                    &bm25_index,
                     false,
                 )
                 .into_iter()
@@ -392,7 +392,7 @@ impl CustomScan for PdbScan {
                 rti,
                 restrict_info,
                 ri_type,
-                &schema,
+                &bm25_index,
             );
 
             let Some(quals) = quals else {
@@ -606,7 +606,6 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = indexrel.schema().expect("should have a schema");
 
             let base_query = builder
                 .custom_private()
@@ -617,7 +616,7 @@ impl CustomScan for PdbScan {
                 builder.args().root,
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
-                &schema,
+                &indexrel,
                 &base_query,
             );
 
@@ -1173,26 +1172,24 @@ fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
+    let target_list = builder.target_list().as_ptr();
     let exec_which_fast_fields = unsafe {
-        let indexrel = builder.custom_state().indexrel();
-        let schema = indexrel
-            .schema()
-            .expect("create_custom_scan_state: should have a schema");
-
-        // Calculate the ordered set of fast fields which have actually been requested in
-        // the target list.
+        let custom_state = builder.custom_state();
+        let indexrel = custom_state.indexrel();
+        let execution_rti = custom_state.execution_rti;
+        let heaprel = custom_state.heaprel();
         //
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
-            builder.target_list().as_ptr(),
+            target_list,
             // At this point, all fast fields which we need to extract are listed directly
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            builder.custom_state().execution_rti,
-            &schema,
-            builder.custom_state().heaprel(),
+            execution_rti,
+            heaprel,
+            indexrel,
             true,
         )
     };

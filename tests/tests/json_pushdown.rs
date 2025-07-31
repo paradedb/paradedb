@@ -131,10 +131,6 @@ impl JsonValueType {
             _ => false,
         }
     }
-
-    fn is_boolean_type(&self) -> bool {
-        matches!(self, JsonValueType::Boolean)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -235,7 +231,6 @@ impl Arbitrary for JsonOperation {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         prop_oneof![
-            // For comparison operations, ensure type compatibility
             (any::<Operator>(), any::<JsonValueType>())
                 .prop_filter(
                     "operator and value type must be compatible",
@@ -244,20 +239,11 @@ impl Arbitrary for JsonOperation {
                 .prop_map(|(operator, value)| JsonOperation::Comparison { operator, value }),
             Just(JsonOperation::IsNull),
             Just(JsonOperation::IsNotNull),
-            // Only allow IsTrue/IsFalse for boolean types
-            any::<JsonValueType>()
-                .prop_filter("IsTrue/IsFalse only work with boolean types", |value| value
-                    .is_boolean_type())
-                .prop_map(|_| JsonOperation::IsTrue),
-            any::<JsonValueType>()
-                .prop_filter("IsTrue/IsFalse only work with boolean types", |value| value
-                    .is_boolean_type())
-                .prop_map(|_| JsonOperation::IsFalse),
-            // For IN operations, generate values compatible with the field type
+            Just(JsonOperation::IsTrue),
+            Just(JsonOperation::IsFalse),
             any::<JsonValueType>()
                 .prop_flat_map(|value_type| { proptest::collection::vec(Just(value_type), 1..4) })
                 .prop_map(|values| JsonOperation::In { values }),
-            // For NOT IN operations, generate values compatible with the field type
             any::<JsonValueType>()
                 .prop_flat_map(|value_type| { proptest::collection::vec(Just(value_type), 1..4) })
                 .prop_map(|values| JsonOperation::NotIn { values }),

@@ -153,7 +153,7 @@ impl OpExpr {
         }
     }
 
-    pub fn is_text(&self) -> bool {
+    pub fn is_text_binary(&self) -> bool {
         static TEXT_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> =
             OnceLock::new();
         let opno = unsafe { self.opno() };

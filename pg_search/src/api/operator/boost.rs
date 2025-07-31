@@ -115,7 +115,7 @@ mod sql_datum_support {
     }
 }
 
-// [`BoolType`]'s SQL type definition and necessary functions to support creating
+// [`BoostType`]'s SQL type definition and necessary functions to support creating
 mod typedef {
     use crate::api::operator::boost::f16_typmod::{deserialize_i32_to_f32, serialize_f32_to_i32};
     use crate::api::operator::boost::BoostType;

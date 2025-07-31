@@ -2445,3 +2445,174 @@ AS 'MODULE_PATHNAME', 'prox_to_boost_wrapper';
 CREATE CAST (pdb.query AS pg_catalog.boost) WITH FUNCTION query_to_boost(pdb.query, integer, boolean) AS ASSIGNMENT;
 CREATE CAST (pdb.proximityclause AS pg_catalog.boost) WITH FUNCTION prox_to_boost(pdb.proximityclause, integer, boolean) AS ASSIGNMENT;
 CREATE CAST (pg_catalog.boost AS pg_catalog.boost) WITH FUNCTION boost_to_boost(pg_catalog.boost, integer, boolean) AS IMPLICIT;
+
+
+--
+-- fuzzy support
+--
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:120
+-- creates:
+--   Type(pg_search::api::operator::fuzzy::typedef::FuzzyType)
+CREATE TYPE pg_catalog.fuzzy;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:128
+-- pg_search::api::operator::fuzzy::typedef::fuzzy_in
+CREATE  FUNCTION "fuzzy_in"(
+    "input" cstring, /* &core::ffi::c_str::CStr */
+    "_typoid" oid, /* pgrx_pg_sys::submodules::oids::Oid */
+    "typmod" INT /* i32 */
+) RETURNS fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_in_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:136
+-- pg_search::api::operator::fuzzy::typedef::fuzzy_out
+CREATE  FUNCTION "fuzzy_out"(
+    "input" fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+) RETURNS cstring /* alloc::ffi::c_str::CString */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_out_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:219
+-- pg_search::api::operator::fuzzy::fuzzy_to_boost
+CREATE  FUNCTION "fuzzy_to_boost"(
+    "input" fuzzy, /* pg_search::api::operator::fuzzy::FuzzyType */
+    "typmod" INT, /* i32 */
+    "is_explicit" bool /* bool */
+) RETURNS boost /* pg_search::api::operator::boost::BoostType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_to_boost_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:238
+-- pg_search::api::operator::fuzzy::fuzzy_to_fuzzy
+CREATE  FUNCTION "fuzzy_to_fuzzy"(
+    "input" fuzzy, /* pg_search::api::operator::fuzzy::FuzzyType */
+    "typmod" INT, /* i32 */
+    "is_explicit" bool /* bool */
+) RETURNS fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_to_fuzzy_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:143
+-- pg_search::api::operator::fuzzy::typedef::fuzzy_typmod_in
+CREATE  FUNCTION "fuzzy_typmod_in"(
+    "typmod_parts" cstring[] /* pgrx::datum::array::Array<&core::ffi::c_str::CStr> */
+) RETURNS INT /* i32 */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_typmod_in_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:180
+-- pg_search::api::operator::fuzzy::typedef::fuzzy_typmod_out
+CREATE  FUNCTION "fuzzy_typmod_out"(
+    "typmod" INT /* i32 */
+) RETURNS cstring /* alloc::ffi::c_str::CString */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_typmod_out_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:186
+-- requires:
+--   FuzzyType_shell
+--   fuzzy_in
+--   fuzzy_out
+--   fuzzy_typmod_in
+--   fuzzy_typmod_out
+CREATE TYPE pg_catalog.fuzzy (
+                                 INPUT = fuzzy_in,
+                                 OUTPUT = fuzzy_out,
+                                 INTERNALLENGTH = VARIABLE,
+                                 LIKE = text,
+                                 TYPMOD_IN = fuzzy_typmod_in,
+                                 TYPMOD_OUT = fuzzy_typmod_out
+                             );
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/andandand.rs:53
+-- pg_search::api::operator::andandand::search_with_match_conjunction_fuzzy
+CREATE  FUNCTION "search_with_match_conjunction_fuzzy"(
+    "_field" TEXT, /* &str */
+    "terms_to_tokenize" fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_match_conjunction_fuzzy_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/ororor.rs:50
+-- pg_search::api::operator::ororor::search_with_match_disjunction_fuzzy
+CREATE  FUNCTION "search_with_match_disjunction_fuzzy"(
+    "_field" TEXT, /* &str */
+    "terms_to_tokenize" fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_match_disjunction_fuzzy_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/eqeqeq.rs:53
+-- pg_search::api::operator::eqeqeq::search_with_term_fuzzy
+CREATE  FUNCTION "search_with_term_fuzzy"(
+    "_field" TEXT, /* &str */
+    "term" fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+) RETURNS bool /* bool */
+    IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'search_with_term_fuzzy_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:208
+-- pg_search::api::operator::fuzzy::query_to_fuzzy
+CREATE  FUNCTION "query_to_fuzzy"(
+    "input" pdb.Query, /* pg_search::query::pdb_query::pdb::Query */
+    "typmod" INT, /* i32 */
+    "_is_explicit" bool /* bool */
+) RETURNS fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'query_to_fuzzy_wrapper';
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:243
+-- requires:
+--   query_to_fuzzy
+--   fuzzy_to_boost
+--   fuzzy_to_fuzzy
+--   FuzzyType_final
+CREATE CAST (pdb.query AS pg_catalog.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
+CREATE CAST (pg_catalog.fuzzy AS pg_catalog.boost) WITH FUNCTION fuzzy_to_boost(pg_catalog.fuzzy, integer, boolean) AS IMPLICIT;
+CREATE CAST (pg_catalog.fuzzy AS pg_catalog.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pg_catalog.fuzzy, integer, boolean) AS IMPLICIT;
+/* </end connected objects> */
+/* <begin connected objects> */
+-- pg_search/src/api/operator/fuzzy.rs:214
+-- pg_search::api::operator::fuzzy::fuzzy_to_query
+CREATE  FUNCTION "fuzzy_to_query"(
+    "input" fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+) RETURNS pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    IMMUTABLE STRICT PARALLEL SAFE
+    LANGUAGE c /* Rust */
+AS 'MODULE_PATHNAME', 'fuzzy_to_query_wrapper';
+-- pg_search/src/api/operator/fuzzy.rs:214
+-- pg_search::api::operator::fuzzy::fuzzy_to_query
+CREATE CAST (
+    fuzzy /* pg_search::api::operator::fuzzy::FuzzyType */
+    AS
+    pdb.Query /* pg_search::query::pdb_query::pdb::Query */
+    )
+    WITH FUNCTION fuzzy_to_query AS IMPLICIT;
+ALTER FUNCTION paradedb.search_with_match_conjunction_fuzzy SUPPORT paradedb.search_with_match_conjunction_support;
+ALTER FUNCTION paradedb.search_with_match_disjunction_fuzzy SUPPORT paradedb.search_with_match_disjunction_support;
+ALTER FUNCTION paradedb.search_with_term_fuzzy SUPPORT paradedb.search_with_term_support;

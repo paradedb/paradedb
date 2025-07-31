@@ -150,6 +150,7 @@ pub mod pdb {
             query_string: String,
             lenient: Option<bool>,
             conjunction_mode: Option<bool>,
+            fuzzy_data: Option<FuzzyData>,
         },
         Phrase {
             phrases: Vec<String>,
@@ -307,16 +308,18 @@ impl pdb::Query {
                 *prefix = Some(new_fuzzy_data.prefix);
             }
 
+            pdb::Query::ParseWithField { fuzzy_data, .. } => *fuzzy_data = Some(new_fuzzy_data),
+
             // TODO:  we could silently ignore
             _ => panic!("query type is not compatible with fuzzy"),
         }
     }
 
-    pub fn into_tantivy_query(
+    pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         field: FieldName,
         schema: &SearchIndexSchema,
-        parser: &mut QueryParser,
+        parser: &QueryParserCtor,
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
@@ -375,7 +378,16 @@ impl pdb::Query {
                 query_string,
                 lenient,
                 conjunction_mode,
-            } => parse(&field, parser, query_string, lenient, conjunction_mode)?,
+                fuzzy_data,
+            } => parse(
+                &field,
+                parser,
+                schema,
+                query_string,
+                lenient,
+                conjunction_mode,
+                fuzzy_data,
+            )?,
 
             pdb::Query::Phrase { phrases, slop } => {
                 phrase(&field, schema, searcher, phrases, slop)?
@@ -454,10 +466,10 @@ impl InOutFuncs for pdb::Query {
     }
 }
 
-fn boost_query(
+fn boost_query<QueryParserCtor: Fn() -> QueryParser>(
     field: FieldName,
     schema: &SearchIndexSchema,
-    parser: &mut QueryParser,
+    parser: &QueryParserCtor,
     searcher: &Searcher,
     query: pdb::Query,
     boost: Score,
@@ -1298,16 +1310,31 @@ fn phrase(
     Ok(Box::new(query))
 }
 
-fn parse(
+fn parse<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
-    parser: &mut QueryParser,
+    parser: &QueryParserCtor,
+    schema: &SearchIndexSchema,
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
+    fuzzy_data: Option<FuzzyData>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
+    }
+
+    if let Some(fuzzy_data) = fuzzy_data {
+        parser.set_field_fuzzy(
+            schema
+                .search_field(field)
+                .ok_or(QueryError::NonIndexedField(field.clone()))?
+                .field(),
+            fuzzy_data.prefix,
+            fuzzy_data.distance,
+            fuzzy_data.transposition_cost_one,
+        );
     }
 
     let lenient = lenient.unwrap_or(false);

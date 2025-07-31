@@ -152,15 +152,46 @@ impl FFType {
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
     pub fn value(&self, doc: DocId) -> TantivyValue {
-        match self {
+        let value = match self {
             FFType::Junk => TantivyValue(OwnedValue::Null),
-            FFType::Text(ff) => get_string_value(ff, doc),
-            FFType::I64(ff) => get_first_value(ff.first(doc)),
-            FFType::F64(ff) => get_first_value(ff.first(doc)),
-            FFType::U64(ff) => get_first_value(ff.first(doc)),
-            FFType::Bool(ff) => get_first_value(ff.first(doc)),
-            FFType::Date(ff) => get_first_value(ff.first(doc)),
-        }
+            FFType::Text(ff) => {
+                let mut s = String::new();
+                let ord = ff
+                    .term_ords(doc)
+                    .next()
+                    .expect("term ord should be retrievable");
+                ff.ord_to_str(ord, &mut s)
+                    .expect("string should be retrievable for term ord");
+                TantivyValue(s.into())
+            }
+            FFType::I64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::F64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::U64(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::Bool(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+            FFType::Date(ff) => TantivyValue(
+                ff.first(doc)
+                    .map(|first| first.into())
+                    .unwrap_or(OwnedValue::Null),
+            ),
+        };
+
+        value
     }
 
     /// Given a [`DocId`], what is its "fast field" value?  In the case of a String field, we
@@ -273,21 +304,4 @@ impl WhichFastField {
             WhichFastField::Named(s, _) => s.clone(),
         }
     }
-}
-
-#[inline]
-fn get_string_value(ff: &StrColumn, doc: DocId) -> TantivyValue {
-    let mut s = String::new();
-    let ord = ff
-        .term_ords(doc)
-        .next()
-        .expect("term ord should be retrievable");
-    ff.ord_to_str(ord, &mut s)
-        .expect("string should be retrievable for term ord");
-    TantivyValue(s.into())
-}
-
-#[inline]
-fn get_first_value<T: Into<OwnedValue>>(opt: Option<T>) -> TantivyValue {
-    TantivyValue(opt.map(|first| first.into()).unwrap_or(OwnedValue::Null))
 }

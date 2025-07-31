@@ -94,6 +94,22 @@ pub mod pdb {
         }
     }
 
+    #[test]
+    fn fuzzy_data_roundtrip() {
+        proptest::proptest!(|(distance in 0u8..=255u8, prefix in 0..=1, transposition_cost_one in 0..=1)| {
+            let original = FuzzyData {
+                distance,
+                prefix: prefix == 1,
+                transposition_cost_one: transposition_cost_one == 1,
+            };
+
+            let typmod_repr:i32 = original.clone().into();
+            assert!(typmod_repr >= 0);  // can't be negative
+            let from_typmod:FuzzyData = typmod_repr.into();
+            assert_eq!(original, from_typmod);
+        })
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
     #[inoutfuncs]
     #[serde(rename_all = "snake_case")]

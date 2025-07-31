@@ -60,10 +60,12 @@ regex = { version = "1.5.5", default-features = false, features = [
 tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
 lazy_static = "1.5.0"
 macros = { path = "../macros" }
+half = "2.6.0"
 
 [dev-dependencies]
 pgrx-tests.workspace = true
 rstest = "0.25.0"
+proptest = "1.7.0"
 
 [build-dependencies]
 vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }

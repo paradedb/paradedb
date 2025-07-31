@@ -129,7 +129,7 @@ pub unsafe fn try_pushdown_inner(
             }
 
             // tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists
-            if search_field.is_json() && (*pgsearch_operator).is_neq() {
+            if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_neq() {
                 return None;
             }
 

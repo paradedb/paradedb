@@ -31,13 +31,6 @@ use crate::fixtures::querygen::opexprgen::Operator;
 use crate::fixtures::querygen::{compare, PgGucs};
 
 #[derive(Debug, Clone, Arbitrary)]
-pub enum JsonOperator {
-    TextExtract,    // ->>
-    NumericExtract, // ->
-    PathExtract,    // #>>
-}
-
-#[derive(Debug, Clone, Arbitrary)]
 pub enum TokenizerType {
     Default,
     Keyword,
@@ -70,16 +63,6 @@ impl IndexConfig {
             self.tokenizer.to_config(),
             self.fast
         )
-    }
-}
-
-impl JsonOperator {
-    fn to_sql(&self) -> &'static str {
-        match self {
-            JsonOperator::TextExtract => "->>",
-            JsonOperator::NumericExtract => "->",
-            JsonOperator::PathExtract => "#>>",
-        }
     }
 }
 
@@ -219,14 +202,6 @@ impl JsonPath {
             JsonPath::DeepNested(key1, key2, key3) => format!("'{{{key1},{key2},{key3}}}'"),
         }
     }
-
-    fn to_path_sql(&self) -> String {
-        match self {
-            JsonPath::Simple(key) => format!("'{{{key}}}'"),
-            JsonPath::Nested(key1, key2) => format!("'{{{key1},{key2}}}'"),
-            JsonPath::DeepNested(key1, key2, key3) => format!("'{{{key1},{key2},{key3}}}'"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -286,7 +261,6 @@ impl Arbitrary for JsonOperation {
 
 #[derive(Debug, Clone)]
 pub struct JsonExpr {
-    json_operator: JsonOperator,
     path: JsonPath,
     operation: JsonOperation,
 }
@@ -296,14 +270,10 @@ impl Arbitrary for JsonExpr {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        (
-            any::<JsonOperator>(),
-            any::<JsonPath>(),
-            any::<JsonOperation>(),
-        )
+        (any::<JsonPath>(), any::<JsonOperation>())
             .prop_filter(
                 "operation must be compatible with field type",
-                |(_, path, operation)| {
+                |(path, operation)| {
                     match operation {
                         JsonOperation::Comparison { operator, value } => {
                             // For range operators, ensure we're using numeric fields
@@ -365,11 +335,7 @@ impl Arbitrary for JsonExpr {
                     }
                 },
             )
-            .prop_map(|(json_operator, path, operation)| JsonExpr {
-                json_operator,
-                path,
-                operation,
-            })
+            .prop_map(|(path, operation)| JsonExpr { path, operation })
             .boxed()
     }
 }
@@ -396,29 +362,7 @@ impl JsonExpr {
 
     fn to_sql(&self, values: &[String]) -> String {
         let column = "metadata";
-        let json_expr = match self.json_operator {
-            JsonOperator::TextExtract => {
-                format!(
-                    "{column} {} {}",
-                    self.json_operator.to_sql(),
-                    self.path.to_sql()
-                )
-            }
-            JsonOperator::NumericExtract => {
-                format!(
-                    "{column} {} {}",
-                    self.json_operator.to_sql(),
-                    self.path.to_sql()
-                )
-            }
-            JsonOperator::PathExtract => {
-                format!(
-                    "{column} {} {}",
-                    self.json_operator.to_sql(),
-                    self.path.to_path_sql()
-                )
-            }
-        };
+        let json_expr = format!("{column} ->> {}", self.path.to_sql());
 
         match &self.operation {
             JsonOperation::Comparison { operator, value } => {

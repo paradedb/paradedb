@@ -118,16 +118,17 @@ pub unsafe fn try_pushdown_inner(
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
+            // can't push down tokenized text
             if opexpr.is_text() && !search_field.is_keyword() {
                 return None;
             }
 
-            // we don't support metadata->>'value' > 5 if `metadata` is not fast
+            // tantivy doesn't support JSON range if JSON is not fast
             if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_range() {
                 return None;
             }
 
-            // we don't support metadata->>'value' NOT IN ('test') if `metadata` is not fast
+            // tantivy doesn't support JSON exists if JSON is not fast, and our `<>` pushdown uses exists
             if search_field.is_json() && (*pgsearch_operator).is_neq() {
                 return None;
             }

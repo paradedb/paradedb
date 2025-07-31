@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753987435531,
+  "lastUpdate": 1753992665677,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2624,6 +2624,72 @@ window.BENCHMARK_DATA = {
             "value": 37.90242491473256,
             "unit": "median tps",
             "extra": "avg tps: 48.286956174563905, max tps: 845.5751475317239, count: 55399"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfe1bd8f5080995034831666f1f7690b7bfa3587",
+          "message": "feat: JSON expressions can be used with text search operators and pushed down as filters (#2919)\n\n# Ticket(s) Closed\n\n- Partially Closes #2606 \n\n## What\n\nThe following is now supported:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' LIMIT 5;\n```\n\nJSON filters can also be pushed down:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' AND (metadata->>'label')::int > 5 LIMIT 5;\n```\n\n## Why\n\n## How\n\n## Tests\nProptests for correctness, regression test for explain output",
+          "timestamp": "2025-07-31T15:54:56-04:00",
+          "tree_id": "dccb60fee0b2cf3c3ba01a6292558ef09eb9e120",
+          "url": "https://github.com/paradedb/paradedb/commit/bfe1bd8f5080995034831666f1f7690b7bfa3587"
+        },
+        "date": 1753992664399,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1170.9467534803023,
+            "unit": "median tps",
+            "extra": "avg tps: 1164.5365378296779, max tps: 1174.4040618723277, count: 55247"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2730.8253920072784,
+            "unit": "median tps",
+            "extra": "avg tps: 2722.4544848510345, max tps: 2771.7210451647024, count: 55247"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1160.7941764571358,
+            "unit": "median tps",
+            "extra": "avg tps: 1156.9486822310096, max tps: 1163.1190779973692, count: 55247"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 910.040485512809,
+            "unit": "median tps",
+            "extra": "avg tps: 910.3914678216827, max tps: 972.5544576311096, count: 55247"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 168.97298491072962,
+            "unit": "median tps",
+            "extra": "avg tps: 170.36406450294723, max tps: 175.0403453873774, count: 110494"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.97812524110438,
+            "unit": "median tps",
+            "extra": "avg tps: 153.01017957769324, max tps: 154.49709374428488, count: 55247"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 29.16283289193372,
+            "unit": "median tps",
+            "extra": "avg tps: 34.81457123395719, max tps: 731.2010049626613, count: 55247"
           }
         ]
       }

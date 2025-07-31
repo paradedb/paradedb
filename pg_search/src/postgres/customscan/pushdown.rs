@@ -17,18 +17,21 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
+use crate::index::fast_fields_helper::FFDynamic;
 use crate::nodecast;
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::qual_inspect::Qual;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
-use crate::schema::{SearchField, SearchIndexSchema};
+use crate::schema::SearchField;
 use pgrx::{direct_function_call, pg_guard, pg_sys, IntoDatum, PgList};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct PushdownField {
     field_name: FieldName,
+    search_field: Option<SearchField>,
     varno: pg_sys::Index,
 }
 
@@ -41,12 +44,31 @@ impl PushdownField {
     pub unsafe fn try_new(
         root: *mut pg_sys::PlannerInfo,
         var: *mut pg_sys::Node,
-        schema: &SearchIndexSchema,
+        indexrel: &PgSearchRelation,
     ) -> Option<Self> {
-        let (var, field) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
-        schema.search_field(field.root()).map(|_| Self {
-            field_name: field,
+        let (var, field_name) = find_one_var_and_fieldname(VarContext::from_planner(root), var)?;
+        let schema = indexrel.schema().ok()?;
+        let search_field = schema.search_field(field_name.root())?;
+
+        if search_field.is_text() && !search_field.is_keyword() {
+            return None;
+        }
+
+        if search_field.is_json() {
+            if let Some(ff) = FFDynamic::try_new(indexrel, &field_name) {
+                if matches!(ff, FFDynamic::Text(..)) && !search_field.is_keyword() {
+                    return None;
+                }
+            } else {
+                // this means there are different types for this json subpath, so we can't push down
+                return None;
+            }
+        }
+
+        Some(Self {
+            field_name,
             varno: (*var).varno as pg_sys::Index,
+            search_field: Some(search_field),
         })
     }
 
@@ -57,6 +79,7 @@ impl PushdownField {
         Self {
             field_name: attname.into(),
             varno: 0,
+            search_field: None,
         }
     }
 
@@ -64,8 +87,10 @@ impl PushdownField {
         self.field_name.clone()
     }
 
-    pub fn search_field(&self, schema: &SearchIndexSchema) -> Option<SearchField> {
-        schema.search_field(self.field_name.root())
+    pub fn search_field(&self) -> SearchField {
+        self.search_field
+            .clone()
+            .expect("pushdown field should have a search field")
     }
 
     pub fn varno(&self) -> pg_sys::Index {
@@ -164,27 +189,24 @@ pub unsafe fn try_pushdown_inner(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     opexpr: OpExpr,
-    schema: &SearchIndexSchema
+    indexrel: &PgSearchRelation
 ) -> Option<Qual> {
     let args = opexpr.args();
     let lhs = args.get_ptr(0)?;
     let rhs = args.get_ptr(1)?;
-    let pushdown = PushdownField::try_new(root, lhs, schema)?;
-    let field = pushdown.search_field(schema)?;
-    if field.is_text() && !field.is_keyword() {
-        return None;
-    }
+    let pushdown = PushdownField::try_new(root, lhs, indexrel)?;
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<pg_sys::Oid, &str>> = OnceLock::new();
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| initialize_equality_operator_lookup()).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
             // we don't support metadata->>'value' > 5 if `metadata` is not fast
-            if field.is_json() && !field.is_fast() && (*pgsearch_operator).is_range() {
+            let search_field = pushdown.search_field();
+            if search_field.is_json() && !search_field.is_fast() && (*pgsearch_operator).is_range() {
                 return None;
             }
 
             // we don't support metadata->>'value' NOT IN ('test') if `metadata` is not fast
-            if field.is_json() && (*pgsearch_operator).is_neq() {
+            if search_field.is_json() && (*pgsearch_operator).is_neq() {
                 return None;
             }
 

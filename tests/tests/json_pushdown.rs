@@ -85,6 +85,13 @@ impl JsonValueType {
                 "'elderberry'".to_string(),
                 "'test'".to_string(),
                 "'value'".to_string(),
+                "'red apple'".to_string(),
+                "'yellow banana'".to_string(),
+                "'sweet cherry'".to_string(),
+                "'fresh date'".to_string(),
+                "'purple elderberry'".to_string(),
+                "'unit test'".to_string(),
+                "'test value'".to_string(),
             ])
             .boxed(),
             JsonValueType::Numeric => proptest::sample::select(vec![
@@ -352,6 +359,8 @@ impl JsonExpr {
                 let predefined_values = vec![
                     vec!["'apple'".to_string()],
                     vec!["'banana'".to_string(), "'cherry'".to_string()],
+                    vec!["'red apple'".to_string(), "'yellow banana'".to_string()],
+                    vec!["'sweet cherry'".to_string(), "'fresh date'".to_string()],
                     vec!["42".to_string(), "100".to_string()],
                 ];
                 proptest::sample::select(predefined_values).boxed()
@@ -506,6 +515,13 @@ INSERT INTO json_pushdown_test (metadata) VALUES
     ('{{"name": "elderberry", "count": -1, "active": true, "tags": ["fruit", "purple"]}}'),
     ('{{"name": "test", "count": 999, "active": false, "tags": ["test", "data"]}}'),
     ('{{"name": "value", "count": 1, "active": true, "tags": ["value", "test"]}}'),
+    ('{{"name": "red apple", "count": 50, "active": true, "tags": ["fruit", "red", "multi"]}}'),
+    ('{{"name": "yellow banana", "count": 75, "active": false, "tags": ["fruit", "yellow", "multi"]}}'),
+    ('{{"name": "sweet cherry", "count": 25, "active": true, "tags": ["fruit", "red", "multi"]}}'),
+    ('{{"name": "fresh date", "count": 60, "active": false, "tags": ["fruit", "brown", "multi"]}}'),
+    ('{{"name": "purple elderberry", "count": 30, "active": true, "tags": ["fruit", "purple", "multi"]}}'),
+    ('{{"name": "unit test", "count": 200, "active": false, "tags": ["test", "unit", "multi"]}}'),
+    ('{{"name": "test value", "count": 150, "active": true, "tags": ["test", "value", "multi"]}}'),
     ('{{"user": {{"name": "alice", "age": 25}}, "settings": {{"theme": "dark"}}}}'),
     ('{{"user": {{"name": "bob", "age": 30}}, "settings": {{"theme": "light"}}}}'),
     ('{{"user": {{"name": "charlie", "age": 35}}, "settings": {{"theme": "dark"}}}}'),

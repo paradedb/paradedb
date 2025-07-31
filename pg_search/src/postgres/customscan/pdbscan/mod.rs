@@ -183,7 +183,7 @@ impl PdbScan {
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
         ri_type: RestrictInfoType,
-        schema: &SearchIndexSchema,
+        indexrel: &PgSearchRelation,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
@@ -192,7 +192,7 @@ impl PdbScan {
             restrict_info.as_ptr().cast(),
             anyelement_query_input_opoid(),
             ri_type,
-            schema,
+            indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
         );
@@ -208,7 +208,7 @@ impl PdbScan {
                 joinri.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
-                schema,
+                indexrel,
                 true, // Join quals should convert external to all
                 &mut state,
             );
@@ -392,7 +392,7 @@ impl CustomScan for PdbScan {
                 rti,
                 restrict_info,
                 ri_type,
-                &schema,
+                &bm25_index,
             );
 
             let Some(quals) = quals else {
@@ -606,7 +606,6 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = indexrel.schema().expect("should have a schema");
 
             let base_query = builder
                 .custom_private()
@@ -617,7 +616,7 @@ impl CustomScan for PdbScan {
                 builder.args().root,
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
-                &schema,
+                &indexrel,
                 &base_query,
             );
 

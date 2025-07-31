@@ -21,11 +21,11 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::opexpr::OpExpr;
 use crate::postgres::customscan::pushdown::{is_complex, try_pushdown_inner, PushdownField};
 use crate::postgres::customscan::{operator_oid, score_funcoid};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 use pg_sys::BoolExprType;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
@@ -481,7 +481,7 @@ pub unsafe fn extract_quals(
     node: *mut pg_sys::Node,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
@@ -489,6 +489,7 @@ pub unsafe fn extract_quals(
         return None;
     }
 
+    let schema = indexrel.schema().ok()?;
     match (*node).type_ {
         pg_sys::NodeTag::T_List => {
             let mut quals = list(
@@ -497,7 +498,7 @@ pub unsafe fn extract_quals(
                 node.cast(),
                 pdbopoid,
                 ri_type,
-                schema,
+                indexrel,
                 convert_external_to_special_qual,
                 state,
             )?;
@@ -521,7 +522,7 @@ pub unsafe fn extract_quals(
                 clause.cast(),
                 pdbopoid,
                 ri_type,
-                schema,
+                indexrel,
                 convert_external_to_special_qual,
                 state,
             )
@@ -533,7 +534,7 @@ pub unsafe fn extract_quals(
             OpExpr::from_single(node)?,
             pdbopoid,
             ri_type,
-            schema,
+            indexrel,
             convert_external_to_special_qual,
             state,
         ),
@@ -544,7 +545,7 @@ pub unsafe fn extract_quals(
             OpExpr::from_array(node)?,
             pdbopoid,
             ri_type,
-            schema,
+            indexrel,
             convert_external_to_special_qual,
             state,
         ),
@@ -558,7 +559,7 @@ pub unsafe fn extract_quals(
                 (*boolexpr).args,
                 pdbopoid,
                 ri_type,
-                schema,
+                indexrel,
                 convert_external_to_special_qual,
                 state,
             )?;
@@ -573,7 +574,7 @@ pub unsafe fn extract_quals(
 
         pg_sys::NodeTag::T_Var => {
             // First, try to create a PushdownField to see if this is an indexed boolean field
-            if let Some(field) = PushdownField::try_new(root, node, schema) {
+            if let Some(field) = PushdownField::try_new(root, node, indexrel) {
                 // Check if this is a boolean field reference to our relation
                 if field.varno() != rti {
                     return None;
@@ -600,8 +601,8 @@ pub unsafe fn extract_quals(
         pg_sys::NodeTag::T_NullTest => {
             let nulltest = nodecast!(NullTest, T_NullTest, node)?;
             // TODO(@mdashti): we can use if-let chains here
-            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), schema) {
-                if let Some(search_field) = schema.search_field(field.attname()) {
+            if let Some(field) = PushdownField::try_new(root, (*nulltest).arg.cast(), indexrel) {
+                if let Some(search_field) = schema.search_field(field.attname().root()) {
                     if search_field.is_fast() {
                         if (*nulltest).nulltesttype == pg_sys::NullTestType::IS_NOT_NULL {
                             return Some(Qual::PushdownIsNotNull { field });
@@ -630,7 +631,7 @@ pub unsafe fn extract_quals(
             rti,
             node,
             ri_type,
-            schema,
+            indexrel,
             convert_external_to_special_qual,
             state,
         ),
@@ -670,7 +671,7 @@ unsafe fn list(
     list: *mut pg_sys::List,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Vec<Qual>> {
@@ -683,7 +684,7 @@ unsafe fn list(
             child,
             pdbopoid,
             ri_type,
-            schema,
+            indexrel,
             convert_external_to_special_qual,
             state,
         )?)
@@ -699,7 +700,7 @@ unsafe fn opexpr(
     opexpr: OpExpr,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
@@ -721,7 +722,7 @@ unsafe fn opexpr(
             rti,
             pdbopoid,
             ri_type,
-            schema,
+            indexrel,
             state,
             opexpr,
             lhs,
@@ -738,7 +739,7 @@ unsafe fn opexpr(
                     rti,
                     pdbopoid,
                     ri_type,
-                    schema,
+                    indexrel,
                     state,
                     opexpr,
                     lhs,
@@ -763,7 +764,7 @@ unsafe fn opexpr(
             rti,
             pdbopoid,
             ri_type,
-            schema,
+            indexrel,
             state,
             opexpr,
             lhs,
@@ -778,7 +779,7 @@ unsafe fn opexpr(
                 root,
                 rti,
                 opexpr,
-                schema,
+                indexrel,
                 state,
                 convert_external_to_special_qual,
             )
@@ -792,7 +793,7 @@ unsafe fn node_opexpr(
     rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
     ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     state: &mut QualExtractState,
     opexpr: OpExpr,
     lhs: *mut pg_sys::Node,
@@ -844,7 +845,7 @@ unsafe fn node_opexpr(
                     root,
                     rti,
                     opexpr,
-                    schema,
+                    indexrel,
                     state,
                     convert_external_to_special_qual,
                 );
@@ -881,7 +882,7 @@ unsafe fn node_opexpr(
             root,
             rti,
             opexpr,
-            schema,
+            indexrel,
             state,
             convert_external_to_special_qual,
         )
@@ -904,7 +905,7 @@ unsafe fn try_pushdown(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     opexpr: OpExpr,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     state: &mut QualExtractState,
     convert_external_to_special_qual: bool,
 ) -> Option<Qual> {
@@ -918,7 +919,7 @@ unsafe fn try_pushdown(
     };
 
     // Try to convert this OpExpr into an indexed predicate (fast field, search field, etc.)
-    let pushdown_result = try_pushdown_inner(root, rti, opexpr, schema);
+    let pushdown_result = try_pushdown_inner(root, rti, opexpr, indexrel);
 
     if pushdown_result.is_none() {
         // DECISION POINT: Predicate cannot be pushed down to index
@@ -1031,7 +1032,7 @@ unsafe fn booltest(
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
     ri_type: RestrictInfoType,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     convert_external_to_special_qual: bool,
     state: &mut QualExtractState,
 ) -> Option<Qual> {
@@ -1040,7 +1041,7 @@ unsafe fn booltest(
 
     // We only support boolean test for simple field references (Var nodes)
     // For complex expressions, the optimizer will evaluate the condition later
-    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, schema)?;
+    let field = PushdownField::try_new(root, arg as *mut pg_sys::Node, indexrel)?;
 
     // It's a simple field reference, handle as specific cases
     let qual = match (*booltest).booltesttype {
@@ -1070,7 +1071,7 @@ pub unsafe fn extract_join_predicates(
     root: *mut pg_sys::PlannerInfo,
     current_rti: pg_sys::Index,
     pdbopoid: pg_sys::Oid,
-    schema: &SearchIndexSchema,
+    indexrel: &PgSearchRelation,
     base_query: &SearchQueryInput,
 ) -> Option<SearchQueryInput> {
     // Only look at the current relation's join clauses
@@ -1107,7 +1108,7 @@ pub unsafe fn extract_join_predicates(
                 simplified_node.cast(),
                 pdbopoid,
                 RestrictInfoType::BaseRelation,
-                schema,
+                indexrel,
                 true,
                 &mut qual_extract_state,
             ) {

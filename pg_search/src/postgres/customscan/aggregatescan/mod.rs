@@ -349,22 +349,11 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        pgrx::warning!(
-                            "Processing aggregate at column {} (agg_idx={})",
-                            i,
-                            agg_idx
-                        );
                         let agg_value = &row.aggregate_values[*agg_idx];
-                        pgrx::warning!("Aggregate value: {:?}", agg_value);
 
                         // Get expected type for this column and convert appropriately
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
-                        pgrx::warning!(
-                            "Expected column type: {} ({})",
-                            expected_typoid,
-                            attr.name()
-                        );
 
                         // Convert specifically for the expected PostgreSQL type
                         match (agg_value, expected_typoid) {
@@ -399,12 +388,6 @@ impl CustomScan for AggregateScan {
                                 isnull[i] = false;
                             }
                         }
-                        pgrx::warning!(
-                            "Column {} set: datum={:?}, isnull={}",
-                            i,
-                            datums[i],
-                            isnull[i]
-                        );
                     }
                 }
             }
@@ -547,7 +530,7 @@ unsafe fn identify_aggregate_function(
         "min" => Some(AggregateType::Min { field: field_name? }),
         "max" => Some(AggregateType::Max { field: field_name? }),
         _ => {
-            pgrx::warning!("Unsupported aggregate function: {}", func_name);
+            pgrx::debug1!("Unsupported aggregate function: {}", func_name);
             None
         }
     }

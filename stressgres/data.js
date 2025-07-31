@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753985485683,
+  "lastUpdate": 1753985488285,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7290,6 +7290,126 @@ window.BENCHMARK_DATA = {
             "value": 59.40234375,
             "unit": "median mem",
             "extra": "avg mem: 58.70532852018151, max mem: 83.73828125, count: 55038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753985486966,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.814938329023441, max cpu: 9.476802, count: 55399"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 59.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.00633634801621, max mem: 82.87109375, count: 55399"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655661483735817, max cpu: 9.393347, count: 55399"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.86118354178325, max mem: 76.171875, count: 55399"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.812203201275629, max cpu: 9.495549, count: 55399"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.22276518980487, max mem: 84.38671875, count: 55399"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.49893209412378, max cpu: 4.738401, count: 55399"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 61.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.900302803299695, max mem: 84.6015625, count: 55399"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.645770951219346, max cpu: 23.622047, count: 110798"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 63.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.15730671610724, max mem: 92.7109375, count: 110798"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3666,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3689.151356522681, max block_count: 6607.0, count: 55399"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.890575642159606, max segment_count: 27.0, count: 55399"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.039948413236975, max cpu: 14.229248, count: 55399"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 67.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 67.91754497768461, max mem: 94.1171875, count: 55399"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.517752720731445, max cpu: 9.230769, count: 55399"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 59.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.22198872046427, max mem: 83.296875, count: 55399"
           }
         ]
       }

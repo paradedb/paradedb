@@ -283,14 +283,15 @@ impl SearchIndexReader {
 
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
-            let mut parser = QueryParser::for_index(
-                &index,
-                schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-            );
             search_query_input
                 .into_tantivy_query(
                     &schema,
-                    &mut parser,
+                    &|| {
+                        QueryParser::for_index(
+                            &index,
+                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                        )
+                    },
                     &searcher,
                     index_relation.oid(),
                     index_relation.rel_oid(),
@@ -343,18 +344,19 @@ impl SearchIndexReader {
     }
 
     pub fn make_query(&self, search_query_input: SearchQueryInput) -> Box<dyn Query> {
-        let mut parser = QueryParser::for_index(
-            &self.underlying_index,
-            self.schema
-                .fields()
-                .map(|(field, _)| field)
-                .collect::<Vec<_>>(),
-        );
         search_query_input
             .clone()
             .into_tantivy_query(
                 &self.schema,
-                &mut parser,
+                &|| {
+                    QueryParser::for_index(
+                        &self.underlying_index,
+                        self.schema
+                            .fields()
+                            .map(|(field, _)| field)
+                            .collect::<Vec<_>>(),
+                    )
+                },
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),

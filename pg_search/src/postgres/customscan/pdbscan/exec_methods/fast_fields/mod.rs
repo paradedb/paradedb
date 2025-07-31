@@ -183,11 +183,6 @@ fn collect_fast_field_try_for_attno(
     index: &PgSearchRelation,
     fieldname: Option<&FieldName>,
 ) -> bool {
-    // Skip if we've already processed this attribute number
-    if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
-        return true;
-    }
-
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber

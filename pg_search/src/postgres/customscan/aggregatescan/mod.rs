@@ -367,51 +367,36 @@ impl CustomScan for AggregateScan {
                         );
 
                         // Convert specifically for the expected PostgreSQL type
-                        match (agg_value, expected_typoid.to_u32()) {
-                            (AggregateValue::Int(val), 20) => {
+                        match (agg_value, expected_typoid) {
+                            (AggregateValue::Int(val), _) => {
                                 // BIGINT expected - convert i64 to BIGINT datum
-                                pgrx::warning!("Converting Int({}) to BIGINT (typoid 20)", val);
-                                let datum = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                pgrx::warning!("Converted to datum: {:?}", datum);
-                                datums[i] = datum;
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
                                 isnull[i] = false;
                             }
-                            (AggregateValue::Int(val), 23) => {
-                                // INTEGER expected - convert i64 to INT datum
-                                pgrx::warning!("Converting Int({}) to INTEGER (typoid 23)", val);
-                                let int_val = *val as i32;
-                                pgrx::warning!("Converted to i32: {}", int_val);
-                                let datum = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                pgrx::warning!("Converted to datum: {:?}", datum);
-                                datums[i] = datum;
-                                isnull[i] = false;
-                            }
-                            (AggregateValue::Float(val), _) => {
-                                // For float values, use f64 datum
-                                pgrx::warning!("Converting Float({}) to datum", val);
-                                let datum = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                pgrx::warning!("Converted to datum: {:?}", datum);
-                                datums[i] = datum;
-                                isnull[i] = false;
-                            }
-                            _ => {
-                                // Fallback conversion for other types
-                                pgrx::warning!("Using fallback conversion for {:?}", agg_value);
-                                match agg_value.clone().to_datum() {
-                                    Some(datum) => {
-                                        pgrx::warning!(
-                                            "Fallback conversion successful: {:?}",
-                                            datum
-                                        );
-                                        datums[i] = datum;
-                                        isnull[i] = false;
-                                    }
-                                    None => {
-                                        pgrx::warning!("Fallback conversion returned NULL");
+                            (AggregateValue::Float(val), pg_sys::NUMERICOID) => {
+                                // NUMERIC type - convert f64 to PostgreSQL AnyNumeric
+                                match pgrx::AnyNumeric::try_from(*val) {
+                                    Ok(numeric_val) => match numeric_val.into_datum() {
+                                        Some(datum) => {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                        }
+                                        None => {
+                                            datums[i] = pg_sys::Datum::from(0);
+                                            isnull[i] = true;
+                                        }
+                                    },
+                                    Err(_) => {
+                                        // Fallback to null on conversion error
                                         datums[i] = pg_sys::Datum::from(0);
                                         isnull[i] = true;
                                     }
                                 }
+                            }
+                            (AggregateValue::Float(val), _) => {
+                                // Other float types - use f64 datum directly
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
                             }
                         }
                         pgrx::warning!(

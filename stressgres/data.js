@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753986150188,
+  "lastUpdate": 1753986152605,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11162,6 +11162,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.46381457928207, max segment_count: 96.0, count: 57081"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753986151301,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.516405206122062, max cpu: 42.857143, count: 57928"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 228.53336880750672, max mem: 234.57421875, count: 57928"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.14118461403882, max cpu: 33.333336, count: 57928"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.6902093169538, max mem: 162.5, count: 57928"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22189,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20775.330392901535, max block_count: 23708.0, count: 57928"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.6036459052617, max segment_count: 97.0, count: 57928"
           }
         ]
       }

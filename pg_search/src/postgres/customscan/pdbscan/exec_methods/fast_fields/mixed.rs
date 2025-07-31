@@ -15,23 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::identity;
+use std::sync::Arc;
+
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::{FFType, WhichFastField};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::index::reader::index::SearchIndexScore;
 use crate::postgres::customscan::pdbscan::exec_methods::fast_fields::{
-    non_string_ff_to_datum, ords_to_sorted_terms, FastFieldExecState, NULL_TERM_ORDINAL,
+    non_string_ff_to_datum, ords_to_string_array, FastFieldExecState, NULL_TERM_ORDINAL,
 };
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::types::TantivyValue;
+use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
+use arrow_array::builder::{
+    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
+};
+use arrow_array::cast::AsArray;
+use arrow_array::{Array, ArrayRef};
+use arrow_schema::DataType;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
-use pgrx::PgOid;
-use tantivy::schema::document::OwnedValue;
+use pgrx::{datum, AnyNumeric, IntoDatum, PgBuiltInOids, PgOid};
 use tantivy::DocAddress;
 use tantivy::SegmentOrdinal;
 
@@ -42,23 +50,181 @@ use tantivy::SegmentOrdinal;
 /// be held in memory at a time.
 const JOIN_BATCH_SIZE: usize = 128_000;
 
-/// A macro to fetch values for the given ids into a Vec<OwnedValue>.
+/// A macro to fetch values for the given ids into an Arrow array.
 macro_rules! fetch_ff_column {
-    ($col:expr, $ids:ident, $($ff_type:ident => $owned_value:ident),* $(,)?) => {
+    ($col:expr, $ids:ident, $($ff_type:ident => $conversion:ident => $builder:ident),* $(,)?) => {
         match $col {
             $(
                 FFType::$ff_type(col) => {
                     let mut column_results = Vec::with_capacity($ids.len());
                     column_results.resize($ids.len(), None);
                     col.first_vals(&$ids, &mut column_results);
-                    column_results.into_iter().map(|maybe_val| {
-                        TantivyValue(maybe_val.map(OwnedValue::$owned_value).unwrap_or(OwnedValue::Null))
-                    }).collect::<Vec<_>>()
+                    let mut builder = $builder::with_capacity($ids.len());
+                    for maybe_val in column_results {
+                        if let Some(val) = maybe_val {
+                            builder.append_value($conversion(val));
+                        } else {
+                            builder.append_null();
+                        }
+                    }
+                    Arc::new(builder.finish()) as ArrayRef
                 }
             )*
             x => panic!("Unhandled column type {x:?}"),
         }
     };
+}
+
+/// Get a value of the given type from the given index/row of the given array.
+///
+/// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
+/// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
+fn arrow_array_to_datum(
+    array: &dyn Array,
+    index: usize,
+    oid: PgOid,
+) -> Result<Option<pg_sys::Datum>, String> {
+    if array.is_null(index) {
+        return Ok(None);
+    }
+
+    let datum = match array.data_type() {
+        DataType::Utf8View => {
+            let arr = array.as_string_view();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID)
+                | PgOid::BuiltIn(PgBuiltInOids::JSONOID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
+                    serde_json::from_str(s)
+                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
+                )
+                .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid = uuid::Uuid::parse_str(s)
+                        .map_err(|e| format!("Failed to decode as UUID: {e}"))?;
+                    datum::Uuid::from_slice(uuid.as_bytes())?.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::INETOID) => {
+                    datum::Inet::from(s.to_string()).into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::UInt64 => {
+            let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(), // Convert u64 to i64 for INT8OID
+                PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
+                    pgrx::pg_sys::Oid::from(val as u32).into_datum()
+                } // Cast u64 to u32 for OID
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
+                // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
+                _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Int64 => {
+            let arr = array.as_primitive::<arrow_array::types::Int64Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::from(val).into_datum(),
+                _ => return Err(format!("Unsupported OID for Int64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Float64 => {
+            let arr = array.as_primitive::<arrow_array::types::Float64Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => AnyNumeric::try_from(val)
+                    .map_err(|e| format!("Failed to encode: {e}"))?
+                    .into_datum(),
+                _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Boolean => {
+            let arr = array.as_boolean();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BOOLOID) => val.into_datum(),
+                _ => return Err(format!("Unsupported OID for Boolean Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
+            let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
+            let ts_nanos = arr.value(index);
+            let dt = ts_nanos_to_date_time(ts_nanos);
+            let prim_dt = dt.into_primitive();
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::TimestampWithTimeZone::with_timezone(
+                        prim_dt.year(),
+                        prim_dt.month().into(),
+                        prim_dt.day(),
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                        "UTC",
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::Timestamp::new(
+                        prim_dt.year(),
+                        prim_dt.month().into(),
+                        prim_dt.day(),
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::DATEOID) => {
+                    datum::Date::new(prim_dt.year(), prim_dt.month().into(), prim_dt.day())
+                        .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                        .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::Time::new(
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
+                    let (h, m, s, micro) = prim_dt.as_hms_micro();
+                    datum::TimeWithTimeZone::with_timezone(
+                        h,
+                        m,
+                        s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                        "UTC",
+                    )
+                    .map_err(|e| format!("Failed to convert timestamp: {e}"))?
+                    .into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
+                    ))
+                }
+            }
+        }
+        dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
+    };
+    Ok(datum)
 }
 
 /// Execution state for mixed fast field retrieval optimized for both string and numeric fields.
@@ -194,31 +360,20 @@ impl MixedFastFieldExecState {
                         let mut term_ords = Vec::with_capacity(ids.len());
                         term_ords.resize(ids.len(), None);
                         str_column.ords().first_vals(&ids, &mut term_ords);
-                        // Then enumerate to preserve the id index, and look up in
-                        // the term dictionary.
-                        let sorted_terms = ords_to_sorted_terms(
+                        Some(ords_to_string_array(
                             str_column.clone(),
-                            term_ords.into_iter().enumerate().collect::<Vec<_>>(),
-                            |(_, maybe_ord)| maybe_ord.unwrap_or(NULL_TERM_ORDINAL),
-                        );
-                        // Re-arrange the resulting terms back to docid order.
-                        let mut terms = Vec::with_capacity(ids.len());
-                        terms.resize(ids.len(), TantivyValue(OwnedValue::Null));
-                        for ((index, _), term) in sorted_terms {
-                            if let Some(term) = term {
-                                // TODO: Immediately unwrapping the Rc after creation: should remove it.
-                                terms[index] = TantivyValue(OwnedValue::Str((*term).to_owned()));
-                            }
-                        }
-                        Some(terms)
+                            term_ords
+                                .into_iter()
+                                .map(|maybe_ord| maybe_ord.unwrap_or(NULL_TERM_ORDINAL)),
+                        ))
                     }
                     FFType::Junk => None,
                     numeric_column => Some(fetch_ff_column!(numeric_column, ids,
-                        I64 => I64,
-                        F64 => F64,
-                        U64 => U64,
-                        Bool => Bool,
-                        Date => Date,
+                        I64  => identity => Int64Builder,
+                        F64  => identity => Float64Builder,
+                        U64  => identity => UInt64Builder,
+                        Bool => identity => BooleanBuilder,
+                        Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
                     )),
                 },
             )
@@ -240,6 +395,14 @@ impl MixedFastFieldExecState {
 
         true
     }
+}
+
+fn ts_nanos_to_date_time(ts_nanos: i64) -> tantivy::DateTime {
+    tantivy::DateTime::from_timestamp_nanos(ts_nanos)
+}
+
+fn date_time_to_ts_nanos(date_time: tantivy::DateTime) -> i64 {
+    date_time.into_timestamp_nanos()
 }
 
 impl ExecMethod for MixedFastFieldExecState {
@@ -439,8 +602,8 @@ struct Batch {
     ids: Vec<(SearchIndexScore, DocAddress)>,
 
     /// The current batch of fast field values, indexed by FFIndex, then by row.
-    /// TODO: Use Arrow here?
-    fields: Vec<Option<Vec<TantivyValue>>>,
+    /// This uses Arrow arrays for efficient columnar storage.
+    fields: Vec<Option<ArrayRef>>,
 }
 
 impl Batch {
@@ -470,11 +633,8 @@ impl Batch {
             match &mut self.fields[i] {
                 Some(column) => {
                     // We extracted this field: convert it into a datum.
-                    let datum_res = unsafe {
-                        std::mem::take(&mut column[row_idx])
-                            .try_into_datum(PgOid::from(att.atttypid))
-                    };
-                    match datum_res {
+                    match arrow_array_to_datum(column.as_ref(), row_idx, PgOid::from(att.atttypid))
+                    {
                         Ok(Some(datum)) => {
                             datums[i] = datum;
                             isnull[i] = false;

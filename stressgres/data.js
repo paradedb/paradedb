@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753992665677,
+  "lastUpdate": 1753992668918,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7476,6 +7476,126 @@ window.BENCHMARK_DATA = {
             "value": 59.17578125,
             "unit": "median mem",
             "extra": "avg mem: 58.22198872046427, max mem: 83.296875, count: 55399"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfe1bd8f5080995034831666f1f7690b7bfa3587",
+          "message": "feat: JSON expressions can be used with text search operators and pushed down as filters (#2919)\n\n# Ticket(s) Closed\n\n- Partially Closes #2606 \n\n## What\n\nThe following is now supported:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' LIMIT 5;\n```\n\nJSON filters can also be pushed down:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' AND (metadata->>'label')::int > 5 LIMIT 5;\n```\n\n## Why\n\n## How\n\n## Tests\nProptests for correctness, regression test for explain output",
+          "timestamp": "2025-07-31T15:54:56-04:00",
+          "tree_id": "dccb60fee0b2cf3c3ba01a6292558ef09eb9e120",
+          "url": "https://github.com/paradedb/paradedb/commit/bfe1bd8f5080995034831666f1f7690b7bfa3587"
+        },
+        "date": 1753992667595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.777729987312151, max cpu: 9.495549, count: 55247"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 59.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.47963555996253, max mem: 83.48046875, count: 55247"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6983321842897015, max cpu: 9.239654, count: 55247"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 52.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.599899867300486, max mem: 76.265625, count: 55247"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.733298386775287, max cpu: 9.495549, count: 55247"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 59.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 60.57903844043568, max mem: 83.9140625, count: 55247"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.555410755438737, max cpu: 4.7197638, count: 55247"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 59.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.25324649980995, max mem: 84.76171875, count: 55247"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.572473589905811, max cpu: 23.622047, count: 110494"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 65.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.41316267031468, max mem: 92.30859375, count: 110494"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3682,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3694.8317736709687, max block_count: 6628.0, count: 55247"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.899397252339494, max segment_count: 28.0, count: 55247"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.166115988135061, max cpu: 14.257426, count: 55247"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 67.75,
+            "unit": "median mem",
+            "extra": "avg mem: 68.35489448239271, max mem: 95.4140625, count: 55247"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.205790891874792, max cpu: 9.347614, count: 55247"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.8662808472632, max mem: 80.82421875, count: 55247"
           }
         ]
       }

@@ -176,7 +176,6 @@ pub unsafe fn collect_fast_fields(
 // Helper function to process an attribute number and add a fast field if appropriate
 fn collect_fast_field_try_for_attno(
     attno: i32,
-    processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgSearchRelation,
@@ -194,19 +193,14 @@ fn collect_fast_field_try_for_attno(
         // readily available during the scan, so we'll pretend
         pg_sys::SelfItemPointerAttributeNumber => {
             // okay, "ctid" is a fast field but it's secret
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
             matches.push(WhichFastField::Ctid);
         }
 
         pg_sys::TableOidAttributeNumber => {
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
             matches.push(WhichFastField::TableOid);
         }
 
         attno => {
-            // Keep track that we've processed this attribute number
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
-
             // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
             if attno <= 0 {
                 // Just mark it as processed and continue
@@ -249,7 +243,6 @@ pub unsafe fn pullup_fast_fields(
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
-    let mut processed_attnos = HashSet::default();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -287,7 +280,6 @@ pub unsafe fn pullup_fast_fields(
         if let Some((var, fieldname)) = maybe_var {
             if !collect_fast_field_try_for_attno(
                 (*var).varattno as i32,
-                &mut processed_attnos,
                 &mut matches,
                 &tupdesc,
                 heaprel,
@@ -334,7 +326,6 @@ pub unsafe fn pullup_fast_fields(
     for &attno in referenced_columns {
         if !collect_fast_field_try_for_attno(
             attno as i32,
-            &mut processed_attnos,
             &mut matches,
             &tupdesc,
             heaprel,

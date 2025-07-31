@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753911897364,
+  "lastUpdate": 1753985485683,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2558,6 +2558,72 @@ window.BENCHMARK_DATA = {
             "value": 32.50873243503115,
             "unit": "median tps",
             "extra": "avg tps: 41.09825739701851, max tps: 763.3313919271599, count: 55038"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753985484386,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1129.0548230661,
+            "unit": "median tps",
+            "extra": "avg tps: 1127.6332282719657, max tps: 1133.8254259239743, count: 55399"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2856.8604317116506,
+            "unit": "median tps",
+            "extra": "avg tps: 2844.568466056407, max tps: 2871.3081885321467, count: 55399"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1211.3925504863,
+            "unit": "median tps",
+            "extra": "avg tps: 1200.2764751156978, max tps: 1214.1692289206874, count: 55399"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1028.8823400894692,
+            "unit": "median tps",
+            "extra": "avg tps: 1015.7441581826694, max tps: 1035.240930330601, count: 55399"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.03311537172132,
+            "unit": "median tps",
+            "extra": "avg tps: 163.06074219788866, max tps: 168.28674997862043, count: 110798"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 160.72913221767894,
+            "unit": "median tps",
+            "extra": "avg tps: 159.39708644031847, max tps: 163.6570397369099, count: 55399"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 37.90242491473256,
+            "unit": "median tps",
+            "extra": "avg tps: 48.286956174563905, max tps: 845.5751475317239, count: 55399"
           }
         ]
       }

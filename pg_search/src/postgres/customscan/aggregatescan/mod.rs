@@ -313,20 +313,67 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
+            pgrx::warning!("=== EXEC CUSTOM SCAN DEBUG START ===");
             let slot = state.csstate.ss.ps.ps_ResultTupleSlot;
+            pgrx::warning!("Got slot pointer: {:p}", slot);
+            
             let slot_tupdesc = (*slot).tts_tupleDescriptor;
+            pgrx::warning!("Got slot tupdesc: {:p}", slot_tupdesc);
 
             let natts = (*slot_tupdesc).natts as usize;
+            pgrx::warning!("Number of attributes: {}", natts);
+
+            // Check slot type and state before modification
+            pgrx::warning!("Slot type before clear: tts_ops={:p}", (*slot).tts_ops);
+            pgrx::warning!("Slot flags before clear: {}", (*slot).tts_flags);
+            pgrx::warning!("Slot nvalid before clear: {}", (*slot).tts_nvalid);
+            
+            // Check if this is actually a virtual tuple slot
+            unsafe {
+                let virtual_ops = &pg_sys::TTSOpsVirtual as *const pg_sys::TupleTableSlotOps;
+                let minimal_ops = &pg_sys::TTSOpsMinimalTuple as *const pg_sys::TupleTableSlotOps;
+                let heap_ops = &pg_sys::TTSOpsHeapTuple as *const pg_sys::TupleTableSlotOps;
+                let buffer_ops = &pg_sys::TTSOpsBufferHeapTuple as *const pg_sys::TupleTableSlotOps;
+                
+                pgrx::warning!("Slot ops pointers:");
+                pgrx::warning!("  Virtual ops: {:p}", virtual_ops);
+                pgrx::warning!("  Minimal ops: {:p}", minimal_ops);  
+                pgrx::warning!("  Heap ops: {:p}", heap_ops);
+                pgrx::warning!("  Buffer ops: {:p}", buffer_ops);
+                pgrx::warning!("  Current slot ops: {:p}", (*slot).tts_ops);
+                
+                if (*slot).tts_ops == virtual_ops {
+                    pgrx::warning!("✅ Slot is VIRTUAL tuple slot - correct for ExecStoreVirtualTuple");
+                } else if (*slot).tts_ops == heap_ops {
+                    pgrx::warning!("❌ Slot is HEAP tuple slot - wrong for ExecStoreVirtualTuple!");
+                } else if (*slot).tts_ops == minimal_ops {
+                    pgrx::warning!("❌ Slot is MINIMAL tuple slot - wrong for ExecStoreVirtualTuple!");
+                } else if (*slot).tts_ops == buffer_ops {
+                    pgrx::warning!("❌ Slot is BUFFER HEAP tuple slot - wrong for ExecStoreVirtualTuple!");
+                } else {
+                    pgrx::warning!("❓ Slot is UNKNOWN type - this could be the problem!");
+                }
+            }
 
             // Properly clear the slot first
+            pgrx::warning!("Calling ExecClearTuple...");
             pg_sys::ExecClearTuple(slot);
+            pgrx::warning!("ExecClearTuple completed");
+
+            // Check slot state after clear
+            pgrx::warning!("Slot flags after clear: {}", (*slot).tts_flags);
+            pgrx::warning!("Slot nvalid after clear: {}", (*slot).tts_nvalid);
 
             // Set up the slot for virtual tuple storage
+            pgrx::warning!("Setting up slot flags for virtual tuple...");
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
             (*slot).tts_nvalid = natts as _;
+            pgrx::warning!("Slot flags after setup: {}", (*slot).tts_flags);
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+            pgrx::warning!("Got datums slice: len={}, ptr={:p}", datums.len(), datums.as_ptr());
+            pgrx::warning!("Got isnull slice: len={}, ptr={:p}", isnull.len(), isnull.as_ptr());
 
             // Fill in values according to the target list mapping
             for (i, entry) in target_list_mapping.iter().enumerate() {
@@ -358,54 +405,114 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
+                        pgrx::warning!("Processing aggregate at column {} (agg_idx={})", i, agg_idx);
                         let agg_value = &row.aggregate_values[*agg_idx];
+                        pgrx::warning!("Aggregate value: {:?}", agg_value);
 
                         // Get expected type for this column and convert appropriately
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
+                        pgrx::warning!("Expected column type: {} ({})", expected_typoid, attr.name());
 
                         // Convert specifically for the expected PostgreSQL type
                         match (agg_value, expected_typoid.to_u32()) {
                             (AggregateValue::Int(val), 20) => {
                                 // BIGINT expected - convert i64 to BIGINT datum
-                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converting Int({}) to BIGINT (typoid 20)", val);
+                                let datum = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converted to datum: {:?}", datum);
+                                datums[i] = datum;
                                 isnull[i] = false;
                             }
                             (AggregateValue::Int(val), 23) => {
                                 // INTEGER expected - convert i64 to INT datum
-                                datums[i] =
-                                    (*val as i32).into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converting Int({}) to INTEGER (typoid 23)", val);
+                                let int_val = *val as i32;
+                                pgrx::warning!("Converted to i32: {}", int_val);
+                                let datum = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converted to datum: {:?}", datum);
+                                datums[i] = datum;
                                 isnull[i] = false;
                             }
                             (AggregateValue::Float(val), _) => {
                                 // For float values, use f64 datum
-                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converting Float({}) to datum", val);
+                                let datum = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                pgrx::warning!("Converted to datum: {:?}", datum);
+                                datums[i] = datum;
                                 isnull[i] = false;
                             }
                             _ => {
                                 // Fallback conversion for other types
+                                pgrx::warning!("Using fallback conversion for {:?}", agg_value);
                                 match agg_value.clone().to_datum() {
                                     Some(datum) => {
+                                        pgrx::warning!("Fallback conversion successful: {:?}", datum);
                                         datums[i] = datum;
                                         isnull[i] = false;
                                     }
                                     None => {
+                                        pgrx::warning!("Fallback conversion returned NULL");
                                         datums[i] = pg_sys::Datum::from(0);
                                         isnull[i] = true;
                                     }
                                 }
                             }
                         }
+                        pgrx::warning!("Column {} set: datum={:?}, isnull={}", i, datums[i], isnull[i]);
                     }
                 }
             }
 
+            pgrx::warning!("=== FINAL SLOT PREPARATION ===");
+            
+            // Debug all datums before final store
+            for i in 0..natts {
+                pgrx::warning!("Final datum[{}]: value={:?}, isnull={}", i, datums[i], isnull[i]);
+            }
+            
+            // Check slot state before final flags
+            pgrx::warning!("Slot state before final setup: flags={}, nvalid={}", (*slot).tts_flags, (*slot).tts_nvalid);
+            
             // Finalize slot setup and store the virtual tuple
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
             (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
-
-            pg_sys::ExecStoreVirtualTuple(slot);
+            
+            pgrx::warning!("Slot state after final setup: flags={}, nvalid={}", (*slot).tts_flags, (*slot).tts_nvalid);
+            pgrx::warning!("About to call ExecStoreVirtualTuple...");
+            
+            // Try creating a fresh virtual tuple slot instead
+            pgrx::warning!("Trying alternative approach: creating fresh virtual tuple slot");
+            
+            let fresh_slot = pg_sys::MakeTupleTableSlot(slot_tupdesc, &pg_sys::TTSOpsVirtual as *const pg_sys::TupleTableSlotOps);
+            pgrx::warning!("Created fresh virtual slot: {:p}", fresh_slot);
+            
+            // Copy our datums to the fresh slot
+            let fresh_datums = std::slice::from_raw_parts_mut((*fresh_slot).tts_values, natts);
+            let fresh_isnull = std::slice::from_raw_parts_mut((*fresh_slot).tts_isnull, natts);
+            
+            for i in 0..natts {
+                fresh_datums[i] = datums[i];
+                fresh_isnull[i] = isnull[i];
+                pgrx::warning!("Copied to fresh slot[{}]: datum={:?}, isnull={}", i, fresh_datums[i], fresh_isnull[i]);
+            }
+            
+            // Set up the fresh slot
+            (*fresh_slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+            (*fresh_slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+            (*fresh_slot).tts_nvalid = natts as i16;
+            
+            pgrx::warning!("Fresh slot prepared, calling ExecStoreVirtualTuple on fresh slot...");
+            pg_sys::ExecStoreVirtualTuple(fresh_slot);
+            pgrx::warning!("Fresh slot ExecStoreVirtualTuple completed successfully!");
+            
+            // Copy the result back to the original slot if needed
+            pgrx::warning!("Copying fresh slot result back to original slot...");
+            pg_sys::ExecCopySlot(slot, fresh_slot);
+            pgrx::warning!("ExecCopySlot completed successfully!");
+            pgrx::warning!("=== EXEC CUSTOM SCAN DEBUG END ===");
+            
             slot
         }
     }

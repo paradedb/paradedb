@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753986793357,
+  "lastUpdate": 1753987432766,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15954,6 +15954,60 @@ window.BENCHMARK_DATA = {
             "value": 18.5996604439916,
             "unit": "median tps",
             "extra": "avg tps: 18.6057874036888, max tps: 21.035188610090447, count: 55276"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753987431461,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.45599426113391,
+            "unit": "median tps",
+            "extra": "avg tps: 38.58026549384898, max tps: 41.21152344441212, count: 55377"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 139.78870872401416,
+            "unit": "median tps",
+            "extra": "avg tps: 192.20857092682053, max tps: 2703.61174648334, count: 55377"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 141.76167425911123,
+            "unit": "median tps",
+            "extra": "avg tps: 141.0444328097217, max tps: 144.16083667028428, count: 55377"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 74.00640763610112,
+            "unit": "median tps",
+            "extra": "avg tps: 64.45739961079626, max tps: 117.54359794498437, count: 110754"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.408160242940475,
+            "unit": "median tps",
+            "extra": "avg tps: 18.59402494034385, max tps: 21.416301662212547, count: 55377"
           }
         ]
       }

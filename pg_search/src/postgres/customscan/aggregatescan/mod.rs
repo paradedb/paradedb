@@ -313,81 +313,11 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
-            pgrx::warning!("=== EXEC CUSTOM SCAN DEBUG START ===");
-            let slot = state.csstate.ss.ps.ps_ResultTupleSlot;
-            pgrx::warning!("Got slot pointer: {:p}", slot);
-
-            let slot_tupdesc = (*slot).tts_tupleDescriptor;
-            pgrx::warning!("Got slot tupdesc: {:p}", slot_tupdesc);
-
-            let natts = (*slot_tupdesc).natts as usize;
-            pgrx::warning!("Number of attributes: {}", natts);
-
-            // Check slot type and state before modification
-            pgrx::warning!("Slot type before clear: tts_ops={:p}", (*slot).tts_ops);
-            pgrx::warning!("Slot flags before clear: {}", (*slot).tts_flags);
-            pgrx::warning!("Slot nvalid before clear: {}", (*slot).tts_nvalid);
-
-            // Check if this is actually a virtual tuple slot
-            unsafe {
-                let virtual_ops = &pg_sys::TTSOpsVirtual as *const pg_sys::TupleTableSlotOps;
-                let minimal_ops = &pg_sys::TTSOpsMinimalTuple as *const pg_sys::TupleTableSlotOps;
-                let heap_ops = &pg_sys::TTSOpsHeapTuple as *const pg_sys::TupleTableSlotOps;
-                let buffer_ops = &pg_sys::TTSOpsBufferHeapTuple as *const pg_sys::TupleTableSlotOps;
-
-                pgrx::warning!("Slot ops pointers:");
-                pgrx::warning!("  Virtual ops: {:p}", virtual_ops);
-                pgrx::warning!("  Minimal ops: {:p}", minimal_ops);
-                pgrx::warning!("  Heap ops: {:p}", heap_ops);
-                pgrx::warning!("  Buffer ops: {:p}", buffer_ops);
-                pgrx::warning!("  Current slot ops: {:p}", (*slot).tts_ops);
-
-                if (*slot).tts_ops == virtual_ops {
-                    pgrx::warning!(
-                        "✅ Slot is VIRTUAL tuple slot - correct for ExecStoreVirtualTuple"
-                    );
-                } else if (*slot).tts_ops == heap_ops {
-                    pgrx::warning!("❌ Slot is HEAP tuple slot - wrong for ExecStoreVirtualTuple!");
-                } else if (*slot).tts_ops == minimal_ops {
-                    pgrx::warning!(
-                        "❌ Slot is MINIMAL tuple slot - wrong for ExecStoreVirtualTuple!"
-                    );
-                } else if (*slot).tts_ops == buffer_ops {
-                    pgrx::warning!(
-                        "❌ Slot is BUFFER HEAP tuple slot - wrong for ExecStoreVirtualTuple!"
-                    );
-                } else {
-                    pgrx::warning!("❓ Slot is UNKNOWN type - this could be the problem!");
-                }
-            }
-
-            // Properly clear the slot first
-            pgrx::warning!("Calling ExecClearTuple...");
+            // Simple slot setup - following working PDB scan pattern
             pg_sys::ExecClearTuple(slot);
-            pgrx::warning!("ExecClearTuple completed");
-
-            // Check slot state after clear
-            pgrx::warning!("Slot flags after clear: {}", (*slot).tts_flags);
-            pgrx::warning!("Slot nvalid after clear: {}", (*slot).tts_nvalid);
-
-            // Set up the slot for virtual tuple storage
-            pgrx::warning!("Setting up slot flags for virtual tuple...");
-            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-            (*slot).tts_nvalid = natts as _;
-            pgrx::warning!("Slot flags after setup: {}", (*slot).tts_flags);
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-            pgrx::warning!(
-                "Got datums slice: len={}, ptr={:p}",
-                datums.len(),
-                datums.as_ptr()
-            );
-            pgrx::warning!(
-                "Got isnull slice: len={}, ptr={:p}",
-                isnull.len(),
-                isnull.as_ptr()
-            );
 
             // Fill in values according to the target list mapping
             for (i, entry) in target_list_mapping.iter().enumerate() {
@@ -494,57 +424,9 @@ impl CustomScan for AggregateScan {
                 }
             }
 
-            pgrx::warning!("=== FINAL SLOT PREPARATION ===");
-
-            // Debug all datums before final store
-            for i in 0..natts {
-                pgrx::warning!(
-                    "Final datum[{}]: value={:?}, isnull={}",
-                    i,
-                    datums[i],
-                    isnull[i]
-                );
-            }
-
-            // Check slot state before final flags
-            pgrx::warning!(
-                "Slot state before final setup: flags={}, nvalid={}",
-                (*slot).tts_flags,
-                (*slot).tts_nvalid
-            );
-
-            // Finalize slot setup and store the virtual tuple
+            // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
-
-            pgrx::warning!(
-                "Slot state after final setup: flags={}, nvalid={}",
-                (*slot).tts_flags,
-                (*slot).tts_nvalid
-            );
-            pgrx::warning!("About to call ExecStoreVirtualTuple...");
-
-            // TEST FRAMEWORK BYPASS: Manual slot setup to avoid PostgreSQL internal crashes
-            pgrx::warning!("Using manual slot setup to bypass test framework tuple storage issues");
-
-            // Manually set the slot state without calling PostgreSQL storage functions
-            (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-            (*slot).tts_nvalid = natts as i16;
-
-            pgrx::warning!("Manual slot setup completed - bypassing ExecStore functions");
-            pgrx::warning!(
-                "Final slot state: flags={}, nvalid={}",
-                (*slot).tts_flags,
-                (*slot).tts_nvalid
-            );
-
-            // Log successful completion
-            pgrx::warning!(
-                "✅ AGGREGATE EXECUTION SUCCESSFUL - bypassed test framework slot issues"
-            );
-            pgrx::warning!("=== EXEC CUSTOM SCAN DEBUG END ===");
 
             slot
         }

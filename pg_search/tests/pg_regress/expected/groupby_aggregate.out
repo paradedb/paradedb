@@ -51,20 +51,51 @@ FROM products
 WHERE description @@@ 'laptop' 
 GROUP BY rating
 ORDER BY rating;
-WARNING:  Setting up tuple slot: natts=2, slot=0x7f9a5005e788
-WARNING:  TupleDesc[0]: name=rating, typoid=23
-WARNING:  TupleDesc[1]: name=count, typoid=20
-WARNING:  ExecClearTuple completed
-WARNING:  Slot state: tts_flags=18, tts_nvalid=0, tts_values=0x7f9a5005e7d0, tts_isnull=0x7f9a5005e7e0
-WARNING:  Slot flags and nvalid set
-WARNING:  Got datums and isnull slices
-WARNING:  Converting aggregate value at index 0: Int(1)
-WARNING:  Successfully converted aggregate value to datum
-WARNING:  About to call ExecStoreVirtualTuple - checking final slot state
-WARNING:  Final slot: flags=16, nvalid=2, natts=2
-WARNING:  Datum[0]: value=Datum(0x3), isnull=false
-WARNING:  Datum[1]: value=Datum(0x1), isnull=false
-WARNING:  Calling ExecStoreVirtualTuple now...
+WARNING:  Processing aggregate at column 1 (agg_idx=0)
+WARNING:  Aggregate value: Int(1)
+WARNING:  Expected column type: 20 (count)
+WARNING:  Converting Int(1) to BIGINT (typoid 20)
+WARNING:  Converted to datum: Datum(0x1)
+WARNING:  Column 1 set: datum=Datum(0x1), isnull=false
+WARNING:  Processing aggregate at column 1 (agg_idx=0)
+WARNING:  Aggregate value: Int(2)
+WARNING:  Expected column type: 20 (count)
+WARNING:  Converting Int(2) to BIGINT (typoid 20)
+WARNING:  Converted to datum: Datum(0x2)
+WARNING:  Column 1 set: datum=Datum(0x2), isnull=false
+ rating | count 
+--------+-------
+      3 |     1
+      5 |     2
+(2 rows)
+
+-- Test 1.2: GROUP BY with SUM aggregate
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) AS total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category, now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+(5 rows)
+
+SELECT category, SUM(price) AS total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+WARNING:  Processing aggregate at column 1 (agg_idx=0)
+WARNING:  Aggregate value: Float(3029.95)
+WARNING:  Expected column type: 1700 (total_price)
+WARNING:  Converting Float(3029.95) to datum
+WARNING:  Converted to datum: Datum(0x40a7abe666666666)
+WARNING:  Column 1 set: datum=Datum(0x40a7abe666666666), isnull=false
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.

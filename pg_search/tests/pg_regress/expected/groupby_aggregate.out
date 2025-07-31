@@ -51,9 +51,20 @@ FROM products
 WHERE description @@@ 'laptop' 
 GROUP BY rating
 ORDER BY rating;
+WARNING:  Setting up tuple slot: natts=2, slot=0x7f9a5005e788
+WARNING:  TupleDesc[0]: name=rating, typoid=23
+WARNING:  TupleDesc[1]: name=count, typoid=20
+WARNING:  ExecClearTuple completed
+WARNING:  Slot state: tts_flags=18, tts_nvalid=0, tts_values=0x7f9a5005e7d0, tts_isnull=0x7f9a5005e7e0
+WARNING:  Slot flags and nvalid set
+WARNING:  Got datums and isnull slices
 WARNING:  Converting aggregate value at index 0: Int(1)
 WARNING:  Successfully converted aggregate value to datum
-WARNING:  All datums set, calling pg_sys::ExecStoreVirtualTuple
+WARNING:  About to call ExecStoreVirtualTuple - checking final slot state
+WARNING:  Final slot: flags=16, nvalid=2, natts=2
+WARNING:  Datum[0]: value=Datum(0x3), isnull=false
+WARNING:  Datum[1]: value=Datum(0x1), isnull=false
+WARNING:  Calling ExecStoreVirtualTuple now...
 server closed the connection unexpectedly
 	This probably means the server terminated abnormally
 	before or while processing the request.

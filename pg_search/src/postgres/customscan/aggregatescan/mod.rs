@@ -313,15 +313,31 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
+                        pgrx::warning!("Setting up tuple slot: natts={}, slot={:p}", natts, slot);
+            
+            // Check tuple descriptor details
+            for i in 0..natts {
+                let attr = tupdesc.get(i).expect("missing attribute");
+                pgrx::warning!("TupleDesc[{}]: name={}, typoid={}", 
+                              i, attr.name(), attr.type_oid().value());
+            }
+            
             // Properly clear the slot first
             pg_sys::ExecClearTuple(slot);
-
+            pgrx::warning!("ExecClearTuple completed");
+            
+            // Check slot state
+            pgrx::warning!("Slot state: tts_flags={}, tts_nvalid={}, tts_values={:p}, tts_isnull={:p}", 
+                          (*slot).tts_flags, (*slot).tts_nvalid, (*slot).tts_values, (*slot).tts_isnull);
+            
             // Set up the slot for virtual tuple storage
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
             (*slot).tts_nvalid = natts as _;
+            pgrx::warning!("Slot flags and nvalid set");
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+            pgrx::warning!("Got datums and isnull slices");
 
             // Fill in values according to the target list mapping
             for (i, entry) in target_list_mapping.iter().enumerate() {
@@ -375,7 +391,17 @@ impl CustomScan for AggregateScan {
                 }
             }
 
+            pgrx::warning!("About to call ExecStoreVirtualTuple - checking final slot state");
+            pgrx::warning!("Final slot: flags={}, nvalid={}, natts={}", (*slot).tts_flags, (*slot).tts_nvalid, natts);
+            
+            // Check each datum
+            for i in 0..natts {
+                pgrx::warning!("Datum[{}]: value={:?}, isnull={}", i, datums[i], isnull[i]);
+            }
+            
+            pgrx::warning!("Calling ExecStoreVirtualTuple now...");
             pg_sys::ExecStoreVirtualTuple(slot);
+            pgrx::warning!("ExecStoreVirtualTuple completed successfully!");
             slot
         }
     }

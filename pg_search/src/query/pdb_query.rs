@@ -150,6 +150,7 @@ pub mod pdb {
             query_string: String,
             lenient: Option<bool>,
             conjunction_mode: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
             fuzzy_data: Option<FuzzyData>,
         },
         Phrase {

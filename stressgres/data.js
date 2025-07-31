@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753993333761,
+  "lastUpdate": 1753993336331,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11444,6 +11444,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.6036459052617, max segment_count: 97.0, count: 57928"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfe1bd8f5080995034831666f1f7690b7bfa3587",
+          "message": "feat: JSON expressions can be used with text search operators and pushed down as filters (#2919)\n\n# Ticket(s) Closed\n\n- Partially Closes #2606 \n\n## What\n\nThe following is now supported:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' LIMIT 5;\n```\n\nJSON filters can also be pushed down:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' AND (metadata->>'label')::int > 5 LIMIT 5;\n```\n\n## Why\n\n## How\n\n## Tests\nProptests for correctness, regression test for explain output",
+          "timestamp": "2025-07-31T15:54:56-04:00",
+          "tree_id": "dccb60fee0b2cf3c3ba01a6292558ef09eb9e120",
+          "url": "https://github.com/paradedb/paradedb/commit/bfe1bd8f5080995034831666f1f7690b7bfa3587"
+        },
+        "date": 1753993335033,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.538709086308472, max cpu: 42.985077, count: 57888"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.5,
+            "unit": "median mem",
+            "extra": "avg mem: 225.57434689346238, max mem: 231.65234375, count: 57888"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.184384206831144, max cpu: 33.4995, count: 57888"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.75113851316334, max mem: 160.54296875, count: 57888"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22090,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20618.13424198452, max block_count: 23528.0, count: 57888"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.41055140961858, max segment_count: 97.0, count: 57888"
           }
         ]
       }

@@ -119,7 +119,7 @@ pub unsafe fn try_pushdown_inner(
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
             // can't push down tokenized text
-            if opexpr.is_text() && !search_field.is_keyword() {
+            if (search_field.is_text() || opexpr.is_text()) && !search_field.is_keyword() {
                 return None;
             }
 

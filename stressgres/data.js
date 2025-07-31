@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753993336331,
+  "lastUpdate": 1753993979819,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12930,6 +12930,42 @@ window.BENCHMARK_DATA = {
             "value": 136.93949150860385,
             "unit": "median tps",
             "extra": "avg tps: 136.13739315514812, max tps: 138.9413366751237, count: 57716"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfe1bd8f5080995034831666f1f7690b7bfa3587",
+          "message": "feat: JSON expressions can be used with text search operators and pushed down as filters (#2919)\n\n# Ticket(s) Closed\n\n- Partially Closes #2606 \n\n## What\n\nThe following is now supported:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' LIMIT 5;\n```\n\nJSON filters can also be pushed down:\n\n```sql\nSELECT * FROM benchmark_logs WHERE metadata->>'label' @@@ 'query' AND (metadata->>'label')::int > 5 LIMIT 5;\n```\n\n## Why\n\n## How\n\n## Tests\nProptests for correctness, regression test for explain output",
+          "timestamp": "2025-07-31T15:54:56-04:00",
+          "tree_id": "dccb60fee0b2cf3c3ba01a6292558ef09eb9e120",
+          "url": "https://github.com/paradedb/paradedb/commit/bfe1bd8f5080995034831666f1f7690b7bfa3587"
+        },
+        "date": 1753993978531,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 26.929970962770902,
+            "unit": "median tps",
+            "extra": "avg tps: 26.784113954703095, max tps: 27.017413093374874, count: 57831"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 133.49271191449427,
+            "unit": "median tps",
+            "extra": "avg tps: 132.74527151840073, max tps: 135.458773471111, count: 57831"
           }
         ]
       }

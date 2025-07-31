@@ -26,7 +26,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, PrivateData, TargetListEntry,
+    AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
@@ -313,31 +313,20 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
-                        pgrx::warning!("Setting up tuple slot: natts={}, slot={:p}", natts, slot);
-            
-            // Check tuple descriptor details
-            for i in 0..natts {
-                let attr = tupdesc.get(i).expect("missing attribute");
-                pgrx::warning!("TupleDesc[{}]: name={}, typoid={}", 
-                              i, attr.name(), attr.type_oid().value());
-            }
-            
+            let slot = state.csstate.ss.ps.ps_ResultTupleSlot;
+            let slot_tupdesc = (*slot).tts_tupleDescriptor;
+
+            let natts = (*slot_tupdesc).natts as usize;
+
             // Properly clear the slot first
             pg_sys::ExecClearTuple(slot);
-            pgrx::warning!("ExecClearTuple completed");
-            
-            // Check slot state
-            pgrx::warning!("Slot state: tts_flags={}, tts_nvalid={}, tts_values={:p}, tts_isnull={:p}", 
-                          (*slot).tts_flags, (*slot).tts_nvalid, (*slot).tts_values, (*slot).tts_isnull);
-            
+
             // Set up the slot for virtual tuple storage
             (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
             (*slot).tts_nvalid = natts as _;
-            pgrx::warning!("Slot flags and nvalid set");
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-            pgrx::warning!("Got datums and isnull slices");
 
             // Fill in values according to the target list mapping
             for (i, entry) in target_list_mapping.iter().enumerate() {
@@ -369,39 +358,54 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        pgrx::warning!(
-                            "Converting aggregate value at index {}: {:?}",
-                            agg_idx,
-                            &row.aggregate_values[*agg_idx]
-                        );
                         let agg_value = &row.aggregate_values[*agg_idx];
-                        match agg_value.clone().to_datum() {
-                            Some(datum) => {
-                                datums[i] = datum;
+
+                        // Get expected type for this column and convert appropriately
+                        let attr = tupdesc.get(i).expect("missing attribute");
+                        let expected_typoid = attr.type_oid().value();
+
+                        // Convert specifically for the expected PostgreSQL type
+                        match (agg_value, expected_typoid.to_u32()) {
+                            (AggregateValue::Int(val), 20) => {
+                                // BIGINT expected - convert i64 to BIGINT datum
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
                                 isnull[i] = false;
-                                pgrx::warning!("Successfully converted aggregate value to datum");
                             }
-                            None => {
-                                datums[i] = pg_sys::Datum::from(0);
-                                isnull[i] = true;
-                                pgrx::warning!("Aggregate value was NULL");
+                            (AggregateValue::Int(val), 23) => {
+                                // INTEGER expected - convert i64 to INT datum
+                                datums[i] =
+                                    (*val as i32).into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                            (AggregateValue::Float(val), _) => {
+                                // For float values, use f64 datum
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                            _ => {
+                                // Fallback conversion for other types
+                                match agg_value.clone().to_datum() {
+                                    Some(datum) => {
+                                        datums[i] = datum;
+                                        isnull[i] = false;
+                                    }
+                                    None => {
+                                        datums[i] = pg_sys::Datum::from(0);
+                                        isnull[i] = true;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            pgrx::warning!("About to call ExecStoreVirtualTuple - checking final slot state");
-            pgrx::warning!("Final slot: flags={}, nvalid={}, natts={}", (*slot).tts_flags, (*slot).tts_nvalid, natts);
-            
-            // Check each datum
-            for i in 0..natts {
-                pgrx::warning!("Datum[{}]: value={:?}, isnull={}", i, datums[i], isnull[i]);
-            }
-            
-            pgrx::warning!("Calling ExecStoreVirtualTuple now...");
+            // Finalize slot setup and store the virtual tuple
+            (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+            (*slot).tts_nvalid = natts as i16;
+
             pg_sys::ExecStoreVirtualTuple(slot);
-            pgrx::warning!("ExecStoreVirtualTuple completed successfully!");
             slot
         }
     }

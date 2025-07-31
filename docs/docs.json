@@ -225,7 +225,9 @@
                           "v2/full-text/match",
                           "v2/full-text/phrase",
                           "v2/full-text/term",
-                          "v2/full-text/highlight"
+                          "v2/full-text/score",
+                          "v2/full-text/highlight",
+                          "v2/full-text/boost"
                         ]
                       },
                       {

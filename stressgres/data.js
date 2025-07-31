@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753985488285,
+  "lastUpdate": 1753986150188,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8800,6 +8800,42 @@ window.BENCHMARK_DATA = {
             "value": 5.7903503396903915,
             "unit": "median tps",
             "extra": "avg tps: 5.182799088012045, max tps: 6.55281296811007, count: 57081"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4466d8f1b632c579615abda8dfee14bf5b69aed8",
+          "message": "feat: ability to boost query predicate scores via `::boost(N)` (#2918)\n\n## What\n\nThis adds the ability to boost the score of a query clause using\nPostgres SQL syntax for operators and casting.\n\nFor example:\n\n```sql\nSELECT * \nFROM mock_items \nWHERE description @@@ 'shoes'::boost(3);\n\nSELECT * \nFROM mock_items \nWHERE description @@@ pdb.phrase('running shoes')::boost(0.5);\n```\n\nIt works with the right-hand-side of all our operators: `@@@`, `&&&`,\n`|||`, `###`, and `===`, along with the proximity search syntax of\n`field @@@ ('one' ##3## 'two')::boost(42)`.\n\nThe new `boost` type supports a typmod that gets converted to a `f16`\n(so that it can fit within the non-negative side of an i32, which\nPostgres requires) and is quietly clamped to the range\n`-2048.0..=2028.0`. Any `pdb.query` can be cast to a `boost(N)` where\n`N` is either an integer or a floating point.\n\n## Why\n\nContinuation of the SQL UX work to make writing queries easier for\nhumans and machines.\n\n## How\n\n## Tests\n\nExisting tests pass and a new `boost.sql` regression test has been added\nto assert expected outputs.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-07-31T13:04:27-04:00",
+          "tree_id": "caf4fe7cac54cd5ff4785519bdb5d13567ea8849",
+          "url": "https://github.com/paradedb/paradedb/commit/4466d8f1b632c579615abda8dfee14bf5b69aed8"
+        },
+        "date": 1753986148874,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.763545154071141,
+            "unit": "median tps",
+            "extra": "avg tps: 5.79492906226888, max tps: 8.69700915924853, count: 57928"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.888470776683617,
+            "unit": "median tps",
+            "extra": "avg tps: 5.273741582401375, max tps: 6.6554888903105525, count: 57928"
           }
         ]
       }

@@ -159,3 +159,107 @@ where
 
     Ok(())
 }
+
+/// Compare with setup SQL for repro script generation
+pub fn compare_with_setup<R, F>(
+    pg_query: String,
+    bm25_query: String,
+    gucs: PgGucs,
+    conn: &mut PgConnection,
+    run_query: F,
+    setup_sql: &str,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> R,
+{
+    // the postgres query is always run with the paradedb custom scan turned off
+    // this ensures we get the actual, known-to-be-correct result from Postgres'
+    // plan, and not from ours where we did some kind of pushdown
+    r#"
+        SET max_parallel_workers TO 8;
+        SET enable_seqscan TO ON;
+        SET enable_indexscan TO ON;
+        SET paradedb.enable_custom_scan TO OFF;
+        SET paradedb.enable_aggregate_custom_scan TO OFF;
+    "#
+    .execute(conn);
+
+    conn.deallocate_all()?;
+
+    let pg_result = run_query(&pg_query, conn);
+
+    // and for the "bm25" query, we run it with the given GUCs set.
+    gucs.set().execute(conn);
+
+    conn.deallocate_all()?;
+
+    let bm25_result = run_query(&bm25_query, conn);
+
+    if pg_result != bm25_result {
+        // Generate a complete reproduction script
+        let explain_output = format!("EXPLAIN {bm25_query}")
+            .fetch::<(String,)>(conn)
+            .into_iter()
+            .map(|(s,)| s)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let repro_script = format!(
+            r#"
+-- ==== COMPLETE REPRODUCTION SCRIPT ====
+-- Copy and paste this entire block to reproduce the issue
+
+-- Prerequisites: Ensure pg_search extension is available
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Table and index setup
+{setup_sql}
+
+-- Set GUCs to match the failing test case
+SET paradedb.enable_aggregate_custom_scan = {aggregate_custom_scan};
+SET paradedb.enable_custom_scan = {custom_scan};
+SET paradedb.enable_custom_scan_without_operator = {custom_scan_without_operator};
+SET enable_seqscan = {seqscan};
+SET enable_indexscan = {indexscan};
+SET max_parallel_workers_per_gather = {parallel_workers};
+
+-- Query that fails with aggregate custom scan enabled:
+{bm25_query}
+
+-- Expected result (from PostgreSQL):
+-- {pg_result:?}
+
+-- Actual result (from BM25):
+-- {bm25_result:?}
+
+-- Query execution plan:
+-- {explain_output}
+
+-- To debug further, you can also try:
+SET paradedb.enable_aggregate_custom_scan = off;
+{bm25_query}
+
+-- ==== END REPRODUCTION SCRIPT ====
+"#,
+            setup_sql = setup_sql,
+            aggregate_custom_scan = gucs.aggregate_custom_scan,
+            custom_scan = gucs.custom_scan,
+            custom_scan_without_operator = gucs.custom_scan_without_operator,
+            seqscan = gucs.seqscan,
+            indexscan = gucs.indexscan,
+            parallel_workers = if gucs.parallel_workers { 2 } else { 0 },
+            bm25_query = bm25_query,
+            pg_result = pg_result,
+            bm25_result = bm25_result,
+            explain_output = explain_output
+        );
+
+        return Err(TestCaseError::fail(format!(
+            "Results differ between PostgreSQL and BM25 custom scan\n{}",
+            repro_script
+        )));
+    }
+
+    Ok(())
+}

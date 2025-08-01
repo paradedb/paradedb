@@ -21,7 +21,7 @@ use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
-use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
+use crate::fixtures::querygen::{arb_joins_and_wheres, compare, compare_with_setup, PgGucs};
 
 use fixtures::*;
 
@@ -328,7 +328,7 @@ async fn generated_group_by_aggregates(database: Db) {
             string_rows
         };
 
-        compare(pg_query, bm25_query, gucs, &mut pool.pull(), compare_results)?;
+        compare_with_setup(pg_query, bm25_query, gucs, &mut pool.pull(), compare_results, &setup_sql)?;
     });
 }
 

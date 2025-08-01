@@ -288,8 +288,13 @@ where
     let search_query_input_typoid = searchqueryinput_typoid();
 
     let input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-    let lhs = input_args.get_ptr(0)?;
+    let mut lhs = input_args.get_ptr(0)?;
     let rhs = input_args.get_ptr(1)?;
+
+    // fast-forward through relabel types -- we're interested in the final node being relabeled
+    while let Some(relabel) = nodecast!(RelabelType, T_RelabelType, lhs) {
+        lhs = (*relabel).arg.cast();
+    }
 
     let (_heaprelid, field) = tantivy_field_name_from_node((*srs).root, lhs)?;
     let rhs = rewrite_rhs_to_search_query_input(

@@ -61,7 +61,7 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 },
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string} = query {
+                    if let pdb::Query::UnclassifiedString {string, ..} = query {
                         query = phrase_string(string);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})

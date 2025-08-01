@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754063513042,
+  "lastUpdate": 1754063516197,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7662,6 +7662,126 @@ window.BENCHMARK_DATA = {
             "value": 56.28125,
             "unit": "median mem",
             "extra": "avg mem: 56.8662808472632, max mem: 80.82421875, count: 55247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a804e67d948a850b6fa61989843185be207e91e5",
+          "message": "fix: Node relabeling no longer defeats new operators (#2925)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe new &&&,|||,###,=== operators are all defined to take a value of\ntype TEXT on the left-hand-side.\n\nIf the lhs Var happens to be coercible to text, but not actually TEXT,\nsuch as VARCHAR, Postgres will wrap that Var node in a RelabelType,\nwhich we need to be able to see through in order to find the actual\nfield being referenced on the left-hand-side of the operator.\n\n## Why\n\n## How\n\n## Tests\n\nThe existing `operators.sql` regression test has been updated to also\ntest using a VARCHAR field. I can't think of any other types that\nPostgres will relabel to TEXT, especially among the set of data types we\nsupport.",
+          "timestamp": "2025-08-01T11:35:41-04:00",
+          "tree_id": "df4b710fdd729920e2e0273493cd186a9b8c60ca",
+          "url": "https://github.com/paradedb/paradedb/commit/a804e67d948a850b6fa61989843185be207e91e5"
+        },
+        "date": 1754063514898,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.777154258590943, max cpu: 9.467456, count: 55126"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 59.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 59.43676283933625, max mem: 81.93359375, count: 55126"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.61503083818135, max cpu: 9.476802, count: 55126"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 51.244140625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.679180493891266, max mem: 74.921875, count: 55126"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.772576044194862, max cpu: 9.628887, count: 55126"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.36458883682382, max mem: 82.17578125, count: 55126"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.307339286078405, max cpu: 4.7151275, count: 55126"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 60.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 59.39243470356547, max mem: 82.546875, count: 55126"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.901156133768343, max cpu: 23.66864, count: 110252"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 65.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.50605282387167, max mem: 91.546875, count: 110252"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3623,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3606.0614954830753, max block_count: 6447.0, count: 55126"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.921706635707288, max segment_count: 29.0, count: 55126"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.129565009894058, max cpu: 14.428859, count: 55126"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 81.5,
+            "unit": "median mem",
+            "extra": "avg mem: 80.63895156096942, max mem: 108.0, count: 55126"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668302796253109, max cpu: 9.320388, count: 55126"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.82361168901698, max mem: 81.24609375, count: 55126"
           }
         ]
       }

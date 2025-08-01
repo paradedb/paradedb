@@ -152,11 +152,10 @@ fn test_other_aggregates(mut conn: PgConnection) {
 
     "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
 
-    // Do not use the aggregate custom scan for aggregates that we do not support yet.
     for aggregate_func in ["SUM(rating)", "AVG(rating)", "MIN(rating)", "MAX(rating)"] {
         assert_uses_custom_scan(
             &mut conn,
-            false,
+            true, // Changed from false to true - we now support these!
             format!(
                 r#"
                 SELECT {aggregate_func}

@@ -162,13 +162,21 @@ impl AggregateScanState {
                 .iter()
                 .enumerate()
                 .map(move |(idx, aggregate)| {
-                    let aggregate_val = result_map
+                    let agg_obj = result_map
                         .get(&idx.to_string())
-                        .expect("missing aggregate result")
-                        .as_object()
-                        .expect("unexpected aggregate structure")
-                        .get("value")
-                        .expect("missing aggregate result value");
+                        .expect("missing aggregate result");
+
+                    let aggregate_val = if let Some(obj) = agg_obj.as_object() {
+                        if let Some(value) = obj.get("value") {
+                            value
+                        } else {
+                            // For COUNT aggregates, the value might be directly in the object
+                            agg_obj
+                        }
+                    } else {
+                        // Direct numeric value
+                        agg_obj
+                    };
 
                     aggregate.result_from_json(aggregate_val)
                 })
@@ -235,10 +243,17 @@ impl AggregateScanState {
                                     ));
 
                                     // Handle different aggregate result structures
-                                    agg_obj
-                                        .as_object()
-                                        .and_then(|obj| obj.get("value"))
-                                        .unwrap_or(agg_obj)
+                                    if let Some(obj) = agg_obj.as_object() {
+                                        if let Some(value) = obj.get("value") {
+                                            value
+                                        } else {
+                                            // For COUNT aggregates, the value might be directly in the object
+                                            agg_obj
+                                        }
+                                    } else {
+                                        // Direct numeric value
+                                        agg_obj
+                                    }
                                 }
                             };
                             aggregate.result_from_json(agg_result)

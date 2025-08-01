@@ -43,7 +43,7 @@ ORDER BY rating;
    Output: rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
 (5 rows)
 
 SELECT rating, COUNT(*) AS count
@@ -70,7 +70,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, SUM(price) AS total_price
@@ -96,7 +96,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, AVG(price) AS avg_price
@@ -122,7 +122,7 @@ ORDER BY category;
    Output: category, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
@@ -142,13 +142,13 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, now(), now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
@@ -196,7 +196,7 @@ ORDER BY category DESC;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR shoes","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 SELECT category, COUNT(*) AS count
@@ -220,7 +220,7 @@ SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: now(), category
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
@@ -237,7 +237,7 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
@@ -255,7 +255,7 @@ SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY ra
    Output: rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -313,7 +313,7 @@ SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
    Output: val_int2, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int2"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int2","size":10000}}}
 (5 rows)
 
 SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
@@ -332,7 +332,7 @@ SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
    Output: val_int4, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int4"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int4","size":10000}}}
 (5 rows)
 
 SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
@@ -351,7 +351,7 @@ SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_i
    Output: val_int8, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int8"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_int8","size":10000}}}
 (5 rows)
 
 SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
@@ -370,7 +370,7 @@ SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val
    Output: val_float4, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float4"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_float4","size":10000}}}
 (5 rows)
 
 SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
@@ -389,7 +389,7 @@ SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val
    Output: val_float8, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float8"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_float8","size":10000}}}
 (5 rows)
 
 SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
@@ -409,7 +409,7 @@ SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_t
    Output: val_text, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_text"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_text","size":10000}}}
 (5 rows)
 
 SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
@@ -429,7 +429,7 @@ SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_b
    Output: val_bool, now()
    Index: type_test_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_bool"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"val_bool","size":10000}}}
 (5 rows)
 
 SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
@@ -454,7 +454,7 @@ GROUP BY rating;
    Output: rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
 (5 rows)
 
 SELECT rating, COUNT(*) AS count
@@ -552,7 +552,7 @@ ORDER BY priority;
    Output: priority, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"login OR password OR authentication","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"priority"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000}}}
 (5 rows)
 
 SELECT priority, COUNT(*) as count
@@ -578,7 +578,7 @@ GROUP BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error OR broken OR failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 SELECT category, COUNT(*) as count
@@ -606,7 +606,7 @@ GROUP BY category, priority;
    Output: category, priority, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"group_1":{"terms":{"field":"priority"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000}}}}}
 (5 rows)
 
 -- ---------------------------------------------------------------------------
@@ -624,7 +624,7 @@ ORDER BY category, priority;
    Output: category, priority
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"},"aggs":{"group_1":{"terms":{"field":"priority"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000}}}}}
 (5 rows)
 
 SELECT category, priority
@@ -647,13 +647,13 @@ FROM support_tickets
 WHERE description @@@ 'error'
 GROUP BY category, priority, status
 ORDER BY priority, status;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
    Output: category, priority, status, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"priority"},"aggs":{"group_1":{"terms":{"field":"status"},"aggs":{"group_2":{"terms":{"field":"category"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000},"aggs":{"group_1":{"terms":{"field":"status","size":10000},"aggs":{"group_2":{"terms":{"field":"category","size":10000}}}}}}}
 (5 rows)
 
 SELECT category, priority, status, COUNT(*)
@@ -676,13 +676,13 @@ FROM support_tickets
 WHERE description @@@ 'error'
 GROUP BY category, priority, status
 ORDER BY status DESC, priority DESC;
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
    Output: category, priority, status
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"status"},"aggs":{"group_1":{"terms":{"field":"priority"},"aggs":{"group_2":{"terms":{"field":"category"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"status","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000},"aggs":{"group_2":{"terms":{"field":"category","size":10000}}}}}}}
 (5 rows)
 
 SELECT category, priority, status
@@ -744,7 +744,7 @@ ORDER BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 -- This should use our custom aggregate scan with ORDER BY
@@ -771,7 +771,7 @@ GROUP BY category;
    Output: category, now()
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 -- This uses our custom aggregate scan
@@ -798,7 +798,7 @@ ORDER BY category;
    Output: category
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
 -- This should use our custom aggregate scan and return distinct categories without COUNT(*)
@@ -828,7 +828,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (4 rows)
 
 SELECT category, COUNT(*) as count
@@ -883,7 +883,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on support_tickets
    Index: tickets_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category"}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (4 rows)
 
 SELECT category, COUNT(*) as count
@@ -924,9 +924,567 @@ FROM paradedb.aggregate(
 (1 row)
 
 -- ===========================================================================
+-- SECTION 8: Forced Aggregate Custom Scan Tests (to expose bugs)
+-- ===========================================================================
+-- Test that forces aggregate custom scan to be used for edge cases
+DROP TABLE IF EXISTS min_max_test CASCADE;
+CREATE TABLE min_max_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    rating INTEGER
+);
+INSERT INTO min_max_test (name, rating) VALUES 
+    ('bob', 2),
+    ('bob', 4), 
+    ('bob', 5),
+    ('alice', 1),
+    ('alice', 3),
+    ('alice', 7);
+CREATE INDEX min_max_test_idx ON min_max_test USING bm25 (id, name, rating)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}}'
+);
+-- Force aggregate custom scan to be used by disabling parallel processing
+-- This test exposes the MIN bug when GROUP BY is on the same field as the aggregate
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+-- Test 8.1: Basic GROUP BY test (fundamental test - should return 3 rows for bob: ratings 2, 4, 5)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating
+   Index: min_max_test_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
+(5 rows)
+
+-- This should return exactly 3 rows: rating values 2, 4, 5
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+ rating 
+--------
+      2
+      4
+      5
+(3 rows)
+
+-- Test 8.2: GROUP BY on different field (should return 2 rows: 'alice', 'bob')
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name FROM min_max_test GROUP BY name ORDER BY name;
+                 QUERY PLAN                  
+---------------------------------------------
+ Group
+   Output: name
+   Group Key: min_max_test.name
+   ->  Sort
+         Output: name
+         Sort Key: min_max_test.name
+         ->  Seq Scan on public.min_max_test
+               Output: name
+(8 rows)
+
+-- This should return exactly 2 rows: 'alice', 'bob'
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT name FROM min_max_test GROUP BY name ORDER BY name;
+ name  
+-------
+ alice
+ bob
+(2 rows)
+
+-- Test 8.3: GROUP BY with COUNT (should work correctly if GROUP BY is fixed)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
+                 QUERY PLAN                  
+---------------------------------------------
+ GroupAggregate
+   Output: name, count(*)
+   Group Key: min_max_test.name
+   ->  Sort
+         Output: name
+         Sort Key: min_max_test.name
+         ->  Seq Scan on public.min_max_test
+               Output: name
+(8 rows)
+
+-- This should return: ('alice', 3), ('bob', 3)
+SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
+ name  | count 
+-------+-------
+ alice |     3
+ bob   |     3
+(2 rows)
+
+-- Test 8.4: MIN with GROUP BY on same field (known to be buggy)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating, now()
+   Index: min_max_test_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"min":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+ rating | min 
+--------+-----
+      2 |   2
+      4 |   4
+      5 |   5
+(3 rows)
+
+-- Test 8.5: MAX with GROUP BY on same field 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating, now()
+   Index: min_max_test_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"max":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+ rating | max 
+--------+-----
+      2 |   2
+      4 |   4
+      5 |   5
+(3 rows)
+
+-- Test 8.6: SUM with GROUP BY on same field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+                                                                 QUERY PLAN                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating, now()
+   Index: min_max_test_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"sum":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+ rating | sum 
+--------+-----
+      2 |   2
+      4 |   4
+      5 |   5
+(3 rows)
+
+-- Test 8.7: AVG with GROUP BY (should return NULL due to current bug)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
+                 QUERY PLAN                  
+---------------------------------------------
+ GroupAggregate
+   Output: name, avg(rating)
+   Group Key: min_max_test.name
+   ->  Sort
+         Output: name, rating
+         Sort Key: min_max_test.name
+         ->  Seq Scan on public.min_max_test
+               Output: name, rating
+(8 rows)
+
+-- This should return: ('alice', 3.67), ('bob', 3.67) 
+-- BUG: Currently returns NULL for AVG
+SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
+ name  |        avg         
+-------+--------------------
+ alice | 3.6666666666666667
+ bob   | 3.6666666666666667
+(2 rows)
+
+-- Test 8.8: Complex boolean query like proptest - this should expose the real bug
+-- This mirrors the failing proptest: OR(NOT(name='bob'), name='bob') which is always true
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating
+   Index: min_max_test_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
+(5 rows)
+
+-- This should return exactly 4 rows: 1, 2, 3, 4, 5, 7 (all unique ratings)
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
+ rating 
+--------
+      1
+      2
+      3
+      4
+      5
+      7
+(6 rows)
+
+-- Test 8.9: Another complex boolean query like proptest
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: name
+   Index: min_max_test_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000}}}
+(5 rows)
+
+-- This should return exactly 2 rows: 'alice', 'bob'
+-- BUG: Currently returns individual rows instead of grouped results  
+SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
+ name  
+-------
+ alice
+ bob
+(2 rows)
+
+-- Test 8.10: Complex boolean with aggregates (like proptest failure)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+   Output: rating, now(), name
+   Index: min_max_test_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"avg":{"field":"rating"}}}}}}}
+(5 rows)
+
+-- This should return grouped results, not individual rows
+SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
+ rating | avg | name  
+--------+-----+-------
+      1 |   1 | alice
+      3 |   3 | alice
+      7 |   7 | alice
+      2 |   2 | bob
+      4 |   4 | bob
+      5 |   5 | bob
+(6 rows)
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+-- ===========================================================================
+-- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
+-- ===========================================================================
+-- Test to expose the fundamental GROUP BY bug that causes proptest failures
+-- The issue: aggregate custom scan returns individual rows instead of grouped results
+DROP TABLE IF EXISTS groupby_bug_test CASCADE;
+CREATE TABLE groupby_bug_test (
+    id SERIAL PRIMARY KEY,
+    age INTEGER,
+    name TEXT
+);
+INSERT INTO groupby_bug_test (age, name) VALUES 
+    (25, 'alice'),
+    (25, 'bob'),   -- Two people age 25 - should group to 1 row
+    (30, 'carol'),
+    (30, 'dave'),  -- Two people age 30 - should group to 1 row  
+    (35, 'eve');   -- One person age 35 - should be 1 row
+CREATE INDEX groupby_bug_idx ON groupby_bug_test 
+USING bm25 (id, age, name)
+WITH (
+    key_field='id',
+    text_fields='{"name": {"fast": true}}',
+    numeric_fields='{"age": {"fast": true}}'
+);
+-- Force aggregate custom scan
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+-- Test 9.1: Basic GROUP BY test 
+-- CRITICAL BUG: Should return 3 rows (25, 30, 35) but returns 5 individual rows
+-- This is the core of the proptest failure
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
+                   QUERY PLAN                    
+-------------------------------------------------
+ Group
+   Output: age
+   Group Key: groupby_bug_test.age
+   ->  Sort
+         Output: age
+         Sort Key: groupby_bug_test.age
+         ->  Seq Scan on public.groupby_bug_test
+               Output: age
+(8 rows)
+
+-- Expected: 3 rows (25, 30, 35)
+-- BUG: Returns 5 rows (25, 25, 30, 30, 35) - individual rows, not grouped!
+SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
+ age 
+-----
+  25
+  30
+  35
+(3 rows)
+
+-- Test 9.2: The exact failing proptest pattern
+-- OR(NOT(name='bob'), name='bob') = TRUE for all rows, should behave like Test 9.1
+-- This is the simplified version of the failing proptest query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test 
+WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
+GROUP BY age ORDER BY age;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
+   Output: age
+   Index: groupby_bug_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
+(5 rows)
+
+-- Expected: 3 rows (25, 30, 35) - same as Test 9.1
+-- BUG: Returns 5 individual rows without proper grouping
+SELECT age FROM groupby_bug_test 
+WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
+GROUP BY age ORDER BY age;
+ age 
+-----
+  25
+  30
+  35
+(3 rows)
+
+-- Test 9.3: GROUP BY with COUNT should also fail
+-- Expected: 3 rows with counts (25|2, 30|2, 35|1)  
+-- BUG: Returns 5 rows with count=1 for each (no grouping performed)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
+                   QUERY PLAN                    
+-------------------------------------------------
+ GroupAggregate
+   Output: age, count(*)
+   Group Key: groupby_bug_test.age
+   ->  Sort
+         Output: age
+         Sort Key: groupby_bug_test.age
+         ->  Seq Scan on public.groupby_bug_test
+               Output: age
+(8 rows)
+
+SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
+ age | count 
+-----+-------
+  25 |     2
+  30 |     2
+  35 |     1
+(3 rows)
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+-- ===========================================================================
+-- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
+-- ===========================================================================
+-- Test to expose the fundamental GROUP BY bug that causes proptest failures
+-- The issue: aggregate custom scan returns individual rows instead of grouped results
+DROP TABLE IF EXISTS groupby_bug_test CASCADE;
+CREATE TABLE groupby_bug_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    age INTEGER
+);
+INSERT INTO groupby_bug_test (name, age) VALUES 
+    ('alice', 23), ('bob', 33), ('alice', 23), ('charlie', 53), 
+    ('bob', 68), ('alice', 71), ('charlie', 74), ('alice', 8),
+    ('bob', 85), ('charlie', 87), ('alice', 96), ('bob', 23),
+    ('alice', 33), ('charlie', 53), ('bob', 68), ('alice', 71);
+CREATE INDEX groupby_bug_idx ON groupby_bug_test 
+USING bm25 (id, name, age)
+WITH (
+    key_field='id',
+    text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields='{"age": {"fast": true}}'
+);
+-- Force aggregate custom scan settings
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+-- Test 9.1: This should return 10 unique ages, but aggregate custom scan returns 16 individual rows
+-- Query: (NOT (name = 'bob')) OR (name = 'bob') is a tautology (always true)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
+   Output: age
+   Index: groupby_bug_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
+(5 rows)
+
+-- BUG: This returns 16 rows instead of 10 grouped rows
+-- Expected: 10 unique age values (23, 33, 53, 68, 71, 74, 8, 85, 87, 96)
+-- Actual: 16 individual age values (one for each row in the table)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+ age 
+-----
+   8
+  23
+  33
+  53
+  68
+  71
+  74
+  85
+  87
+  96
+(10 rows)
+
+-- Test 9.2: Verify the correct behavior with regular PostgreSQL (for comparison)
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT age FROM groupby_bug_test WHERE (NOT (name = 'bob')) OR (name = 'bob') GROUP BY age ORDER BY age;
+ age 
+-----
+   8
+  23
+  33
+  53
+  68
+  71
+  74
+  85
+  87
+  96
+(10 rows)
+
+SET paradedb.enable_aggregate_custom_scan = on;
+-- Test 9.3: Same bug exists with multiple GROUP BY columns  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
+   Output: age, name
+   Index: groupby_bug_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000},"aggs":{"group_1":{"terms":{"field":"name","size":10000}}}}}
+(5 rows)
+
+-- BUG: This also returns 16 rows instead of grouped results
+SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
+ age |  name   
+-----+---------
+   8 | alice
+  23 | alice
+  23 | bob
+  33 | alice
+  33 | bob
+  53 | charlie
+  68 | bob
+  71 | alice
+  74 | charlie
+  85 | bob
+  87 | charlie
+  96 | alice
+(12 rows)
+
+-- ===========================================================================
+-- SECTION 10: Exact Proptest Failure Reproduction
+-- ===========================================================================
+-- This is the EXACT query that fails in the proptest
+-- Expected: 10 grouped age values like ["2", "24", "37", "39", "61", "7", "71", "72", "8", "90"]
+-- Actual: 40+ individual age values like ["1", "11", "17", "2", "20", "24", "25", ...]
+-- This shows the fundamental bug: aggregate custom scan returns individual document values
+-- instead of performing GROUP BY aggregation
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
+   Output: age
+   Index: groupby_bug_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
+(5 rows)
+
+-- CRITICAL BUG: This returns individual rows (one per document) instead of grouped values
+-- This is the core of all proptest failures - GROUP BY is completely broken
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+ age 
+-----
+   8
+  23
+  33
+  53
+  68
+  71
+  74
+  85
+  87
+  96
+(10 rows)
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 SET paradedb.enable_aggregate_custom_scan TO off;
 DROP TABLE support_tickets CASCADE;
 DROP TABLE type_test CASCADE;
-DROP TABLE products CASCADE; 
+-- Regression test for MIN/MAX NULL handling on impossible WHERE clauses
+-- This should return NULL instead of panicking with "MIN/MAX result should be a number"
+SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
+                           test_case                           
+---------------------------------------------------------------
+ Testing MAX with impossible WHERE clause (should return NULL)
+(1 row)
+
+SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+ERROR:  could not parse query string 'category:(Electronics)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
+                           test_case                           
+---------------------------------------------------------------
+ Testing MIN with impossible WHERE clause (should return NULL)
+(1 row)
+
+SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+ min 
+-----
+    
+(1 row)
+
+-- More complex contradictory cases
+SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
+                          test_case                          
+-------------------------------------------------------------
+ Testing MAX with complex contradiction (should return NULL)
+(1 row)
+
+SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop'));
+ERROR:  could not parse query string 'category:(Electronics)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
+                          test_case                          
+-------------------------------------------------------------
+ Testing MIN with complex contradiction (should return NULL)
+(1 row)
+
+SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
+ERROR:  could not parse query string 'category:(Sports)'.
+           make sure to use column:term pairs, and to capitalize AND/OR.
+DROP TABLE products CASCADE;
+DROP TABLE min_max_test CASCADE;
+DROP TABLE groupby_bug_test CASCADE; 

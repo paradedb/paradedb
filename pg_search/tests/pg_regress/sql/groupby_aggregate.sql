@@ -797,6 +797,21 @@ RESET enable_sort;
 SET paradedb.enable_aggregate_custom_scan TO off;
 DROP TABLE support_tickets CASCADE;
 DROP TABLE type_test CASCADE;
+-- Regression test for MIN/MAX NULL handling on impossible WHERE clauses
+-- This should return NULL instead of panicking with "MIN/MAX result should be a number"
+SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
+SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+
+SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
+SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+
+-- More complex contradictory cases
+SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
+SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop'));
+
+SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
+SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
+
 DROP TABLE products CASCADE;
 DROP TABLE min_max_test CASCADE;
 DROP TABLE groupby_bug_test CASCADE; 

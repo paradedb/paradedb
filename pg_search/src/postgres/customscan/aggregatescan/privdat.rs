@@ -146,18 +146,44 @@ impl AggregateType {
             }
             AggregateType::Min { .. } | AggregateType::Max { .. } => {
                 // Handle null values for MIN/MAX when there are no rows
+                // Tantivy might return null in different ways - check multiple formats
                 if result.is_null() {
                     AggregateValue::Null
-                } else {
-                    let num = result
-                        .as_number()
-                        .expect("MIN/MAX result should be a number or null");
+                } else if let Some(num) = result.as_number() {
+                    // Normal numeric result
                     if let Some(int_val) = num.as_i64() {
                         AggregateValue::Int(int_val)
                     } else if let Some(f64_val) = num.as_f64() {
                         AggregateValue::Float(f64_val)
                     } else {
                         panic!("MIN/MAX result should be a valid number");
+                    }
+                } else {
+                    // Check if tantivy returns an object with "value": null
+                    if let Some(obj) = result.as_object() {
+                        if let Some(value) = obj.get("value") {
+                            if value.is_null() {
+                                AggregateValue::Null
+                            } else if let Some(num) = value.as_number() {
+                                if let Some(int_val) = num.as_i64() {
+                                    AggregateValue::Int(int_val)
+                                } else if let Some(f64_val) = num.as_f64() {
+                                    AggregateValue::Float(f64_val)
+                                } else {
+                                    panic!("MIN/MAX result value should be a valid number");
+                                }
+                            } else {
+                                panic!(
+                                    "MIN/MAX result value should be a number or null, got: {:?}",
+                                    value
+                                );
+                            }
+                        } else {
+                            panic!("MIN/MAX result object missing 'value' field: {:?}", result);
+                        }
+                    } else {
+                        // Unknown format - panic with detailed info
+                        panic!("MIN/MAX result should be a number, null, or object with value field, got: {:?}", result);
                     }
                 }
             }

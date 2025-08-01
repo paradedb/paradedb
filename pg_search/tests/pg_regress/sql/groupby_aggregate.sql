@@ -532,10 +532,271 @@ FROM paradedb.aggregate(
         solve_mvcc => true
 );
 -- ===========================================================================
+-- SECTION 8: Forced Aggregate Custom Scan Tests (to expose bugs)
+-- ===========================================================================
+
+-- Test that forces aggregate custom scan to be used for edge cases
+DROP TABLE IF EXISTS min_max_test CASCADE;
+CREATE TABLE min_max_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    rating INTEGER
+);
+
+INSERT INTO min_max_test (name, rating) VALUES 
+    ('bob', 2),
+    ('bob', 4), 
+    ('bob', 5),
+    ('alice', 1),
+    ('alice', 3),
+    ('alice', 7);
+
+CREATE INDEX min_max_test_idx ON min_max_test USING bm25 (id, name, rating)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields = '{"rating": {"fast": true}}'
+);
+
+-- Force aggregate custom scan to be used by disabling parallel processing
+-- This test exposes the MIN bug when GROUP BY is on the same field as the aggregate
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+
+-- Test 8.1: Basic GROUP BY test (fundamental test - should return 3 rows for bob: ratings 2, 4, 5)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+-- This should return exactly 3 rows: rating values 2, 4, 5
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+-- Test 8.2: GROUP BY on different field (should return 2 rows: 'alice', 'bob')
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name FROM min_max_test GROUP BY name ORDER BY name;
+
+-- This should return exactly 2 rows: 'alice', 'bob'
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT name FROM min_max_test GROUP BY name ORDER BY name;
+
+-- Test 8.3: GROUP BY with COUNT (should work correctly if GROUP BY is fixed)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
+
+-- This should return: ('alice', 3), ('bob', 3)
+SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
+
+-- Test 8.4: MIN with GROUP BY on same field (known to be buggy)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+-- Test 8.5: MAX with GROUP BY on same field 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+-- Test 8.6: SUM with GROUP BY on same field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
+
+-- Test 8.7: AVG with GROUP BY (should return NULL due to current bug)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
+
+-- This should return: ('alice', 3.67), ('bob', 3.67) 
+-- BUG: Currently returns NULL for AVG
+SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
+
+-- Test 8.8: Complex boolean query like proptest - this should expose the real bug
+-- This mirrors the failing proptest: OR(NOT(name='bob'), name='bob') which is always true
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
+
+-- This should return exactly 4 rows: 1, 2, 3, 4, 5, 7 (all unique ratings)
+-- BUG: Currently returns individual rows instead of grouped results
+SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
+
+-- Test 8.9: Another complex boolean query like proptest
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
+
+-- This should return exactly 2 rows: 'alice', 'bob'
+-- BUG: Currently returns individual rows instead of grouped results  
+SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
+
+-- Test 8.10: Complex boolean with aggregates (like proptest failure)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
+
+-- This should return grouped results, not individual rows
+SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+
+-- ===========================================================================
+-- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
+-- ===========================================================================
+
+-- Test to expose the fundamental GROUP BY bug that causes proptest failures
+-- The issue: aggregate custom scan returns individual rows instead of grouped results
+
+DROP TABLE IF EXISTS groupby_bug_test CASCADE;
+CREATE TABLE groupby_bug_test (
+    id SERIAL PRIMARY KEY,
+    age INTEGER,
+    name TEXT
+);
+
+INSERT INTO groupby_bug_test (age, name) VALUES 
+    (25, 'alice'),
+    (25, 'bob'),   -- Two people age 25 - should group to 1 row
+    (30, 'carol'),
+    (30, 'dave'),  -- Two people age 30 - should group to 1 row  
+    (35, 'eve');   -- One person age 35 - should be 1 row
+
+CREATE INDEX groupby_bug_idx ON groupby_bug_test 
+USING bm25 (id, age, name)
+WITH (
+    key_field='id',
+    text_fields='{"name": {"fast": true}}',
+    numeric_fields='{"age": {"fast": true}}'
+);
+
+-- Force aggregate custom scan
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+
+-- Test 9.1: Basic GROUP BY test 
+-- CRITICAL BUG: Should return 3 rows (25, 30, 35) but returns 5 individual rows
+-- This is the core of the proptest failure
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
+
+-- Expected: 3 rows (25, 30, 35)
+-- BUG: Returns 5 rows (25, 25, 30, 30, 35) - individual rows, not grouped!
+SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
+
+-- Test 9.2: The exact failing proptest pattern
+-- OR(NOT(name='bob'), name='bob') = TRUE for all rows, should behave like Test 9.1
+-- This is the simplified version of the failing proptest query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test 
+WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
+GROUP BY age ORDER BY age;
+
+-- Expected: 3 rows (25, 30, 35) - same as Test 9.1
+-- BUG: Returns 5 individual rows without proper grouping
+SELECT age FROM groupby_bug_test 
+WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
+GROUP BY age ORDER BY age;
+
+-- Test 9.3: GROUP BY with COUNT should also fail
+-- Expected: 3 rows with counts (25|2, 30|2, 35|1)  
+-- BUG: Returns 5 rows with count=1 for each (no grouping performed)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
+
+SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+
+-- ===========================================================================
+-- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
+-- ===========================================================================
+
+-- Test to expose the fundamental GROUP BY bug that causes proptest failures
+-- The issue: aggregate custom scan returns individual rows instead of grouped results
+DROP TABLE IF EXISTS groupby_bug_test CASCADE;
+CREATE TABLE groupby_bug_test (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    age INTEGER
+);
+
+INSERT INTO groupby_bug_test (name, age) VALUES 
+    ('alice', 23), ('bob', 33), ('alice', 23), ('charlie', 53), 
+    ('bob', 68), ('alice', 71), ('charlie', 74), ('alice', 8),
+    ('bob', 85), ('charlie', 87), ('alice', 96), ('bob', 23),
+    ('alice', 33), ('charlie', 53), ('bob', 68), ('alice', 71);
+
+CREATE INDEX groupby_bug_idx ON groupby_bug_test 
+USING bm25 (id, name, age)
+WITH (
+    key_field='id',
+    text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
+    numeric_fields='{"age": {"fast": true}}'
+);
+
+-- Force aggregate custom scan settings
+SET max_parallel_workers_per_gather = 0;
+SET enable_hashagg = off;
+SET enable_sort = off;
+
+-- Test 9.1: This should return 10 unique ages, but aggregate custom scan returns 16 individual rows
+-- Query: (NOT (name = 'bob')) OR (name = 'bob') is a tautology (always true)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+
+-- BUG: This returns 16 rows instead of 10 grouped rows
+-- Expected: 10 unique age values (23, 33, 53, 68, 71, 74, 8, 85, 87, 96)
+-- Actual: 16 individual age values (one for each row in the table)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+
+-- Test 9.2: Verify the correct behavior with regular PostgreSQL (for comparison)
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT age FROM groupby_bug_test WHERE (NOT (name = 'bob')) OR (name = 'bob') GROUP BY age ORDER BY age;
+SET paradedb.enable_aggregate_custom_scan = on;
+
+-- Test 9.3: Same bug exists with multiple GROUP BY columns  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
+
+-- BUG: This also returns 16 rows instead of grouped results
+SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
+
+-- ===========================================================================
+-- SECTION 10: Exact Proptest Failure Reproduction
+-- ===========================================================================
+
+-- This is the EXACT query that fails in the proptest
+-- Expected: 10 grouped age values like ["2", "24", "37", "39", "61", "7", "71", "72", "8", "90"]
+-- Actual: 40+ individual age values like ["1", "11", "17", "2", "20", "24", "25", ...]
+
+-- This shows the fundamental bug: aggregate custom scan returns individual document values
+-- instead of performing GROUP BY aggregation
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+
+-- CRITICAL BUG: This returns individual rows (one per document) instead of grouped values
+-- This is the core of all proptest failures - GROUP BY is completely broken
+SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+
+-- ===========================================================================
 -- Clean up
 -- ===========================================================================
 
 SET paradedb.enable_aggregate_custom_scan TO off;
 DROP TABLE support_tickets CASCADE;
 DROP TABLE type_test CASCADE;
-DROP TABLE products CASCADE; 
+DROP TABLE products CASCADE;
+DROP TABLE min_max_test CASCADE;
+DROP TABLE groupby_bug_test CASCADE; 

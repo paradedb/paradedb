@@ -358,7 +358,7 @@ impl CustomScan for AggregateScan {
                         // Convert specifically for the expected PostgreSQL type
                         match (agg_value, expected_typoid) {
                             (AggregateValue::Int(val), _) => {
-                                // BIGINT expected - convert i64 to BIGINT datum
+                                // Integer value - convert to appropriate integer type
                                 datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
                                 isnull[i] = false;
                             }
@@ -381,6 +381,24 @@ impl CustomScan for AggregateScan {
                                         isnull[i] = true;
                                     }
                                 }
+                            }
+                            (AggregateValue::Float(val), pg_sys::INT2OID) => {
+                                // SMALLINT type - convert f64 to i16
+                                let int_val = (*val) as i16;
+                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                            (AggregateValue::Float(val), pg_sys::INT4OID) => {
+                                // INTEGER type - convert f64 to i32
+                                let int_val = (*val) as i32;
+                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                            (AggregateValue::Float(val), pg_sys::INT8OID) => {
+                                // BIGINT type - convert f64 to i64
+                                let int_val = (*val) as i64;
+                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
                             }
                             (AggregateValue::Float(val), _) => {
                                 // Other float types - use f64 datum directly
@@ -621,10 +639,19 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
+    let agg_json = state.custom_state().aggregates_to_json();
+
+    // Debug: Show what aggregation JSON is being sent to Tantivy
+    eprintln!(
+        "AGGREGATE_DEBUG: Sending aggregation to Tantivy: {}",
+        serde_json::to_string_pretty(&agg_json)
+            .unwrap_or_else(|e| format!("Failed to serialize: {}", e))
+    );
+
     let result = execute_aggregate(
         state.custom_state().indexrel(),
         state.custom_state().query.clone(),
-        state.custom_state().aggregates_to_json(),
+        agg_json,
         // TODO: Consider adding a GUC to control whether we solve MVCC.
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
@@ -632,10 +659,22 @@ fn execute(
     )
     .expect("failed to execute aggregate");
 
-    state
-        .custom_state()
-        .json_to_aggregate_results(result)
-        .into_iter()
+    // Debug: Show what raw JSON comes back from Tantivy
+    eprintln!(
+        "AGGREGATE_DEBUG: Raw Tantivy response: {}",
+        serde_json::to_string_pretty(&result)
+            .unwrap_or_else(|e| format!("Failed to serialize: {}", e))
+    );
+
+    let processed_results = state.custom_state().json_to_aggregate_results(result);
+
+    // Debug: Show how many results we're returning
+    eprintln!(
+        "AGGREGATE_DEBUG: Returning {} grouped aggregate rows",
+        processed_results.len()
+    );
+
+    processed_results.into_iter()
 }
 
 impl ExecMethod for AggregateScan {

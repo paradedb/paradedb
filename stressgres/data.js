@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1753994627175,
+  "lastUpdate": 1754063513042,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2690,6 +2690,72 @@ window.BENCHMARK_DATA = {
             "value": 29.16283289193372,
             "unit": "median tps",
             "extra": "avg tps: 34.81457123395719, max tps: 731.2010049626613, count: 55247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a804e67d948a850b6fa61989843185be207e91e5",
+          "message": "fix: Node relabeling no longer defeats new operators (#2925)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe new &&&,|||,###,=== operators are all defined to take a value of\ntype TEXT on the left-hand-side.\n\nIf the lhs Var happens to be coercible to text, but not actually TEXT,\nsuch as VARCHAR, Postgres will wrap that Var node in a RelabelType,\nwhich we need to be able to see through in order to find the actual\nfield being referenced on the left-hand-side of the operator.\n\n## Why\n\n## How\n\n## Tests\n\nThe existing `operators.sql` regression test has been updated to also\ntest using a VARCHAR field. I can't think of any other types that\nPostgres will relabel to TEXT, especially among the set of data types we\nsupport.",
+          "timestamp": "2025-08-01T11:35:41-04:00",
+          "tree_id": "df4b710fdd729920e2e0273493cd186a9b8c60ca",
+          "url": "https://github.com/paradedb/paradedb/commit/a804e67d948a850b6fa61989843185be207e91e5"
+        },
+        "date": 1754063511717,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1200.7420484464737,
+            "unit": "median tps",
+            "extra": "avg tps: 1194.9501169120078, max tps: 1207.5472527404354, count: 55126"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2515.9039668456408,
+            "unit": "median tps",
+            "extra": "avg tps: 2515.17636086229, max tps: 2582.183302241843, count: 55126"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1200.4243360697592,
+            "unit": "median tps",
+            "extra": "avg tps: 1192.9789525180543, max tps: 1202.958540707285, count: 55126"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 906.33341390175,
+            "unit": "median tps",
+            "extra": "avg tps: 908.2033101091313, max tps: 983.1457517991166, count: 55126"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 155.97822398513622,
+            "unit": "median tps",
+            "extra": "avg tps: 158.03964073840555, max tps: 164.73151347529145, count: 110252"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 135.8144382370714,
+            "unit": "median tps",
+            "extra": "avg tps: 135.90901206609274, max tps: 151.865700379834, count: 55126"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 27.372582458831594,
+            "unit": "median tps",
+            "extra": "avg tps: 35.060969952678626, max tps: 828.8904803586113, count: 55126"
           }
         ]
       }

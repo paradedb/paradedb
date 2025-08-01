@@ -106,6 +106,8 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
+            // if we remove this, we'd get the default size of 10, which means we can maximum 10 groups
+            terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));

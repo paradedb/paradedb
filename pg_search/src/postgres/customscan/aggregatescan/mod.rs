@@ -373,6 +373,11 @@ impl CustomScan for AggregateScan {
 
                         // Convert specifically for the expected PostgreSQL type
                         match (agg_value, expected_typoid) {
+                            (&AggregateValue::Null, _) => {
+                                // Null value - set appropriate null datum and flag
+                                datums[i] = pg_sys::Datum::null();
+                                isnull[i] = true;
+                            }
                             (AggregateValue::Int(val), _) => {
                                 // Integer value - convert to appropriate integer type
                                 datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));

@@ -36,11 +36,12 @@ pub enum AggregateType {
 pub enum AggregateValue {
     Int(i64),
     Float(f64),
+    Null,
 }
 
 impl Default for AggregateValue {
     fn default() -> Self {
-        AggregateValue::Int(0)
+        AggregateValue::Null
     }
 }
 
@@ -49,6 +50,7 @@ impl AggregateValue {
         match self {
             AggregateValue::Int(i) => i.into_datum(),
             AggregateValue::Float(f) => f.into_datum(),
+            AggregateValue::Null => None,
         }
     }
 }
@@ -143,15 +145,20 @@ impl AggregateType {
                 AggregateValue::Float(f64_val)
             }
             AggregateType::Min { .. } | AggregateType::Max { .. } => {
-                let num = result
-                    .as_number()
-                    .expect("MIN/MAX result should be a number");
-                if let Some(int_val) = num.as_i64() {
-                    AggregateValue::Int(int_val)
-                } else if let Some(f64_val) = num.as_f64() {
-                    AggregateValue::Float(f64_val)
+                // Handle null values for MIN/MAX when there are no rows
+                if result.is_null() {
+                    AggregateValue::Null
                 } else {
-                    panic!("MIN/MAX result should be a valid number");
+                    let num = result
+                        .as_number()
+                        .expect("MIN/MAX result should be a number or null");
+                    if let Some(int_val) = num.as_i64() {
+                        AggregateValue::Int(int_val)
+                    } else if let Some(f64_val) = num.as_f64() {
+                        AggregateValue::Float(f64_val)
+                    } else {
+                        panic!("MIN/MAX result should be a valid number");
+                    }
                 }
             }
             AggregateType::Stats { .. } => {
@@ -173,7 +180,12 @@ impl AggregateValue {
         match self {
             AggregateValue::Int(val) => val.into_datum().unwrap(),
             AggregateValue::Float(val) => val.into_datum().unwrap(),
+            AggregateValue::Null => pg_sys::Datum::null(),
         }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, AggregateValue::Null)
     }
 }
 

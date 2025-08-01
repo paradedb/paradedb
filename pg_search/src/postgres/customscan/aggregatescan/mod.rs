@@ -72,6 +72,7 @@ impl CustomScan for AggregateScan {
     type PrivateData = PrivateData;
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
+        eprintln!("ATTNO_DEBUG: create_custom_path called");
         let args = builder.args();
 
         // We can only handle single relations.
@@ -186,6 +187,17 @@ impl CustomScan for AggregateScan {
                 if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
                     // This is a Var - it should be a grouping column
                     // Find which grouping column this is
+                    eprintln!(
+                        "ATTNO_DEBUG: Looking for varattno={} in grouping columns",
+                        (*var).varattno
+                    );
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        eprintln!(
+                            "ATTNO_DEBUG: Grouping column[{}]: field_name={}, attno={}",
+                            i, gc.field_name, gc.attno
+                        );
+                    }
+
                     let mut found = false;
                     for (i, gc) in grouping_columns.iter().enumerate() {
                         if (*var).varattno == gc.attno {
@@ -195,6 +207,10 @@ impl CustomScan for AggregateScan {
                         }
                     }
                     if !found {
+                        eprintln!(
+                            "ATTNO_DEBUG: PANIC! Var varattno={} not found in any grouping column",
+                            (*var).varattno
+                        );
                         panic!("Var in target list not found in grouping columns");
                     }
                     // Keep it as-is
@@ -430,6 +446,10 @@ fn extract_grouping_columns(
     heap_rti: pg_sys::Index,
     schema: &SearchIndexSchema,
 ) -> Option<Vec<GroupingColumn>> {
+    eprintln!(
+        "ATTNO_DEBUG: extract_grouping_columns called with {} pathkeys",
+        pathkeys.len()
+    );
     let mut grouping_columns = Vec::new();
 
     for pathkey in pathkeys.iter_ptr() {
@@ -458,11 +478,19 @@ fn extract_grouping_columns(
                     // Check if this field exists in the index schema as a fast field
                     if let Some(search_field) = schema.search_field(field_name) {
                         let is_fast = search_field.is_fast();
+                        eprintln!(
+                            "ATTNO_DEBUG: Found field_name={}, attno={}, is_fast={}",
+                            field_name, attno, is_fast
+                        );
                         if is_fast {
                             grouping_columns.push(GroupingColumn {
                                 field_name: field_name.to_string(),
                                 attno,
                             });
+                            eprintln!(
+                                "ATTNO_DEBUG: Added grouping column: field_name={}, attno={}",
+                                field_name, attno
+                            );
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
                         }

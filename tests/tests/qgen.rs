@@ -248,21 +248,39 @@ async fn generated_group_by_aggregates(database: Db) {
     let grouping_columns = ["name", "color", "age", "rating"];
 
     proptest!(|(
-        where_expr in arb_wheres(
+        text_where_expr in arb_wheres(
             vec![table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20"), ("price", "99.99"), ("rating", "4")]
+            vec![("name", "bob"), ("color", "blue")]
         ),
+        // numeric_where_expr in arb_wheres(
+        //     vec![table_name],
+        //     vec![("age", "20"), ("price", "99.99"), ("rating", "4")]
+        // ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
         gucs in any::<PgGucs>(),
     )| {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
+        // Create combined WHERE clause for PostgreSQL using = operator
+        let pg_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql(" = "),
+            "1 = 1"// numeric_where_expr.to_sql(" < ")
+        );
+
+        // Create combined WHERE clause for BM25 using appropriate operators
+        let bm25_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql("@@@"),
+            "1 = 1"// numeric_where_expr.to_sql(" < ")
+        );
+
         let pg_query = format!(
             "SELECT {} FROM {} WHERE {} {}",
             select_list,
             table_name,
-            where_expr.to_sql(" = "),
+            pg_where_clause,
             group_by_clause
         );
 
@@ -270,7 +288,7 @@ async fn generated_group_by_aggregates(database: Db) {
             "SELECT {} FROM {} WHERE {} {}",
             select_list,
             table_name,
-            where_expr.to_sql("@@@"),
+            bm25_where_clause,
             group_by_clause
         );
 

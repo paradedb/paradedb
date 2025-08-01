@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754064805600,
+  "lastUpdate": 1754064808324,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15730,6 +15730,66 @@ window.BENCHMARK_DATA = {
             "value": 166.1484375,
             "unit": "median mem",
             "extra": "avg mem: 156.87829914697568, max mem: 176.34375, count: 57831"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a804e67d948a850b6fa61989843185be207e91e5",
+          "message": "fix: Node relabeling no longer defeats new operators (#2925)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThe new &&&,|||,###,=== operators are all defined to take a value of\ntype TEXT on the left-hand-side.\n\nIf the lhs Var happens to be coercible to text, but not actually TEXT,\nsuch as VARCHAR, Postgres will wrap that Var node in a RelabelType,\nwhich we need to be able to see through in order to find the actual\nfield being referenced on the left-hand-side of the operator.\n\n## Why\n\n## How\n\n## Tests\n\nThe existing `operators.sql` regression test has been updated to also\ntest using a VARCHAR field. I can't think of any other types that\nPostgres will relabel to TEXT, especially among the set of data types we\nsupport.",
+          "timestamp": "2025-08-01T11:35:41-04:00",
+          "tree_id": "df4b710fdd729920e2e0273493cd186a9b8c60ca",
+          "url": "https://github.com/paradedb/paradedb/commit/a804e67d948a850b6fa61989843185be207e91e5"
+        },
+        "date": 1754064807005,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.75,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.76614376162781, max cpu: 47.524754, count: 56588"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.5996303600145, max mem: 173.39453125, count: 56588"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18252,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16758.801424330246, max block_count: 22013.0, count: 56588"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.32063334982682, max segment_count: 123.0, count: 56588"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.071017032847125, max cpu: 33.532936, count: 56588"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.84507930402648, max mem: 170.546875, count: 56588"
           }
         ]
       }

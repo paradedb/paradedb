@@ -113,6 +113,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.aminitparallelscan = Some(parallel::aminitparallelscan);
     amroutine.amestimateparallelscan = Some(parallel::amestimateparallelscan);
     amroutine.amparallelrescan = Some(parallel::amparallelrescan);
+    amroutine.amparallelvacuumoptions = pg_sys::VACUUM_OPTION_PARALLEL_BULKDEL as _;
 
     amroutine.into_pg_boxed()
 }

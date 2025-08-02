@@ -115,191 +115,81 @@ impl AggregateType {
 
     pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
         match self {
-            AggregateType::Count => {
-                // Handle null values for COUNT when there are no rows
-                if result.is_null() {
-                    AggregateValue::Null
-                } else if let Some(num) = result.as_number() {
-                    let f64_val = num.as_f64().expect("invalid aggregate result size");
-
-                    if f64_val.fract() != 0.0 {
-                        panic!("COUNT should not have a fractional result");
-                    }
-                    if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-                        panic!("COUNT value was out of range");
-                    }
-                    AggregateValue::Int(f64_val as i64)
-                } else {
-                    // Check if tantivy returns an object with "value": null
-                    if let Some(obj) = result.as_object() {
-                        if let Some(value) = obj.get("value") {
-                            if value.is_null() {
-                                AggregateValue::Null
-                            } else if let Some(num) = value.as_number() {
-                                let f64_val = num.as_f64().expect("invalid aggregate result size");
-                                if f64_val.fract() != 0.0 {
-                                    panic!("COUNT should not have a fractional result");
-                                }
-                                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-                                    panic!("COUNT value was out of range");
-                                }
-                                AggregateValue::Int(f64_val as i64)
-                            } else {
-                                panic!(
-                                    "COUNT result value should be a number or null, got: {:?}",
-                                    value
-                                );
-                            }
-                        } else {
-                            panic!("COUNT result object missing 'value' field: {:?}", result);
-                        }
+            AggregateType::Count => match Self::extract_value(result, "COUNT") {
+                None => AggregateValue::Null,
+                Some(value) => {
+                    if let Some(num) = value.as_number() {
+                        Self::process_count_number(num)
                     } else {
-                        panic!("COUNT result should be a number, null, or object with value field, got: {:?}", result);
+                        panic!(
+                            "COUNT result value should be a number or null, got: {:?}",
+                            value
+                        );
                     }
                 }
-            }
-            AggregateType::Sum { .. } => {
-                // Handle null values for SUM when there are no rows
-                if result.is_null() {
-                    AggregateValue::Null
-                } else if let Some(num) = result.as_number() {
-                    if let Some(int_val) = num.as_i64() {
-                        AggregateValue::Int(int_val)
-                    } else if let Some(f64_val) = num.as_f64() {
-                        AggregateValue::Float(f64_val)
+            },
+            AggregateType::Sum { .. } => match Self::extract_value(result, "SUM") {
+                None => AggregateValue::Null,
+                Some(value) => {
+                    if let Some(num) = value.as_number() {
+                        Self::process_numeric_number(num)
                     } else {
-                        panic!("SUM result should be a valid number");
-                    }
-                } else {
-                    // Check if tantivy returns an object with "value": null
-                    if let Some(obj) = result.as_object() {
-                        if let Some(value) = obj.get("value") {
-                            if value.is_null() {
-                                AggregateValue::Null
-                            } else if let Some(num) = value.as_number() {
-                                if let Some(int_val) = num.as_i64() {
-                                    AggregateValue::Int(int_val)
-                                } else if let Some(f64_val) = num.as_f64() {
-                                    AggregateValue::Float(f64_val)
-                                } else {
-                                    panic!("SUM result value should be a valid number");
-                                }
-                            } else {
-                                panic!(
-                                    "SUM result value should be a number or null, got: {:?}",
-                                    value
-                                );
-                            }
-                        } else {
-                            panic!("SUM result object missing 'value' field: {:?}", result);
-                        }
-                    } else {
-                        panic!("SUM result should be a number, null, or object with value field, got: {:?}", result);
+                        panic!(
+                            "SUM result value should be a number or null, got: {:?}",
+                            value
+                        );
                     }
                 }
-            }
-            AggregateType::Avg { .. } => {
-                // Handle null values for AVG when there are no rows
-                if result.is_null() {
-                    AggregateValue::Null
-                } else if let Some(num) = result.as_number() {
-                    let f64_val = num.as_f64().expect("invalid AVG result");
-                    AggregateValue::Float(f64_val)
-                } else {
-                    // Check if tantivy returns an object with "value": null
-                    if let Some(obj) = result.as_object() {
-                        if let Some(value) = obj.get("value") {
-                            if value.is_null() {
-                                AggregateValue::Null
-                            } else if let Some(num) = value.as_number() {
-                                let f64_val = num.as_f64().expect("invalid AVG result value");
-                                AggregateValue::Float(f64_val)
-                            } else {
-                                panic!(
-                                    "AVG result value should be a number or null, got: {:?}",
-                                    value
-                                );
-                            }
-                        } else {
-                            panic!("AVG result object missing 'value' field: {:?}", result);
-                        }
+            },
+            AggregateType::Avg { .. } => match Self::extract_value(result, "AVG") {
+                None => AggregateValue::Null,
+                Some(value) => {
+                    if let Some(num) = value.as_number() {
+                        Self::process_float_number(num)
                     } else {
-                        panic!("AVG result should be a number, null, or object with value field, got: {:?}", result);
+                        panic!(
+                            "AVG result value should be a number or null, got: {:?}",
+                            value
+                        );
                     }
                 }
-            }
+            },
             AggregateType::Min { .. } | AggregateType::Max { .. } => {
-                // Handle null values for MIN/MAX when there are no rows
-                // Tantivy might return null in different ways - check multiple formats
-                if result.is_null() {
-                    AggregateValue::Null
-                } else if let Some(num) = result.as_number() {
-                    // Normal numeric result
-                    if let Some(int_val) = num.as_i64() {
-                        AggregateValue::Int(int_val)
-                    } else if let Some(f64_val) = num.as_f64() {
-                        AggregateValue::Float(f64_val)
-                    } else {
-                        panic!("MIN/MAX result should be a valid number");
-                    }
+                let agg_name = if matches!(self, AggregateType::Min { .. }) {
+                    "MIN"
                 } else {
-                    // Check if tantivy returns an object with "value": null
-                    if let Some(obj) = result.as_object() {
-                        if let Some(value) = obj.get("value") {
-                            if value.is_null() {
-                                AggregateValue::Null
-                            } else if let Some(num) = value.as_number() {
-                                if let Some(int_val) = num.as_i64() {
-                                    AggregateValue::Int(int_val)
-                                } else if let Some(f64_val) = num.as_f64() {
-                                    AggregateValue::Float(f64_val)
-                                } else {
-                                    panic!("MIN/MAX result value should be a valid number");
-                                }
-                            } else {
-                                panic!(
-                                    "MIN/MAX result value should be a number or null, got: {:?}",
-                                    value
-                                );
-                            }
+                    "MAX"
+                };
+                match Self::extract_value(result, agg_name) {
+                    None => AggregateValue::Null,
+                    Some(value) => {
+                        if let Some(num) = value.as_number() {
+                            Self::process_numeric_number(num)
                         } else {
-                            panic!("MIN/MAX result object missing 'value' field: {:?}", result);
+                            panic!(
+                                "{} result value should be a number or null, got: {:?}",
+                                agg_name, value
+                            );
                         }
-                    } else {
-                        // Unknown format - panic with detailed info
-                        panic!("MIN/MAX result should be a number, null, or object with value field, got: {:?}", result);
                     }
                 }
             }
             AggregateType::Stats { .. } => {
-                // Handle null values for STATS when there are no rows
                 if result.is_null() {
                     AggregateValue::Null
                 } else if let Some(obj) = result.as_object() {
                     // Check if the entire object is a {"value": null} wrapper
                     if let Some(value) = obj.get("value") {
                         if value.is_null() {
-                            return AggregateValue::Null;
-                        }
-                        // If value exists and is not null, use it as the result object
-                        if let Some(value_obj) = value.as_object() {
-                            let count = value_obj
-                                .get("count")
-                                .and_then(|v| v.as_number())
-                                .and_then(|n| n.as_i64())
-                                .expect("STATS result should contain count");
-                            AggregateValue::Int(count)
+                            AggregateValue::Null
+                        } else if let Some(value_obj) = value.as_object() {
+                            Self::process_stats_object(value_obj)
                         } else {
                             panic!("STATS result value should be an object, got: {:?}", value);
                         }
                     } else {
                         // Normal STATS object with count directly
-                        let count = obj
-                            .get("count")
-                            .and_then(|v| v.as_number())
-                            .and_then(|n| n.as_i64())
-                            .expect("STATS result should contain count");
-                        AggregateValue::Int(count)
+                        Self::process_stats_object(obj)
                     }
                 } else {
                     panic!(
@@ -309,6 +199,75 @@ impl AggregateType {
                 }
             }
         }
+    }
+
+    /// Extract the actual value from a JSON result, handling both direct values and {"value": ...} wrapper objects
+    fn extract_value<'a>(
+        result: &'a serde_json::Value,
+        aggregate_name: &str,
+    ) -> Option<&'a serde_json::Value> {
+        if result.is_null() {
+            None
+        } else if result.is_number() {
+            Some(result)
+        } else if let Some(obj) = result.as_object() {
+            if let Some(value) = obj.get("value") {
+                if value.is_null() {
+                    None
+                } else {
+                    Some(value)
+                }
+            } else {
+                panic!(
+                    "{} result object missing 'value' field: {:?}",
+                    aggregate_name, result
+                );
+            }
+        } else {
+            panic!(
+                "{} result should be a number, null, or object with value field, got: {:?}",
+                aggregate_name, result
+            );
+        }
+    }
+
+    /// Process a number value for COUNT aggregates (integer validation and range checking)
+    fn process_count_number(num: &serde_json::Number) -> AggregateValue {
+        let f64_val = num.as_f64().expect("invalid COUNT result");
+        if f64_val.fract() != 0.0 {
+            panic!("COUNT should not have a fractional result");
+        }
+        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+            panic!("COUNT value was out of range");
+        }
+        AggregateValue::Int(f64_val as i64)
+    }
+
+    /// Process a number value for numeric aggregates (can be int or float)
+    fn process_numeric_number(num: &serde_json::Number) -> AggregateValue {
+        if let Some(int_val) = num.as_i64() {
+            AggregateValue::Int(int_val)
+        } else if let Some(f64_val) = num.as_f64() {
+            AggregateValue::Float(f64_val)
+        } else {
+            panic!("Numeric result should be a valid number");
+        }
+    }
+
+    /// Process a number value for float aggregates (always convert to f64)
+    fn process_float_number(num: &serde_json::Number) -> AggregateValue {
+        let f64_val = num.as_f64().expect("invalid float result");
+        AggregateValue::Float(f64_val)
+    }
+
+    /// Process a STATS result object to extract the count
+    fn process_stats_object(obj: &serde_json::Map<String, serde_json::Value>) -> AggregateValue {
+        let count = obj
+            .get("count")
+            .and_then(|v| v.as_number())
+            .and_then(|n| n.as_i64())
+            .expect("STATS result should contain count");
+        AggregateValue::Int(count)
     }
 }
 

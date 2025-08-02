@@ -60,6 +60,7 @@ use pgrx::pg_sys::{
     F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
 #[derive(Default)]
@@ -313,7 +314,7 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
-            // Simple slot setup - following working PDB scan pattern
+            // Simple slot setup
             pg_sys::ExecClearTuple(slot);
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
@@ -324,93 +325,22 @@ impl CustomScan for AggregateScan {
                 match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
                         let group_val = &row.group_keys[gc_idx];
-
-                        // Get the type of this column from the tuple descriptor
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
-                        // Convert the OwnedValue to TantivyValue and then to datum
-                        let oid = pgrx::PgOid::from(typoid);
-                        let tantivy_value = TantivyValue(group_val.clone());
-                        match tantivy_value.try_into_datum(oid) {
-                            Ok(Some(datum)) => {
-                                datums[i] = datum;
-                            }
-                            Ok(None) => {
-                                // NULL value
-                                datums[i] = pg_sys::Datum::from(0);
-                                isnull[i] = true;
-                                continue;
-                            }
-                            Err(e) => {
-                                panic!("Failed to convert TantivyValue to datum: {e:?}");
-                            }
-                        }
-                        isnull[i] = false;
+                        let (datum, is_null) = convert_group_value_to_datum(group_val, typoid);
+                        datums[i] = datum;
+                        isnull[i] = is_null;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
                         let agg_value = &row.aggregate_values[*agg_idx];
-
-                        // Get expected type for this column and convert appropriately
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let expected_typoid = attr.type_oid().value();
 
-                        // Convert specifically for the expected PostgreSQL type
-                        match (agg_value, expected_typoid) {
-                            (&AggregateValue::Null, _) => {
-                                // Null value - set appropriate null datum and flag
-                                datums[i] = pg_sys::Datum::null();
-                                isnull[i] = true;
-                            }
-                            (AggregateValue::Int(val), _) => {
-                                // Integer value - convert to appropriate integer type
-                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                isnull[i] = false;
-                            }
-                            (AggregateValue::Float(val), pg_sys::NUMERICOID) => {
-                                // NUMERIC type - convert f64 to PostgreSQL AnyNumeric
-                                match pgrx::AnyNumeric::try_from(*val) {
-                                    Ok(numeric_val) => match numeric_val.into_datum() {
-                                        Some(datum) => {
-                                            datums[i] = datum;
-                                            isnull[i] = false;
-                                        }
-                                        None => {
-                                            datums[i] = pg_sys::Datum::from(0);
-                                            isnull[i] = true;
-                                        }
-                                    },
-                                    Err(_) => {
-                                        // Fallback to null on conversion error
-                                        datums[i] = pg_sys::Datum::from(0);
-                                        isnull[i] = true;
-                                    }
-                                }
-                            }
-                            (AggregateValue::Float(val), pg_sys::INT2OID) => {
-                                // SMALLINT type - convert f64 to i16
-                                let int_val = (*val) as i16;
-                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                isnull[i] = false;
-                            }
-                            (AggregateValue::Float(val), pg_sys::INT4OID) => {
-                                // INTEGER type - convert f64 to i32
-                                let int_val = (*val) as i32;
-                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                isnull[i] = false;
-                            }
-                            (AggregateValue::Float(val), pg_sys::INT8OID) => {
-                                // BIGINT type - convert f64 to i64
-                                let int_val = (*val) as i64;
-                                datums[i] = int_val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                isnull[i] = false;
-                            }
-                            (AggregateValue::Float(val), _) => {
-                                // Other float types - use f64 datum directly
-                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
-                                isnull[i] = false;
-                            }
-                        }
+                        let (datum, is_null) =
+                            convert_aggregate_value_to_datum(agg_value, expected_typoid);
+                        datums[i] = datum;
+                        isnull[i] = is_null;
                     }
                 }
             }
@@ -426,6 +356,80 @@ impl CustomScan for AggregateScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+}
+
+/// Convert a group value (OwnedValue) to a PostgreSQL Datum
+unsafe fn convert_group_value_to_datum(
+    group_val: &OwnedValue,
+    typoid: pg_sys::Oid,
+) -> (pg_sys::Datum, bool) {
+    let oid = pgrx::PgOid::from(typoid);
+    let tantivy_value = TantivyValue(group_val.clone());
+    match tantivy_value.try_into_datum(oid) {
+        Ok(Some(datum)) => (datum, false),
+        Ok(None) => (pg_sys::Datum::from(0), true),
+        Err(e) => {
+            panic!("Failed to convert TantivyValue to datum: {e:?}");
+        }
+    }
+}
+
+/// Convert an AggregateValue to a PostgreSQL Datum with appropriate type handling
+fn convert_aggregate_value_to_datum(
+    agg_value: &AggregateValue,
+    expected_typoid: pg_sys::Oid,
+) -> (pg_sys::Datum, bool) {
+    match (agg_value, expected_typoid) {
+        (&AggregateValue::Null, _) => {
+            // Null value - set appropriate null datum and flag
+            (pg_sys::Datum::null(), true)
+        }
+        (AggregateValue::Int(val), _) => {
+            // Integer value - convert to appropriate integer type
+            (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
+        }
+        (AggregateValue::Float(val), pg_sys::NUMERICOID) => {
+            // NUMERIC type - convert f64 to PostgreSQL AnyNumeric
+            match pgrx::AnyNumeric::try_from(*val) {
+                Ok(numeric_val) => match numeric_val.into_datum() {
+                    Some(datum) => (datum, false),
+                    None => (pg_sys::Datum::from(0), true),
+                },
+                Err(_) => {
+                    // Fallback to null on conversion error
+                    (pg_sys::Datum::from(0), true)
+                }
+            }
+        }
+        (AggregateValue::Float(val), pg_sys::INT2OID) => {
+            // SMALLINT type - convert f64 to i16
+            let int_val = (*val) as i16;
+            (
+                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+                false,
+            )
+        }
+        (AggregateValue::Float(val), pg_sys::INT4OID) => {
+            // INTEGER type - convert f64 to i32
+            let int_val = (*val) as i32;
+            (
+                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+                false,
+            )
+        }
+        (AggregateValue::Float(val), pg_sys::INT8OID) => {
+            // BIGINT type - convert f64 to i64
+            let int_val = (*val) as i64;
+            (
+                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+                false,
+            )
+        }
+        (AggregateValue::Float(val), _) => {
+            // Other float types - use f64 datum directly
+            (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
+        }
+    }
 }
 
 /// Extract grouping columns from pathkeys and validate they are fast fields

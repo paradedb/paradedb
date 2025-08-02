@@ -277,19 +277,11 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         let pg_query = format!(
-            "SELECT {} FROM {} WHERE {} {}",
-            select_list,
-            table_name,
-            pg_where_clause,
-            group_by_clause
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
         );
 
         let bm25_query = format!(
-            "SELECT {} FROM {} WHERE {} {}",
-            select_list,
-            table_name,
-            bm25_where_clause,
-            group_by_clause
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
         );
 
         // Custom result comparator for GROUP BY results

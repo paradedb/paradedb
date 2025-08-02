@@ -153,12 +153,6 @@ impl AggregateScanState {
 
     #[allow(unreachable_patterns)]
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
-        // Debug: Show what we're processing
-        eprintln!(
-            "AGGREGATE_DEBUG: Processing JSON to aggregate results. Grouping columns: {:?}",
-            self.grouping_columns
-        );
-
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row
             let result_map = result
@@ -197,34 +191,9 @@ impl AggregateScanState {
             }];
         }
         // GROUP BY - extract nested bucket results recursively
-        eprintln!(
-            "AGGREGATE_DEBUG: Processing GROUP BY aggregation with {} grouping columns",
-            self.grouping_columns.len()
-        );
-
         let mut rows = Vec::new();
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
-
-        // Debug: Show extraction results
-        eprintln!(
-            "AGGREGATE_DEBUG: Extracted {} rows from bucket results",
-            rows.len()
-        );
-
-        for (i, row) in rows.iter().enumerate().take(3) {
-            eprintln!(
-                "AGGREGATE_DEBUG: Row[{}]: group_keys={:?}, aggregate_values={:?}",
-                i, row.group_keys, row.aggregate_values
-            );
-        }
-
-        if rows.len() > 3 {
-            eprintln!(
-                "AGGREGATE_DEBUG: ... and {} more rows (showing first 3 only)",
-                rows.len() - 3
-            );
-        }
 
         // Sort according to ORDER BY
         self.sort_rows(&mut rows);
@@ -240,31 +209,11 @@ impl AggregateScanState {
         rows: &mut Vec<GroupedAggregateRow>,
     ) {
         let bucket_name = format!("group_{depth}");
-
-        // Debug: Show what we're looking for
-        eprintln!(
-            "AGGREGATE_DEBUG: extract_bucket_results depth={}, bucket_name={}, prefix_keys={:?}",
-            depth, bucket_name, prefix_keys
-        );
-
-        let group_data = json.get(&bucket_name);
-        eprintln!(
-            "AGGREGATE_DEBUG: Found group data for {}: {}",
-            bucket_name,
-            group_data.is_some()
-        );
-
         let buckets = json
             .get(&bucket_name)
             .and_then(|v| v.get("buckets"))
             .and_then(|v| v.as_array())
             .expect("missing bucket results");
-
-        eprintln!(
-            "AGGREGATE_DEBUG: Found {} buckets at depth {}",
-            buckets.len(),
-            depth
-        );
 
         for (bucket_idx, bucket) in buckets.iter().enumerate() {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
@@ -274,21 +223,10 @@ impl AggregateScanState {
             let key_json = bucket_obj.get("key").expect("missing bucket key");
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
 
-            // Debug: Show bucket processing
-            eprintln!(
-                "AGGREGATE_DEBUG: Processing bucket[{}] at depth {}: key_json={}, key_owned={:?}, doc_count={:?}",
-                bucket_idx, depth, key_json, key_owned, bucket_obj.get("doc_count")
-            );
-
             prefix_keys.push(key_owned);
 
             if depth + 1 == self.grouping_columns.len() {
                 // Deepest level – collect aggregates (may be empty)
-                eprintln!(
-                    "AGGREGATE_DEBUG: Reached deepest level at depth {}. Collecting aggregates for bucket[{}]",
-                    depth, bucket_idx
-                );
-
                 let aggregate_values: AggregateRow = if self.aggregate_types.is_empty() {
                     AggregateRow::default()
                 } else {
@@ -302,10 +240,9 @@ impl AggregateScanState {
                                 }
                                 _ => {
                                     let agg_name = format!("agg_{idx}");
-                                    let agg_obj = bucket_obj.get(&agg_name).expect(&format!(
-                                        "missing aggregate result for '{}'",
-                                        agg_name
-                                    ));
+                                    let agg_obj = bucket_obj.get(&agg_name).unwrap_or_else(|| {
+                                        panic!("missing aggregate result for '{agg_name}'")
+                                    });
 
                                     // Handle different aggregate result structures
                                     if let Some(obj) = agg_obj.as_object() {
@@ -325,24 +262,12 @@ impl AggregateScanState {
                         })
                         .collect()
                 };
-
-                // Debug: Show created row
-                eprintln!(
-                    "AGGREGATE_DEBUG: Creating row with group_keys={:?}, aggregate_values={:?}",
-                    prefix_keys, aggregate_values
-                );
-
                 rows.push(GroupedAggregateRow {
                     group_keys: prefix_keys.clone(),
                     aggregate_values,
                 });
             } else {
                 // Recurse into next level
-                eprintln!(
-                    "AGGREGATE_DEBUG: Recursing to depth {} for bucket[{}]",
-                    depth + 1,
-                    bucket_idx
-                );
                 self.extract_bucket_results(bucket, depth + 1, prefix_keys, rows);
             }
 

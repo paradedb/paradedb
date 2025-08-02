@@ -256,8 +256,7 @@ SET paradedb.enable_aggregate_custom_scan = off;
         );
 
         return Err(TestCaseError::fail(format!(
-            "Results differ between PostgreSQL and BM25 custom scan\n{}",
-            repro_script
+            "Results differ between PostgreSQL and BM25 custom scan\n{repro_script}"
         )));
     }
 

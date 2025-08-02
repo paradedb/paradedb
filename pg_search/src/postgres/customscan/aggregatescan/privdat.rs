@@ -32,27 +32,12 @@ pub enum AggregateType {
     Stats { field: String },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum AggregateValue {
     Int(i64),
     Float(f64),
+    #[default]
     Null,
-}
-
-impl Default for AggregateValue {
-    fn default() -> Self {
-        AggregateValue::Null
-    }
-}
-
-impl AggregateValue {
-    pub fn to_datum(self) -> Option<pgrx::pg_sys::Datum> {
-        match self {
-            AggregateValue::Int(i) => i.into_datum(),
-            AggregateValue::Float(f) => f.into_datum(),
-            AggregateValue::Null => None,
-        }
-    }
 }
 
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
@@ -121,10 +106,7 @@ impl AggregateType {
                     if let Some(num) = value.as_number() {
                         Self::process_count_number(num)
                     } else {
-                        panic!(
-                            "COUNT result value should be a number or null, got: {:?}",
-                            value
-                        );
+                        panic!("COUNT result value should be a number or null, got: {value:?}");
                     }
                 }
             },
@@ -134,10 +116,7 @@ impl AggregateType {
                     if let Some(num) = value.as_number() {
                         Self::process_numeric_number(num)
                     } else {
-                        panic!(
-                            "SUM result value should be a number or null, got: {:?}",
-                            value
-                        );
+                        panic!("SUM result value should be a number or null, got: {value:?}");
                     }
                 }
             },
@@ -147,10 +126,7 @@ impl AggregateType {
                     if let Some(num) = value.as_number() {
                         Self::process_float_number(num)
                     } else {
-                        panic!(
-                            "AVG result value should be a number or null, got: {:?}",
-                            value
-                        );
+                        panic!("AVG result value should be a number or null, got: {value:?}");
                     }
                 }
             },
@@ -166,10 +142,7 @@ impl AggregateType {
                         if let Some(num) = value.as_number() {
                             Self::process_numeric_number(num)
                         } else {
-                            panic!(
-                                "{} result value should be a number or null, got: {:?}",
-                                agg_name, value
-                            );
+                            panic!("{agg_name} result value should be a number or null, got: {value:?}");
                         }
                     }
                 }
@@ -185,17 +158,14 @@ impl AggregateType {
                         } else if let Some(value_obj) = value.as_object() {
                             Self::process_stats_object(value_obj)
                         } else {
-                            panic!("STATS result value should be an object, got: {:?}", value);
+                            panic!("STATS result value should be an object, got: {value:?}");
                         }
                     } else {
                         // Normal STATS object with count directly
                         Self::process_stats_object(obj)
                     }
                 } else {
-                    panic!(
-                        "STATS result should be an object or null, got: {:?}",
-                        result
-                    );
+                    panic!("STATS result should be an object or null, got: {result:?}");
                 }
             }
         }
@@ -218,16 +188,10 @@ impl AggregateType {
                     Some(value)
                 }
             } else {
-                panic!(
-                    "{} result object missing 'value' field: {:?}",
-                    aggregate_name, result
-                );
+                panic!("{aggregate_name} result object missing 'value' field: {result:?}");
             }
         } else {
-            panic!(
-                "{} result should be a number, null, or object with value field, got: {:?}",
-                aggregate_name, result
-            );
+            panic!("{aggregate_name} result should be a number, null, or object with value field, got: {result:?}");
         }
     }
 

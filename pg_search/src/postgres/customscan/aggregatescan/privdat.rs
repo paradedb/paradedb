@@ -34,10 +34,10 @@ pub enum AggregateType {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum AggregateValue {
-    Int(i64),
-    Float(f64),
     #[default]
     Null,
+    Int(i64),
+    Float(f64),
 }
 
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.

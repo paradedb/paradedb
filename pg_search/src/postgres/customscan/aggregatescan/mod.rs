@@ -648,12 +648,10 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let agg_json = state.custom_state().aggregates_to_json();
-
     let result = execute_aggregate(
         state.custom_state().indexrel(),
         state.custom_state().query.clone(),
-        agg_json,
+        state.custom_state().aggregates_to_json(),
         // TODO: Consider adding a GUC to control whether we solve MVCC.
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit

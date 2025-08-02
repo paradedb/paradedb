@@ -26,7 +26,7 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, PrivateData, TargetListEntry,
+    AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
@@ -51,6 +51,14 @@ use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 
+use pgrx::pg_sys::{
+    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
+    F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
+    F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
+    F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
+    F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
+    F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+};
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::Index;
 
@@ -305,9 +313,8 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
-            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-            (*slot).tts_nvalid = natts as _;
+            // Simple slot setup - following working PDB scan pattern
+            pg_sys::ExecClearTuple(slot);
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
@@ -342,11 +349,52 @@ impl CustomScan for AggregateScan {
                         isnull[i] = false;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        datums[i] = row.aggregate_values[*agg_idx].into_datum().unwrap();
-                        isnull[i] = false;
+                        let agg_value = &row.aggregate_values[*agg_idx];
+
+                        // Get expected type for this column and convert appropriately
+                        let attr = tupdesc.get(i).expect("missing attribute");
+                        let expected_typoid = attr.type_oid().value();
+
+                        // Convert specifically for the expected PostgreSQL type
+                        match (agg_value, expected_typoid) {
+                            (AggregateValue::Int(val), _) => {
+                                // BIGINT expected - convert i64 to BIGINT datum
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                            (AggregateValue::Float(val), pg_sys::NUMERICOID) => {
+                                // NUMERIC type - convert f64 to PostgreSQL AnyNumeric
+                                match pgrx::AnyNumeric::try_from(*val) {
+                                    Ok(numeric_val) => match numeric_val.into_datum() {
+                                        Some(datum) => {
+                                            datums[i] = datum;
+                                            isnull[i] = false;
+                                        }
+                                        None => {
+                                            datums[i] = pg_sys::Datum::from(0);
+                                            isnull[i] = true;
+                                        }
+                                    },
+                                    Err(_) => {
+                                        // Fallback to null on conversion error
+                                        datums[i] = pg_sys::Datum::from(0);
+                                        isnull[i] = true;
+                                    }
+                                }
+                            }
+                            (AggregateValue::Float(val), _) => {
+                                // Other float types - use f64 datum directly
+                                datums[i] = val.into_datum().unwrap_or(pg_sys::Datum::from(0));
+                                isnull[i] = false;
+                            }
+                        }
                     }
                 }
             }
+
+            // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
+            (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+            (*slot).tts_nvalid = natts as i16;
 
             slot
         }
@@ -422,6 +470,15 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
         return None;
     }
 
+    // Get the relation OID for field name lookup
+    let parent_relids = args.input_rel().relids;
+    let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+    let heap_rte = unsafe {
+        let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
+        rt.get_ptr((heap_rti - 1) as usize)?
+    };
+    let relation_oid = unsafe { (*heap_rte).relid };
+
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
     for expr in target_list.iter_ptr() {
@@ -431,10 +488,12 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                 continue;
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 if (*aggref).aggstar {
-                    // Only `count(*)` (aggstar) is supported.
+                    // COUNT(*) (aggstar)
                     aggregate_types.push(AggregateType::Count);
                 } else {
-                    return None;
+                    // Check for other aggregate functions with arguments
+                    let agg_type = identify_aggregate_function(aggref, relation_oid)?;
+                    aggregate_types.push(agg_type);
                 }
             } else {
                 // Unsupported expression type
@@ -449,6 +508,91 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
     // an empty vector instead of rejecting the plan.
 
     Some(aggregate_types)
+}
+
+/// Identify an aggregate function by its OID and extract field name from its arguments
+unsafe fn identify_aggregate_function(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<AggregateType> {
+    let aggfnoid = (*aggref).aggfnoid;
+
+    // Get the function name to identify the aggregate
+    let func_name = get_aggregate_function_name(aggfnoid)?;
+
+    // Extract the field name from the first argument
+    let field_name = extract_field_name_from_aggref(aggref, relation_oid);
+
+    match func_name.as_str() {
+        "count" => Some(AggregateType::Count),
+        "sum" => Some(AggregateType::Sum { field: field_name? }),
+        "avg" => Some(AggregateType::Avg { field: field_name? }),
+        "min" => Some(AggregateType::Min { field: field_name? }),
+        "max" => Some(AggregateType::Max { field: field_name? }),
+        _ => {
+            pgrx::debug1!("Unsupported aggregate function: {}", func_name);
+            None
+        }
+    }
+}
+
+/// Get the name of an aggregate function from its OID
+unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<String> {
+    // Use well-known PostgreSQL function OIDs for standard aggregates
+    // These are consistent across PostgreSQL versions
+    match aggfnoid.to_u32() {
+        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+            Some("avg".to_string())
+        }
+        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+            Some("sum".to_string())
+        }
+        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+            Some("max".to_string())
+        }
+        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+        | F_MIN_NUMERIC => Some("min".to_string()),
+        F_COUNT_ANY => Some("count".to_string()),
+        _ => {
+            // For unknown function OIDs, we'll reject them for now
+            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
+            None
+        }
+    }
+}
+
+/// Extract field name from the first argument of an aggregate function
+unsafe fn extract_field_name_from_aggref(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    if args.is_empty() {
+        return None;
+    }
+
+    let first_arg = args.get_ptr(0)?;
+    if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+        return get_var_field_name(var, relation_oid);
+    }
+
+    None
+}
+
+/// Get the field name from a Var node
+unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -> Option<String> {
+    let varattno = (*var).varattno;
+
+    // Get the actual column name from the relation
+    let attname = pg_sys::get_attname(relation_oid, varattno, false);
+    if !attname.is_null() {
+        let name = std::ffi::CStr::from_ptr(attname).to_str().ok()?;
+        return Some(name.to_string());
+    }
+
+    None
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

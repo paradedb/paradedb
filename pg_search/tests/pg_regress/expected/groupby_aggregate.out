@@ -1175,10 +1175,6 @@ SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) 
       5 |   5 | bob
 (6 rows)
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
 -- ===========================================================================
 -- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
 -- ===========================================================================
@@ -1287,10 +1283,6 @@ SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
   35 |     1
 (3 rows)
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
 -- ===========================================================================
 -- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
 -- ===========================================================================
@@ -1433,18 +1425,17 @@ SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob'
   96
 (10 rows)
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
--- ===========================================================================
--- Clean up
--- ===========================================================================
-SET paradedb.enable_aggregate_custom_scan TO off;
-DROP TABLE support_tickets CASCADE;
-DROP TABLE type_test CASCADE;
--- Regression test for MIN/MAX NULL handling on impossible WHERE clauses
--- This should return NULL instead of panicking with "MIN/MAX result should be a number"
+-- Regression test for ALL aggregate NULL handling on impossible WHERE clauses
+-- This should return NULL instead of panicking with "result should be a number/float"
+-- Recreate the full products index with category field for the final tests
+DROP INDEX products_idx;
+CREATE INDEX products_idx ON products 
+USING bm25 (id, description, rating, category, price)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
+);
 SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
                            test_case                           
 ---------------------------------------------------------------
@@ -1452,8 +1443,11 @@ SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_c
 (1 row)
 
 SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-ERROR:  could not parse query string 'category:(Electronics)'.
-           make sure to use column:term pairs, and to capitalize AND/OR.
+ max 
+-----
+    
+(1 row)
+
 SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
                            test_case                           
 ---------------------------------------------------------------
@@ -1466,6 +1460,42 @@ SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (des
     
 (1 row)
 
+SELECT 'Testing AVG with impossible WHERE clause (should return NULL)' as test_case;
+                           test_case                           
+---------------------------------------------------------------
+ Testing AVG with impossible WHERE clause (should return NULL)
+(1 row)
+
+SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+ avg 
+-----
+    
+(1 row)
+
+SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_case;
+                           test_case                           
+---------------------------------------------------------------
+ Testing SUM with impossible WHERE clause (should return NULL)
+(1 row)
+
+SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+ sum 
+-----
+   0
+(1 row)
+
+SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
+                            test_case                            
+-----------------------------------------------------------------
+ Testing COUNT with impossible WHERE clause (should return NULL)
+(1 row)
+
+SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+ count 
+-------
+     0
+(1 row)
+
 -- More complex contradictory cases
 SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
                           test_case                          
@@ -1474,8 +1504,11 @@ SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_cas
 (1 row)
 
 SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop'));
-ERROR:  could not parse query string 'category:(Electronics)'.
-           make sure to use column:term pairs, and to capitalize AND/OR.
+ max 
+-----
+    
+(1 row)
+
 SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
                           test_case                          
 -------------------------------------------------------------
@@ -1483,8 +1516,21 @@ SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_cas
 (1 row)
 
 SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
-ERROR:  could not parse query string 'category:(Sports)'.
-           make sure to use column:term pairs, and to capitalize AND/OR.
+ min 
+-----
+    
+(1 row)
+
+-- ===========================================================================
+-- Clean up
+-- ===========================================================================
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE support_tickets CASCADE;
+DROP TABLE type_test CASCADE;
 DROP TABLE products CASCADE;
 DROP TABLE min_max_test CASCADE;
 DROP TABLE groupby_bug_test CASCADE; 

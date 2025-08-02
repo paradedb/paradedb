@@ -637,10 +637,6 @@ SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) 
 -- This should return grouped results, not individual rows
 SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
 
 -- ===========================================================================
 -- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
@@ -708,10 +704,7 @@ SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
 
 SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
+
 
 -- ===========================================================================
 -- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
@@ -785,25 +778,34 @@ SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob'
 -- This is the core of all proptest failures - GROUP BY is completely broken
 SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
 
--- ===========================================================================
--- Clean up
--- ===========================================================================
+-- Regression test for ALL aggregate NULL handling on impossible WHERE clauses
+-- This should return NULL instead of panicking with "result should be a number/float"
 
-SET paradedb.enable_aggregate_custom_scan TO off;
-DROP TABLE support_tickets CASCADE;
-DROP TABLE type_test CASCADE;
--- Regression test for MIN/MAX NULL handling on impossible WHERE clauses
--- This should return NULL instead of panicking with "MIN/MAX result should be a number"
+-- Recreate the full products index with category field for the final tests
+DROP INDEX products_idx;
+CREATE INDEX products_idx ON products 
+USING bm25 (id, description, rating, category, price)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}',
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
+);
+
 SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
 SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
 
 SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
 SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+
+SELECT 'Testing AVG with impossible WHERE clause (should return NULL)' as test_case;
+SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
+
+SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_case;
+SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
+
+SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
+SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
 
 -- More complex contradictory cases
 SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
@@ -812,6 +814,18 @@ SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (
 SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
 SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
 
+-- ===========================================================================
+-- Clean up
+-- ===========================================================================
+
+-- Reset settings
+RESET max_parallel_workers_per_gather;
+RESET enable_hashagg;
+RESET enable_sort;
+RESET paradedb.enable_aggregate_custom_scan;
+
+DROP TABLE support_tickets CASCADE;
+DROP TABLE type_test CASCADE;
 DROP TABLE products CASCADE;
 DROP TABLE min_max_test CASCADE;
 DROP TABLE groupby_bug_test CASCADE; 

@@ -28,8 +28,6 @@ use tantivy::schema::OwnedValue;
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
 
-// TODO: This should match the output types of the extracted aggregate functions. We now support
-// multiple aggregate types with different return types.
 pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
 
 // For GROUP BY results, we need both the group keys and aggregate values

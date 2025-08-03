@@ -22,7 +22,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{BufferManager, PageHeaderMethods};
 use anyhow::Result;
-use pgrx::pg_sys::BlockNumber;
 use pgrx::{check_for_interrupts, pg_sys};
 use std::cmp::min;
 use std::fmt::Debug;
@@ -118,17 +117,6 @@ impl LinkedBytesListWriter {
                 // Initialize new page
                 new_buffer.init_page();
 
-                // Set last blockno to new blockno
-                let mut header_buffer = self
-                    .list
-                    .bman
-                    .get_buffer_mut(self.list.get_header_blockno());
-
-                let mut page = header_buffer.page_mut();
-                let metadata = page.contents_mut::<LinkedListData>();
-                metadata.last_blockno = new_blockno;
-                metadata.npages += 1;
-
                 self.last_blockno = new_blockno;
                 continue;
             }
@@ -145,22 +133,24 @@ impl LinkedBytesListWriter {
         Ok(())
     }
 
-    fn flush_inner(&mut self) -> Result<()> {
-        // TODO: Do we need to flush the currently open block in `self.buffer`?
+    /// Write the pending [`BlockList`] data to disk.  This must be called once, as soon as the caller
+    /// is positive this [`LinkedBytesListWriter`] is itself complete and fully written to disk.
+    pub fn finalize_and_write(mut self) -> std::io::Result<LinkedBytesList> {
+        // now that we're being finalized we can set the `last_blockno` of our metadata page
+        // to the one we've internally tracked during .write()
+        let mut header_buffer = self
+            .list
+            .bman
+            .get_buffer_mut(self.list.get_header_blockno());
 
-        // TODO: `finish` implies that this method should only be called once: rather than being in
-        // `flush`, it should potentially only be in `finish`?
+        let mut header_page = header_buffer.page_mut();
+        let metadata = header_page.contents_mut::<LinkedListData>();
+        metadata.last_blockno = self.last_blockno;
+        metadata.npages += 1;
+
         if let Some(blockno) = self.blocklist_builder.finish(&mut self.list.bman) {
-            let mut header_block = self.list.bman.get_buffer_mut(self.list.header_blockno);
-            let mut page = header_block.page_mut();
-            let metadata = page.contents_mut::<LinkedListData>();
             metadata.blocklist_start = blockno;
         }
-        Ok(())
-    }
-
-    pub fn into_inner(mut self) -> Result<LinkedBytesList> {
-        self.flush_inner()?;
         Ok(self.list)
     }
 }
@@ -174,7 +164,8 @@ impl Write for LinkedBytesListWriter {
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        self.flush_inner().map_err(std::io::Error::other)
+        // we don't do any buffering so there's nothing to flush
+        Ok(())
     }
 }
 
@@ -191,7 +182,7 @@ impl LinkedList for LinkedBytesList {
         &mut self.bman
     }
 
-    fn block_for_ord(&self, ord: usize) -> Option<BlockNumber> {
+    fn block_for_ord(&self, ord: usize) -> Option<pg_sys::BlockNumber> {
         self.blocklist_reader
             .get_or_init(|| {
                 blocklist::reader::BlockList::new(&self.bman, unsafe {
@@ -255,14 +246,20 @@ impl LinkedBytesList {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
-        let mut header_buffer = buffers.next().unwrap();
-        let header_blockno = header_buffer.number();
-        let mut start_buffer = buffers.next().unwrap();
-        let start_blockno = start_buffer.number();
+        let header_blockno = {
+            let mut header_buffer = buffers.next().unwrap();
+            header_buffer.init_page();
+            header_buffer.number()
+        };
 
-        let mut header_page = header_buffer.init_page();
-        start_buffer.init_page();
+        let start_blockno = {
+            let mut start_buffer = buffers.next().unwrap();
+            start_buffer.init_page();
+            start_buffer.number()
+        };
 
+        let mut header_buffer = bman.get_buffer_mut(header_blockno);
+        let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
@@ -393,7 +390,7 @@ mod tests {
             let linked_list = LinkedBytesList::create(&indexrel);
             let mut writer = linked_list.writer();
             writer.write(&bytes).unwrap();
-            let linked_list = writer.into_inner().unwrap();
+            let linked_list = writer.finalize_and_write().unwrap();
             let read_bytes = linked_list.read_all();
             assert_eq!(bytes, read_bytes);
 
@@ -422,7 +419,7 @@ mod tests {
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();
-        let linked_list = writer.into_inner().unwrap();
+        let linked_list = writer.finalize_and_write().unwrap();
         assert!(!linked_list.is_empty());
     }
 
@@ -440,7 +437,7 @@ mod tests {
         let bytes: Vec<u8> = (1..=255).cycle().take(100_000).collect();
         let mut writer = linked_list.writer();
         writer.write(&bytes).unwrap();
-        let linked_list = writer.into_inner().unwrap();
+        let linked_list = writer.finalize_and_write().unwrap();
         let (mut blockno, _) = linked_list.get_start_blockno();
         linked_list.return_to_fsm();
 

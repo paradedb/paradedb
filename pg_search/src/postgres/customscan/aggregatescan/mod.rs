@@ -152,6 +152,11 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
+        // Check if any GROUP BY field is also being searched (conflicts with Tantivy aggregation)
+        if has_search_field_conflicts(&grouping_columns, &query) {
+            return None;
+        }
+
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
         if let Some(ref pathkeys) = order_pathkeys {
@@ -474,25 +479,12 @@ fn extract_grouping_columns(
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
-                        } else {
-                            pgrx::warning!(
-                                "GROUP BY field '{}' is not a fast field - cannot use aggregate custom scan",
-                                field_name
-                            );
                         }
-                    } else {
-                        pgrx::warning!(
-                            "GROUP BY field '{}' not found in schema - cannot use aggregate custom scan",
-                            field_name
-                        );
                     }
                 }
             }
 
             if !found_valid_column {
-                pgrx::warning!(
-                    "No valid fast field found for GROUP BY expression - cannot use aggregate custom scan"
-                );
                 return None;
             }
         }
@@ -519,27 +511,18 @@ fn extract_and_validate_aggregates(
         if let Some(field_name) = aggregate.field_name() {
             // Check for conflict with GROUP BY columns
             if grouping_field_names.contains(&field_name) {
-                pgrx::warning!(
-                    "Aggregate field '{}' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)",
-                    field_name
-                );
+                // Aggregate field conflicts with GROUP BY column - causes incompatible fruit types in Tantivy
                 return None;
             }
 
             // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
-                    pgrx::warning!(
-                        "Aggregate field '{}' is not a fast field - cannot use aggregate custom scan",
-                        field_name
-                    );
+                    // Aggregate field is not a fast field
                     return None;
                 }
             } else {
-                pgrx::warning!(
-                    "Aggregate field '{}' not found in schema - cannot use aggregate custom scan",
-                    field_name
-                );
+                // Aggregate field not found in schema
                 return None;
             }
         }
@@ -617,7 +600,7 @@ unsafe fn identify_aggregate_function(
         "min" => Some(AggregateType::Min { field: field_name? }),
         "max" => Some(AggregateType::Max { field: field_name? }),
         _ => {
-            pgrx::warning!("Unsupported aggregate function: {}", func_name);
+            pgrx::debug1!("Unsupported aggregate function: {}", func_name);
             None
         }
     }
@@ -644,7 +627,7 @@ unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<String> {
         F_COUNT_ANY => Some("count".to_string()),
         _ => {
             // For unknown function OIDs, we'll reject them for now
-            pgrx::warning!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
+            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
             None
         }
     }
@@ -732,6 +715,73 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
+
+/// Check if any GROUP BY field is also being searched in the WHERE clause
+/// This causes "incompatible fruit types" errors in Tantivy aggregation
+fn has_search_field_conflicts(
+    grouping_columns: &[GroupingColumn],
+    query: &SearchQueryInput,
+) -> bool {
+    if grouping_columns.is_empty() {
+        return false;
+    }
+
+    let grouping_field_names: std::collections::HashSet<&String> =
+        grouping_columns.iter().map(|gc| &gc.field_name).collect();
+
+    fn extract_field_names(
+        query: &SearchQueryInput,
+        field_names: &mut std::collections::HashSet<String>,
+    ) {
+        match query {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
+                    extract_field_names(q, field_names);
+                }
+            }
+            SearchQueryInput::Boost { query, .. } => {
+                extract_field_names(query, field_names);
+            }
+            SearchQueryInput::ConstScore { query, .. } => {
+                extract_field_names(query, field_names);
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for q in disjuncts {
+                    extract_field_names(q, field_names);
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                extract_field_names(query, field_names);
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                extract_field_names(indexed_query, field_names);
+            }
+            SearchQueryInput::FieldedQuery { field, .. } => {
+                field_names.insert(field.root().to_string());
+            }
+            // For other query types, we can't easily extract field names
+            // This is a conservative approach - if we can't determine, we allow it
+            _ => {}
+        }
+    }
+
+    let mut search_field_names = std::collections::HashSet::new();
+    extract_field_names(query, &mut search_field_names);
+
+    // Check for conflicts
+    for search_field in &search_field_names {
+        if grouping_field_names.contains(search_field) {
+            // Found search field conflict: GROUP BY field is also being searched
+            return true;
+        }
+    }
+
+    false
+}
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(

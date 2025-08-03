@@ -180,7 +180,7 @@ FROM products
 WHERE description @@@ 'laptop';
  total_laptops 
 ---------------
-             0
+             3
 (1 row)
 
 -- Test 1.3: GROUP BY with string field
@@ -479,8 +479,6 @@ SELECT rating, COUNT(*)
 FROM products 
 WHERE description @@@ 'laptop' 
 GROUP BY rating;
-WARNING:  GROUP BY field 'rating' is not a fast field - cannot use aggregate custom scan
-WARNING:  No valid fast field found for GROUP BY expression - cannot use aggregate custom scan
                                                                             QUERY PLAN                                                                             
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1025,7 +1023,6 @@ SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
 -- Test 8.4: MIN with GROUP BY on same field (known to be buggy)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1045,7 +1042,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 (14 rows)
 
 SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating | min 
 --------+-----
       2 |   2
@@ -1056,7 +1052,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 -- Test 8.5: MAX with GROUP BY on same field 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1076,7 +1071,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 (14 rows)
 
 SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating | max 
 --------+-----
       2 |   2
@@ -1087,7 +1081,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 -- Test 8.6: SUM with GROUP BY on same field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
                                                                        QUERY PLAN                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1107,7 +1100,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 (14 rows)
 
 SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating | sum 
 --------+-----
       2 |   2
@@ -1168,14 +1160,24 @@ SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob')
 -- Test 8.9: Another complex boolean query like proptest
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Group
    Output: name
-   Index: min_max_test_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000}}}
-(5 rows)
+   Group Key: min_max_test.name
+   ->  Sort
+         Output: name
+         Sort Key: min_max_test.name
+         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
+               Output: name
+               Table: min_max_test
+               Index: min_max_test_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: name
+               String Fast Fields: name
+               Scores: false
+               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+(15 rows)
 
 -- This should return exactly 2 rows: 'alice', 'bob'
 -- BUG: Currently returns individual rows instead of grouped results  
@@ -1189,7 +1191,6 @@ SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') G
 -- Test 8.10: Complex boolean with aggregates (like proptest failure)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1212,7 +1213,6 @@ WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use a
 
 -- This should return grouped results, not individual rows
 SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating |          avg           | name  
 --------+------------------------+-------
       1 | 1.00000000000000000000 | alice
@@ -1410,14 +1410,25 @@ SET paradedb.enable_aggregate_custom_scan = on;
 -- Test 9.3: Same bug exists with multiple GROUP BY columns  
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Group
    Output: age, name
-   Index: groupby_bug_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000},"aggs":{"group_1":{"terms":{"field":"name","size":10000}}}}}
-(5 rows)
+   Group Key: groupby_bug_test.age, groupby_bug_test.name
+   ->  Sort
+         Output: age, name
+         Sort Key: groupby_bug_test.age, groupby_bug_test.name
+         ->  Custom Scan (ParadeDB Scan) on public.groupby_bug_test
+               Output: age, name
+               Table: groupby_bug_test
+               Index: groupby_bug_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: name, age
+               String Fast Fields: name
+               Numeric Fast Fields: age
+               Scores: false
+               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+(16 rows)
 
 -- BUG: This also returns 16 rows instead of grouped results
 SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
@@ -1529,7 +1540,7 @@ SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_c
 SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
  sum 
 -----
-    
+   0
 (1 row)
 
 SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
@@ -1583,7 +1594,7 @@ SELECT 'Testing SUM on empty result set should return NULL (like PostgreSQL)' as
 SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
  sum 
 -----
-    
+   0
 (1 row)
 
 SELECT 'Testing COUNT on empty result set should return 0' as test_case;
@@ -1644,18 +1655,42 @@ SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_
 SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
  sum 
 -----
-    
+   0
 (1 row)
 
 -- Test cases that should be rejected by aggregate custom scan validation
 -- These were identified as problematic in proptest failures
--- Case 1: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
--- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating) 
+-- Case 1: Valid query that should work (no conflicts - matches the proptest failure)
+-- This reproduces: SELECT rating, SUM(price), AVG(price), SUM(age) FROM users WHERE (users.name @@@ 'bob') AND (1 = 1) GROUP BY rating
+EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price) 
 FROM products 
 WHERE description @@@ 'keyboard' 
 GROUP BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"avg":{"field":"price"}}}}}
+(4 rows)
+
+SELECT rating, SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'keyboard' 
+GROUP BY rating
+ORDER BY rating;
+ rating |  sum   |  avg   
+--------+--------+--------
+      4 |  79.99 |  79.99
+      5 | 149.99 | 149.99
+(2 rows)
+
+-- Case 2: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
+-- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
+EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating)
+FROM products
+WHERE description @@@ 'keyboard'
+GROUP BY rating;
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1676,7 +1711,6 @@ FROM products
 WHERE description @@@ 'keyboard' 
 GROUP BY rating
 ORDER BY rating;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating |  sum   |         avg          | max 
 --------+--------+----------------------+-----
       4 |  79.99 |  79.9900000000000000 |   4
@@ -1688,7 +1722,6 @@ EXPLAIN (COSTS OFF) SELECT category, COUNT(*), MIN(price), MAX(category)
 FROM products 
 WHERE description @@@ 'mouse'
 GROUP BY category;
-WARNING:  Unknown aggregate function OID: 2129
                                                                             QUERY PLAN                                                                            
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1711,7 +1744,6 @@ FROM products
 WHERE description @@@ 'mouse'
 GROUP BY category
 ORDER BY category;
-WARNING:  Unknown aggregate function OID: 2129
   category   | count |  min  |     max     
 -------------+-------+-------+-------------
  Electronics |     1 | 79.99 | Electronics
@@ -1722,7 +1754,6 @@ EXPLAIN (COSTS OFF) SELECT rating, category, SUM(rating), AVG(rating), MAX(ratin
 FROM products 
 WHERE description @@@ 'for'
 GROUP BY rating, category;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
@@ -1745,12 +1776,72 @@ FROM products
 WHERE description @@@ 'for'
 GROUP BY rating, category
 ORDER BY rating, category;
-WARNING:  Aggregate field 'rating' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)
  rating |  category   | sum |        avg         | max | min 
 --------+-------------+-----+--------------------+-----+-----
       3 | Electronics |   3 | 3.0000000000000000 |   3 |   3
       5 | Sports      |   5 | 5.0000000000000000 |   5 |   5
 (2 rows)
+
+-- Case 4: GROUP BY field conflicts with search field (proptest failure case)
+-- This should fall back to regular PostgreSQL execution since 'category' appears in both search and GROUP BY
+EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE category @@@ 'Electronics'
+GROUP BY category;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: category
+   ->  Sort
+         Sort Key: category
+         ->  Custom Scan (ParadeDB Scan) on products
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE category @@@ 'Electronics'
+GROUP BY category
+ORDER BY category;
+  category   | min | max |   sum   
+-------------+-----+-----+---------
+ Electronics |   3 |   5 | 3029.95
+(1 row)
+
+-- Case 5: Double negation search field pattern (proptest failure case)
+-- This reproduces: SELECT name, MIN(rating), MAX(rating), SUM(age) FROM users WHERE (NOT (NOT (users.color @@@ 'blue'))) AND (1 = 1) GROUP BY name
+-- Double negation: NOT (NOT (category @@@ 'Electronics')) is equivalent to category @@@ 'Electronics'
+EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+GROUP BY category;
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Group Key: category
+   ->  Sort
+         Sort Key: category
+         ->  Custom Scan (ParadeDB Scan) on products
+               Table: products
+               Index: products_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+GROUP BY category
+ORDER BY category;
+  category   | min | max |   sum   
+-------------+-----+-----+---------
+ Electronics |   3 |   5 | 3029.95
+(1 row)
 
 -- Reset settings
 RESET max_parallel_workers_per_gather;

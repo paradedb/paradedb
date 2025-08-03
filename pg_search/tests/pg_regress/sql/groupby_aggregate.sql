@@ -842,11 +842,24 @@ SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (desc
 -- Test cases that should be rejected by aggregate custom scan validation
 -- These were identified as problematic in proptest failures
 
--- Case 1: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
--- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating) 
+-- Case 1: Valid query that should work (no conflicts - matches the proptest failure)
+-- This reproduces: SELECT rating, SUM(price), AVG(price), SUM(age) FROM users WHERE (users.name @@@ 'bob') AND (1 = 1) GROUP BY rating
+EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price) 
 FROM products 
 WHERE description @@@ 'keyboard' 
+GROUP BY rating;
+
+SELECT rating, SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'keyboard' 
+GROUP BY rating
+ORDER BY rating;
+
+-- Case 2: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
+-- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
+EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating)
+FROM products
+WHERE description @@@ 'keyboard'
 GROUP BY rating;
 
 SELECT rating, SUM(price), AVG(price), MAX(rating) 
@@ -878,6 +891,33 @@ FROM products
 WHERE description @@@ 'for'
 GROUP BY rating, category
 ORDER BY rating, category;
+
+-- Case 4: GROUP BY field conflicts with search field (proptest failure case)
+-- This should fall back to regular PostgreSQL execution since 'category' appears in both search and GROUP BY
+EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE category @@@ 'Electronics'
+GROUP BY category;
+
+SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE category @@@ 'Electronics'
+GROUP BY category
+ORDER BY category;
+
+-- Case 5: Double negation search field pattern (proptest failure case)
+-- This reproduces: SELECT name, MIN(rating), MAX(rating), SUM(age) FROM users WHERE (NOT (NOT (users.color @@@ 'blue'))) AND (1 = 1) GROUP BY name
+-- Double negation: NOT (NOT (category @@@ 'Electronics')) is equivalent to category @@@ 'Electronics'
+EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+GROUP BY category;
+
+SELECT category, MIN(rating), MAX(rating), SUM(price)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+GROUP BY category
+ORDER BY category;
 
 -- Reset settings
 RESET max_parallel_workers_per_gather;

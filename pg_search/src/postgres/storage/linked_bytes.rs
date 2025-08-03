@@ -246,20 +246,14 @@ impl LinkedBytesList {
         let mut bman = BufferManager::new(rel);
         let mut buffers = bman.new_buffers(2);
 
-        let header_blockno = {
-            let mut header_buffer = buffers.next().unwrap();
-            header_buffer.init_page();
-            header_buffer.number()
-        };
+        let mut header_buffer = buffers.next().unwrap();
+        let header_blockno = header_buffer.number();
+        let mut start_buffer = buffers.next().unwrap();
+        let start_blockno = start_buffer.number();
 
-        let start_blockno = {
-            let mut start_buffer = buffers.next().unwrap();
-            start_buffer.init_page();
-            start_buffer.number()
-        };
+        let mut header_page = header_buffer.init_page();
+        start_buffer.init_page();
 
-        let mut header_buffer = bman.get_buffer_mut(header_blockno);
-        let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;

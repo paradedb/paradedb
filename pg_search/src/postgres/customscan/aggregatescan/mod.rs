@@ -102,9 +102,6 @@ impl CustomScan for AggregateScan {
             Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
         };
 
-        // Is the target list entirely aggregates?
-        let aggregate_types = extract_aggregates(args)?;
-
         // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
         let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
@@ -124,6 +121,9 @@ impl CustomScan for AggregateScan {
         let schema = bm25_index
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
+
+        // Extract and validate aggregates - must have schema for field validation
+        let aggregate_types = extract_and_validate_aggregates(args, &schema)?;
 
         // Extract grouping columns and validate they are fast fields
         let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
@@ -486,6 +486,37 @@ fn extract_grouping_columns(
     }
 
     Some(grouping_columns)
+}
+
+/// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields
+fn extract_and_validate_aggregates(
+    args: &CreateUpperPathsHookArgs,
+    schema: &SearchIndexSchema,
+) -> Option<Vec<AggregateType>> {
+    let aggregate_types = extract_aggregates(args)?;
+
+    // Validate that all aggregate fields are fast fields
+    for aggregate in &aggregate_types {
+        if let Some(field_name) = aggregate.field_name() {
+            if let Some(search_field) = schema.search_field(&field_name) {
+                if !search_field.is_fast() {
+                    pgrx::debug1!(
+                        "Aggregate field '{}' is not a fast field - cannot use aggregate custom scan",
+                        field_name
+                    );
+                    return None;
+                }
+            } else {
+                pgrx::debug1!(
+                    "Aggregate field '{}' not found in schema - cannot use aggregate custom scan",
+                    field_name
+                );
+                return None;
+            }
+        }
+    }
+
+    Some(aggregate_types)
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.

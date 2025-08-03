@@ -43,6 +43,18 @@ pub enum AggregateValue {
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
+    /// Get the field name for field-based aggregates (None for COUNT)
+    pub fn field_name(&self) -> Option<String> {
+        match self {
+            AggregateType::Count => None,
+            AggregateType::Sum { field } => Some(field.clone()),
+            AggregateType::Avg { field } => Some(field.clone()),
+            AggregateType::Min { field } => Some(field.clone()),
+            AggregateType::Max { field } => Some(field.clone()),
+            AggregateType::Stats { field } => Some(field.clone()),
+        }
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             AggregateType::Count => {

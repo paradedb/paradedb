@@ -839,6 +839,35 @@ SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
 SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_case;
 SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
 
+-- Test contradictory rating comparison (proptest failure case)
+SELECT 'Testing SUM with contradictory rating comparison should return NULL' as test_case;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+SELECT 'Testing COUNT with contradictory rating comparison should return 0' as test_case;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+SELECT 'Testing AVG with contradictory rating comparison should return NULL' as test_case;
+SELECT AVG(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+SELECT 'Testing MIN with contradictory rating comparison should return NULL' as test_case;
+SELECT MIN(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
+SELECT 'Testing MAX with contradictory rating comparison should return NULL' as test_case;
+SELECT MAX(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+
 -- Test cases that should be rejected by aggregate custom scan validation
 -- These were identified as problematic in proptest failures
 

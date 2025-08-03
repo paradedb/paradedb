@@ -1540,7 +1540,7 @@ SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_c
 SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
  sum 
 -----
-   0
+    
 (1 row)
 
 SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
@@ -1594,7 +1594,7 @@ SELECT 'Testing SUM on empty result set should return NULL (like PostgreSQL)' as
 SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
  sum 
 -----
-   0
+    
 (1 row)
 
 SELECT 'Testing COUNT on empty result set should return 0' as test_case;
@@ -1655,7 +1655,124 @@ SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_
 SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
  sum 
 -----
-   0
+    
+(1 row)
+
+-- Test contradictory rating comparison (proptest failure case)
+SELECT 'Testing SUM with contradictory rating comparison should return NULL' as test_case;
+                              test_case                              
+---------------------------------------------------------------------
+ Testing SUM with contradictory rating comparison should return NULL
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: now()
+   Index: products_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
+   Aggregate Definition: {"0":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ sum 
+-----
+    
+(1 row)
+
+SELECT 'Testing COUNT with contradictory rating comparison should return 0' as test_case;
+                             test_case                              
+--------------------------------------------------------------------
+ Testing COUNT with contradictory rating comparison should return 0
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: now()
+   Index: products_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ count 
+-------
+     0
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: now(), now()
+   Index: products_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ count | count 
+-------+-------
+     0 |     0
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: now(), now()
+   Index: products_idx
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ count | sum 
+-------+-----
+     0 |    
+(1 row)
+
+SELECT 'Testing AVG with contradictory rating comparison should return NULL' as test_case;
+                              test_case                              
+---------------------------------------------------------------------
+ Testing AVG with contradictory rating comparison should return NULL
+(1 row)
+
+SELECT AVG(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ avg 
+-----
+    
+(1 row)
+
+SELECT 'Testing MIN with contradictory rating comparison should return NULL' as test_case;
+                              test_case                              
+---------------------------------------------------------------------
+ Testing MIN with contradictory rating comparison should return NULL
+(1 row)
+
+SELECT MIN(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ min 
+-----
+    
+(1 row)
+
+SELECT 'Testing MAX with contradictory rating comparison should return NULL' as test_case;
+                              test_case                              
+---------------------------------------------------------------------
+ Testing MAX with contradictory rating comparison should return NULL
+(1 row)
+
+SELECT MAX(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
+ max 
+-----
+    
 (1 row)
 
 -- Test cases that should be rejected by aggregate custom scan validation

@@ -86,13 +86,30 @@ impl AggregateScanState {
     pub fn aggregates_to_json(&self) -> serde_json::Value {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - simple aggregation
-            return serde_json::Value::Object(
-                self.aggregate_types
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
-                    .collect(),
-            );
+            let mut agg_map: serde_json::Map<String, serde_json::Value> = self
+                .aggregate_types
+                .iter()
+                .enumerate()
+                .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
+                .collect();
+
+            // Add a document count aggregation only if we have SUM aggregates (to detect empty result sets)
+            let has_sum = self
+                .aggregate_types
+                .iter()
+                .any(|agg| matches!(agg, super::privdat::AggregateType::Sum { .. }));
+            if has_sum {
+                agg_map.insert(
+                    "_doc_count".to_string(),
+                    serde_json::json!({
+                        "value_count": {
+                            "field": "ctid"
+                        }
+                    }),
+                );
+            }
+
+            return serde_json::Value::Object(agg_map);
         }
         // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
         // We build the JSON bottom-up so that each grouping column nests the next one.
@@ -157,6 +174,16 @@ impl AggregateScanState {
                 .as_object()
                 .expect("unexpected aggregate result collection type");
 
+            // Check document count for SUM empty result set detection
+            let doc_count = result_map
+                .get("_doc_count")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get("value"))
+                .and_then(|v| {
+                    // Try both integer and float values
+                    v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))
+                });
+
             let row = self
                 .aggregate_types
                 .iter()
@@ -168,8 +195,14 @@ impl AggregateScanState {
 
                     let aggregate_val = Self::extract_aggregate_value_from_json(agg_obj);
 
-                    // Use doc_count to handle empty result sets properly
-                    aggregate.result_from_json_with_doc_count(aggregate_val, None)
+                    // Only use doc_count for SUM aggregates to handle empty result sets
+                    let doc_count_for_aggregate = match aggregate {
+                        super::privdat::AggregateType::Sum { .. } => doc_count,
+                        _ => None,
+                    };
+
+                    aggregate
+                        .result_from_json_with_doc_count(aggregate_val, doc_count_for_aggregate)
                 })
                 .collect::<AggregateRow>();
 

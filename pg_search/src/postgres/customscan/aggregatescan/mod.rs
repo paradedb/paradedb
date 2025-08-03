@@ -122,9 +122,6 @@ impl CustomScan for AggregateScan {
             .schema()
             .expect("aggregate_custom_scan: should have a schema");
 
-        // Extract and validate aggregates - must have schema for field validation
-        let aggregate_types = extract_and_validate_aggregates(args, &schema)?;
-
         // Extract grouping columns and validate they are fast fields
         let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
             // This will return None if any grouping column is not a fast field
@@ -132,6 +129,9 @@ impl CustomScan for AggregateScan {
         } else {
             vec![]
         };
+
+        // Extract and validate aggregates - must have schema for field validation
+        let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
 
         // Extract ORDER BY pathkeys if present
         let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
@@ -489,15 +489,31 @@ fn extract_grouping_columns(
 }
 
 /// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields
+/// and don't conflict with GROUP BY columns
 fn extract_and_validate_aggregates(
     args: &CreateUpperPathsHookArgs,
     schema: &SearchIndexSchema,
+    grouping_columns: &[GroupingColumn],
 ) -> Option<Vec<AggregateType>> {
     let aggregate_types = extract_aggregates(args)?;
 
-    // Validate that all aggregate fields are fast fields
+    // Create a set of grouping column field names for quick lookup
+    let grouping_field_names: std::collections::HashSet<&String> =
+        grouping_columns.iter().map(|gc| &gc.field_name).collect();
+
+    // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
     for aggregate in &aggregate_types {
         if let Some(field_name) = aggregate.field_name() {
+            // Check for conflict with GROUP BY columns
+            if grouping_field_names.contains(&field_name) {
+                pgrx::debug1!(
+                    "Aggregate field '{}' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)",
+                    field_name
+                );
+                return None;
+            }
+
+            // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
                     pgrx::debug1!(

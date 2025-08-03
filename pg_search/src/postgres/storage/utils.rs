@@ -143,7 +143,11 @@ impl BM25BufferCache {
                         bmr,
                         pg_sys::ForkNumber::MAIN_FORKNUM,
                         bas_bulkwrite::BAS_BULKWRITE.0,
-                        0,
+                        // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
+                        // future reads from the relation to fail complaining that the block number returned
+                        // here doesn't exist because internally the Relation doesn't realize that it has
+                        // actually grown in size
+                        pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE,
                         (npages - filled) as _,
                         buffers.as_mut_ptr().add(filled),
                         &mut extended_by,
@@ -159,11 +163,11 @@ impl BM25BufferCache {
             }
         }
 
-        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
+        pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
         for buffer in buffers.iter_mut().take(npages) {
-            *buffer = self.get_buffer(pg_sys::InvalidBlockNumber, None);
+            *buffer = self.extend_by_one_buffer(std::ptr::null_mut());
         }
-        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::AccessExclusiveLock as i32);
+        pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
         buffers
     }
 
@@ -250,18 +254,71 @@ impl BM25BufferCache {
         strategy: pg_sys::BufferAccessStrategy,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
-        let buffer = pg_sys::ReadBufferExtended(
-            self.rel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            blockno,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            strategy,
-        );
+        let buffer = if blockno == pg_sys::InvalidBlockNumber {
+            pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
+            let buffer = self.extend_by_one_buffer(strategy);
+            pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
+            buffer
+        } else {
+            pg_sys::ReadBufferExtended(
+                self.rel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                blockno,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                strategy,
+            )
+        };
+
         debug_assert!(buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
         if let Some(lock) = lock {
             pg_sys::LockBuffer(buffer, lock as i32);
         }
         buffer
+    }
+
+    /// Extend the relation by one buffer.
+    ///
+    /// # Safety
+    ///
+    /// Requires that the caller have the relation locked for extension with a [`pg_sys::ExclusiveLock`],
+    /// otherwise Postgres will trap an Assert in debug mode
+    #[inline]
+    unsafe fn extend_by_one_buffer(
+        &self,
+        strategy: pg_sys::BufferAccessStrategy,
+    ) -> pg_sys::Buffer {
+        #[cfg(any(feature = "pg14", feature = "pg15"))]
+        {
+            pg_sys::ReadBufferExtended(
+                self.rel.as_ptr(),
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                pg_sys::InvalidBlockNumber,
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                strategy,
+            )
+        }
+
+        #[cfg(any(feature = "pg16", feature = "pg17"))]
+        {
+            pg_sys::ExtendBufferedRel(
+                pg_sys::BufferManagerRelation {
+                    rel: self.rel.as_ptr(),
+                    ..Default::default()
+                },
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                strategy,
+                // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
+                // future reads from the relation to fail complaining that the block number returned
+                // here doesn't exist because internally the Relation doesn't realize that it has
+                // actually grown in size
+                pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE
+
+                    // we don't need/want this call to ExtendBufferedRel to do any relation locking
+                    // because we already own the lock, as the SAFETY requirement to extend_by_one_buffer
+                    // requires it
+                    | pg_sys::ExtendBufferedFlags::EB_SKIP_EXTENSION_LOCK,
+            )
+        }
     }
 }
 
@@ -285,7 +342,7 @@ impl BufferMutVec {
 
     /// Claim a buffer from the start, which ensures that the buffers are in the same order as they were created.
     /// Typically this means in order of increasing block number.
-    pub fn next(&mut self) -> Option<pg_sys::Buffer> {
+    pub fn next(&mut self) -> Option<(pg_sys::Buffer, NeedsLock)> {
         if self.cursor >= MAX_BUFFERS_TO_EXTEND_BY {
             return None;
         }
@@ -302,7 +359,7 @@ impl BufferMutVec {
                 pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
             }
         }
-        Some(buffer)
+        Some((buffer, needs_lock))
     }
 }
 

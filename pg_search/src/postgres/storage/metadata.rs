@@ -189,7 +189,7 @@ impl MetaPageMut {
         let segment_ids_list = LinkedBytesList::create(self.bman.bm25cache().rel());
         let mut writer = segment_ids_list.writer();
         writer.write(&segment_id_bytes)?;
-        let segment_ids_list = writer.into_inner()?;
+        let segment_ids_list = writer.finalize_and_write()?;
 
         let mut page = self.buffer.page_mut();
         let metadata = page.contents_mut::<MetaPageData>();

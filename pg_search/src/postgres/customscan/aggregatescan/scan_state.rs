@@ -104,7 +104,7 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
-            // if we remove this, we'd get the default size of 10, which means we can maximum 10 groups
+            // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
             terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
 
             let mut terms_agg = serde_json::Map::new();
@@ -166,17 +166,7 @@ impl AggregateScanState {
                         .get(&idx.to_string())
                         .expect("missing aggregate result");
 
-                    let aggregate_val = if let Some(obj) = agg_obj.as_object() {
-                        if let Some(value) = obj.get("value") {
-                            value
-                        } else {
-                            // For COUNT aggregates, the value might be directly in the object
-                            agg_obj
-                        }
-                    } else {
-                        // Direct numeric value
-                        agg_obj
-                    };
+                    let aggregate_val = Self::extract_aggregate_value_from_json(agg_obj);
 
                     aggregate.result_from_json(aggregate_val)
                 })
@@ -196,6 +186,22 @@ impl AggregateScanState {
         // Sort according to ORDER BY
         self.sort_rows(&mut rows);
         rows
+    }
+
+    /// Extract aggregate value from JSON, handling different structures
+    /// (direct values, objects with "value" field, or raw objects for COUNT)
+    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> &serde_json::Value {
+        if let Some(obj) = agg_obj.as_object() {
+            if let Some(value) = obj.get("value") {
+                value
+            } else {
+                // For COUNT aggregates, the value might be directly in the object
+                agg_obj
+            }
+        } else {
+            // Direct numeric value
+            agg_obj
+        }
     }
 
     #[allow(unreachable_patterns)]
@@ -220,7 +226,6 @@ impl AggregateScanState {
             let grouping_column = &self.grouping_columns[depth];
             let key_json = bucket_obj.get("key").expect("missing bucket key");
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
-
             prefix_keys.push(key_owned);
 
             if depth + 1 == self.grouping_columns.len() {
@@ -242,18 +247,7 @@ impl AggregateScanState {
                                         panic!("missing aggregate result for '{agg_name}'")
                                     });
 
-                                    // Handle different aggregate result structures
-                                    if let Some(obj) = agg_obj.as_object() {
-                                        if let Some(value) = obj.get("value") {
-                                            value
-                                        } else {
-                                            // For COUNT aggregates, the value might be directly in the object
-                                            agg_obj
-                                        }
-                                    } else {
-                                        // Direct numeric value
-                                        agg_obj
-                                    }
+                                    Self::extract_aggregate_value_from_json(agg_obj)
                                 }
                             };
                             aggregate.result_from_json(agg_result)

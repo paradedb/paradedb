@@ -818,6 +818,67 @@ SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (descri
 -- Clean up
 -- ===========================================================================
 
+-- Test case for NULL aggregation behavior on empty result sets (PostgreSQL standard)
+-- This should return NULL for SUM/AVG/MIN/MAX, but 0 for COUNT
+SELECT 'Testing SUM on empty result set should return NULL (like PostgreSQL)' as test_case;
+SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
+
+SELECT 'Testing COUNT on empty result set should return 0' as test_case;
+SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
+
+SELECT 'Testing AVG on empty result set should return NULL' as test_case;
+SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
+
+SELECT 'Testing MIN on empty result set should return NULL' as test_case;
+SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
+
+SELECT 'Testing MAX on empty result set should return NULL' as test_case;
+SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
+
+-- Test contradictory WHERE clause (should have same behavior)
+SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_case;
+SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
+
+-- Test cases that should be rejected by aggregate custom scan validation
+-- These were identified as problematic in proptest failures
+
+-- Case 1: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
+-- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
+EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating) 
+FROM products 
+WHERE description @@@ 'keyboard' 
+GROUP BY rating;
+
+SELECT rating, SUM(price), AVG(price), MAX(rating) 
+FROM products 
+WHERE description @@@ 'keyboard' 
+GROUP BY rating
+ORDER BY rating;
+
+-- Case 2: Similar conflict with different aggregate
+EXPLAIN (COSTS OFF) SELECT category, COUNT(*), MIN(price), MAX(category)
+FROM products 
+WHERE description @@@ 'mouse'
+GROUP BY category;
+
+SELECT category, COUNT(*), MIN(price), MAX(category)
+FROM products 
+WHERE description @@@ 'mouse'
+GROUP BY category
+ORDER BY category;
+
+-- Case 3: Multiple conflicts in same query
+EXPLAIN (COSTS OFF) SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
+FROM products 
+WHERE description @@@ 'for'
+GROUP BY rating, category;
+
+SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
+FROM products 
+WHERE description @@@ 'for'
+GROUP BY rating, category
+ORDER BY rating, category;
+
 -- Reset settings
 RESET max_parallel_workers_per_gather;
 RESET enable_hashagg;

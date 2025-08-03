@@ -110,7 +110,29 @@ impl AggregateType {
         }
     }
 
+    /// Convert JSON result to AggregateValue, with optional doc_count for empty result set handling
     pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
+        self.result_from_json_with_doc_count(result, None)
+    }
+
+    /// Convert JSON result to AggregateValue, checking doc_count for empty result set handling
+    pub fn result_from_json_with_doc_count(
+        &self,
+        result: &serde_json::Value,
+        doc_count: Option<i64>,
+    ) -> AggregateValue {
+        // If doc_count is 0, return NULL for all aggregates except COUNT (which should return 0)
+        if let Some(0) = doc_count {
+            match self {
+                AggregateType::Count => return AggregateValue::Int(0),
+                _ => return AggregateValue::Null,
+            }
+        }
+
+        self.result_from_json_internal(result)
+    }
+
+    fn result_from_json_internal(&self, result: &serde_json::Value) -> AggregateValue {
         match self {
             AggregateType::Count => match Self::extract_value(result, "COUNT") {
                 None => AggregateValue::Null,

@@ -168,7 +168,8 @@ impl AggregateScanState {
 
                     let aggregate_val = Self::extract_aggregate_value_from_json(agg_obj);
 
-                    aggregate.result_from_json(aggregate_val)
+                    // Use doc_count to handle empty result sets properly
+                    aggregate.result_from_json_with_doc_count(aggregate_val, None)
                 })
                 .collect::<AggregateRow>();
 
@@ -233,6 +234,12 @@ impl AggregateScanState {
                 let aggregate_values: AggregateRow = if self.aggregate_types.is_empty() {
                     AggregateRow::default()
                 } else {
+                    // Extract doc_count for empty result set handling
+                    let doc_count = bucket_obj
+                        .get("doc_count")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+
                     self.aggregate_types
                         .iter()
                         .enumerate()
@@ -250,7 +257,9 @@ impl AggregateScanState {
                                     Self::extract_aggregate_value_from_json(agg_obj)
                                 }
                             };
-                            aggregate.result_from_json(agg_result)
+
+                            // Use doc_count to handle empty result sets properly
+                            aggregate.result_from_json_with_doc_count(agg_result, Some(doc_count))
                         })
                         .collect()
                 };

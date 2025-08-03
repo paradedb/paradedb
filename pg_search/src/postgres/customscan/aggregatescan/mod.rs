@@ -474,12 +474,25 @@ fn extract_grouping_columns(
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
+                        } else {
+                            pgrx::warning!(
+                                "GROUP BY field '{}' is not a fast field - cannot use aggregate custom scan",
+                                field_name
+                            );
                         }
+                    } else {
+                        pgrx::warning!(
+                            "GROUP BY field '{}' not found in schema - cannot use aggregate custom scan",
+                            field_name
+                        );
                     }
                 }
             }
 
             if !found_valid_column {
+                pgrx::warning!(
+                    "No valid fast field found for GROUP BY expression - cannot use aggregate custom scan"
+                );
                 return None;
             }
         }
@@ -506,7 +519,7 @@ fn extract_and_validate_aggregates(
         if let Some(field_name) = aggregate.field_name() {
             // Check for conflict with GROUP BY columns
             if grouping_field_names.contains(&field_name) {
-                pgrx::debug1!(
+                pgrx::warning!(
                     "Aggregate field '{}' conflicts with GROUP BY column - cannot use aggregate custom scan (causes incompatible fruit types in Tantivy)",
                     field_name
                 );
@@ -516,14 +529,14 @@ fn extract_and_validate_aggregates(
             // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
-                    pgrx::debug1!(
+                    pgrx::warning!(
                         "Aggregate field '{}' is not a fast field - cannot use aggregate custom scan",
                         field_name
                     );
                     return None;
                 }
             } else {
-                pgrx::debug1!(
+                pgrx::warning!(
                     "Aggregate field '{}' not found in schema - cannot use aggregate custom scan",
                     field_name
                 );
@@ -604,7 +617,7 @@ unsafe fn identify_aggregate_function(
         "min" => Some(AggregateType::Min { field: field_name? }),
         "max" => Some(AggregateType::Max { field: field_name? }),
         _ => {
-            pgrx::debug1!("Unsupported aggregate function: {}", func_name);
+            pgrx::warning!("Unsupported aggregate function: {}", func_name);
             None
         }
     }
@@ -631,7 +644,7 @@ unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<String> {
         F_COUNT_ANY => Some("count".to_string()),
         _ => {
             // For unknown function OIDs, we'll reject them for now
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
+            pgrx::warning!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
             None
         }
     }

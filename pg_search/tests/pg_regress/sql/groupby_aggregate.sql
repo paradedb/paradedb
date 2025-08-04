@@ -948,6 +948,16 @@ WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
 GROUP BY category
 ORDER BY category;
 
+-- Case 6: DISTINCT aggregate functions (should fall back to PostgreSQL)
+-- These should fall back to regular PostgreSQL execution since DISTINCT aggregates are not supported
+EXPLAIN (COSTS OFF) SELECT COUNT(DISTINCT category), SUM(price)
+FROM products 
+WHERE description @@@ 'laptop';
+
+SELECT COUNT(DISTINCT category), SUM(price)
+FROM products 
+WHERE description @@@ 'laptop';
+
 -- Reset settings
 RESET max_parallel_workers_per_gather;
 RESET enable_hashagg;

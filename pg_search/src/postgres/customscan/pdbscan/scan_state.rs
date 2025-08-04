@@ -207,6 +207,11 @@ impl PdbScanState {
     }
 
     #[inline(always)]
+    pub fn can_use_virtual(&self) -> bool {
+        !self.need_scores() || self.is_raw_score
+    }
+
+    #[inline(always)]
     pub fn need_scores(&self) -> bool {
         self.need_scores
             || self.base_search_query_input.need_scores()

@@ -38,7 +38,7 @@ pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
     score_funcoid: pg_sys::Oid,
     rti: pg_sys::Index,
-) -> bool {
+) -> (bool, bool) {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,
@@ -48,30 +48,52 @@ pub unsafe fn uses_scores(
             return false;
         }
 
+        let data = data.cast::<Data>();
+
         if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = data.cast::<Data>();
             if (*funcexpr).funcid == (*data).score_funcoid {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
                 assert!(args.len() == 1, "score function must have 1 argument");
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     if (*var).varno as i32 == (*data).rti as i32 {
+                        // Found a score function call
+                        (*data).found_score = true;
+
+                        // Check if this is the root node (raw score) or wrapped in other operations (transformed)
+                        if (*data).is_root {
+                            (*data).is_raw_score = true;
+                        } else {
+                            (*data).is_raw_score = false;
+                        }
+
                         return true;
                     }
                 }
             }
         }
 
-        expression_tree_walker(node, Some(walker), data)
+        (*data).is_root = false;
+        expression_tree_walker(node, Some(walker), data as *mut core::ffi::c_void)
     }
 
     struct Data {
         score_funcoid: pg_sys::Oid,
         rti: pg_sys::Index,
+        found_score: bool,
+        is_raw_score: bool,
+        is_root: bool,
     }
 
-    let mut data = Data { score_funcoid, rti };
+    let mut data = Data {
+        score_funcoid,
+        rti,
+        found_score: false,
+        is_raw_score: false,
+        is_root: true,
+    };
 
-    walker(node, addr_of_mut!(data).cast())
+    walker(node, addr_of_mut!(data).cast());
+    (data.found_score, data.is_raw_score)
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {

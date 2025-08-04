@@ -56,6 +56,7 @@ pub struct FastFieldExecState {
     blockvis: (pg_sys::BlockNumber, bool),
 
     did_query: bool,
+    can_use_virtual: bool
 }
 
 impl Drop for FastFieldExecState {
@@ -71,7 +72,7 @@ impl Drop for FastFieldExecState {
 }
 
 impl FastFieldExecState {
-    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
+    pub fn new(which_fast_fields: Vec<WhichFastField>, can_use_virtual: bool) -> Self {
         Self {
             heaprel: None,
             tupdesc: None,
@@ -81,6 +82,7 @@ impl FastFieldExecState {
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
+            can_use_virtual,
         }
     }
 
@@ -289,7 +291,7 @@ pub unsafe fn pullup_fast_fields(
                 return None;
             }
             continue;
-        } else if uses_scores((*te).expr.cast(), score_funcoid(), rti) {
+        } else if uses_scores((*te).expr.cast(), score_funcoid(), rti).0 {
             matches.push(WhichFastField::Score);
             continue;
         } else if pgrx::is_a((*te).expr.cast(), pg_sys::NodeTag::T_Aggref)

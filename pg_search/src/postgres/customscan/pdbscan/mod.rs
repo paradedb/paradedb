@@ -676,11 +676,14 @@ impl CustomScan for PdbScan {
             builder.custom_state().score_funcoid = score_funcoid;
             builder.custom_state().snippet_funcoid = snippet_funcoid;
             builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
-            builder.custom_state().need_scores = uses_scores(
+
+            let (uses_scores, is_raw_score) = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
                 builder.custom_state().execution_rti,
             );
+            builder.custom_state().need_scores = uses_scores;
+            builder.custom_state().is_raw_score = is_raw_score;
 
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =
@@ -1110,6 +1113,7 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 /// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
+    let can_use_virtual = !builder.custom_state().need_scores() || builder.custom_state().is_raw_score;
     match builder.custom_state_ref().exec_method_type.clone() {
         ExecMethodType::Normal => builder
             .custom_state()
@@ -1129,6 +1133,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
                         which_fast_fields,
+                        can_use_virtual,
                     ),
                     None,
                 )
@@ -1150,6 +1155,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
                         limit,
+                        can_use_virtual,
                     ),
                     None,
                 )

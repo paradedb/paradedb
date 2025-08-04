@@ -112,14 +112,14 @@ impl MixedFastFieldExecState {
     /// # Returns
     ///
     /// A new MixedFastFieldExecState instance
-    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>) -> Self {
+    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>, can_use_virtual: bool) -> Self {
         // If there is a limit, then we use a batch size which is a small multiple of the limit, in
         // case of dead tuples.
         let batch_size = limit
             .map(|limit| std::cmp::min(limit * 2, JOIN_BATCH_SIZE))
             .unwrap_or(JOIN_BATCH_SIZE);
         Self {
-            inner: FastFieldExecState::new(which_fast_fields),
+            inner: FastFieldExecState::new(which_fast_fields, can_use_virtual),
             batch_size,
             search_results: None,
             batch: Batch::default(),

@@ -34,9 +34,9 @@ pub struct NumericFastFieldExecState {
 }
 
 impl NumericFastFieldExecState {
-    pub fn new(which_fast_fields: Vec<WhichFastField>) -> Self {
+    pub fn new(which_fast_fields: Vec<WhichFastField>, can_use_virtual: bool) -> Self {
         Self {
-            inner: FastFieldExecState::new(which_fast_fields),
+            inner: FastFieldExecState::new(which_fast_fields, can_use_virtual),
             search_results: None,
         }
     }
@@ -102,7 +102,7 @@ impl ExecMethod for NumericFastFieldExecState {
                         self.inner.blockvis.1
                     };
 
-                    if is_visible {
+                    if is_visible && self.inner.can_use_virtual {
                         self.inner.blockvis = (blockno, true);
 
                         (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;

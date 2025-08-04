@@ -73,6 +73,7 @@ pub struct PdbScanState {
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
+    pub is_raw_score: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 

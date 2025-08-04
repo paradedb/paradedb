@@ -95,7 +95,7 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // Check for SELECT DISTINCT - we can't handle DISTINCT queries
+        // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             let parse = args.root().parse;
             if !parse.is_null() && ((*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
@@ -161,6 +161,8 @@ impl CustomScan for AggregateScan {
         };
 
         // Check if any GROUP BY field is also being searched (conflicts with Tantivy aggregation)
+        // Tantivy cannot handle having aggregate function columns in the GROUP BY clause (e.g.,
+        // 'SELECT AVG(rating) FROM products GROUP BY rating').
         if has_search_field_conflicts(&grouping_columns, &query) {
             return None;
         }

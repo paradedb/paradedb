@@ -12,4 +12,12 @@ SELECT description, rating, paradedb.score(id) * rating AS score FROM mock_items
 SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score_times_rating DESC LIMIT 3;
 SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * rating AS score_times_rating FROM mock_items WHERE description @@@ 'shoes' OR rating > 2 ORDER BY score DESC LIMIT 3;
 
+-- this should use TopNExecState
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, paradedb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+
+-- this should use NumericFastFieldExecState
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+
 DROP TABLE mock_items;

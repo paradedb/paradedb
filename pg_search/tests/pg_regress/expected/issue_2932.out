@@ -41,4 +41,39 @@ SELECT description, rating, paradedb.score(id) AS score, paradedb.score(id) * ra
  White jogging shoes |      3 | 3.4849067 |  10.45472002029419
 (3 rows)
 
+-- this should use TopNExecState
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, paradedb.score(id) AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: mock_items_id_description_rating_idx
+         Exec Method: TopNScanExecState
+         Scores: true
+            Sort Field: paradedb.score()
+            Sort Direction: desc
+            Top N Limit: 3
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
+
+-- this should use NumericFastFieldExecState
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: ((paradedb.score(id) * '2'::double precision)) DESC
+         ->  Custom Scan (ParadeDB Scan) on mock_items
+               Table: mock_items
+               Index: mock_items_id_description_rating_idx
+               Exec Method: NumericFastFieldExecState
+               Fast Fields: id, paradedb.score()
+               Scores: true
+                  Top N Limit: 3
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
 DROP TABLE mock_items;

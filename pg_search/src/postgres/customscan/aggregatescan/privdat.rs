@@ -110,11 +110,6 @@ impl AggregateType {
         }
     }
 
-    /// Convert JSON result to AggregateValue, with optional doc_count for empty result set handling
-    pub fn result_from_json(&self, result: &serde_json::Value) -> AggregateValue {
-        self.result_from_json_with_doc_count(result, None)
-    }
-
     /// Convert JSON result to AggregateValue, checking doc_count for empty result set handling
     pub fn result_from_json_with_doc_count(
         &self,

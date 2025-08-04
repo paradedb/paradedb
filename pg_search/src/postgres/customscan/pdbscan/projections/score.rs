@@ -56,16 +56,8 @@ pub unsafe fn uses_scores(
                 assert!(args.len() == 1, "score function must have 1 argument");
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     if (*var).varno as i32 == (*data).rti as i32 {
-                        // Found a score function call
                         (*data).found_score = true;
-
-                        // Check if this is the root node (raw score) or wrapped in other operations (transformed)
-                        if (*data).is_root {
-                            (*data).is_raw_score = true;
-                        } else {
-                            (*data).is_raw_score = false;
-                        }
-
+                        (*data).is_raw_score = (*data).is_root;
                         return true;
                     }
                 }

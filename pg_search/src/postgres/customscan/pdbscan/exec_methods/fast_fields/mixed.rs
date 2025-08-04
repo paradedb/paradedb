@@ -112,7 +112,11 @@ impl MixedFastFieldExecState {
     /// # Returns
     ///
     /// A new MixedFastFieldExecState instance
-    pub fn new(which_fast_fields: Vec<WhichFastField>, limit: Option<usize>, can_use_virtual: bool) -> Self {
+    pub fn new(
+        which_fast_fields: Vec<WhichFastField>,
+        limit: Option<usize>,
+        can_use_virtual: bool,
+    ) -> Self {
         // If there is a limit, then we use a batch size which is a small multiple of the limit, in
         // case of dead tuples.
         let batch_size = limit
@@ -351,7 +355,7 @@ impl ExecMethod for MixedFastFieldExecState {
                         self.inner.blockvis.1
                     };
 
-                    if is_visible {
+                    if is_visible && self.inner.can_use_virtual {
                         self.inner.blockvis = (blockno, true);
 
                         // Setup slot for returning data

@@ -1113,7 +1113,8 @@ fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
 /// needed at execution time.
 ///
 fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>) {
-    let can_use_virtual = !builder.custom_state().need_scores() || builder.custom_state().is_raw_score;
+    let can_use_virtual =
+        !builder.custom_state().need_scores() || builder.custom_state().is_raw_score;
     match builder.custom_state_ref().exec_method_type.clone() {
         ExecMethodType::Normal => builder
             .custom_state()

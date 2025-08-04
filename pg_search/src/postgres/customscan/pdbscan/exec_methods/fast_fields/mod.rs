@@ -56,7 +56,7 @@ pub struct FastFieldExecState {
     blockvis: (pg_sys::BlockNumber, bool),
 
     did_query: bool,
-    can_use_virtual: bool
+    can_use_virtual: bool,
 }
 
 impl Drop for FastFieldExecState {
@@ -135,7 +135,11 @@ pub unsafe fn non_string_ff_to_datum(
     } else if matches!(which_fast_field, WhichFastField::TableOid) {
         (*slot).tts_tableOid.into_datum()
     } else if matches!(which_fast_field, WhichFastField::Score) {
-        score.into_datum()
+        if typid == pg_sys::FLOAT4OID {
+            score.into_datum()
+        } else {
+            (score as f64).into_datum()
+        }
     } else if matches!(
         which_fast_field,
         WhichFastField::Named(_, FastFieldType::String)

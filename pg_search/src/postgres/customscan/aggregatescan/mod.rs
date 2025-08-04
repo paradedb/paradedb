@@ -95,6 +95,14 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
+        // Check for SELECT DISTINCT - we can't handle DISTINCT queries
+        unsafe {
+            let parse = args.root().parse;
+            if !parse.is_null() && ((*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
+                return None;
+            }
+        }
+
         // Extract grouping columns if present
         let group_pathkeys = if args.root().group_pathkeys.is_null() {
             None
@@ -557,6 +565,12 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                 // This is a Var - it should be a grouping column, skip it
                 continue;
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
+                // Check for DISTINCT in aggregate functions
+                if !(*aggref).aggdistinct.is_null() {
+                    pgrx::debug1!("DISTINCT in aggregate function detected - cannot use aggregate custom scan");
+                    return None;
+                }
+
                 if (*aggref).aggstar {
                     // COUNT(*) (aggstar)
                     aggregate_types.push(AggregateType::Count);

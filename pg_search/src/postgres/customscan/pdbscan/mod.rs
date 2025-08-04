@@ -677,13 +677,13 @@ impl CustomScan for PdbScan {
             builder.custom_state().snippet_funcoid = snippet_funcoid;
             builder.custom_state().snippet_positions_funcoid = snippet_positions_funcoid;
 
-            let (uses_scores, is_raw_score) = uses_scores(
+            let (uses_scores, uses_raw_score) = uses_scores(
                 builder.target_list().as_ptr().cast(),
                 score_funcoid,
                 builder.custom_state().execution_rti,
             );
             builder.custom_state().need_scores = uses_scores;
-            builder.custom_state().is_raw_score = is_raw_score;
+            builder.custom_state().uses_raw_score = uses_raw_score;
 
             // Store join snippet predicates in the scan state
             builder.custom_state().join_predicates =

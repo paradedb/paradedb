@@ -57,7 +57,7 @@ pub unsafe fn uses_scores(
                 if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                     if (*var).varno as i32 == (*data).rti as i32 {
                         (*data).found_score = true;
-                        (*data).is_raw_score = (*data).is_root;
+                        (*data).uses_raw_score = (*data).is_root;
                         return true;
                     }
                 }
@@ -72,7 +72,7 @@ pub unsafe fn uses_scores(
         score_funcoid: pg_sys::Oid,
         rti: pg_sys::Index,
         found_score: bool,
-        is_raw_score: bool,
+        uses_raw_score: bool,
         is_root: bool,
     }
 
@@ -80,12 +80,12 @@ pub unsafe fn uses_scores(
         score_funcoid,
         rti,
         found_score: false,
-        is_raw_score: false,
+        uses_raw_score: false,
         is_root: true,
     };
 
     walker(node, addr_of_mut!(data).cast());
-    (data.found_score, data.is_raw_score)
+    (data.found_score, data.uses_raw_score)
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {

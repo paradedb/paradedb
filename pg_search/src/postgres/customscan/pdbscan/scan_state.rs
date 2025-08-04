@@ -73,7 +73,7 @@ pub struct PdbScanState {
     pub quals: Option<Qual>,
 
     pub need_scores: bool,
-    pub is_raw_score: bool,
+    pub uses_raw_score: bool,
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoid: pg_sys::Oid,
 
@@ -208,7 +208,7 @@ impl PdbScanState {
 
     #[inline(always)]
     pub fn can_use_virtual(&self) -> bool {
-        !self.need_scores() || self.is_raw_score
+        !self.need_scores() || self.uses_raw_score
     }
 
     #[inline(always)]

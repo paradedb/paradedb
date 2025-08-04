@@ -18,6 +18,11 @@ on:
       - "tokenizers/**"
   workflow_dispatch:
 
+# This is the first pg_search version that has a rust-toolchain.toml file which allows us to use a version of rust known
+# to compile pg_search.
+env:
+  PRIOR_PG_SEARCH_VERSION: "v0.16.1"
+
 concurrency:
   group: test-pg_search-upgrade-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
@@ -76,20 +81,22 @@ jobs:
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
 
-      # This is the pgrx version compatible with ParadeDB v0.15.11
-      - name: Install cargo-pgrx for ParadeDB v0.15.11
-        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.13.0 --debug
+      # This is the pgrx version compatible with ParadeDB $PRIOR_PG_SEARCH_VERSION
+      - name: Install cargo-pgrx for ParadeDB $PRIOR_PG_SEARCH_VERSION
+        run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.15.0 --debug
 
-      - name: Initialize cargo-pgrx environment for ParadeDB v0.15.11
+      - name: Initialize cargo-pgrx environment for ParadeDB $PRIOR_PG_SEARCH_VERSION
         run: cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # While technically backwards-compatible since 0.15.0, our Lindera dependency made a backwards-incompatible
-      # change by deleting its previous repositroy URL and forcing dependencies to upgrade, which forces us to test
-      # our upgrade compatibility from 0.15.11 onwards
-      - name: Checkout ParadeDB v0.15.11
-        run: git checkout v0.15.11
+      # change by deleting its previous repository URL and forcing dependencies to upgrade, which forces us to test
+      # our upgrade compatibility from 0.15.19 onwards
+      #
+      # And to complicate matters, v0.15.19 stopped being able to compile on modern rust, so now we just use $PRIOR_PG_SEARCH_VERSION
+      - name: Checkout ParadeDB $PRIOR_PG_SEARCH_VERSION
+        run: git checkout $PRIOR_PG_SEARCH_VERSION
 
-      - name: Compile & install pg_search v0.15.11
+      - name: Compile & install pg_search $PRIOR_PG_SEARCH_VERSION
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 

@@ -63,15 +63,6 @@ struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
 unsafe impl Send for BufferAccessStrategyHolder {}
 unsafe impl Sync for BufferAccessStrategyHolder {}
 
-static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
-    BufferAccessStrategyHolder(unsafe {
-        // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
-        PgMemoryContexts::TopMemoryContext.switch_to(|_| {
-            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
-        })
-    })
-});
-
 /// [`RelationBufferAccess`] a lower level interface for directly reading existing, and creating new,
 /// buffers in an efficient manner.
 ///
@@ -101,7 +92,7 @@ impl RelationBufferAccess {
     pub fn new_buffer(&self) -> pg_sys::Buffer {
         unsafe {
             pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
-            let pg_buffer = extend_by_one_buffer(self.rel.as_ptr(), std::ptr::null_mut());
+            let pg_buffer = extend_by_one_buffer(self.rel.as_ptr());
             pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
             pg_buffer
         }
@@ -202,10 +193,7 @@ impl RelationBufferAccess {
 /// Requires that the caller have the relation locked for extension with a [`pg_sys::ExclusiveLock`],
 /// otherwise Postgres will trap an Assert in debug mode
 #[inline]
-pub unsafe fn extend_by_one_buffer(
-    rel: pg_sys::Relation,
-    strategy: pg_sys::BufferAccessStrategy,
-) -> pg_sys::Buffer {
+pub unsafe fn extend_by_one_buffer(rel: pg_sys::Relation) -> pg_sys::Buffer {
     #[cfg(any(feature = "pg14", feature = "pg15"))]
     {
         pg_sys::ReadBufferExtended(
@@ -225,7 +213,7 @@ pub unsafe fn extend_by_one_buffer(
                 ..Default::default()
             },
             pg_sys::ForkNumber::MAIN_FORKNUM,
-            strategy,
+            determine_rel_extend_bas(),
             // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
             // future reads from the relation to fail complaining that the block number returned
             // here doesn't exist because internally the Relation doesn't realize that it has
@@ -240,6 +228,8 @@ pub unsafe fn extend_by_one_buffer(
     }
 }
 
+/// Extend the relation by `npages`.  We'll ever extend by more than [`MAX_BUFFERS_TO_EXTEND_BY`]
+/// and also won't extend by less than `npages`
 unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,
     npages: usize,
@@ -251,51 +241,73 @@ unsafe fn bulk_extend_relation(
         buffers.len()
     );
 
+    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    {
+        pg_sys::LockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);
+        for slot in buffers.iter_mut().take(npages) {
+            let pg_buffer = extend_by_one_buffer(rel);
+            debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
+            *slot = pg_buffer;
+        }
+        pg_sys::UnlockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);
+        buffers
+    }
+
     #[cfg(any(feature = "pg16", feature = "pg17"))]
     {
-        let is_backend_bulk_compatible = npages > 1
-            && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
-                || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
-
-        // `ExtendBufferedRelBy` is only allowed from certain backends
-        if is_backend_bulk_compatible {
-            let mut filled = 0;
-            let mut extended_by = 0;
-            loop {
-                let bmr = pg_sys::BufferManagerRelation {
-                    rel,
-                    ..Default::default()
-                };
-                pg_sys::ExtendBufferedRelBy(
-                    bmr,
-                    pg_sys::ForkNumber::MAIN_FORKNUM,
-                    BAS_BULKWRITE.0,
-                    // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
-                    // future reads from the relation to fail complaining that the block number returned
-                    // here doesn't exist because internally the Relation doesn't realize that it has
-                    // actually grown in size
-                    pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE,
-                    (npages - filled) as _,
-                    buffers[filled..].as_mut_ptr(),
-                    &mut extended_by,
-                );
-                filled += extended_by as usize;
-                extended_by = 0;
-                if filled == npages {
-                    break;
-                }
+        let mut filled = 0;
+        let mut extended_by = 0;
+        loop {
+            let bmr = pg_sys::BufferManagerRelation {
+                rel,
+                ..Default::default()
+            };
+            pg_sys::ExtendBufferedRelBy(
+                bmr,
+                pg_sys::ForkNumber::MAIN_FORKNUM,
+                determine_rel_extend_bas(),
+                // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
+                // future reads from the relation to fail complaining that the block number returned
+                // here doesn't exist because internally the Relation doesn't realize that it has
+                // actually grown in size
+                pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE,
+                (npages - filled) as _,
+                buffers[filled..].as_mut_ptr(),
+                &mut extended_by,
+            );
+            filled += extended_by as usize;
+            extended_by = 0;
+            if filled == npages {
+                break;
             }
+        }
 
-            return buffers;
+        buffers
+    }
+}
+
+/// Using hints from the runtime environment, determine which [`pg_sys::BufferAccessStrategy`] we
+/// can use when extending a relation
+#[inline(always)]
+fn determine_rel_extend_bas() -> pg_sys::BufferAccessStrategy {
+    static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
+        BufferAccessStrategyHolder(unsafe {
+            // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
+            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
+            })
+        })
+    });
+
+    // if the backend is one of these types then we can use the BULKWRITE BufferAccessStrategy.
+    unsafe {
+        if pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
+            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND
+        {
+            BAS_BULKWRITE.0
+        } else {
+            // specifically, the B_AUTOVAC_WORKER backend type cannot!!
+            std::ptr::null_mut()
         }
     }
-
-    pg_sys::LockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);
-    for slot in buffers.iter_mut().take(npages) {
-        let pg_buffer = extend_by_one_buffer(rel, BAS_BULKWRITE.0);
-        debug_assert!(pg_buffer != pg_sys::InvalidBuffer as pg_sys::Buffer);
-        *slot = pg_buffer;
-    }
-    pg_sys::UnlockRelationForExtension(rel, pg_sys::ExclusiveLock as i32);
-    buffers
 }

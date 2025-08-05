@@ -743,7 +743,7 @@ impl BufferManager {
 pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     unsafe {
         pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::ExclusiveLock as _);
-        let pg_buffer = extend_by_one_buffer(rel.as_ptr(), std::ptr::null_mut());
+        let pg_buffer = extend_by_one_buffer(rel.as_ptr());
         pg_sys::UnlockRelationForExtension(rel.as_ptr(), pg_sys::ExclusiveLock as _);
 
         pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);

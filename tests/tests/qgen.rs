@@ -146,8 +146,8 @@ text_fields = '
                 "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-            }}'
+                "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+            }}',
 boolean_fields = '
     {{
         "subscribed": {{ "fast": true }}

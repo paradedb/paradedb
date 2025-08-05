@@ -149,11 +149,11 @@ text_fields = '
             }}',
 numeric_fields = '
     {{
-        "balance": {{ "fast": true }}
+        "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
     }}',
 boolean_fields = '
     {{
-        "subscribed": {{ "fast": true }}
+        "subscribed": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
     }}'
 );
 

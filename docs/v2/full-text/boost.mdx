@@ -21,9 +21,19 @@ LIMIT 5;
 [Query builder functions](/v2/query-builder/overview) can also be boosted:
 
 ```sql
-SELECT id, paradedb.score(id), description, category
+SELECT id, description, category, paradedb.score(id)
 FROM mock_items
-WHERE description @@@ pdb.regex('key.*')::boost(2) OR category ||| 'footwear'
+WHERE description @@@ pdb.regex('key.*')::boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+Boost can be used in conjunction with other type casts, like [fuzzy](/v2/full-text/fuzzy):
+
+```sql
+SELECT id, description, category, paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'shose'::fuzzy(2)::boost(2)
 ORDER BY score DESC
 LIMIT 5;
 ```
@@ -34,11 +44,14 @@ The following query boosts the score of each row by multiplying it by the row's 
 the same score but a higher `rating` will score higher overall.
 
 ```sql
-SELECT id, paradedb.score(id) * COALESCE(rating, 1) as score
+SELECT id, description, rating, paradedb.score(id) * rating as score
 FROM mock_items
 WHERE description ||| 'shoes'
 ORDER BY score DESC
 LIMIT 5;
 ```
 
-<Note>`COALESCE` sets `NULL` values of `rating` to `1`.</Note>
+<Note>
+  Ordering by `paradedb.score(id) * rating` is less performant than ordering by
+  just `paradedb.score(id)` over large tables.
+</Note>

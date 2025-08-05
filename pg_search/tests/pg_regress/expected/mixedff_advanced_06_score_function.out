@@ -689,9 +689,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                  Index: score_test_idx
                                  Exec Method: TopNScanExecState
                                  Scores: true
-                                    Sort Field: paradedb.score()
-                                    Sort Direction: desc
-                                    Top N Limit: 5
+                                    TopN Order By: paradedb.score() desc
+                                    TopN Limit: 5
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
@@ -702,7 +701,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+(27 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (

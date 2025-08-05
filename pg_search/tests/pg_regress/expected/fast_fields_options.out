@@ -98,11 +98,10 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: id asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -118,11 +117,10 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: category
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: category asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -138,11 +136,10 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: price
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: price asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -158,11 +155,10 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: in_stock
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: in_stock asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -197,11 +193,10 @@ LIMIT 10;
          Index: records_no_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: created_at
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: created_at asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- 'Test 3: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -255,11 +250,10 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: price
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: price asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -275,11 +269,10 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: in_stock
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: in_stock asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, title, category
@@ -314,11 +307,10 @@ LIMIT 10;
          Index: records_with_fast_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: created_at
-            Sort Direction: asc
-            Top N Limit: 10
+            TopN Order By: created_at asc
+            TopN Limit: 10
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- 'Test 5: ORDER BY with no LIMIT (should use MixedFastFieldExecState)'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

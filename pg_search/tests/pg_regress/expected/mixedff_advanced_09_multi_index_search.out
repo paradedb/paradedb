@@ -600,11 +600,10 @@ ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
                                  Index: products_idx
                                  Exec Method: TopNScanExecState
                                  Scores: false
-                                    Sort Field: price
-                                    Sort Direction: desc
-                                    Top N Limit: 50
+                                    TopN Order By: price desc
+                                    TopN Limit: 50
                                  Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(31 rows)
+(30 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count

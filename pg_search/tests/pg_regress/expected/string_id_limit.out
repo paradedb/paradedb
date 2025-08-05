@@ -58,11 +58,10 @@ LIMIT 2;
          Index: comments_search
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: desc
-            Top N Limit: 2
+            TopN Order By: id desc
+            TopN Limit: 2
          Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
-(10 rows)
+(9 rows)
 
 -- Select w/o limit, returns correctly ordered results,
 -- "ctx_01iso5q4prkOQVGKK0ue" first

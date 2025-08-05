@@ -784,32 +784,32 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        // TODO: Render any other fields as well! Will require lots of explain fiddling.
-        if let Some(orderby_info) = state
-            .custom_state()
-            .orderby_info()
-            .as_ref()
-            .and_then(|oi| oi.first())
-        {
-            match &orderby_info {
-                OrderByInfo {
-                    feature: OrderByFeature::Field(fieldname),
-                    ..
-                } => {
-                    explainer.add_text("   Sort Field", fieldname);
-                }
-                OrderByInfo {
-                    feature: OrderByFeature::Score,
-                    ..
-                } => {
-                    explainer.add_text("   Sort Field", "paradedb.score()");
-                }
-            }
-            explainer.add_text("   Sort Direction", orderby_info.direction);
+        if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
+            explainer.add_text(
+                "   TopN Order By",
+                orderby_info
+                    .iter()
+                    .map(|oi| match oi {
+                        OrderByInfo {
+                            feature: OrderByFeature::Field(fieldname),
+                            direction,
+                        } => {
+                            format!("{fieldname} {}", direction.as_ref())
+                        }
+                        OrderByInfo {
+                            feature: OrderByFeature::Score,
+                            direction,
+                        } => {
+                            format!("paradedb.score() {}", direction.as_ref())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
 
         if let Some(limit) = state.custom_state().limit() {
-            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+            explainer.add_unsigned_integer("   TopN Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
@@ -1260,7 +1260,7 @@ unsafe fn pullup_orderby_pathkeys(
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
 ) -> (bool, Option<Vec<OrderByStyle>>) {
-    let (has_any_pathkeys, mut pathkey_styles) = extract_pathkey_styles_with_sortability_check(
+    let (has_any_pathkeys, pathkey_styles) = extract_pathkey_styles_with_sortability_check(
         root,
         rti,
         schema,
@@ -1269,9 +1269,7 @@ unsafe fn pullup_orderby_pathkeys(
     );
 
     // TopN is the base scan's only executor which supports sorting.
-    // TODO: Temporarily taking exactly one. A followup change will support up to three.
-    let pathkey_styles = if !pathkey_styles.is_empty() {
-        pathkey_styles.truncate(1);
+    let pathkey_styles = if !pathkey_styles.is_empty() && pathkey_styles.len() <= 3 {
         Some(pathkey_styles)
     } else {
         None

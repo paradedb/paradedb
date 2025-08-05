@@ -71,8 +71,8 @@ fn sort_by_lower(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   Sort Field"),
-        Some(&Value::String(String::from("category")))
+        plan.get("   TopN Order By"),
+        Some(&Value::String(String::from("category asc")))
     );
 }
 
@@ -93,8 +93,8 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   Sort Field"),
-        Some(&Value::String(String::from("category")))
+        plan.get("   TopN Order By"),
+        Some(&Value::String(String::from("category asc")))
     );
 }
 
@@ -141,8 +141,8 @@ fn sort_by_raw(mut conn: PgConnection) {
         .as_object()
         .unwrap();
     assert_eq!(
-        plan.get("   Sort Field"),
-        Some(&Value::String(String::from("category")))
+        plan.get("   TopN Order By"),
+        Some(&Value::String(String::from("category asc")))
     );
 }
 
@@ -191,7 +191,7 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
         .as_object()
         .unwrap();
 
-    assert_eq!(plan.get("   Sort Field"), None);
+    assert_eq!(plan.get("   TopN Order By"), None);
     assert_eq!(plan.get("Scores"), Some(&Value::Bool(true)));
 }
 
@@ -206,9 +206,7 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     // Create the partitioned sales table
     PartitionedTable::setup().execute(&mut conn);
 
-    // Insert a good size amount of random data, and then analyze. Postgres will not choose an
-    // Incremental Sort for smaller result sets, and we won't report a useful estimate without
-    // statistics.
+    // Insert a good size amount of random data, and then analyze.
     r#"
     INSERT INTO sales (sale_date, amount, description)
     SELECT
@@ -222,34 +220,27 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     .execute(&mut conn);
 
     // Test BM25 with ORDER BY ... LIMIT to confirm sort optimization works
-    let (explain_bm25,): (Value,) = r#"
+    let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id, sale_date, amount FROM sales
         WHERE description @@@ 'wine'
         ORDER BY sale_date, amount LIMIT 10;"#
         .fetch_one(&mut conn);
 
-    eprintln!("plan: {explain_bm25:#?}");
-
-    let plan_json = explain_bm25.to_string();
+    eprintln!("plan: {plan:#?}");
 
     // Extract the Custom Scan nodes from the JSON plan for inspection
     let mut custom_scan_nodes = Vec::new();
-    if let Ok(plan) = serde_json::from_str::<Value>(&plan_json) {
-        // Navigate through the plan to find Custom Scan nodes
-        if let Some(main_plan) = plan.pointer("/0/Plan") {
-            collect_custom_scan_nodes(main_plan, &mut custom_scan_nodes);
-        }
-    }
-
-    // Check that we have a Sort node somewhere in the plan
-    assert!(
-        plan_json.contains("\"Node Type\":\"Incremental Sort\""),
-        "Plan should include an Incremental Sort node to handle ORDER BY"
-    );
+    collect_custom_scan_nodes(plan.pointer("/0/Plan").unwrap(), &mut custom_scan_nodes);
 
     // Check that we have Custom Scan nodes that handle our search
     assert_eq!(custom_scan_nodes.len(), 2);
+    for node in custom_scan_nodes {
+        assert_eq!(
+            node.get("   TopN Order By"),
+            Some(&Value::String(String::from("sale_date asc, amount asc")))
+        );
+    }
 }
 
 // Helper function to recursively collect Custom Scan nodes from a plan

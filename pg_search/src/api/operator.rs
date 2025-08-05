@@ -514,9 +514,9 @@ where
 
             other if other == fuzzy_typoid() => {
                 let fuzzy = FuzzyType::from_datum((*const_).constvalue, (*const_).constisnull)
-                    .expect("rhs boost value must not be NULL");
-                let boost = fuzzy_to_fuzzy(fuzzy, (*const_).consttypmod, true);
-                RHSValue::PdbQuery(boost.into())
+                    .expect("rhs fuzzy value must not be NULL");
+                let fuzzy = fuzzy_to_fuzzy(fuzzy, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(fuzzy.into())
             }
 
             other if other == pdb_proximityclause_typoid() => {

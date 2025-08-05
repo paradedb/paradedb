@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754416001928,
+  "lastUpdate": 1754416009965,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8216,6 +8216,126 @@ window.BENCHMARK_DATA = {
             "value": 53.74609375,
             "unit": "median mem",
             "extra": "avg mem: 53.44294677283589, max mem: 75.05078125, count: 55242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754416008644,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.762980587297242, max cpu: 9.476802, count: 55280"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.41433024206313, max mem: 75.453125, count: 55280"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.673868370689208, max cpu: 9.467456, count: 55280"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 49.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.30081502690847, max mem: 67.15625, count: 55280"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.720844570544102, max cpu: 9.476802, count: 55280"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.304506037445734, max mem: 74.75390625, count: 55280"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.566082404457462, max cpu: 4.6966734, count: 55280"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 55.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.86638667635221, max mem: 75.6171875, count: 55280"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.350401092637837, max cpu: 19.184652, count: 110560"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 72.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 72.3180334419659, max mem: 96.6171875, count: 110560"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3161,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3161.827026049204, max block_count: 5603.0, count: 55280"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.518650506512301, max segment_count: 28.0, count: 55280"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.124441760194426, max cpu: 14.953271, count: 55280"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 73.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 73.40056177075796, max mem: 98.06640625, count: 55280"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.6100822782840405, max cpu: 9.284333, count: 55280"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.59300591873191, max mem: 73.0, count: 55280"
           }
         ]
       }

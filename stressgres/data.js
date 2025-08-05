@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754414899069,
+  "lastUpdate": 1754414901806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16290,6 +16290,66 @@ window.BENCHMARK_DATA = {
             "value": 160.75390625,
             "unit": "median mem",
             "extra": "avg mem: 150.84507930402648, max mem: 170.546875, count: 56588"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf",
+          "message": "fix: relation extension cache invalidation (#2927) (#2934)\n\n(This ports the recent v0.16.5 changes\n(214c9c7dd37a0ddb934e1ce4cbb15f949e1f8a69) forward to `main`)\n\nWhen extending a relation the backend needs to clear the relation's\n`SMgrRelation`'s \"SIZE_CACHE\" so that it doesn't become confused about\nthe size of a relation relative to other concurrent relation extensions\nthat may have occurred.\n\nFailure to do this can cause errors like the below under high read/write\nconcurrency:\n\n```\nERROR:  XX001: could not read blocks 10..10 in file \"base/16384/16552\": read only 0 of 8192 bytes\n```\n\nPR #2716 introduced this bug as it changed our approach of always\ncalling `pg_sys::relation_open()` to the new `PgSearchRelation` which\nwraps an already-opened `pg_sys::Relation` pointer and is cheaply\nclone-able.\n\nEssentially, prior to #2716 we'd always get a new `SMgrRelation` and it\nwould ask the kernel about the size of the relation on disk, whereas\n\nFixing this necessitates calling the various\n`pg_sys::ExtendBufferedRel*()` functions with the\n`pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE` flag set, which also\nmeans we need to use `pg_sys::ExtendedBufferedRel` directly when\nextending the relation by one block. So `BM25BufferCache` has been\nrefactored a bit to handle this.\n\nIt's also necessary, when extending the relation by a single buffer, to\nlock it using an `ExclusiveLock`, not an `AccessExclusiveLock`.\n\nAs a drive-by, this PR adjusts `SegmentComponentWriter`'s flush/drop\nbehavior to be less confusing and better aided by the Rust compiler.\nThis is related to the new `LInkedBytesListWriter::finalize_and_write()`\nfunction (see below).\n\nThe cleanup around flush & drop also ensures that we won't try to write\nany bit of a SegmentComponentWriter's buffers to disk if we're dropping\nduring a panic-induced stack unwind.\n\n`LinkedBytesListWriter` now has a `fn finalize_and_write(self)` which is\nwhere it records the `last_blockno` in the list's metadata and also\nwhere its `BlockList` is written to disk. The `last_blockno` was\npreviously being constantly updated by `LinkedBytesListWriter::write()`\nevery time it linked a new buffer to the end. This wasn't necessarily\nincorrect, but it was inefficient and made analyzing the issues this PR\naims to fix a bit more difficult.\n\nMoving the final assignment of `last_blockno` to `finalize_and_write()`\nis fine as if the writer is never finalized for whatever reason, the\n\"last block number\" won't matter anyways.\n\nThere's a new feature called `block_tracker` that when enabled will\ntransiently track all block numbers being opened/released and panic when\nit detects a block is about to be opened a second time in an\nincompatible manner with an already-open instance. This is for internal\ndebugging and clearly not meant for production use, which is why the\nfeature is not included in the default feature flag set.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-05T12:51:08-04:00",
+          "tree_id": "19a3c97d5000369c91d3727abf2ab77cc4573668",
+          "url": "https://github.com/paradedb/paradedb/commit/c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf"
+        },
+        "date": 1754414900386,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.713451,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.633944177800338, max cpu: 55.706, count: 57878"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 169.34474751848717, max mem: 176.80859375, count: 57878"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18582,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17010.85711323819, max block_count: 22023.0, count: 57878"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.85298386260755, max segment_count: 127.0, count: 57878"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.465903279751519, max cpu: 32.36994, count: 57878"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 151.05770138264973, max mem: 168.1640625, count: 57878"
           }
         ]
       }

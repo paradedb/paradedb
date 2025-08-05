@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754415529357,
+  "lastUpdate": 1754415532024,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19648,6 +19648,114 @@ window.BENCHMARK_DATA = {
             "value": 159.10546875,
             "unit": "median mem",
             "extra": "avg mem: 156.66784023457197, max mem: 160.96484375, count: 55532"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf",
+          "message": "fix: relation extension cache invalidation (#2927) (#2934)\n\n(This ports the recent v0.16.5 changes\n(214c9c7dd37a0ddb934e1ce4cbb15f949e1f8a69) forward to `main`)\n\nWhen extending a relation the backend needs to clear the relation's\n`SMgrRelation`'s \"SIZE_CACHE\" so that it doesn't become confused about\nthe size of a relation relative to other concurrent relation extensions\nthat may have occurred.\n\nFailure to do this can cause errors like the below under high read/write\nconcurrency:\n\n```\nERROR:  XX001: could not read blocks 10..10 in file \"base/16384/16552\": read only 0 of 8192 bytes\n```\n\nPR #2716 introduced this bug as it changed our approach of always\ncalling `pg_sys::relation_open()` to the new `PgSearchRelation` which\nwraps an already-opened `pg_sys::Relation` pointer and is cheaply\nclone-able.\n\nEssentially, prior to #2716 we'd always get a new `SMgrRelation` and it\nwould ask the kernel about the size of the relation on disk, whereas\n\nFixing this necessitates calling the various\n`pg_sys::ExtendBufferedRel*()` functions with the\n`pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE` flag set, which also\nmeans we need to use `pg_sys::ExtendedBufferedRel` directly when\nextending the relation by one block. So `BM25BufferCache` has been\nrefactored a bit to handle this.\n\nIt's also necessary, when extending the relation by a single buffer, to\nlock it using an `ExclusiveLock`, not an `AccessExclusiveLock`.\n\nAs a drive-by, this PR adjusts `SegmentComponentWriter`'s flush/drop\nbehavior to be less confusing and better aided by the Rust compiler.\nThis is related to the new `LInkedBytesListWriter::finalize_and_write()`\nfunction (see below).\n\nThe cleanup around flush & drop also ensures that we won't try to write\nany bit of a SegmentComponentWriter's buffers to disk if we're dropping\nduring a panic-induced stack unwind.\n\n`LinkedBytesListWriter` now has a `fn finalize_and_write(self)` which is\nwhere it records the `last_blockno` in the list's metadata and also\nwhere its `BlockList` is written to disk. The `last_blockno` was\npreviously being constantly updated by `LinkedBytesListWriter::write()`\nevery time it linked a new buffer to the end. This wasn't necessarily\nincorrect, but it was inefficient and made analyzing the issues this PR\naims to fix a bit more difficult.\n\nMoving the final assignment of `last_blockno` to `finalize_and_write()`\nis fine as if the writer is never finalized for whatever reason, the\n\"last block number\" won't matter anyways.\n\nThere's a new feature called `block_tracker` that when enabled will\ntransiently track all block numbers being opened/released and panic when\nit detects a block is about to be opened a second time in an\nincompatible manner with an already-open instance. This is for internal\ndebugging and clearly not meant for production use, which is why the\nfeature is not included in the default feature flag set.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-05T12:51:08-04:00",
+          "tree_id": "19a3c97d5000369c91d3727abf2ab77cc4573668",
+          "url": "https://github.com/paradedb/paradedb/commit/c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf"
+        },
+        "date": 1754415530646,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.34550299481086, max cpu: 42.105263, count: 55517"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 154.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.5931764144316, max mem: 155.203125, count: 55517"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.594992436326766, max cpu: 28.070175, count: 55517"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 146.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.86297834447106, max mem: 146.55078125, count: 55517"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.288270477285097, max cpu: 27.87996, count: 55517"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 148.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 124.1511418377479, max mem: 154.83984375, count: 55517"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 23084,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23304.074841940306, max block_count: 46944.0, count: 55517"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.429448199900971, max cpu: 4.678363, count: 55517"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.96791347413856, max mem: 130.4921875, count: 55517"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.330277212385397, max segment_count: 46.0, count: 55517"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.635443222847755, max cpu: 36.994217, count: 111034"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 147.3746871031621, max mem: 170.88671875, count: 111034"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.701364346908983, max cpu: 27.934044, count: 55517"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.24714157093774, max mem: 157.49609375, count: 55517"
           }
         ]
       }

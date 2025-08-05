@@ -98,7 +98,7 @@ impl CustomScan for AggregateScan {
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
             let parse = args.root().parse;
-            if !parse.is_null() && ((*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
+            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
                 return None;
             }
         }

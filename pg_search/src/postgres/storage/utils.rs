@@ -59,10 +59,6 @@ impl BM25Page for pg_sys::Page {
     }
 }
 
-struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
-unsafe impl Send for BufferAccessStrategyHolder {}
-unsafe impl Sync for BufferAccessStrategyHolder {}
-
 /// [`RelationBufferAccess`] a lower level interface for directly reading existing, and creating new,
 /// buffers in an efficient manner.
 ///
@@ -201,7 +197,7 @@ pub unsafe fn extend_by_one_buffer(rel: pg_sys::Relation) -> pg_sys::Buffer {
             pg_sys::ForkNumber::MAIN_FORKNUM,
             pg_sys::InvalidBlockNumber,
             pg_sys::ReadBufferMode::RBM_NORMAL,
-            strategy,
+            determine_rel_extend_bas(),
         )
     }
 
@@ -290,6 +286,10 @@ unsafe fn bulk_extend_relation(
 /// can use when extending a relation
 #[inline(always)]
 fn determine_rel_extend_bas() -> pg_sys::BufferAccessStrategy {
+    struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
+    unsafe impl Send for BufferAccessStrategyHolder {}
+    unsafe impl Sync for BufferAccessStrategyHolder {}
+
     static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
         BufferAccessStrategyHolder(unsafe {
             // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available

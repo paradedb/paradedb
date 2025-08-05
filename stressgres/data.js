@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754423738457,
+  "lastUpdate": 1754424370771,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18296,6 +18296,60 @@ window.BENCHMARK_DATA = {
             "value": 17.57639831202997,
             "unit": "median tps",
             "extra": "avg tps: 17.844572479145995, max tps: 20.14743812800738, count: 55525"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3bd2aeb4384019cfe6446bb8601df8652ae4fb0",
+          "message": "chore: add missing tests from enterprise (#2937)\n\nThis adds a test file that only existed in our enterprise version that\nhad some failures and needed fixing.\n\nSeems better to have it on community -- it's not specific to enterprise.",
+          "timestamp": "2025-08-05T15:18:10-04:00",
+          "tree_id": "ffcda25958b5c15c189adc660e77aff92b42e999",
+          "url": "https://github.com/paradedb/paradedb/commit/e3bd2aeb4384019cfe6446bb8601df8652ae4fb0"
+        },
+        "date": 1754424369378,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.01776353718682,
+            "unit": "median tps",
+            "extra": "avg tps: 39.10823920056949, max tps: 40.321935266623576, count: 55488"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 263.0628794727849,
+            "unit": "median tps",
+            "extra": "avg tps: 297.0635812742295, max tps: 2438.7034362946233, count: 55488"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 146.8588905853107,
+            "unit": "median tps",
+            "extra": "avg tps: 145.95706853762093, max tps: 147.7589168054518, count: 55488"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 74.34871748782624,
+            "unit": "median tps",
+            "extra": "avg tps: 74.64930507336686, max tps: 127.24213105993834, count: 110976"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.157367100584057,
+            "unit": "median tps",
+            "extra": "avg tps: 18.231775732236013, max tps: 21.13687247294158, count: 55488"
           }
         ]
       }

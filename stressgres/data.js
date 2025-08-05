@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754416665252,
+  "lastUpdate": 1754417293584,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14066,6 +14066,42 @@ window.BENCHMARK_DATA = {
             "value": 139.5838763152089,
             "unit": "median tps",
             "extra": "avg tps: 138.6150676763365, max tps: 141.9152125242895, count: 57878"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754417292251,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.052021826728126,
+            "unit": "median tps",
+            "extra": "avg tps: 27.935083570067334, max tps: 28.291289732839438, count: 57294"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 138.11243125261797,
+            "unit": "median tps",
+            "extra": "avg tps: 137.20199134754708, max tps: 140.25345673885803, count: 57294"
           }
         ]
       }

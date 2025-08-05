@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754423104371,
+  "lastUpdate": 1754423735953,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14384,6 +14384,42 @@ window.BENCHMARK_DATA = {
             "value": 138.11243125261797,
             "unit": "median tps",
             "extra": "avg tps: 137.20199134754708, max tps: 140.25345673885803, count: 57294"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3bd2aeb4384019cfe6446bb8601df8652ae4fb0",
+          "message": "chore: add missing tests from enterprise (#2937)\n\nThis adds a test file that only existed in our enterprise version that\nhad some failures and needed fixing.\n\nSeems better to have it on community -- it's not specific to enterprise.",
+          "timestamp": "2025-08-05T15:18:10-04:00",
+          "tree_id": "ffcda25958b5c15c189adc660e77aff92b42e999",
+          "url": "https://github.com/paradedb/paradedb/commit/e3bd2aeb4384019cfe6446bb8601df8652ae4fb0"
+        },
+        "date": 1754423734559,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.944766501276273,
+            "unit": "median tps",
+            "extra": "avg tps: 28.786776575270764, max tps: 29.13214828629984, count: 57531"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 136.1531536503699,
+            "unit": "median tps",
+            "extra": "avg tps: 135.66661684797324, max tps: 138.74776864274574, count: 57531"
           }
         ]
       }

@@ -145,9 +145,12 @@ text_fields = '
                 "uuid": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+                "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
             }}',
+numeric_fields = '
+    {{
+        "balance": {{ "fast": true }}
+    }}',
 boolean_fields = '
     {{
         "subscribed": {{ "fast": true }}

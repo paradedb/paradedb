@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754415532024,
+  "lastUpdate": 1754416001928,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2886,6 +2886,72 @@ window.BENCHMARK_DATA = {
             "value": 112.83746943588223,
             "unit": "median tps",
             "extra": "avg tps: 122.04251599041726, max tps: 823.4315687194816, count: 55242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754416000535,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1182.5334983921239,
+            "unit": "median tps",
+            "extra": "avg tps: 1177.968220840375, max tps: 1186.3524131580534, count: 55280"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2768.2409779298678,
+            "unit": "median tps",
+            "extra": "avg tps: 2734.6239434872714, max tps: 2778.188113649464, count: 55280"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1212.164595853967,
+            "unit": "median tps",
+            "extra": "avg tps: 1204.6818322325264, max tps: 1216.3495405362355, count: 55280"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 963.3295615892972,
+            "unit": "median tps",
+            "extra": "avg tps: 961.2629793695482, max tps: 977.0319150764367, count: 55280"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 167.88874018212604,
+            "unit": "median tps",
+            "extra": "avg tps: 172.33553629412881, max tps: 183.90329309183412, count: 110560"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 145.34350060736833,
+            "unit": "median tps",
+            "extra": "avg tps: 144.40114857170568, max tps: 152.04145683995364, count: 55280"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 67.26376289306955,
+            "unit": "median tps",
+            "extra": "avg tps: 83.00421238597282, max tps: 753.0256570901884, count: 55280"
           }
         ]
       }

@@ -246,12 +246,13 @@ unsafe fn bulk_extend_relation(
         "requested too many pages for relation extension: npages={npages}, buffers.len={}",
         buffers.len()
     );
-    let is_backend_bulk_compatible = npages > 1
-        && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
-            || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
 
     #[cfg(any(feature = "pg16", feature = "pg17"))]
     {
+        let is_backend_bulk_compatible = npages > 1
+            && (pg_sys::MyBackendType == pg_sys::BackendType::B_BG_WORKER
+                || pg_sys::MyBackendType == pg_sys::BackendType::B_BACKEND);
+
         // `ExtendBufferedRelBy` is only allowed from certain backends
         if is_backend_bulk_compatible {
             let mut filled = 0;

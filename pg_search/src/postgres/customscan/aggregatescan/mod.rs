@@ -32,7 +32,7 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByInfo, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -126,7 +126,7 @@ impl CustomScan for AggregateScan {
 
         // Extract ORDER BY pathkeys if present
         let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let order_by_info = OrderByInfo::extract_order_by_info(&order_pathkeys);
+        let order_by_info = OrderByStyle::extract_order_by_info(&order_pathkeys);
 
         // Can we handle all of the quals?
         let query = unsafe {

@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::AsCStr;
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
+use crate::api::{AsCStr, OrderByInfo};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;

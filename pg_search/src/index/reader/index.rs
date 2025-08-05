@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
+use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
@@ -58,23 +57,6 @@ impl SearchIndexScore {
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.bm25.partial_cmp(&other.bm25)
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum SortDirection {
-    Asc,
-    Desc,
-    None,
-}
-
-impl From<SortDirection> for Order {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => Order::Asc,
-            SortDirection::Desc => Order::Desc,
-            SortDirection::None => Order::Asc,
-        }
     }
 }
 
@@ -142,17 +124,17 @@ pub struct MultiSegmentSearchResults {
 
 #[derive(PartialEq, Clone)]
 pub struct TweakedScore {
-    dir: SortDirection,
+    // TODO: Apply order using a generic parameter.
+    order: Order,
     score: Score,
 }
 
 impl PartialOrd for TweakedScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         let cmp = self.score.partial_cmp(&other.score);
-        match self.dir {
-            SortDirection::Desc => cmp,
-            SortDirection::Asc => cmp.map(|o| o.reverse()),
-            SortDirection::None => Some(Ordering::Equal),
+        match self.order {
+            Order::Desc => cmp,
+            Order::Asc => cmp.map(|o| o.reverse()),
         }
     }
 }
@@ -473,28 +455,50 @@ impl SearchIndexReader {
     pub fn search_top_n_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        sort_field: Option<FieldName>,
-        sortdir: SortDirection,
+        orderby_info: Option<&Vec<OrderByInfo>>,
         n: usize,
         offset: usize,
     ) -> TopNSearchResults {
-        if let Some(sort_field) = sort_field {
-            let field = self
-                .schema
-                .search_field(&sort_field)
-                .expect("sort field should exist in index schema");
-            match field.field_entry().field_type().value_type() {
-                tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
-                    segment_ids,
-                    sort_field,
-                    sortdir,
-                    n,
-                    offset,
-                ),
-                _ => self.top_by_field_in_segments(segment_ids, sort_field, sortdir, n, offset),
+        // TODO: Temporarily use only the first field.
+        match orderby_info.and_then(|oi| oi.first()) {
+            Some(OrderByInfo {
+                feature: OrderByFeature::Field(sort_field),
+                direction,
+            }) => {
+                let field = self
+                    .schema
+                    .search_field(&sort_field)
+                    .expect("sort field should exist in index schema");
+                match field.field_entry().field_type().value_type() {
+                    tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
+                        segment_ids,
+                        sort_field.clone(),
+                        *direction,
+                        n,
+                        offset,
+                    ),
+                    _ => self.top_by_field_in_segments(
+                        segment_ids,
+                        sort_field,
+                        *direction,
+                        n,
+                        offset,
+                    ),
+                }
             }
-        } else {
-            self.top_by_score_in_segments(segment_ids, sortdir, n, offset)
+            Some(OrderByInfo {
+                feature: OrderByFeature::Score,
+                direction,
+            }) => self.top_by_score_in_segments(segment_ids, *direction, n, offset),
+            None => {
+                // Do an un-ordered search.
+                TopNSearchResults::new(
+                    self.search_segments(segment_ids)
+                        .skip(offset)
+                        .take(n)
+                        .collect(),
+                )
+            }
         }
     }
 
@@ -607,7 +611,7 @@ impl SearchIndexReader {
                 let collector = TopDocs::with_limit(n).and_offset(offset).tweak_score(
                     move |_segment_reader: &tantivy::SegmentReader| {
                         move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
+                            order: sortdir.into(),
                             score: original_score,
                         }
                     },
@@ -655,13 +659,6 @@ impl SearchIndexReader {
 
                 TopNSearchResults::new_for_score(&self.searcher, top_docs.into_iter())
             }
-
-            SortDirection::None => TopNSearchResults::new(
-                self.search_segments(segment_ids)
-                    .skip(offset)
-                    .take(n)
-                    .collect(),
-            ),
         }
     }
 

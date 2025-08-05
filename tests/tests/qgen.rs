@@ -147,8 +147,11 @@ text_fields = '
                 "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "subscribed": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
             }}'
+boolean_fields = '
+    {{
+        "subscribed": {{ "fast": true }}
+    }}'
 );
 
 INSERT into {tname} (uuid, name, color, age, balance, subscribed)

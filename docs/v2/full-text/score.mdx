@@ -32,11 +32,29 @@ While BM25 scores will be returned as long as `description` is indexed, includin
 
 ## Joined Scores
 
-The following query demonstrates how to compute a "combined BM25 score" over a joined search. It joins `mock_items` with `orders`,
-which were both created in the [quickstart](/documentation/getting-started/quickstart).
+First, let's create a second table called `orders` that can be joined with `mock_items`:
 
 ```sql
-SELECT o.order_id, paradedb.score(o.order_id) + paradedb.score(m.id) as score
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'orders',
+  table_type => 'Orders'
+);
+
+ALTER TABLE orders
+ADD CONSTRAINT foreign_key_product_id
+FOREIGN KEY (product_id)
+REFERENCES mock_items(id);
+
+CREATE INDEX orders_idx ON orders
+USING bm25 (order_id, product_id, order_quantity, order_total, customer_name)
+WITH (key_field = 'order_id');
+```
+
+Next, let's compute a "combined BM25 score" over a join across both tables.
+
+```sql
+SELECT o.order_id, o.customer_name, m.description, paradedb.score(o.order_id) + paradedb.score(m.id) as score
 FROM orders o
 JOIN mock_items m ON o.product_id = m.id
 WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'

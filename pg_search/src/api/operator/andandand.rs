@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use crate::api::builder_fns::match_conjunction;
 use crate::api::operator::boost::BoostType;
+use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
@@ -49,6 +50,14 @@ fn search_with_match_conjunction_boost(_field: &str, terms_to_tokenize: BoostTyp
     )
 }
 
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.&&&)]
+fn search_with_match_conjunction_fuzzy(_field: &str, terms_to_tokenize: FuzzyType) -> bool {
+    panic!(
+        "query is incompatible with pg_search's `&&&(field, fuzzy)` operator: `{terms_to_tokenize:?}`"
+    )
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
@@ -57,13 +66,19 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
             match to_tokenize {
                 RHSValue::Text(text) => {
                     to_search_query_input(field, match_conjunction(text))
-                },
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                }
+                RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string} = query {
+                    if let pdb::Query::UnclassifiedString { string, fuzzy_data } = query {
                         query = match_conjunction(string);
+                        query.apply_fuzzy_data(fuzzy_data);
                     }
-                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost })
+                }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data}) => {
+                    let mut query = match_conjunction(string);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    to_search_query_input(field, query)
                 }
 
                 _ => panic!("The right-hand side of the `&&&(field, TEXT)` operator must be a text value."),
@@ -102,12 +117,14 @@ extension_sql!(
         ALTER FUNCTION paradedb.search_with_match_conjunction SUPPORT paradedb.search_with_match_conjunction_support;
         ALTER FUNCTION paradedb.search_with_match_conjunction_pdb_query SUPPORT paradedb.search_with_match_conjunction_support;
         ALTER FUNCTION paradedb.search_with_match_conjunction_boost SUPPORT paradedb.search_with_match_conjunction_support;
+        ALTER FUNCTION paradedb.search_with_match_conjunction_fuzzy SUPPORT paradedb.search_with_match_conjunction_support;
     "#,
     name = "search_with_match_conjunction_support_fn",
     requires = [
         search_with_match_conjunction,
         search_with_match_conjunction_pdb_query,
         search_with_match_conjunction_boost,
+        search_with_match_conjunction_fuzzy,
         search_with_match_conjunction_support
     ]
 );

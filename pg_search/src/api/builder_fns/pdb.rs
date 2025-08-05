@@ -113,6 +113,7 @@ mod pdb {
             query_string,
             lenient,
             conjunction_mode,
+            fuzzy_data: None,
         }
     }
 

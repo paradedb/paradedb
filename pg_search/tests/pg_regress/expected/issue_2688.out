@@ -75,9 +75,8 @@ LIMIT 10;
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT id, title, quantity_range
 FROM data_records
@@ -114,9 +113,8 @@ LIMIT 10;
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT id, title, quantity_range, valid_period
 FROM data_records
@@ -153,9 +151,8 @@ LIMIT 10;
                Index: records_no_fast_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT id, title, price, valid_period
 FROM data_records

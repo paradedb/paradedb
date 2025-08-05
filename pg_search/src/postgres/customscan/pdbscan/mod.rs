@@ -30,8 +30,8 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
-    SortDirection,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByFeature, OrderByInfo,
+    OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -325,7 +325,8 @@ impl CustomScan for PdbScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
+            let (has_any_pathkeys, topn_pathkeys) =
+                pullup_orderby_pathkeys(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -363,7 +364,7 @@ impl CustomScan for PdbScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_topn = limit.is_some() && pathkey.is_some();
+            let is_maybe_topn = limit.is_some() && topn_pathkeys.is_some();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -434,8 +435,9 @@ impl CustomScan for PdbScan {
             };
 
             // we must use this path if we need to do const projections for scores or snippets
-            builder = builder
-                .set_force_path(maybe_needs_const_projections || is_topn || quals.contains_all());
+            builder = builder.set_force_path(
+                maybe_needs_const_projections || is_maybe_topn || quals.contains_all(),
+            );
 
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
@@ -444,38 +446,29 @@ impl CustomScan for PdbScan {
             custom_private.set_limit(limit);
             custom_private.set_segment_count(segment_count);
 
-            if is_topn && pathkey.is_some() {
-                let pathkey = pathkey.as_ref().unwrap();
-                // sorting by a field only works if we're not doing const projections
-                // the reason for this is that tantivy can't do both scoring and ordering by
-                // a fast field at the same time.
-                //
-                // and sorting by score always works
-                match (maybe_needs_const_projections, pathkey) {
-                    (false, OrderByStyle::Field(..)) => {
-                        custom_private.set_sort_info(pathkey);
-                    }
-                    (_, OrderByStyle::Score(..)) => {
-                        custom_private.set_sort_info(pathkey);
-                    }
-                    _ => {}
+            // Determine whether we might be able to sort.
+            if is_maybe_topn && topn_pathkeys.is_some() {
+                let pathkeys = topn_pathkeys.as_ref().unwrap();
+                // we can only (currently) do const projections if the first sort field is a score,
+                // because we currently discard all but the first sort field, and so will not
+                // produce a valid Score value. see TopNSearchResults.
+                let orderby_supported = !maybe_needs_const_projections
+                    || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
+                if orderby_supported {
+                    custom_private.set_maybe_orderby_info(&topn_pathkeys);
                 }
-            } else if limit.is_some()
-                && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                    .is_empty()
-            {
-                // we have a limit but no order by, so record that.  this will let us go through
-                // our "top n" machinery, but getting "limit" (essentially) random docs, which
-                // is what the user asked for
-                custom_private.set_sort_direction(Some(SortDirection::None));
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let exec_method_type = choose_exec_method(&custom_private);
+            let exec_method_type = choose_exec_method(&custom_private, has_any_pathkeys);
             custom_private.set_exec_method_type(exec_method_type);
-            if custom_private.exec_method_type().is_sorted() {
-                if let Some(pathkey) = pathkey.as_ref() {
-                    builder = builder.add_path_key(pathkey);
+            if custom_private.exec_method_type().is_sorted_topn() {
+                // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
+                // because we don't want/need to serialize them for execution.
+                if let Some(pathkeys) = topn_pathkeys.as_ref() {
+                    for pathkey in pathkeys {
+                        builder = builder.add_path_key(pathkey);
+                    }
                 }
             }
 
@@ -656,11 +649,6 @@ impl CustomScan for PdbScan {
 
             builder.custom_state().targetlist_len = builder.target_list().len();
 
-            // information about if we're sorted by score and our limit
-            builder.custom_state().limit = builder.custom_private().limit();
-            builder.custom_state().sort_field = builder.custom_private().sort_field();
-            builder.custom_state().sort_direction = builder.custom_private().sort_direction();
-
             builder.custom_state().segment_count = builder.custom_private().segment_count();
             builder.custom_state().var_attname_lookup = builder
                 .custom_private()
@@ -797,22 +785,31 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if state.custom_state().is_sorted() {
-            if let Some(sort_field) = &state.custom_state().sort_field {
-                explainer.add_text("   Sort Field", sort_field);
-            } else {
-                explainer.add_text("   Sort Field", "paradedb.score()");
+        // TODO: Render any other fields as well! Will require lots of explain fiddling.
+        if let Some(orderby_info) = state
+            .custom_state()
+            .orderby_info()
+            .as_ref()
+            .and_then(|oi| oi.first())
+        {
+            match &orderby_info {
+                OrderByInfo {
+                    feature: OrderByFeature::Field(fieldname),
+                    ..
+                } => {
+                    explainer.add_text("   Sort Field", fieldname);
+                }
+                OrderByInfo {
+                    feature: OrderByFeature::Score,
+                    ..
+                } => {
+                    explainer.add_text("   Sort Field", "paradedb.score()");
+                }
             }
-            explainer.add_text(
-                "   Sort Direction",
-                state
-                    .custom_state()
-                    .sort_direction
-                    .unwrap_or(SortDirection::Asc),
-            );
+            explainer.add_text("   Sort Direction", orderby_info.direction);
         }
 
-        if let Some(limit) = state.custom_state().limit {
+        if let Some(limit) = state.custom_state().limit() {
             explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
@@ -1075,24 +1072,40 @@ impl CustomScan for PdbScan {
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
-fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
-    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
-        // having a valid limit and sort direction means we can do a TopN query
-        // and TopN can do snippets
-        ExecMethodType::TopN {
-            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit,
-            sort_direction,
+fn choose_exec_method(privdata: &PrivateData, has_any_pathkeys: bool) -> ExecMethodType {
+    // See if we can use TopN.
+    if let Some(limit) = privdata.limit() {
+        if let Some(orderby_info) = privdata.maybe_orderby_info() {
+            // having a valid limit and sort direction means we can do a TopN query
+            // and TopN can do snippets
+            return ExecMethodType::TopN {
+                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                limit,
+                orderby_info: Some(orderby_info.clone()),
+            };
         }
-    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldMixed {
+        if !has_any_pathkeys {
+            // we have a limit but no pathkeys at all. we can still go through our "top n"
+            // machinery, but getting "limit" (essentially) random docs, which is what the user
+            // asked for
+            return ExecMethodType::TopN {
+                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                limit,
+                orderby_info: None,
+            };
+        }
+    }
+
+    // Otherwise, see if we can use a fast fields method.
+    if fast_fields::is_mixed_fast_field_capable(privdata) {
+        return ExecMethodType::FastFieldMixed {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
             limit: privdata.limit(),
-        }
-    } else {
-        // Fall back to normal execution
-        ExecMethodType::Normal
+        };
     }
+
+    // Else, fall back to normal execution
+    ExecMethodType::Normal
 }
 
 ///
@@ -1110,9 +1123,9 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
         ExecMethodType::TopN {
             heaprelid,
             limit,
-            sort_direction,
+            orderby_info,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
         ExecMethodType::FastFieldMixed {
@@ -1237,57 +1250,58 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
-unsafe fn pullup_orderby_pathkey(
+/// Determine whether there are any pathkeys at all, and whether we might be able to push down
+/// ordering in TopN or fast fields.
+///
+/// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return OrderByStyles
+/// for them for use in TopN.
+unsafe fn pullup_orderby_pathkeys(
     builder: &mut CustomPathBuilder<PdbScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
-) -> Option<OrderByStyle> {
-    let pathkey_styles = extract_pathkey_styles(root, rti, schema, Some(1));
-    pathkey_styles.into_iter().next()
+) -> (bool, Option<Vec<OrderByStyle>>) {
+    let (has_any_pathkeys, mut pathkey_styles) = extract_pathkey_styles_with_sortability_check(
+        root,
+        rti,
+        schema,
+        |search_field| search_field.is_raw_sortable(),
+        |search_field| search_field.is_lower_sortable(),
+    );
+
+    // TopN is the base scan's only executor which supports sorting.
+    // TODO: Temporarily taking exactly one. A followup change will support up to three.
+    let pathkey_styles = if !pathkey_styles.is_empty() {
+        pathkey_styles.truncate(1);
+        Some(pathkey_styles)
+    } else {
+        None
+    };
+
+    (has_any_pathkeys, pathkey_styles)
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
-/// Returns up to `max_pathkeys` OrderByStyle objects (None = no limit)
-pub unsafe fn extract_pathkey_styles(
-    root: *mut pg_sys::PlannerInfo,
-    rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
-    max_pathkeys: Option<usize>,
-) -> Vec<OrderByStyle> {
-    extract_pathkey_styles_with_sortability_check(
-        root,
-        rti,
-        schema,
-        max_pathkeys,
-        |search_field| search_field.is_raw_sortable(),
-        |search_field| search_field.is_lower_sortable(),
-    )
-}
-
-/// Extract pathkeys with custom sortability checks for different use cases
 pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
-    max_pathkeys: Option<usize>,
     regular_sortability_check: F1,
     lower_sortability_check: F2,
-) -> Vec<OrderByStyle>
+) -> (bool, Vec<OrderByStyle>)
 where
     F1: Fn(&SearchField) -> bool,
     F2: Fn(&SearchField) -> bool,
 {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return Vec::new();
+        return (false, Vec::new());
     }
 
     let mut pathkey_styles = Vec::new();
-    let limit = max_pathkeys.unwrap_or(pathkeys.len());
 
-    for pathkey_ptr in pathkeys.iter_ptr().take(limit) {
+    for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
@@ -1370,7 +1384,7 @@ where
         }
     }
 
-    pathkey_styles
+    (true, pathkey_styles)
 }
 
 /// Check if a node is a lower() function call for a specific relation

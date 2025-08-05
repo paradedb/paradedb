@@ -126,7 +126,7 @@ impl CustomScan for AggregateScan {
 
         // Extract ORDER BY pathkeys if present
         let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
+        let order_by_info = OrderByInfo::extract_order_by_info(&order_pathkeys);
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -509,11 +509,10 @@ fn extract_order_by_pathkeys(
     schema: &SearchIndexSchema,
 ) -> Option<Vec<OrderByStyle>> {
     unsafe {
-        let pathkey_styles = extract_pathkey_styles_with_sortability_check(
+        let (_has_any_pathkeys, pathkey_styles) = extract_pathkey_styles_with_sortability_check(
             root,
             heap_rti,
             schema,
-            None,                                  // No limit on pathkeys for aggregatescan
             |search_field| search_field.is_fast(), // Use is_fast() for regular vars
             |_search_field| false,                 // Don't accept lower functions in aggregatescan
         );

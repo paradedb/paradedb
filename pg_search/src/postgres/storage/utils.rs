@@ -224,7 +224,7 @@ pub unsafe fn extend_by_one_buffer(rel: pg_sys::Relation) -> pg_sys::Buffer {
     }
 }
 
-/// Extend the relation by `npages`.  We'll ever extend by more than [`MAX_BUFFERS_TO_EXTEND_BY`]
+/// Extend the relation by `npages`.  We'll never extend by more than [`MAX_BUFFERS_TO_EXTEND_BY`]
 /// and also won't extend by less than `npages`
 unsafe fn bulk_extend_relation(
     rel: pg_sys::Relation,

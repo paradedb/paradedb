@@ -61,7 +61,7 @@ jobs:
         sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
 
     steps:
-      - name: Fire benchmark & stressgres for ${{ matrix.sha }}
+      - name: Fire Benchmark & Stressgres for ${{ matrix.sha }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

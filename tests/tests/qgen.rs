@@ -38,6 +38,8 @@ enum ColumnDef {
     Name(&'static str),
     Color(&'static str),
     Age(&'static str),
+    Balance(f64),
+    Subscribed(bool),
 }
 
 impl ColumnDef {
@@ -48,6 +50,8 @@ impl ColumnDef {
             ColumnDef::Name(_) => "name",
             ColumnDef::Color(_) => "color",
             ColumnDef::Age(_) => "age",
+            ColumnDef::Balance(_) => "balance",
+            ColumnDef::Subscribed(_) => "subscribed",
         }
     }
 
@@ -58,6 +62,8 @@ impl ColumnDef {
             ColumnDef::Name(_) => "TEXT",
             ColumnDef::Color(_) => "VARCHAR",
             ColumnDef::Age(_) => "VARCHAR",
+            ColumnDef::Balance(_) => "FLOAT8",
+            ColumnDef::Subscribed(_) => "BOOL",
         }
     }
 
@@ -68,6 +74,8 @@ impl ColumnDef {
             ColumnDef::Name(_) => true,
             ColumnDef::Color(_) => true,
             ColumnDef::Age(_) => true,
+            ColumnDef::Balance(_) => true,
+            ColumnDef::Subscribed(_) => true,
         }
     }
 
@@ -78,17 +86,21 @@ impl ColumnDef {
             ColumnDef::Name(val) => val.to_string(),
             ColumnDef::Color(val) => val.to_string(),
             ColumnDef::Age(val) => val.to_string(),
+            ColumnDef::Balance(val) => val.to_string(),
+            ColumnDef::Subscribed(val) => val.to_string(),
         }
     }
 }
 
 // Usage:
 const COLUMNS: &[ColumnDef] = &[
-    ColumnDef::Id(1),
+    ColumnDef::Id(3),
     ColumnDef::Uuid("550e8400-e29b-41d4-a716-446655440000"),
     ColumnDef::Name("bob"),
     ColumnDef::Color("blue"),
     ColumnDef::Age("20"),
+    ColumnDef::Balance(456.78),
+    ColumnDef::Subscribed(true),
 ];
 
 fn generated_queries_setup(
@@ -246,6 +258,7 @@ async fn generated_joins_large_limit(database: Db) {
                 .map(|column| format!("{}.{column}", used_tables[0]))
                 .collect::<Vec<_>>()
                 .join(", ");
+
         let from = format!("SELECT {target_list} {join_clause} ");
 
         compare(

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754417296132,
+  "lastUpdate": 1754417927955,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17864,6 +17864,60 @@ window.BENCHMARK_DATA = {
             "value": 18.79097964462658,
             "unit": "median tps",
             "extra": "avg tps: 18.976633959025005, max tps: 21.289399619929927, count: 55517"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754417926582,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.183551632670444,
+            "unit": "median tps",
+            "extra": "avg tps: 37.251574251635155, max tps: 39.446825061980554, count: 55525"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 258.5421775088838,
+            "unit": "median tps",
+            "extra": "avg tps: 294.61472297401224, max tps: 2607.9146672059783, count: 55525"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 150.84937339950687,
+            "unit": "median tps",
+            "extra": "avg tps: 149.21831398313225, max tps: 152.81177526882027, count: 55525"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 74.36195137100324,
+            "unit": "median tps",
+            "extra": "avg tps: 66.16776949346688, max tps: 101.41624137609338, count: 111050"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.57639831202997,
+            "unit": "median tps",
+            "extra": "avg tps: 17.844572479145995, max tps: 20.14743812800738, count: 55525"
           }
         ]
       }

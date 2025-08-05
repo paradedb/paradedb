@@ -9,24 +9,30 @@ name: Benchmark Backfill Auto
 on:
   workflow_dispatch:
 
-# the token must be allowed to start other workflows
+# The token must be allowed to start other workflows
 permissions:
   actions: write
   contents: write
 
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
 jobs:
   reset:
+    name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.extract_commits.outputs.ids }}
+
     steps:
       - name: Load and extract commit IDs from benchmark data
         id: extract_commits
         run: |
-          # fetch the existing benchmark data.  we only get the stressgres data as
+          # Fetch the existing benchmark data. We only get the stressgres data as
           # all benchmark styles should have the same commits
           curl -sSL https://paradedb.github.io/paradedb/stressgres/data.js \
             -o data.js
 
-          # run a tiny Node script to eval and extract distinct commit IDs
+          # Run a tiny Node script to eval and extract distinct commit IDs
           ids=$(node -e "
             const fs = require('fs');
             global.window = {};
@@ -40,18 +46,17 @@ jobs:
                 ids.add(item.commit.id);
               }
             }
-
             console.log(JSON.stringify([...ids]));   # <-- JSON array
           ")
 
-          # set as an output; for newer GH Actions syntaxes
           echo "ids=$ids" >> $GITHUB_OUTPUT
 
-      - name: Checkout gh-pages
+      - name: Checkout Git Repository at ref=gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-      - name: Reset data.js files
+
+      - name: Reset data.js Files
         run: |
           git config user.name "Benchmark Backfill Job"
           git config user.email "developers@paradedb.com"
@@ -62,16 +67,17 @@ jobs:
             git push
           fi
 
+  # We run one job per commit
   dispatch:
-    # one job per commit
+    name: Dispatch All Benchmark Jobs
+    runs-on: ubuntu-latest
     needs: reset
     strategy:
       matrix:
-        sha: ${{ fromJSON(steps.extract_commits.outputs.ids) }} # → ["…","…"]
-    runs-on: ubuntu-latest
+        sha: ${{ fromJSON(needs.reset.outputs.ids) }} # → ["…","…"]
 
     steps:
-      - name: Fire benchmark & stressgres for ${{ matrix.sha }}
+      - name: Fire Benchmark &Sstressgres Jobs for ${{ matrix.sha }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -80,7 +86,7 @@ jobs:
             const repo  = context.repo.repo;
             const sha   = '${{ matrix.sha }}';
 
-            // Workflows you want to queue
+            // Workflows to queue
             const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
 
             for (const wf of targets) {

@@ -190,10 +190,9 @@ LIMIT 10;
                Index: records_no_fast_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: price
-                  Sort Direction: asc
-                  Top N Limit: 10
+                  TopN Order By: price asc
+                  TopN Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 DROP TABLE data_records;

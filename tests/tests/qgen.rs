@@ -318,10 +318,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -391,10 +388,7 @@ async fn generated_subquery(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         let pg = format!(

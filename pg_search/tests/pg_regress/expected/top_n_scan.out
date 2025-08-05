@@ -116,11 +116,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"notes","query_string":"check","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- Test 2: Query with complex conditions
 \echo 'Test 2: Complex query with multiple conditions (reproducing issue)'
@@ -194,11 +193,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"with_index":{"query":"all"}}
-(10 rows)
+(9 rows)
 
 -- Test 5: Testing NOT with paradedb.exists
 \echo 'Test 5: Testing NOT with paradedb.exists'
@@ -217,11 +215,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 6: Testing IN negation with @@@
 \echo 'Test 6: Testing IN negation with @@@'
@@ -240,11 +237,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 7: Testing simplified complex query - removing one component at a time
 \echo 'Test 7: Simplified complex query - only basic conditions'
@@ -287,7 +283,7 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Top N Limit: 25
+            TopN Limit: 25
          Tantivy Query: {"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (8 rows)
 

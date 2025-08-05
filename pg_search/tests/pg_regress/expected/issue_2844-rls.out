@@ -363,7 +363,7 @@ RETURNING t.*;
                            Index: contacts_search_idx
                            Exec Method: TopNScanExecState
                            Scores: false
-                              Top N Limit: 1
+                              TopN Limit: 1
                            Tantivy Query: {}
 (18 rows)
 

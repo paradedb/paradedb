@@ -403,14 +403,14 @@ fn coerce_bound_to_field_type(
 }
 
 impl SearchQueryInput {
-    pub fn into_tantivy_query(
+    pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
-        parser: &mut QueryParser,
+        parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-    ) -> Result<Box<dyn TantivyQuery>, Box<dyn std::error::Error>> {
+    ) -> Result<Box<dyn TantivyQuery>> {
         match self {
             SearchQueryInput::Uninitialized => {
                 panic!("this `SearchQueryInput` instance is uninitialized")
@@ -569,6 +569,7 @@ impl SearchQueryInput {
                 lenient,
                 conjunction_mode,
             } => {
+                let mut parser = parser();
                 if let Some(true) = conjunction_mode {
                     parser.set_conjunction_by_default();
                 }

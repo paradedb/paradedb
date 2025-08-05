@@ -15,10 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use crate::api::builder_fns::{term_set_str, term_str};
+use crate::api::operator::boost::BoostType;
+use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
-use crate::query::pdb_query::to_search_query_input;
+use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
     direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
     IntoDatum, PgList,
@@ -36,6 +38,24 @@ fn search_with_term_array(_field: &str, terms: Vec<String>) -> bool {
     panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{terms:?}`")
 }
 
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.===)]
+fn search_with_term_pdb_query(_field: &str, term: pdb::Query) -> bool {
+    panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term:?}`")
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.===)]
+fn search_with_term_boost(_field: &str, term: BoostType) -> bool {
+    panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term:?}`")
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.===)]
+fn search_with_term_fuzzy(_field: &str, term: FuzzyType) -> bool {
+    panic!("query is incompatible with pg_search's `===(field, fuzzy)` operator: `{term:?}`")
+}
+
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
@@ -46,6 +66,19 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
             match term {
                 RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
+                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                    let mut query = *query;
+                    if let pdb::Query::UnclassifiedString {string, fuzzy_data} = query {
+                        query = term_str(string);
+                        query.apply_fuzzy_data(fuzzy_data);
+                    }
+                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data}) => {
+                    let mut query = term_str(string);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    to_search_query_input(field, query)
+                }
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
         }, |field, rhs| {
@@ -93,11 +126,17 @@ extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_term SUPPORT paradedb.search_with_term_support;
         ALTER FUNCTION paradedb.search_with_term_array SUPPORT paradedb.search_with_term_support;
+        ALTER FUNCTION paradedb.search_with_term_pdb_query SUPPORT paradedb.search_with_term_support;
+        ALTER FUNCTION paradedb.search_with_term_boost SUPPORT paradedb.search_with_term_support;
+        ALTER FUNCTION paradedb.search_with_term_fuzzy SUPPORT paradedb.search_with_term_support;
     "#,
     name = "search_with_term_support_fn",
     requires = [
         search_with_term,
         search_with_term_array,
+        search_with_term_pdb_query,
+        search_with_term_boost,
+        search_with_term_fuzzy,
         search_with_term_support
     ]
 );

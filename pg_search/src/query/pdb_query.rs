@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::FieldName;
+use crate::query::pdb_query::pdb::FuzzyData;
 use crate::query::proximity::query::ProximityQuery;
 use crate::query::proximity::{ProximityClause, ProximityDistance};
 use crate::query::range::{Comparison, RangeField};
@@ -23,17 +24,17 @@ use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
 use crate::schema::{IndexRecordOption, SearchIndexSchema};
-use pgrx::{pg_extern, pg_schema};
+use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
-use std::error::Error;
+use std::ffi::CStr;
 use tantivy::query::{
-    BooleanQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
+    BooleanQuery, BoostQuery, EmptyQuery, ExistsQuery, FastFieldRangeQuery, FuzzyTermQuery, Occur,
     PhrasePrefixQuery, PhraseQuery, Query as TantivyQuery, Query, QueryParser, RangeQuery,
     RegexPhraseQuery, RegexQuery, TermQuery, TermSetQuery,
 };
 use tantivy::schema::OwnedValue;
-use tantivy::{Searcher, Term};
+use tantivy::{Score, Searcher, Term};
 use tokenizers::SearchTokenizer;
 
 #[pg_extern(immutable, parallel_safe)]
@@ -48,11 +49,92 @@ pub mod pdb {
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
+    use std::fmt::{Display, Formatter};
     use tantivy::schema::OwnedValue;
 
+    #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+    #[serde(rename_all = "snake_case")]
+    pub struct FuzzyData {
+        pub distance: u8,
+        pub prefix: bool,
+        pub transposition_cost_one: bool,
+    }
+
+    impl Display for FuzzyData {
+        #[rustfmt::skip]
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "{},{},{}",
+                self.distance,
+                if self.prefix { "t" } else { "f" },
+                if self.transposition_cost_one { "t" } else { "f" }
+            )
+        }
+    }
+
+    impl From<i32> for FuzzyData {
+        fn from(value: i32) -> Self {
+            let distance = (value >> 2) as u8;
+            let prefix = (value & 2) != 0;
+            let transposition_cost_one = (value & 1) != 0;
+            FuzzyData {
+                distance,
+                prefix,
+                transposition_cost_one,
+            }
+        }
+    }
+
+    impl From<FuzzyData> for i32 {
+        fn from(data: FuzzyData) -> Self {
+            ((data.distance as i32) << 2)
+                | ((data.prefix as i32) << 1)
+                | (data.transposition_cost_one as i32)
+        }
+    }
+
+    #[test]
+    fn fuzzy_data_roundtrip() {
+        proptest::proptest!(|(distance in 0u8..=255u8, prefix in 0..=1, transposition_cost_one in 0..=1)| {
+            let original = FuzzyData {
+                distance,
+                prefix: prefix == 1,
+                transposition_cost_one: transposition_cost_one == 1,
+            };
+
+            let typmod_repr:i32 = original.clone().into();
+            assert!(typmod_repr >= 0);  // can't be negative
+            let from_typmod:FuzzyData = typmod_repr.into();
+            assert_eq!(original, from_typmod);
+        })
+    }
+
     #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq)]
+    #[inoutfuncs]
     #[serde(rename_all = "snake_case")]
     pub enum Query {
+        /// This is instantiated in places where a string literal is used
+        /// as the right-hand-side of one of our operators.  For example, in
+        ///
+        /// ```sql
+        /// SELECT * FROM t WHERE f @@@ 'some string'
+        /// ```
+        ///
+        /// This variant is constructed first, then the "SUPPORT" function for our various operators
+        /// will rewrite it to the [`Query`] variant that is correct for its usage.
+        ///
+        /// For example, the `===` operator will rewrite it to a [`Query::Term`] and `@@@` to
+        /// a [`Query::ParseWithField`].
+        UnclassifiedString {
+            string: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            fuzzy_data: Option<FuzzyData>,
+        },
+        Boost {
+            query: Box<Query>,
+            boost: Option<tantivy::Score>,
+        },
         Exists,
         FastFieldRangeWeight {
             #[serde(
@@ -84,6 +166,8 @@ pub mod pdb {
             query_string: String,
             lenient: Option<bool>,
             conjunction_mode: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            fuzzy_data: Option<FuzzyData>,
         },
         Phrase {
             phrases: Vec<String>,
@@ -183,15 +267,95 @@ pub mod pdb {
 }
 
 impl pdb::Query {
-    pub fn into_tantivy_query(
+    pub fn unclassified_string(s: &str) -> pdb::Query {
+        pdb::Query::UnclassifiedString {
+            string: s.to_string(),
+            fuzzy_data: None,
+        }
+    }
+
+    pub fn unclassified_string_with_fuzz(s: &str, fuzz: FuzzyData) -> pdb::Query {
+        pdb::Query::UnclassifiedString {
+            string: s.to_string(),
+            fuzzy_data: Some(fuzz),
+        }
+    }
+
+    pub fn apply_fuzzy_data(&mut self, new_fuzzy_data: Option<FuzzyData>) {
+        if new_fuzzy_data.is_none() {
+            return;
+        }
+        let new_fuzzy_data = new_fuzzy_data.unwrap();
+        match self {
+            pdb::Query::UnclassifiedString { fuzzy_data, .. } => {
+                *fuzzy_data = Some(new_fuzzy_data);
+            }
+
+            pdb::Query::Term {
+                value: OwnedValue::Str(value),
+                is_datetime,
+            } if !*is_datetime => {
+                *self = pdb::Query::FuzzyTerm {
+                    value: value.to_string(),
+                    distance: Some(new_fuzzy_data.distance),
+                    transposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),
+                    prefix: Some(new_fuzzy_data.prefix),
+                }
+            }
+
+            pdb::Query::FuzzyTerm {
+                distance,
+                transposition_cost_one,
+                prefix,
+                ..
+            } => {
+                *distance = Some(new_fuzzy_data.distance);
+                *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
+                *prefix = Some(new_fuzzy_data.prefix);
+            }
+
+            pdb::Query::Match {
+                distance,
+                transposition_cost_one,
+                prefix,
+                ..
+            } => {
+                *distance = Some(new_fuzzy_data.distance);
+                *transposition_cost_one = Some(new_fuzzy_data.transposition_cost_one);
+                *prefix = Some(new_fuzzy_data.prefix);
+            }
+
+            pdb::Query::ParseWithField { fuzzy_data, .. } => *fuzzy_data = Some(new_fuzzy_data),
+
+            // TODO:  we could silently ignore
+            _ => panic!("query type is not compatible with fuzzy"),
+        }
+    }
+
+    pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         field: FieldName,
         schema: &SearchIndexSchema,
-        parser: &mut QueryParser,
+        parser: &QueryParserCtor,
         searcher: &Searcher,
-    ) -> anyhow::Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+    ) -> anyhow::Result<Box<dyn TantivyQuery>> {
         let query: Box<dyn TantivyQuery> = match self {
+            pdb::Query::UnclassifiedString { .. } => {
+                // this would indicate a problem with the various operator SUPPORT functions failing
+                // to convert the UnclassifiedString into the pdb::Query variant they require
+                unreachable!(
+                    "pdb::Query::UnclassifiedString cannot be converted into a TantivyQuery"
+                )
+            }
             pdb::Query::Exists => exists(field, searcher),
+            pdb::Query::Boost { query, boost } => boost_query(
+                field,
+                schema,
+                parser,
+                searcher,
+                *query,
+                boost.expect("boost value should have been set"),
+            )?,
             pdb::Query::FastFieldRangeWeight {
                 lower_bound,
                 upper_bound,
@@ -231,7 +395,16 @@ impl pdb::Query {
                 query_string,
                 lenient,
                 conjunction_mode,
-            } => parse(&field, parser, query_string, lenient, conjunction_mode)?,
+                fuzzy_data,
+            } => parse(
+                &field,
+                parser,
+                schema,
+                query_string,
+                lenient,
+                conjunction_mode,
+                fuzzy_data,
+            )?,
 
             pdb::Query::Phrase { phrases, slop } => {
                 phrase(&field, schema, searcher, phrases, slop)?
@@ -284,6 +457,44 @@ impl pdb::Query {
 
         Ok(query)
     }
+}
+
+impl InOutFuncs for pdb::Query {
+    fn input(input: &CStr) -> Self
+    where
+        Self: Sized,
+    {
+        if let Ok(from_json) = serde_json::from_slice::<pdb::Query>(input.to_bytes()) {
+            from_json
+        } else {
+            // assume it's just a string and write it as a "match"
+            pdb::Query::UnclassifiedString {
+                string: input
+                    .to_str()
+                    .expect("input should be valid UTF8")
+                    .to_string(),
+                fuzzy_data: None,
+            }
+        }
+    }
+
+    fn output(&self, buffer: &mut StringInfo) {
+        serde_json::to_writer(buffer, self).unwrap();
+    }
+}
+
+fn boost_query<QueryParserCtor: Fn() -> QueryParser>(
+    field: FieldName,
+    schema: &SearchIndexSchema,
+    parser: &QueryParserCtor,
+    searcher: &Searcher,
+    query: pdb::Query,
+    boost: Score,
+) -> anyhow::Result<Box<BoostQuery>> {
+    Ok(Box::new(BoostQuery::new(
+        query.into_tantivy_query(field, schema, parser, searcher)?,
+        boost,
+    )))
 }
 
 fn proximity(
@@ -340,7 +551,7 @@ fn term(
     schema: &SearchIndexSchema,
     value: &OwnedValue,
     is_datetime: bool,
-) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
     let search_field = schema
         .search_field(field.root())
@@ -364,7 +575,7 @@ fn regex_phrase(
     regexes: Vec<String>,
     slop: Option<u32>,
     max_expansions: Option<u32>,
-) -> Result<Box<RegexPhraseQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -383,7 +594,7 @@ fn regex(
     field: &FieldName,
     schema: &SearchIndexSchema,
     pattern: &str,
-) -> Result<Box<RegexQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -400,7 +611,7 @@ fn range_within(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -553,7 +764,7 @@ fn range_term(
     schema: &SearchIndexSchema,
     value: &OwnedValue,
     is_datetime: bool,
-) -> Result<Box<BooleanQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -655,7 +866,7 @@ fn range_intersects(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -812,7 +1023,7 @@ fn range_contains(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<BooleanQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -952,7 +1163,7 @@ fn range(
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
     is_datetime: bool,
-) -> Result<Box<RangeQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1041,7 +1252,7 @@ fn phrase_prefix(
     schema: &SearchIndexSchema,
     phrases: Vec<String>,
     max_expansions: Option<u32>,
-) -> Result<Box<PhrasePrefixQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1069,7 +1280,7 @@ fn phrase(
     searcher: &Searcher,
     phrases: Vec<String>,
     slop: Option<u32>,
-) -> Result<Box<PhraseQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
@@ -1116,16 +1327,31 @@ fn phrase(
     Ok(Box::new(query))
 }
 
-fn parse(
+fn parse<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
-    parser: &mut QueryParser,
+    parser: &QueryParserCtor,
+    schema: &SearchIndexSchema,
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
-) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+    fuzzy_data: Option<FuzzyData>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let mut parser = parser();
     let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
+    }
+
+    if let Some(fuzzy_data) = fuzzy_data {
+        parser.set_field_fuzzy(
+            schema
+                .search_field(field)
+                .ok_or(QueryError::NonIndexedField(field.clone()))?
+                .field(),
+            fuzzy_data.prefix,
+            fuzzy_data.distance,
+            fuzzy_data.transposition_cost_one,
+        );
     }
 
     let lenient = lenient.unwrap_or(false);
@@ -1152,7 +1378,7 @@ fn match_query(
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
     conjunction_mode: Option<bool>,
-) -> Result<Box<BooleanQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let distance = distance.unwrap_or(0);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);
     let conjunction_mode = conjunction_mode.unwrap_or(false);
@@ -1218,7 +1444,7 @@ fn fuzzy_term(
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
     prefix: Option<bool>,
-) -> Result<Box<dyn TantivyQuery>, Box<dyn Error>> {
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;

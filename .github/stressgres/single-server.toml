@@ -43,6 +43,10 @@ BEGIN
     RETURN true;
 END;
 $$;
+
+
+ALTER SYSTEM SET autovacuum_naptime = '1s';
+SELECT pg_reload_conf();
 """
 
 [server.teardown]

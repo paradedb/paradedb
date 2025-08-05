@@ -59,6 +59,21 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
                     None => parse(query_string, None, None),
                 }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data}) => {
+                    assert!(field.is_some());
+                    let mut query = parse_with_field(string, None, None);
+                    query.apply_fuzzy_data(fuzzy_data);
+                    to_search_query_input(field.unwrap(), query)
+                }
+                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                    assert!(field.is_some());
+                    let mut query = *query;
+                    if let pdb::Query::UnclassifiedString {string, fuzzy_data} = query {
+                        query = parse_with_field(string, None, None);
+                        query.apply_fuzzy_data(fuzzy_data);
+                    }
+                    to_search_query_input(field.unwrap(), pdb::Query::Boost { query: Box::new(query), boost})
+                }
                 RHSValue::PdbQuery(query) => {
                     assert!(field.is_some());
                     to_search_query_input(field.unwrap(), query)

@@ -18,13 +18,14 @@
 use std::cell::RefCell;
 
 use crate::api::FieldName;
-use crate::index::reader::index::{SearchIndexReader, TopNSearchResults};
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::index::reader::index::{SearchIndexReader, SortDirection, TopNSearchResults};
+use crate::postgres::customscan::builders::custom_path::{OrderByFeature, OrderByInfo};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
@@ -36,12 +37,11 @@ pub struct TopNScanExecState {
     // required
     heaprelid: pg_sys::Oid,
     limit: usize,
-    sort_direction: SortDirection,
+    orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
     search_query_input: Option<SearchQueryInput>,
     search_reader: Option<SearchIndexReader>,
-    sort_field: Option<FieldName>,
 
     // state tracking
     search_results: TopNSearchResults,
@@ -56,14 +56,17 @@ pub struct TopNScanExecState {
 }
 
 impl TopNScanExecState {
-    pub fn new(heaprelid: pg_sys::Oid, limit: usize, sort_direction: SortDirection) -> Self {
+    pub fn new(
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        orderby_info: Option<Vec<OrderByInfo>>,
+    ) -> Self {
         Self {
             heaprelid,
             limit,
-            sort_direction,
+            orderby_info,
             search_query_input: None,
             search_reader: None,
-            sort_field: None,
             search_results: TopNSearchResults::empty(),
             nresults: 0,
             did_query: false,
@@ -153,14 +156,27 @@ impl ExecMethod for TopNScanExecState {
         let local_limit = self.limit.max(self.chunk_size);
         let next_offset = self.offset + local_limit;
 
+        // TODO: Temporarily use only the first field.
+        let first_orderby_info = self.orderby_info.as_ref().and_then(|oi| oi.first());
+        let (sort_field, sort_direction): (Option<FieldName>, SortDirection) =
+            if let Some(orderby_info) = first_orderby_info {
+                let sort_field = match &orderby_info.feature {
+                    OrderByFeature::Field(field_name) => Some(field_name.to_owned()),
+                    OrderByFeature::Score => None,
+                };
+                (sort_field, orderby_info.direction.into())
+            } else {
+                (None, SortDirection::None)
+            };
+
         self.search_results = state
             .search_reader
             .as_ref()
             .unwrap()
             .search_top_n_in_segments(
                 self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
-                self.sort_field.clone(),
-                self.sort_direction.into(),
+                sort_field.clone(),
+                sort_direction,
                 local_limit,
                 self.offset,
             );
@@ -251,7 +267,6 @@ impl ExecMethod for TopNScanExecState {
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
         self.search_results = TopNSearchResults::empty();
-        self.sort_field = state.sort_field.clone();
 
         // Reset counters - excluding nresults which tracks processed results
         self.chunk_size = 0;

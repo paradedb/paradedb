@@ -68,7 +68,7 @@ impl ExecMethod for NumericFastFieldExecState {
             false
         } else {
             // not parallel, first time query
-            self.search_results = Some(state.search_reader.as_ref().unwrap().search(state.limit));
+            self.search_results = Some(state.search_reader.as_ref().unwrap().search());
             self.inner.did_query = true;
             true
         }

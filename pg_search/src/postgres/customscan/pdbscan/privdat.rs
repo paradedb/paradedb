@@ -19,7 +19,7 @@ use crate::api::FieldName;
 use crate::api::{AsCStr, Cardinality, Varno};
 use crate::api::{HashMap, HashSet};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::builders::custom_path::{OrderByStyle, SortDirection};
+use crate::postgres::customscan::builders::custom_path::{OrderByInfo, OrderByStyle};
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
@@ -33,8 +33,8 @@ pub struct PrivateData {
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
     limit: Option<usize>,
-    sort_field: Option<FieldName>,
-    sort_direction: Option<SortDirection>,
+    // ORDER-BY info that will be used iff the appropriate ExecMethodType is chosen.
+    maybe_orderby_info: Option<Vec<OrderByInfo>>,
     #[serde(with = "var_attname_lookup_serializer")]
     var_attname_lookup: Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>>,
     segment_count: usize,
@@ -174,16 +174,8 @@ impl PrivateData {
         self.limit = limit.map(|l| l.round() as usize);
     }
 
-    pub fn set_sort_direction(&mut self, sort_direction: Option<SortDirection>) {
-        self.sort_direction = sort_direction;
-    }
-
-    pub fn set_sort_info(&mut self, style: &OrderByStyle) {
-        match &style {
-            OrderByStyle::Score(_) => {}
-            OrderByStyle::Field(_, name) => self.sort_field = Some(name.clone()),
-        }
-        self.sort_direction = Some(style.direction())
+    pub fn set_maybe_orderby_info(&mut self, style: &Option<Vec<OrderByStyle>>) {
+        self.maybe_orderby_info = Some(OrderByInfo::extract_order_by_info(style));
     }
 
     pub fn set_var_attname_lookup(
@@ -250,19 +242,8 @@ impl PrivateData {
         self.limit
     }
 
-    pub fn sort_field(&self) -> Option<FieldName> {
-        self.sort_field.clone()
-    }
-
-    pub fn sort_direction(&self) -> Option<SortDirection> {
-        self.sort_direction
-    }
-
-    pub fn is_sorted(&self) -> bool {
-        matches!(
-            self.sort_direction,
-            Some(SortDirection::Asc | SortDirection::Desc)
-        )
+    pub fn maybe_orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
+        &self.maybe_orderby_info
     }
 
     pub fn var_attname_lookup(&self) -> &Option<HashMap<(Varno, pg_sys::AttrNumber), FieldName>> {

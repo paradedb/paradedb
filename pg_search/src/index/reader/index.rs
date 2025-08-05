@@ -423,7 +423,7 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search(&self, _estimated_rows: Option<usize>) -> MultiSegmentSearchResults {
+    pub fn search(&self) -> MultiSegmentSearchResults {
         self.search_segments(
             self.searcher()
                 .segment_readers()

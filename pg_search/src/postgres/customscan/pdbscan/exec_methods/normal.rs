@@ -188,7 +188,7 @@ impl NormalScanExecState {
                 .search_reader
                 .as_ref()
                 .expect("must have a search_reader to do a query")
-                .search(state.limit),
+                .search(),
         );
         self.did_query = true;
         true

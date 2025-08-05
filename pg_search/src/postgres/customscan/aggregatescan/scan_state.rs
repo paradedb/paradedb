@@ -18,7 +18,9 @@
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
+use crate::postgres::customscan::builders::custom_path::{
+    OrderByFeature, OrderByInfo, SortDirection,
+};
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
@@ -269,7 +271,7 @@ impl AggregateScanState {
                 let col_index = self
                     .grouping_columns
                     .iter()
-                    .position(|gc| gc.field_name == order_info.field_name);
+                    .position(|gc| matches!(&order_info.feature, OrderByFeature::Field(field_name) if gc.field_name == **field_name));
 
                 let cmp = if let Some(idx) = col_index {
                     let val_a = a.group_keys.get(idx);
@@ -281,7 +283,7 @@ impl AggregateScanState {
                     let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
 
                     if let Some(base_cmp) = base_cmp {
-                        if order_info.is_desc {
+                        if matches!(order_info.direction, SortDirection::Desc) {
                             base_cmp.reverse()
                         } else {
                             base_cmp

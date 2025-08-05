@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754417293584,
+  "lastUpdate": 1754417296132,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16668,6 +16668,66 @@ window.BENCHMARK_DATA = {
             "value": 161.64453125,
             "unit": "median mem",
             "extra": "avg mem: 151.05770138264973, max mem: 168.1640625, count: 57878"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754417294837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.731707,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.645170327223834, max cpu: 57.88945, count: 57294"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 167.00629790259453, max mem: 170.99609375, count: 57294"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16495.481306943137, max block_count: 21738.0, count: 57294"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 41,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.538695151324745, max segment_count: 114.0, count: 57294"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.476802,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.663411383547176, max cpu: 33.005894, count: 57294"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.0183669565094, max mem: 170.68359375, count: 57294"
           }
         ]
       }

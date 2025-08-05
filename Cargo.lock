@@ -373,7 +373,7 @@ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
 
 [[package]]
 name = "benchmarks"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -2632,7 +2632,7 @@ checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
 
 [[package]]
 name = "macros"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "proc-macro2",
  "syn 2.0.104",
@@ -2999,7 +2999,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "anyhow",
  "bincode",
@@ -4833,7 +4833,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "anyhow",
  "approx",
@@ -4971,7 +4971,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.17.2"
+version = "0.17.3"
 dependencies = [
  "anyhow",
  "lindera",

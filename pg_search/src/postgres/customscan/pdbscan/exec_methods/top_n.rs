@@ -17,9 +17,8 @@
 
 use std::cell::RefCell;
 
-use crate::api::FieldName;
-use crate::index::reader::index::{SearchIndexReader, SortDirection, TopNSearchResults};
-use crate::postgres::customscan::builders::custom_path::{OrderByFeature, OrderByInfo};
+use crate::api::OrderByInfo;
+use crate::index::reader::index::{SearchIndexReader, TopNSearchResults};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -156,27 +155,13 @@ impl ExecMethod for TopNScanExecState {
         let local_limit = self.limit.max(self.chunk_size);
         let next_offset = self.offset + local_limit;
 
-        // TODO: Temporarily use only the first field.
-        let first_orderby_info = self.orderby_info.as_ref().and_then(|oi| oi.first());
-        let (sort_field, sort_direction): (Option<FieldName>, SortDirection) =
-            if let Some(orderby_info) = first_orderby_info {
-                let sort_field = match &orderby_info.feature {
-                    OrderByFeature::Field(field_name) => Some(field_name.to_owned()),
-                    OrderByFeature::Score => None,
-                };
-                (sort_field, orderby_info.direction.into())
-            } else {
-                (None, SortDirection::None)
-            };
-
         self.search_results = state
             .search_reader
             .as_ref()
             .unwrap()
             .search_top_n_in_segments(
                 self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
-                sort_field.clone(),
-                sort_direction,
+                self.orderby_info.as_ref(),
                 local_limit,
                 self.offset,
             );

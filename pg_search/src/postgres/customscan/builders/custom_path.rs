@@ -15,46 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::Cardinality;
-use crate::api::FieldName;
-use crate::api::HashSet;
+use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
-
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
-#[repr(i32)]
-pub enum SortDirection {
-    #[default]
-    Asc = pg_sys::BTLessStrategyNumber as i32,
-    Desc = pg_sys::BTGreaterStrategyNumber as i32,
-}
-
-impl AsRef<str> for SortDirection {
-    fn as_ref(&self) -> &str {
-        match self {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
-        }
-    }
-}
-
-impl Display for SortDirection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
-}
-
-impl From<SortDirection> for crate::index::reader::index::SortDirection {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => crate::index::reader::index::SortDirection::Asc,
-            SortDirection::Desc => crate::index::reader::index::SortDirection::Desc,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub enum OrderByStyle {
@@ -82,22 +47,7 @@ impl OrderByStyle {
             }
         }
     }
-}
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum OrderByFeature {
-    Score,
-    Field(FieldName),
-}
-
-/// Simple ORDER BY information for serialization in PrivateData
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OrderByInfo {
-    pub feature: OrderByFeature,
-    pub direction: SortDirection,
-}
-
-impl OrderByInfo {
     /// Extract ORDER BY information from query pathkeys
     /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
     pub fn extract_order_by_info(order_pathkeys: &Option<Vec<OrderByStyle>>) -> Vec<OrderByInfo> {

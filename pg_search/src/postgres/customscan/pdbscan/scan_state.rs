@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
-use crate::api::Varno;
+use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::{ExecMethodType, OrderByInfo};
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::qual_inspect::Qual;

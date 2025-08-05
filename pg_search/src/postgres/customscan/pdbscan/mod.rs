@@ -24,14 +24,13 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::{HashMap, HashSet};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByFeature, OrderByInfo,
-    OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{

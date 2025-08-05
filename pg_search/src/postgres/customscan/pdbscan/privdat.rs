@@ -15,13 +15,12 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::{AsCStr, Cardinality, Varno};
-use crate::api::{HashMap, HashSet};
+use crate::api::{AsCStr, Cardinality, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::builders::custom_path::{OrderByInfo, OrderByStyle};
+use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::pdbscan::ExecMethodType;
 use crate::query::SearchQueryInput;
+
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
@@ -175,7 +174,7 @@ impl PrivateData {
     }
 
     pub fn set_maybe_orderby_info(&mut self, style: &Option<Vec<OrderByStyle>>) {
-        self.maybe_orderby_info = Some(OrderByInfo::extract_order_by_info(style));
+        self.maybe_orderby_info = Some(OrderByStyle::extract_order_by_info(style));
     }
 
     pub fn set_var_attname_lookup(

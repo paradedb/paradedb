@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
-};
-use crate::postgres::customscan::builders::custom_path::{
-    OrderByFeature, OrderByInfo, SortDirection,
 };
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;

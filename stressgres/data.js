@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754423101690,
+  "lastUpdate": 1754423104371,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12754,6 +12754,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 69.07216762405703, max segment_count: 98.0, count: 57796"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e3bd2aeb4384019cfe6446bb8601df8652ae4fb0",
+          "message": "chore: add missing tests from enterprise (#2937)\n\nThis adds a test file that only existed in our enterprise version that\nhad some failures and needed fixing.\n\nSeems better to have it on community -- it's not specific to enterprise.",
+          "timestamp": "2025-08-05T15:18:10-04:00",
+          "tree_id": "ffcda25958b5c15c189adc660e77aff92b42e999",
+          "url": "https://github.com/paradedb/paradedb/commit/e3bd2aeb4384019cfe6446bb8601df8652ae4fb0"
+        },
+        "date": 1754423103026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.40287750360397, max cpu: 42.942345, count: 57946"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 227.34528402521312, max mem: 232.94921875, count: 57946"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.085686677070818, max cpu: 33.300297, count: 57946"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.86404051023797, max mem: 163.765625, count: 57946"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22205,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20751.39614468643, max block_count: 23496.0, count: 57946"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.63129465364305, max segment_count: 95.0, count: 57946"
           }
         ]
       }

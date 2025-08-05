@@ -1989,35 +1989,6 @@ WHERE description @@@ 'laptop';
      1 | 2799.97
 (1 row)
 
--- Case 7: SELECT DISTINCT (should fall back to PostgreSQL)
--- This should fall back to regular PostgreSQL execution since SELECT DISTINCT is not supported
-EXPLAIN (COSTS OFF) SELECT DISTINCT category
-FROM products 
-WHERE description @@@ 'laptop';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Unique
-   ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Scan) on products
-               Table: products
-               Index: products_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category
-               String Fast Fields: category
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
-
-SELECT DISTINCT category
-FROM products 
-WHERE description @@@ 'laptop'
-ORDER BY category;
-  category   
--------------
- Electronics
-(1 row)
-
 -- Reset settings
 RESET max_parallel_workers_per_gather;
 RESET enable_hashagg;

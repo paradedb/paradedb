@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754416504499,
+  "lastUpdate": 1754417534407,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -14958,6 +14958,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 86.4905,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a18fff766644d8f375182df55e5c87ca5e5f052",
+          "message": "feat: ability to specify term \"fuzzy\"-ness via a cast to `::fuzzy(N)` (#2921)\n\n## What\n\nIntroduces a new SQL type named `fuzzy(N, b, b)` that can be used in\nvarious query contexts to indicate that the term(s) being searched for\nshould be \"fuzzy terms\".\n\nSome examples:\n\n```sql\nSELECT * FROM t WHERE f === 'beer'::fuzzy(2);   -- FuzzyTerm query\nSELECT * FROM t WHERE f @@@ 'beer wine cheese'::fuzzy(2); -- QueryParser query with fuzzy set for the field \"f\"\nSELECT * FROM t WHERE f &&& 'beer wine cheese'::fuzzy(2); -- Match conjunction query with fuzzy\nSELECT * FROM t WHERE f ||| 'beer wine cheese'::fuzzy(2); -- Match disjunction query with fuzzy\n```\n\nThe type modifier can take 3 arguments: a distance calculation in the\nrange `0..=2` and two booleans written as either `t`/`f` or (literally)\n`\"true\"`/`\"false\"` (this is a Postgres restriction -- `true` or `false`\non their own don't work). The first boolean, which defaults to `f`\ndenotes if the fuzzy term should be a prefix and the second boolean,\nwhich also defaults to `f` denotes if the transaction cost should be 1\n(true) or zero (false).\n\n## Why\n\nA continuation of improving our SQL UX. This feature is similar to the\nrecently committed `::boost(N)` feature in that the query rewriting\nhappens through an SQL type cast.\n\n## How\n\n## Tests\n\nNew regression test specifically for fuzzy, a proptest for the\nconversion to/from the typmod `i32` and all other tests pass.",
+          "timestamp": "2025-08-05T13:30:40-04:00",
+          "tree_id": "2a204df41a87b5a8f8048da5425c4f8ed2cd2306",
+          "url": "https://github.com/paradedb/paradedb/commit/4a18fff766644d8f375182df55e5c87ca5e5f052"
+        },
+        "date": 1754417533008,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1203.866,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 707.88,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1472.801,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 772.3125,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 742.7784999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1605.9885,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 21.8095,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 60.073499999999996,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 87.19749999999999,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

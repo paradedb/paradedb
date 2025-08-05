@@ -79,6 +79,22 @@ select * from regress.mock_items where description ||| case when id = 1 then 'ke
 select * from regress.mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 select * from regress.mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
 
+
+--
+-- other supported types on the lhs
+-- these are types that postgres will coerce to TEXT
+--
+SELECT * FROM regress.mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE category &&& 'footwear' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE category ||| 'footwear' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE category ### 'footwear' ORDER BY id;
+SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
+
 --
 -- some unsupported types on the lhs
 -- these will all produce an error

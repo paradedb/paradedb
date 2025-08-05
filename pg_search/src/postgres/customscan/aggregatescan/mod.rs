@@ -136,7 +136,7 @@ impl CustomScan for AggregateScan {
                 restrict_info.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 ri_type,
-                &schema,
+                &bm25_index,
                 false, // Base relation quals should not convert external to all
                 &mut QualExtractState::default(),
             );

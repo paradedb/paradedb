@@ -17,19 +17,21 @@
 
 mod andandand;
 mod atatat;
+mod boost;
 mod eqeqeq;
 mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
 
+use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -132,6 +134,20 @@ pub fn pdb_query_typoid() -> pg_sys::Oid {
     }
 }
 
+pub fn boost_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.boost".into_datum()],
+        )
+        .expect("type `pg_catalog.boost` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.boost` should exist");
+        }
+        oid
+    }
+}
+
 pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
     unsafe {
         let oid = direct_function_call::<pg_sys::Oid>(
@@ -197,22 +213,16 @@ pub unsafe fn tantivy_field_name_from_node(
     node: *mut pg_sys::Node,
 ) -> Option<(pg_sys::Oid, Option<FieldName>)> {
     match (*node).type_ {
-        pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_OpExpr => {
-            use crate::PG_SEARCH_PREFIX;
-
-            // We expect the funcexpr/opexpr to contain the var of the field name we're looking for
-            let (heaprelid, _, _) = find_node_relation(node, root);
-            if heaprelid == pg_sys::Oid::INVALID {
-                panic!("could not find heap relation for node");
+        pg_sys::NodeTag::T_FuncExpr => tantivy_field_name_from_func_expr(root, node),
+        pg_sys::NodeTag::T_OpExpr => match tantivy_field_name_from_func_expr(root, node) {
+            Some((oid, attname)) => Some((oid, attname)),
+            None => {
+                let (var, fieldname) =
+                    find_one_var_and_fieldname(VarContext::from_planner(root), node)?;
+                let (oid, _) = VarContext::from_planner(root).var_relation(var);
+                Some((oid, Some(fieldname)))
             }
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-                .expect("could not find bm25 index for heaprelid");
-
-            let attnum = find_expr_attnum(&indexrel, node)?;
-            let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
-            Some((heaprelid, Some(expression_str)))
-        }
+        },
         pg_sys::NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
             let (oid, attname) = attname_from_var(root, var);
@@ -220,6 +230,25 @@ pub unsafe fn tantivy_field_name_from_node(
         }
         _ => None,
     }
+}
+
+unsafe fn tantivy_field_name_from_func_expr(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<(pg_sys::Oid, Option<FieldName>)> {
+    use crate::PG_SEARCH_PREFIX;
+
+    let (heaprelid, _, _) = find_node_relation(node, root);
+    if heaprelid == pg_sys::Oid::INVALID {
+        panic!("could not find heap relation for node");
+    }
+    let heaprel = PgSearchRelation::open(heaprelid);
+    let indexrel =
+        locate_bm25_index_from_heaprel(&heaprel).expect("could not find bm25 index for heaprelid");
+
+    let attnum = find_expr_attnum(&indexrel, node)?;
+    let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
+    Some((heaprelid, Some(expression_str)))
 }
 
 fn find_expr_attnum(indexrel: &PgSearchRelation, node: *mut pg_sys::Node) -> Option<i32> {
@@ -259,8 +288,13 @@ where
     let search_query_input_typoid = searchqueryinput_typoid();
 
     let input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
-    let lhs = input_args.get_ptr(0)?;
+    let mut lhs = input_args.get_ptr(0)?;
     let rhs = input_args.get_ptr(1)?;
+
+    // fast-forward through relabel types -- we're interested in the final node being relabeled
+    while let Some(relabel) = nodecast!(RelabelType, T_RelabelType, lhs) {
+        lhs = (*relabel).arg.cast();
+    }
 
     let (_heaprelid, field) = tantivy_field_name_from_node((*srs).root, lhs)?;
     let rhs = rewrite_rhs_to_search_query_input(
@@ -454,6 +488,13 @@ where
                 pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
                     .expect("rhs fielded query input value must not be NULL"),
             ),
+
+            other if other == boost_typoid() => {
+                let boost = BoostType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs boost value must not be NULL");
+                let boost = boost_to_boost(boost, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(boost.into())
+            }
 
             other if other == pdb_proximityclause_typoid() => {
                 let prox = ProximityClause::from_datum((*const_).constvalue, (*const_).constisnull)

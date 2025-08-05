@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754414182690,
+  "lastUpdate": 1754415204009,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -14610,6 +14610,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.386,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf",
+          "message": "fix: relation extension cache invalidation (#2927) (#2934)\n\n(This ports the recent v0.16.5 changes\n(214c9c7dd37a0ddb934e1ce4cbb15f949e1f8a69) forward to `main`)\n\nWhen extending a relation the backend needs to clear the relation's\n`SMgrRelation`'s \"SIZE_CACHE\" so that it doesn't become confused about\nthe size of a relation relative to other concurrent relation extensions\nthat may have occurred.\n\nFailure to do this can cause errors like the below under high read/write\nconcurrency:\n\n```\nERROR:  XX001: could not read blocks 10..10 in file \"base/16384/16552\": read only 0 of 8192 bytes\n```\n\nPR #2716 introduced this bug as it changed our approach of always\ncalling `pg_sys::relation_open()` to the new `PgSearchRelation` which\nwraps an already-opened `pg_sys::Relation` pointer and is cheaply\nclone-able.\n\nEssentially, prior to #2716 we'd always get a new `SMgrRelation` and it\nwould ask the kernel about the size of the relation on disk, whereas\n\nFixing this necessitates calling the various\n`pg_sys::ExtendBufferedRel*()` functions with the\n`pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE` flag set, which also\nmeans we need to use `pg_sys::ExtendedBufferedRel` directly when\nextending the relation by one block. So `BM25BufferCache` has been\nrefactored a bit to handle this.\n\nIt's also necessary, when extending the relation by a single buffer, to\nlock it using an `ExclusiveLock`, not an `AccessExclusiveLock`.\n\nAs a drive-by, this PR adjusts `SegmentComponentWriter`'s flush/drop\nbehavior to be less confusing and better aided by the Rust compiler.\nThis is related to the new `LInkedBytesListWriter::finalize_and_write()`\nfunction (see below).\n\nThe cleanup around flush & drop also ensures that we won't try to write\nany bit of a SegmentComponentWriter's buffers to disk if we're dropping\nduring a panic-induced stack unwind.\n\n`LinkedBytesListWriter` now has a `fn finalize_and_write(self)` which is\nwhere it records the `last_blockno` in the list's metadata and also\nwhere its `BlockList` is written to disk. The `last_blockno` was\npreviously being constantly updated by `LinkedBytesListWriter::write()`\nevery time it linked a new buffer to the end. This wasn't necessarily\nincorrect, but it was inefficient and made analyzing the issues this PR\naims to fix a bit more difficult.\n\nMoving the final assignment of `last_blockno` to `finalize_and_write()`\nis fine as if the writer is never finalized for whatever reason, the\n\"last block number\" won't matter anyways.\n\nThere's a new feature called `block_tracker` that when enabled will\ntransiently track all block numbers being opened/released and panic when\nit detects a block is about to be opened a second time in an\nincompatible manner with an already-open instance. This is for internal\ndebugging and clearly not meant for production use, which is why the\nfeature is not included in the default feature flag set.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-05T12:51:08-04:00",
+          "tree_id": "19a3c97d5000369c91d3727abf2ab77cc4573668",
+          "url": "https://github.com/paradedb/paradedb/commit/c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf"
+        },
+        "date": 1754415202624,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1194.5765000000001,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 705.58,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1475.8110000000001,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 770.722,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 742.8299999999999,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1600.2905,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 21.613500000000002,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 63.57899999999999,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 86.4905,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

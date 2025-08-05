@@ -137,7 +137,7 @@ CREATE TABLE {tname}
 );
 
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age)
+CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age, balance, subscribed)
 WITH (
 key_field = 'id',
 text_fields = '
@@ -146,11 +146,13 @@ text_fields = '
                 "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+                "balance": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+                "subscribed": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
             }}'
 );
 
-INSERT into {tname} (uuid, name, color, age)
-VALUES (gen_random_uuid(), 'bob', 'blue', 20);
+INSERT into {tname} (uuid, name, color, age, balance, subscribed)
+VALUES (gen_random_uuid(), 'bob', 'blue', 20, 40.56, 'true');
 
 INSERT into {tname} (uuid, name, color, age)
 SELECT
@@ -164,6 +166,8 @@ CREATE INDEX idx{tname}_uuid ON {tname} (uuid);
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
+CREATE INDEX idx{tname}_balance ON {tname} (balance);
+CREATE INDEX idx{tname}_subscribed ON {tname} (subscribed);
 ANALYZE;
 "#
         );

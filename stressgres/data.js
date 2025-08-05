@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754414901806,
+  "lastUpdate": 1754415529357,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17432,6 +17432,60 @@ window.BENCHMARK_DATA = {
             "value": 18.124592926339798,
             "unit": "median tps",
             "extra": "avg tps: 18.463469248571062, max tps: 21.8760276434892, count: 55532"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf",
+          "message": "fix: relation extension cache invalidation (#2927) (#2934)\n\n(This ports the recent v0.16.5 changes\n(214c9c7dd37a0ddb934e1ce4cbb15f949e1f8a69) forward to `main`)\n\nWhen extending a relation the backend needs to clear the relation's\n`SMgrRelation`'s \"SIZE_CACHE\" so that it doesn't become confused about\nthe size of a relation relative to other concurrent relation extensions\nthat may have occurred.\n\nFailure to do this can cause errors like the below under high read/write\nconcurrency:\n\n```\nERROR:  XX001: could not read blocks 10..10 in file \"base/16384/16552\": read only 0 of 8192 bytes\n```\n\nPR #2716 introduced this bug as it changed our approach of always\ncalling `pg_sys::relation_open()` to the new `PgSearchRelation` which\nwraps an already-opened `pg_sys::Relation` pointer and is cheaply\nclone-able.\n\nEssentially, prior to #2716 we'd always get a new `SMgrRelation` and it\nwould ask the kernel about the size of the relation on disk, whereas\n\nFixing this necessitates calling the various\n`pg_sys::ExtendBufferedRel*()` functions with the\n`pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE` flag set, which also\nmeans we need to use `pg_sys::ExtendedBufferedRel` directly when\nextending the relation by one block. So `BM25BufferCache` has been\nrefactored a bit to handle this.\n\nIt's also necessary, when extending the relation by a single buffer, to\nlock it using an `ExclusiveLock`, not an `AccessExclusiveLock`.\n\nAs a drive-by, this PR adjusts `SegmentComponentWriter`'s flush/drop\nbehavior to be less confusing and better aided by the Rust compiler.\nThis is related to the new `LInkedBytesListWriter::finalize_and_write()`\nfunction (see below).\n\nThe cleanup around flush & drop also ensures that we won't try to write\nany bit of a SegmentComponentWriter's buffers to disk if we're dropping\nduring a panic-induced stack unwind.\n\n`LinkedBytesListWriter` now has a `fn finalize_and_write(self)` which is\nwhere it records the `last_blockno` in the list's metadata and also\nwhere its `BlockList` is written to disk. The `last_blockno` was\npreviously being constantly updated by `LinkedBytesListWriter::write()`\nevery time it linked a new buffer to the end. This wasn't necessarily\nincorrect, but it was inefficient and made analyzing the issues this PR\naims to fix a bit more difficult.\n\nMoving the final assignment of `last_blockno` to `finalize_and_write()`\nis fine as if the writer is never finalized for whatever reason, the\n\"last block number\" won't matter anyways.\n\nThere's a new feature called `block_tracker` that when enabled will\ntransiently track all block numbers being opened/released and panic when\nit detects a block is about to be opened a second time in an\nincompatible manner with an already-open instance. This is for internal\ndebugging and clearly not meant for production use, which is why the\nfeature is not included in the default feature flag set.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-05T12:51:08-04:00",
+          "tree_id": "19a3c97d5000369c91d3727abf2ab77cc4573668",
+          "url": "https://github.com/paradedb/paradedb/commit/c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf"
+        },
+        "date": 1754415527959,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.518326143944826,
+            "unit": "median tps",
+            "extra": "avg tps: 39.4813065772711, max tps: 40.99164545584716, count: 55517"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 259.41092090859814,
+            "unit": "median tps",
+            "extra": "avg tps: 296.08154817527105, max tps: 2511.4817919989396, count: 55517"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 138.82072693639486,
+            "unit": "median tps",
+            "extra": "avg tps: 138.65437133077498, max tps: 140.5742157770976, count: 55517"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 72.89871140171385,
+            "unit": "median tps",
+            "extra": "avg tps: 75.69200973646545, max tps: 117.19296765341869, count: 111034"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.79097964462658,
+            "unit": "median tps",
+            "extra": "avg tps: 18.976633959025005, max tps: 21.289399619929927, count: 55517"
           }
         ]
       }

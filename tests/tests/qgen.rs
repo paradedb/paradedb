@@ -63,7 +63,7 @@ impl ColumnDef {
             ColumnDef::Color(_) => "VARCHAR",
             ColumnDef::Age(_) => "VARCHAR",
             ColumnDef::Balance(_) => "FLOAT8",
-            ColumnDef::Subscribed(_) => "BOOL",
+            ColumnDef::Subscribed(_) => "BOOLEAN",
         }
     }
 

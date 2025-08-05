@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754413618636,
+  "lastUpdate": 1754413621179,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8030,6 +8030,126 @@ window.BENCHMARK_DATA = {
             "value": 93.84375,
             "unit": "median mem",
             "extra": "avg mem: 91.89584238638422, max mem: 96.33203125, count: 55230"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf",
+          "message": "fix: relation extension cache invalidation (#2927) (#2934)\n\n(This ports the recent v0.16.5 changes\n(214c9c7dd37a0ddb934e1ce4cbb15f949e1f8a69) forward to `main`)\n\nWhen extending a relation the backend needs to clear the relation's\n`SMgrRelation`'s \"SIZE_CACHE\" so that it doesn't become confused about\nthe size of a relation relative to other concurrent relation extensions\nthat may have occurred.\n\nFailure to do this can cause errors like the below under high read/write\nconcurrency:\n\n```\nERROR:  XX001: could not read blocks 10..10 in file \"base/16384/16552\": read only 0 of 8192 bytes\n```\n\nPR #2716 introduced this bug as it changed our approach of always\ncalling `pg_sys::relation_open()` to the new `PgSearchRelation` which\nwraps an already-opened `pg_sys::Relation` pointer and is cheaply\nclone-able.\n\nEssentially, prior to #2716 we'd always get a new `SMgrRelation` and it\nwould ask the kernel about the size of the relation on disk, whereas\n\nFixing this necessitates calling the various\n`pg_sys::ExtendBufferedRel*()` functions with the\n`pg_sys::ExtendBufferedFlags::EB_CLEAR_SIZE_CACHE` flag set, which also\nmeans we need to use `pg_sys::ExtendedBufferedRel` directly when\nextending the relation by one block. So `BM25BufferCache` has been\nrefactored a bit to handle this.\n\nIt's also necessary, when extending the relation by a single buffer, to\nlock it using an `ExclusiveLock`, not an `AccessExclusiveLock`.\n\nAs a drive-by, this PR adjusts `SegmentComponentWriter`'s flush/drop\nbehavior to be less confusing and better aided by the Rust compiler.\nThis is related to the new `LInkedBytesListWriter::finalize_and_write()`\nfunction (see below).\n\nThe cleanup around flush & drop also ensures that we won't try to write\nany bit of a SegmentComponentWriter's buffers to disk if we're dropping\nduring a panic-induced stack unwind.\n\n`LinkedBytesListWriter` now has a `fn finalize_and_write(self)` which is\nwhere it records the `last_blockno` in the list's metadata and also\nwhere its `BlockList` is written to disk. The `last_blockno` was\npreviously being constantly updated by `LinkedBytesListWriter::write()`\nevery time it linked a new buffer to the end. This wasn't necessarily\nincorrect, but it was inefficient and made analyzing the issues this PR\naims to fix a bit more difficult.\n\nMoving the final assignment of `last_blockno` to `finalize_and_write()`\nis fine as if the writer is never finalized for whatever reason, the\n\"last block number\" won't matter anyways.\n\nThere's a new feature called `block_tracker` that when enabled will\ntransiently track all block numbers being opened/released and panic when\nit detects a block is about to be opened a second time in an\nincompatible manner with an already-open instance. This is for internal\ndebugging and clearly not meant for production use, which is why the\nfeature is not included in the default feature flag set.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-05T12:51:08-04:00",
+          "tree_id": "19a3c97d5000369c91d3727abf2ab77cc4573668",
+          "url": "https://github.com/paradedb/paradedb/commit/c804e4b7155b9bcaceff3f6cec8d7e914b6d39bf"
+        },
+        "date": 1754413619825,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.753899733175351, max cpu: 9.458128, count: 55242"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 57.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 57.21267587388219, max mem: 77.6015625, count: 55242"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.668914667194555, max cpu: 9.275363, count: 55242"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 50.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 49.75873563988903, max mem: 69.65625, count: 55242"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794398878579463, max cpu: 9.448819, count: 55242"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 55.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.71778202895894, max mem: 76.4609375, count: 55242"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3116005930772365, max cpu: 4.7151275, count: 55242"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.02383306066942, max mem: 75.546875, count: 55242"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.593450533242609, max cpu: 23.59882, count: 110484"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.00243742872271, max mem: 86.6875, count: 110484"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3149,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3193.000705984577, max block_count: 5685.0, count: 55242"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.335270265377792, max segment_count: 26.0, count: 55242"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.918265175106254, max cpu: 14.201183, count: 55242"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 74.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 74.11843379188389, max mem: 96.64453125, count: 55242"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.095573214886237, max cpu: 4.660194, count: 55242"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 53.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.44294677283589, max mem: 75.05078125, count: 55242"
           }
         ]
       }

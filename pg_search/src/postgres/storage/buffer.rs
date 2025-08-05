@@ -2,7 +2,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
+use crate::postgres::storage::utils::{extend_by_one_buffer, BM25Page, RelationBufferAccess};
 use pgrx::pg_sys;
 
 /// A module to help with tracking when/where blocks are acquired and released.
@@ -592,7 +592,11 @@ impl BufferManager {
                 self.rbufacc
                     .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE))
             })
-            .unwrap_or_else(|| self.rbufacc.new_buffer());
+            .unwrap_or_else(|| unsafe {
+                let pg_buffer = self.rbufacc.new_buffer();
+                pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as pg_sys::LOCKMODE);
+                pg_buffer
+            });
 
         block_tracker::track!(Write, pg_buffer);
         BufferMut {
@@ -613,6 +617,7 @@ impl BufferManager {
         fsm_blocknos
             .into_iter()
             .map(move |blockno| {
+                // buffers from the FSM need to get acquired and locked with an exclusive lock
                 let pg_buffer = rbufacc.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
                 block_tracker::track!(Write, pg_buffer);
                 BufferMut {
@@ -620,9 +625,13 @@ impl BufferManager {
                     inner: Buffer { pg_buffer },
                 }
             })
-            .chain(new_buffers.map(|pg_buffer| BufferMut {
-                dirty: false,
-                inner: Buffer { pg_buffer },
+            .chain(new_buffers.map(|pg_buffer| {
+                // `new_buffers` are returned with an exclusive lock
+                block_tracker::track!(Write, pg_buffer);
+                BufferMut {
+                    dirty: false,
+                    inner: Buffer { pg_buffer },
+                }
             }))
     }
 
@@ -733,17 +742,11 @@ impl BufferManager {
 /// and initialize it as a new page.
 pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     unsafe {
-        pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
-        let pg_buffer = pg_sys::ReadBufferExtended(
-            rel.as_ptr(),
-            pg_sys::ForkNumber::MAIN_FORKNUM,
-            pg_sys::InvalidBlockNumber,
-            pg_sys::ReadBufferMode::RBM_NORMAL,
-            std::ptr::null_mut(),
-        );
-        pg_sys::UnlockRelationForExtension(rel.as_ptr(), pg_sys::AccessExclusiveLock as _);
-        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
+        pg_sys::LockRelationForExtension(rel.as_ptr(), pg_sys::ExclusiveLock as _);
+        let pg_buffer = extend_by_one_buffer(rel.as_ptr(), std::ptr::null_mut());
+        pg_sys::UnlockRelationForExtension(rel.as_ptr(), pg_sys::ExclusiveLock as _);
 
+        pg_sys::LockBuffer(pg_buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as _);
         let mut buffer = BufferMut {
             dirty: false,
             inner: Buffer { pg_buffer },

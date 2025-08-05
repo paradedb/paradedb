@@ -174,6 +174,10 @@ impl RelationBufferAccess {
         strategy: pg_sys::BufferAccessStrategy,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
+        debug_assert!(
+            blockno != pg_sys::InvalidBlockNumber,
+            "RelationBufferAccess::get_buffer_with_strategy:  blockno is invalid"
+        );
         unsafe {
             let buffer = pg_sys::ReadBufferExtended(
                 self.rel.as_ptr(),
@@ -198,7 +202,7 @@ impl RelationBufferAccess {
 /// Requires that the caller have the relation locked for extension with a [`pg_sys::ExclusiveLock`],
 /// otherwise Postgres will trap an Assert in debug mode
 #[inline]
-unsafe fn extend_by_one_buffer(
+pub unsafe fn extend_by_one_buffer(
     rel: pg_sys::Relation,
     strategy: pg_sys::BufferAccessStrategy,
 ) -> pg_sys::Buffer {

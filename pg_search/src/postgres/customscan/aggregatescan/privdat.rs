@@ -21,6 +21,7 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
@@ -48,6 +49,29 @@ enum NumberProcessingType {
     Numeric,
     /// For AVG: always convert to Float
     Float,
+}
+
+/// Represents an aggregate result that can be either a direct value or wrapped in a "value" object
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AggregateResult {
+    /// Direct numeric value (e.g., `42`)
+    DirectValue(serde_json::Number),
+    /// Object with "value" field (e.g., `{"value": 42}`)
+    ValueObject { value: Option<serde_json::Number> },
+    /// Null value
+    Null,
+}
+
+impl AggregateResult {
+    /// Extract the numeric value, returning None if null
+    pub fn extract_number(&self) -> Option<&serde_json::Number> {
+        match self {
+            AggregateResult::DirectValue(num) => Some(num),
+            AggregateResult::ValueObject { value } => value.as_ref(),
+            AggregateResult::Null => None,
+        }
+    }
 }
 
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
@@ -130,64 +154,25 @@ impl AggregateType {
     }
 
     fn result_from_json_internal(&self, result: &serde_json::Value) -> AggregateValue {
-        match self {
-            AggregateType::Count => {
-                Self::process_standard_aggregate(result, "COUNT", NumberProcessingType::Count)
-            }
-            AggregateType::Sum { .. } => {
-                Self::process_standard_aggregate(result, "SUM", NumberProcessingType::Numeric)
-            }
-            AggregateType::Avg { .. } => {
-                Self::process_standard_aggregate(result, "AVG", NumberProcessingType::Float)
-            }
-            AggregateType::Min { .. } => {
-                Self::process_standard_aggregate(result, "MIN", NumberProcessingType::Numeric)
-            }
-            AggregateType::Max { .. } => {
-                Self::process_standard_aggregate(result, "MAX", NumberProcessingType::Numeric)
-            }
-        }
-    }
+        // Use serde to deserialize the result into our structured type
+        let agg_result: AggregateResult = match serde_json::from_value(result.clone()) {
+            Ok(result) => result,
+            Err(e) => panic!("Failed to deserialize aggregate result: {e}, value: {result:?}"),
+        };
 
-    /// Common processing logic for standard aggregates (COUNT, SUM, AVG, MIN, MAX)
-    fn process_standard_aggregate(
-        result: &serde_json::Value,
-        agg_name: &str,
-        processing_type: NumberProcessingType,
-    ) -> AggregateValue {
-        match Self::extract_value(result, agg_name) {
+        // Extract the number and process it based on the aggregate type
+        match agg_result.extract_number() {
             None => AggregateValue::Null,
-            Some(value) => {
-                if let Some(num) = value.as_number() {
-                    Self::process_number(num, processing_type)
-                } else {
-                    panic!("{agg_name} result value should be a number or null, got: {value:?}");
-                }
+            Some(num) => {
+                let processing_type = match self {
+                    AggregateType::Count => NumberProcessingType::Count,
+                    AggregateType::Sum { .. } => NumberProcessingType::Numeric,
+                    AggregateType::Avg { .. } => NumberProcessingType::Float,
+                    AggregateType::Min { .. } => NumberProcessingType::Numeric,
+                    AggregateType::Max { .. } => NumberProcessingType::Numeric,
+                };
+                Self::process_number(num, processing_type)
             }
-        }
-    }
-
-    /// Extract the actual value from a JSON result, handling both direct values and {"value": ...} wrapper objects
-    fn extract_value<'a>(
-        result: &'a serde_json::Value,
-        aggregate_name: &str,
-    ) -> Option<&'a serde_json::Value> {
-        if result.is_null() {
-            None
-        } else if result.is_number() {
-            Some(result)
-        } else if let Some(obj) = result.as_object() {
-            if let Some(value) = obj.get("value") {
-                if value.is_null() {
-                    None
-                } else {
-                    Some(value)
-                }
-            } else {
-                panic!("{aggregate_name} result object missing 'value' field: {result:?}");
-            }
-        } else {
-            panic!("{aggregate_name} result should be a number, null, or object with value field, got: {result:?}");
         }
     }
 

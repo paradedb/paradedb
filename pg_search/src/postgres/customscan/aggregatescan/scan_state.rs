@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
+    AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
 use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
@@ -222,19 +222,30 @@ impl AggregateScanState {
         rows
     }
 
-    /// Extract aggregate value from JSON, handling different structures
-    /// (direct values, objects with "value" field, or raw objects for COUNT)
+    /// Extract aggregate value from JSON using serde deserialization
+    /// This handles different structures: direct values, objects with "value" field, or raw objects for COUNT
     fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> &serde_json::Value {
-        if let Some(obj) = agg_obj.as_object() {
-            if let Some(value) = obj.get("value") {
-                value
-            } else {
-                // For COUNT aggregates, the value might be directly in the object
-                agg_obj
+        // Try to deserialize using our structured type
+        match serde_json::from_value::<AggregateResult>(agg_obj.clone()) {
+            Ok(result) => {
+                // If we successfully parsed it, we still need to return the original value
+                // for compatibility with existing code. This is a transitional approach.
+                match result {
+                    AggregateResult::DirectValue(_) => agg_obj,
+                    AggregateResult::ValueObject { value: Some(_) } => {
+                        // Return the value field if it exists
+                        if let Some(obj) = agg_obj.as_object() {
+                            obj.get("value").unwrap_or(agg_obj)
+                        } else {
+                            agg_obj
+                        }
+                    }
+                    AggregateResult::ValueObject { value: None } | AggregateResult::Null => agg_obj,
+                }
             }
-        } else {
-            // Direct numeric value
-            agg_obj
+            Err(_) => {
+                panic!("Failed to deserialize aggregate result: {agg_obj:?}");
+            }
         }
     }
 

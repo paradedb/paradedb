@@ -11,7 +11,7 @@ on:
           Commits to re-run, written as a JSON array.
           Example: ["6d3c1f0", "a1b2c3d", "deadbeef"]
 
-          Using one hash still requires the JSON array syntax, ie ["6d3c1f0"].
+          Using one hash still requires the JSON array syntax, i.e. ["6d3c1f0"].
         required: true
         type: string
       reset_data:
@@ -19,21 +19,25 @@ on:
         type: boolean
         default: true
 
-# the token must be allowed to start other workflows
+# The token must be allowed to start other workflows
 permissions:
   actions: write
   contents: write
 
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
 jobs:
   reset:
+    name: Reset the `gh-pages` data.js Files
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout gh-pages
+      - name: Checkout Git Repository at ref=gh-pages
         if: ${{ inputs.reset_data }}
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-      - name: Reset data.js files
+
+      - name: Reset data.js Files
         if: ${{ inputs.reset_data }}
         run: |
           git config user.name "Benchmark Backfill Job"
@@ -45,16 +49,17 @@ jobs:
             git push
           fi
 
+  # We run one job per commit
   dispatch:
-    # one job per commit
+    name: Dispatch All Benchmark Jobs
+    runs-on: ubuntu-latest
     needs: reset
     strategy:
       matrix:
         sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
-    runs-on: ubuntu-latest
 
     steps:
-      - name: Fire benchmark & stressgres for ${{ matrix.sha }}
+      - name: Fire Benchmark & Stressgres for ${{ matrix.sha }}
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -63,7 +68,7 @@ jobs:
             const repo  = context.repo.repo;
             const sha   = '${{ matrix.sha }}';
 
-            // Workflows you want to queue
+            // Workflows to queue
             const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
 
             for (const wf of targets) {

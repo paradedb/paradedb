@@ -1,10 +1,13 @@
--- Test GROUP BY functionality in aggregate custom scan
--- This file combines and consolidates tests from multiple GROUP BY test files
+-- =====================================================================
+-- Test Suite for Aggregate Custom Scan GROUP BY Functionality
+-- =====================================================================
+-- This file tests GROUP BY queries with aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+-- for the aggregate custom scan feature.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
--- ===========================================================================
--- SECTION 1: Basic GROUP BY Tests with Numeric Fields
--- ===========================================================================
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (
     id SERIAL PRIMARY KEY,
@@ -17,7 +20,7 @@ CREATE TABLE products (
 INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Laptop with fast processor', 5, 'Electronics', 999.99, true),
     ('Gaming laptop with RGB', 5, 'Electronics', 1299.99, true),
-    ('Budget laptop for students', 3, 'Electronics', 499.99, false),
+    ('Toy laptop for kids', 3, 'Toys', 499.99, false),
     ('Wireless keyboard and mouse', 4, 'Electronics', 79.99, true),
     ('Mechanical keyboard RGB', 5, 'Electronics', 149.99, true),
     ('Running shoes for athletes', 5, 'Sports', 89.99, true),
@@ -30,34 +33,37 @@ WITH (
     text_fields='{"description": {}, "category": {"fast": true}}',
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
--- Test 1.1: Basic GROUP BY with integer field
+-- =====================================================================
+-- SECTION 1: GROUP BY with Aggregate Functions
+-- =====================================================================
+-- Test 1.1: GROUP BY with COUNT(*)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) AS count
+SELECT category, COUNT(*) 
 FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating
-ORDER BY rating;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, now()
+   Output: category, now()
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
-SELECT rating, COUNT(*) AS count
+SELECT category, COUNT(*) 
 FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating
-ORDER BY rating;
- rating | count 
---------+-------
-      3 |     1
-      5 |     2
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Toys        |     1
 (2 rows)
 
--- Test 1.2: GROUP BY with SUM aggregate
+-- Test 1.2: GROUP BY with SUM
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) AS total_price
 FROM products 
@@ -80,10 +86,11 @@ GROUP BY category
 ORDER BY category;
   category   | total_price 
 -------------+-------------
- Electronics |     3029.95
-(1 row)
+ Electronics |     2529.96
+ Toys        |      499.99
+(2 rows)
 
--- Test 1.3: GROUP BY with AVG aggregate  
+-- Test 1.3: GROUP BY with AVG
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) AS avg_price
 FROM products 
@@ -106,10 +113,11 @@ GROUP BY category
 ORDER BY category;
   category   | avg_price 
 -------------+-----------
- Electronics |    605.99
-(1 row)
+ Electronics |    632.49
+ Toys        |    499.99
+(2 rows)
 
--- Test 1.4: GROUP BY with MIN and MAX aggregates
+-- Test 1.4: GROUP BY with MIN and MAX
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
 FROM products 
@@ -133,11 +141,17 @@ ORDER BY category;
   category   | min_price | max_price 
 -------------+-----------+-----------
  Electronics |     79.99 |   1299.99
-(1 row)
+ Toys        |    499.99 |    499.99
+(2 rows)
 
--- Test 1.5: GROUP BY with multiple aggregates
+-- Test 1.5: GROUP BY with all aggregate functions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+SELECT category, 
+       COUNT(*) AS count, 
+       SUM(price) AS total, 
+       AVG(price) AS avg, 
+       MIN(price) AS min_price, 
+       MAX(price) AS max_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
@@ -151,69 +165,83 @@ ORDER BY category;
    Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
 (5 rows)
 
-SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+SELECT category, 
+       COUNT(*) AS count, 
+       SUM(price) AS total, 
+       AVG(price) AS avg, 
+       MIN(price) AS min_price, 
+       MAX(price) AS max_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
   category   | count |  total  |  avg   | min_price | max_price 
 -------------+-------+---------+--------+-----------+-----------
- Electronics |     5 | 3029.95 | 605.99 |     79.99 |   1299.99
-(1 row)
-
--- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) AS total_laptops
-FROM products 
-WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now()
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(5 rows)
-
-SELECT COUNT(*) AS total_laptops
-FROM products 
-WHERE description @@@ 'laptop';
- total_laptops 
----------------
-             3
-(1 row)
-
--- Test 1.3: GROUP BY with string field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'laptop OR keyboard OR shoes' 
-GROUP BY category
-ORDER BY category DESC;
-                                                                                 QUERY PLAN                                                                                 
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, now()
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR shoes","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(5 rows)
-
-SELECT category, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'laptop OR keyboard OR shoes' 
-GROUP BY category
-ORDER BY category DESC;
-  category   | count 
--------------+-------
- Sports      |     1
- Electronics |     5
+ Electronics |     4 | 2529.96 | 632.49 |     79.99 |   1299.99
+ Toys        |     1 |  499.99 | 499.99 |    499.99 |    499.99
 (2 rows)
 
--- Test 1.4: Test different column orders (COUNT(*) first vs last)
--- Verify that both column orders work correctly
+-- Test 1.6: GROUP BY with numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT rating, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: rating, now(), now(), now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
+(5 rows)
+
+SELECT rating, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
+ rating | count |   sum   |   avg   
+--------+-------+---------+---------
+      3 |     1 |  499.99 |  499.99
+      5 |     2 | 2299.98 | 1149.99
+(2 rows)
+
+-- =====================================================================
+-- SECTION 2: Multiple GROUP BY Columns
+-- =====================================================================
+-- Test 2.1: Two GROUP BY columns
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, rating, COUNT(*), AVG(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category, rating, now(), now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+(5 rows)
+
+SELECT category, rating, COUNT(*), AVG(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+  category   | rating | count |       avg        
+-------------+--------+-------+------------------
+ Electronics |      4 |     1 |            79.99
+ Electronics |      5 |     3 | 816.656666666667
+ Toys        |      3 |     1 |           499.99
+(3 rows)
+
+-- Test 2.2: GROUP BY with different column orders
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
@@ -223,14 +251,15 @@ SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY 
    Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
  count |  category   
 -------+-------------
-     3 | Electronics
-(1 row)
+     2 | Electronics
+     1 | Toys
+(2 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
                                                                       QUERY PLAN                                                                       
 -------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
@@ -240,1684 +269,254 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
    Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
 (5 rows)
 
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
   category   | count 
 -------------+-------
- Electronics |     3
-(1 row)
+ Electronics |     2
+ Toys        |     1
+(2 rows)
 
--- Test 1.5: Verify execution plans
+-- =====================================================================
+-- SECTION 3: GROUP BY Edge Cases and Error Conditions
+-- =====================================================================
+-- Test 3.1: GROUP BY with empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT category, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'nonexistent'
+GROUP BY category;
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, now()
+   Output: category, now(), now(), now()
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
 (5 rows)
 
+SELECT category, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'nonexistent'
+GROUP BY category;
+ category | count | sum | avg 
+----------+-------+-----+-----
+(0 rows)
+
+-- Test 3.2: GROUP BY with contradictory WHERE clauses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+GROUP BY category;
+                                                                                                                                                                         QUERY PLAN                                                                                                                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now()
+   Output: category, now(), now(), now()
    Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
 (5 rows)
 
--- ===========================================================================
--- SECTION 2: Data Type Tests
--- ===========================================================================
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+GROUP BY category;
+ category | count | sum | avg 
+----------+-------+-----+-----
+(0 rows)
+
+-- Test 3.3: Tautological WHERE clauses with GROUP BY
+-- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+GROUP BY category;
+                                                                                                                                                                          QUERY PLAN                                                                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category, now(), now(), now()
+   Index: products_idx
+   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+GROUP BY category;
+  category   | count |   sum   | avg  
+-------------+-------+---------+------
+ Clothing    |     2 |  189.98 |  3.5
+ Electronics |     4 | 2529.96 | 4.75
+ Sports      |     1 |   89.99 |    5
+ Toys        |     1 |  499.99 |    3
+(4 rows)
+
+-- =====================================================================
+-- SECTION 4: GROUP BY with Different Data Types
+-- =====================================================================
 DROP TABLE IF EXISTS type_test CASCADE;
 CREATE TABLE type_test (
     id SERIAL PRIMARY KEY,
-    content TEXT,
-    val_int2 SMALLINT,
-    val_int4 INTEGER,
-    val_int8 BIGINT,
-    val_float4 REAL,
-    val_float8 DOUBLE PRECISION,
-    val_text TEXT,
-    val_bool BOOLEAN
+    int_val INTEGER,
+    bigint_val BIGINT,
+    smallint_val SMALLINT,
+    numeric_val NUMERIC(10,2),
+    float_val FLOAT,
+    double_val DOUBLE PRECISION,
+    text_val TEXT
 );
-INSERT INTO type_test (content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool) VALUES
-    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
-    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
-    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
-    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
-    ('gamma test data', 3, 300, 3000000, 5.5, 6.5, 'group_c', true);
-CREATE INDEX type_test_idx ON type_test
-USING bm25 (id, content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool)
+INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val, double_val, text_val) VALUES
+    (100, 1000000, 10, 99.99, 1.5, 3.14159, 'test1'),
+    (200, 2000000, 20, 199.99, 2.5, 6.28318, 'test2'),
+    (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
+CREATE INDEX type_test_idx ON type_test 
+USING bm25 (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
     key_field='id',
-    text_fields='{"content": {}, "val_text": {"fast": true}}',
+    text_fields='{"text_val": {"fast": true}}',
     numeric_fields='{
-        "val_int2": {"fast": true},
-        "val_int4": {"fast": true},
-        "val_int8": {"fast": true},
-        "val_float4": {"fast": true},
-        "val_float8": {"fast": true}
-    }',
-    boolean_fields='{"val_bool": {"fast": true}}'
+        "int_val": {"fast": true},
+        "bigint_val": {"fast": true},
+        "smallint_val": {"fast": true},
+        "numeric_val": {"fast": true},
+        "float_val": {"fast": true},
+        "double_val": {"fast": true}
+    }'
 );
--- Test 2.1: GROUP BY different numeric types
+-- Test 4.1: GROUP BY with different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_int2, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int2","size":10000}}}
-(5 rows)
-
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
- val_int2 | count 
-----------+-------
-        1 |     2
-        2 |     2
-        3 |     1
-(3 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_int4, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int4","size":10000}}}
-(5 rows)
-
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
- val_int4 | count 
-----------+-------
-      100 |     2
-      200 |     2
-      300 |     1
-(3 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_int8, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_int8","size":10000}}}
-(5 rows)
-
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
- val_int8 | count 
-----------+-------
-  1000000 |     2
-  2000000 |     2
-  3000000 |     1
-(3 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_float4, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float4","size":10000}}}
-(5 rows)
-
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
- val_float4 | count 
-------------+-------
-        1.5 |     2
-        3.5 |     2
-        5.5 |     1
-(3 rows)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_float8, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_float8","size":10000}}}
-(5 rows)
-
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
- val_float8 | count 
-------------+-------
-        2.5 |     2
-        4.5 |     2
-        6.5 |     1
-(3 rows)
-
--- Test 2.2: GROUP BY text field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_text, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_text","size":10000}}}
-(5 rows)
-
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
- val_text | count 
-----------+-------
- group_a  |     2
- group_b  |     2
- group_c  |     1
-(3 rows)
-
--- Test 2.3: GROUP BY boolean field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
-                                                                   QUERY PLAN                                                                    
--------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.type_test
-   Output: val_bool, now()
-   Index: type_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"val_bool","size":10000}}}
-(5 rows)
-
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
- val_bool | count 
-----------+-------
- f        |     2
- t        |     3
-(2 rows)
-
--- ===========================================================================
--- SECTION 3: Edge Cases and Negative Tests
--- ===========================================================================
--- Test 3.1: GROUP BY with no matching results
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'nonexistent_term' 
-GROUP BY rating;
-                                                                           QUERY PLAN                                                                            
------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: rating, now()
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent_term","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
-(5 rows)
-
-SELECT rating, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'nonexistent_term' 
-GROUP BY rating;
- rating | count 
---------+-------
-(0 rows)
-
--- Test 3.2: Test with non-fast field (should NOT use aggregate scan)
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"rating": {"fast": false}}'  -- Not a fast field
-);
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) 
-FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
+FROM type_test
+WHERE text_val @@@ 'test1 OR test2 OR test3'
+GROUP BY text_val
+ORDER BY text_val;
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Output: rating, count(*)
-   Group Key: products.rating
+   Output: text_val, sum(int_val), avg(numeric_val), min(float_val), max(bigint_val)
+   Group Key: type_test.text_val
    ->  Sort
-         Output: rating
-         Sort Key: products.rating
+         Output: text_val, int_val, numeric_val, float_val, bigint_val
+         Sort Key: type_test.text_val
+         ->  Custom Scan (ParadeDB Scan) on public.type_test
+               Output: text_val, int_val, numeric_val, float_val, bigint_val
+               Table: type_test
+               Index: type_test_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_val","query_string":"test1 OR test2 OR test3","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
+FROM type_test
+WHERE text_val @@@ 'test1 OR test2 OR test3'
+GROUP BY text_val
+ORDER BY text_val;
+ text_val | sum |         avg          | min |   max   
+----------+-----+----------------------+-----+---------
+ test1    | 100 |  99.9900000000000000 | 1.5 | 1000000
+ test2    | 200 | 199.9900000000000000 | 2.5 | 2000000
+ test3    | 300 | 299.9900000000000000 | 3.5 | 3000000
+(3 rows)
+
+-- =====================================================================
+-- SECTION 5: GROUP BY Validation and Fallback Tests
+-- =====================================================================
+-- Test 5.1: GROUP BY with DISTINCT aggregates (should fall back to PostgreSQL)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(DISTINCT rating), SUM(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(DISTINCT rating), sum(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: products.category, products.rating
          ->  Custom Scan (ParadeDB Scan) on public.products
-               Output: rating
+               Output: category, rating, price
                Table: products
                Index: products_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
 (13 rows)
 
--- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) 
+SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products 
-GROUP BY rating;
-                             QUERY PLAN                             
---------------------------------------------------------------------
- HashAggregate
-   Output: rating, count(*)
-   Group Key: products.rating
-   ->  Seq Scan on public.products
-         Output: id, description, rating, category, price, in_stock
-(5 rows)
-
--- ===========================================================================
--- SECTION 4: Real-World Example - Support Ticket Analysis
--- ===========================================================================
-DROP TABLE IF EXISTS support_tickets CASCADE;
-CREATE TABLE support_tickets (
-    id SERIAL PRIMARY KEY,
-    description TEXT,
-    priority TEXT,
-    status TEXT,
-    category TEXT
-);
-INSERT INTO support_tickets (description, priority, status, category) VALUES
-    ('Cannot login to failed account', 'High', 'Open', 'Authentication'),
-    ('Password reset not working (failed)', 'High', 'Open', 'Authentication'),
-    ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
-    ('Export feature broken error', 'Low', 'Open', 'Features'),
-    ('Payment failed error', 'High', 'Resolved', 'Billing'),
-    ('Missing invoice', 'Low', 'Resolved', 'Billing');
-CREATE INDEX tickets_idx ON support_tickets
-USING bm25 (id, description, priority, status, category)
-WITH (
-    key_field='id',
-    text_fields='{
-        "description": {},
-        "priority": {"fast": true},
-        "status": {"fast": true},
-        "category": {"fast": true}
-    }'
-);
--- Test 4.1: Analyze priority distribution for login issues
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT priority, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority
-ORDER BY priority;
-                                                                                     QUERY PLAN                                                                                     
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: priority, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"login OR password OR authentication","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000}}}
-(5 rows)
-
-SELECT priority, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority
-ORDER BY priority;
- priority | count 
-----------+-------
- High     |     2
-(1 row)
-
--- Test 4.2: Status breakdown by category (without ORDER BY)
--- Note: ORDER BY aggregate columns is not yet supported in custom scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'error OR broken OR failed'
-GROUP BY category;
-                                                                                QUERY PLAN                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error OR broken OR failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(5 rows)
-
-SELECT category, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'error OR broken OR failed'
-GROUP BY category;
-    category    | count 
-----------------+-------
- Authentication |     2
- Billing        |     1
- Features       |     1
-(3 rows)
-
--- ===========================================================================
--- SECTION 5: Multi-Column GROUP BY
--- ===========================================================================
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, COUNT(*) 
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category, priority;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, priority, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000}}}}}
-(5 rows)
-
--- ---------------------------------------------------------------------------
--- Test 5.1: Multi-column GROUP BY with NO aggregate function (2 columns)
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority
-ORDER BY category, priority;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, priority
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000}}}}}
-(5 rows)
-
-SELECT category, priority
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority
-ORDER BY category, priority;
- category | priority 
-----------+----------
- Billing  | High
- Features | Low
-(2 rows)
-
--- ---------------------------------------------------------------------------
--- Test 5.2: Three-column GROUP BY with COUNT(*)
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, status, COUNT(*)
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority, status;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, priority, status, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"priority","size":10000},"aggs":{"group_1":{"terms":{"field":"status","size":10000},"aggs":{"group_2":{"terms":{"field":"category","size":10000}}}}}}}
-(5 rows)
-
-SELECT category, priority, status, COUNT(*)
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority, status;
- category | priority |  status  | count 
-----------+----------+----------+-------
- Billing  | High     | Resolved |     1
- Features | Low      | Open     |     1
-(2 rows)
-
--- ---------------------------------------------------------------------------
--- Test 5.3: Three-column GROUP BY without aggregates, descending ORDER BY
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, status
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY status DESC, priority DESC;
-                                                                                                 QUERY PLAN                                                                                                  
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, priority, status
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"status","size":10000},"aggs":{"group_1":{"terms":{"field":"priority","size":10000},"aggs":{"group_2":{"terms":{"field":"category","size":10000}}}}}}}
-(5 rows)
-
-SELECT category, priority, status
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority DESC, status DESC;
- category | priority |  status  
-----------+----------+----------
- Features | Low      | Open
- Billing  | High     | Resolved
-(2 rows)
-
--- ===========================================================================
--- SECTION 6: Verify ORDER BY functionality
--- ===========================================================================
--- Note: Our custom aggregate scan supports ORDER BY on grouping columns,
--- but ORDER BY on aggregate columns falls back to PostgreSQL.
--- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY COUNT(*) DESC;
-ERROR:  could not find pathkey item to sort
--- The query should work with PostgreSQL's standard execution
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY COUNT(*) DESC;
-ERROR:  could not find pathkey item to sort
--- Test 6.2: ORDER BY alias should also fall back to PostgreSQL
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY count DESC;
-ERROR:  could not find pathkey item to sort
--- The query should work with PostgreSQL's standard execution
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY count DESC;
-ERROR:  could not find pathkey item to sort
--- Test 6.3: ORDER BY grouping column should use custom aggregate scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(5 rows)
-
--- This should use our custom aggregate scan with ORDER BY
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY category;
- category | count 
-----------+-------
- Billing  |     1
- Features |     1
+  category   | count |   sum   
+-------------+-------+---------
+ Electronics |     2 | 2529.96
+ Toys        |     1 |  499.99
 (2 rows)
 
--- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
+-- Test 5.2: GROUP BY field conflicts with aggregate field
+-- (same field in both GROUP BY and aggregate - should fall back)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category, now()
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(5 rows)
-
--- This uses our custom aggregate scan
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category;
- category | count 
-----------+-------
- Billing  |     1
- Features |     1
-(2 rows)
-
--- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category
-ORDER BY category;
-                                                                      QUERY PLAN                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.support_tickets
-   Output: category
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"error","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(5 rows)
-
--- This should use our custom aggregate scan and return distinct categories without COUNT(*)
-SELECT category
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category
-ORDER BY category;
- category 
-----------
- Billing
- Features
-(2 rows)
-
--- ===========================================================================
--- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
--- ===========================================================================
--- Test 7.1: GROUP BY with integer field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on support_tickets
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(4 rows)
-
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-    category    | count 
-----------------+-------
- Authentication |     2
- Billing        |     1
-(2 rows)
-
--- Aggregate UDF equivalent
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-         QUERY PLAN         
-----------------------------
- Function Scan on aggregate
-(1 row)
-
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-                                                                               aggregate                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": {"buckets": [{"key": "Authentication", "doc_count": 2}, {"key": "Billing", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
-(1 row)
-
--- ===========================================================================
--- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
--- ===========================================================================
--- Test 7.1: GROUP BY with integer field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-                                                                      QUERY PLAN                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on support_tickets
-   Index: tickets_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"failed","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
-(4 rows)
-
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-    category    | count 
-----------------+-------
- Authentication |     2
- Billing        |     1
-(2 rows)
-
--- Aggregate UDF equivalent
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-         QUERY PLAN         
-----------------------------
- Function Scan on aggregate
-(1 row)
-
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-                                                                               aggregate                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- {"buckets": {"buckets": [{"key": "Authentication", "doc_count": 2}, {"key": "Billing", "doc_count": 1}], "sum_other_doc_count": 0, "doc_count_error_upper_bound": 0}}
-(1 row)
-
--- ===========================================================================
--- SECTION 8: Forced Aggregate Custom Scan Tests (to expose bugs)
--- ===========================================================================
--- Test that forces aggregate custom scan to be used for edge cases
-DROP TABLE IF EXISTS min_max_test CASCADE;
-CREATE TABLE min_max_test (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    rating INTEGER
-);
-INSERT INTO min_max_test (name, rating) VALUES 
-    ('bob', 2),
-    ('bob', 4), 
-    ('bob', 5),
-    ('alice', 1),
-    ('alice', 3),
-    ('alice', 7);
-CREATE INDEX min_max_test_idx ON min_max_test USING bm25 (id, name, rating)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}}'
-);
--- Force aggregate custom scan to be used by disabling parallel processing
--- This test exposes the MIN bug when GROUP BY is on the same field as the aggregate
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
--- Test 8.1: Basic GROUP BY test (fundamental test - should return 3 rows for bob: ratings 2, 4, 5)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
-   Output: rating
-   Index: min_max_test_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
-(5 rows)
-
--- This should return exactly 3 rows: rating values 2, 4, 5
--- BUG: Currently returns individual rows instead of grouped results
-SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
- rating 
---------
-      2
-      4
-      5
-(3 rows)
-
--- Test 8.2: GROUP BY on different field (should return 2 rows: 'alice', 'bob')
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name FROM min_max_test GROUP BY name ORDER BY name;
-                 QUERY PLAN                  
----------------------------------------------
- Group
-   Output: name
-   Group Key: min_max_test.name
-   ->  Sort
-         Output: name
-         Sort Key: min_max_test.name
-         ->  Seq Scan on public.min_max_test
-               Output: name
-(8 rows)
-
--- This should return exactly 2 rows: 'alice', 'bob'
--- BUG: Currently returns individual rows instead of grouped results
-SELECT name FROM min_max_test GROUP BY name ORDER BY name;
- name  
--------
- alice
- bob
-(2 rows)
-
--- Test 8.3: GROUP BY with COUNT (should work correctly if GROUP BY is fixed)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
-                 QUERY PLAN                  
----------------------------------------------
- GroupAggregate
-   Output: name, count(*)
-   Group Key: min_max_test.name
-   ->  Sort
-         Output: name
-         Sort Key: min_max_test.name
-         ->  Seq Scan on public.min_max_test
-               Output: name
-(8 rows)
-
--- This should return: ('alice', 3), ('bob', 3)
-SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
- name  | count 
--------+-------
- alice |     3
- bob   |     3
-(2 rows)
-
--- Test 8.4: MIN with GROUP BY on same field (known to be buggy)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: rating, min(rating)
-   Group Key: min_max_test.rating
-   ->  Sort
-         Output: rating
-         Sort Key: min_max_test.rating
-         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
-               Output: rating
-               Table: min_max_test
-               Index: min_max_test_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(min), rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
-SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
- rating | min 
---------+-----
-      2 |   2
-      4 |   4
-      5 |   5
-(3 rows)
-
--- Test 8.5: MAX with GROUP BY on same field 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: rating, max(rating)
-   Group Key: min_max_test.rating
-   ->  Sort
-         Output: rating
-         Sort Key: min_max_test.rating
-         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
-               Output: rating
-               Table: min_max_test
-               Index: min_max_test_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(max), rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
-SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
- rating | max 
---------+-----
-      2 |   2
-      4 |   4
-      5 |   5
-(3 rows)
-
--- Test 8.6: SUM with GROUP BY on same field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: rating, sum(rating)
-   Group Key: min_max_test.rating
-   ->  Sort
-         Output: rating
-         Sort Key: min_max_test.rating
-         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
-               Output: rating
-               Table: min_max_test
-               Index: min_max_test_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(sum), rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
-
-SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
- rating | sum 
---------+-----
-      2 |   2
-      4 |   4
-      5 |   5
-(3 rows)
-
--- Test 8.7: AVG with GROUP BY (should return NULL due to current bug)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
-                 QUERY PLAN                  
----------------------------------------------
- GroupAggregate
-   Output: name, avg(rating)
-   Group Key: min_max_test.name
-   ->  Sort
-         Output: name, rating
-         Sort Key: min_max_test.name
-         ->  Seq Scan on public.min_max_test
-               Output: name, rating
-(8 rows)
-
--- This should return: ('alice', 3.67), ('bob', 3.67) 
--- BUG: Currently returns NULL for AVG
-SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
- name  |        avg         
--------+--------------------
- alice | 3.6666666666666667
- bob   | 3.6666666666666667
-(2 rows)
-
--- Test 8.8: Complex boolean query like proptest - this should expose the real bug
--- This mirrors the failing proptest: OR(NOT(name='bob'), name='bob') which is always true
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.min_max_test
-   Output: rating
-   Index: min_max_test_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000}}}
-(5 rows)
-
--- This should return exactly 4 rows: 1, 2, 3, 4, 5, 7 (all unique ratings)
--- BUG: Currently returns individual rows instead of grouped results
-SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
- rating 
---------
-      1
-      2
-      3
-      4
-      5
-      7
-(6 rows)
-
--- Test 8.9: Another complex boolean query like proptest
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Group
-   Output: name
-   Group Key: min_max_test.name
-   ->  Sort
-         Output: name
-         Sort Key: min_max_test.name
-         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
-               Output: name
-               Table: min_max_test
-               Index: min_max_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: name
-               String Fast Fields: name
-               Scores: false
-               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-(15 rows)
-
--- This should return exactly 2 rows: 'alice', 'bob'
--- BUG: Currently returns individual rows instead of grouped results  
-SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
- name  
--------
- alice
- bob
-(2 rows)
-
--- Test 8.10: Complex boolean with aggregates (like proptest failure)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Output: rating, avg(rating), name
-   Group Key: min_max_test.name, min_max_test.rating
-   ->  Sort
-         Output: rating, name
-         Sort Key: min_max_test.name, min_max_test.rating
-         ->  Custom Scan (ParadeDB Scan) on public.min_max_test
-               Output: rating, name
-               Table: min_max_test
-               Index: min_max_test_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: name, rating
-               String Fast Fields: name
-               Numeric Fast Fields: rating
-               Scores: false
-               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-(16 rows)
-
--- This should return grouped results, not individual rows
-SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
- rating |          avg           | name  
---------+------------------------+-------
-      1 | 1.00000000000000000000 | alice
-      3 |     3.0000000000000000 | alice
-      7 |     7.0000000000000000 | alice
-      2 |     2.0000000000000000 | bob
-      4 |     4.0000000000000000 | bob
-      5 |     5.0000000000000000 | bob
-(6 rows)
-
--- ===========================================================================
--- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
--- ===========================================================================
--- Test to expose the fundamental GROUP BY bug that causes proptest failures
--- The issue: aggregate custom scan returns individual rows instead of grouped results
-DROP TABLE IF EXISTS groupby_bug_test CASCADE;
-CREATE TABLE groupby_bug_test (
-    id SERIAL PRIMARY KEY,
-    age INTEGER,
-    name TEXT
-);
-INSERT INTO groupby_bug_test (age, name) VALUES 
-    (25, 'alice'),
-    (25, 'bob'),   -- Two people age 25 - should group to 1 row
-    (30, 'carol'),
-    (30, 'dave'),  -- Two people age 30 - should group to 1 row  
-    (35, 'eve');   -- One person age 35 - should be 1 row
-CREATE INDEX groupby_bug_idx ON groupby_bug_test 
-USING bm25 (id, age, name)
-WITH (
-    key_field='id',
-    text_fields='{"name": {"fast": true}}',
-    numeric_fields='{"age": {"fast": true}}'
-);
--- Force aggregate custom scan
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
--- Test 9.1: Basic GROUP BY test 
--- CRITICAL BUG: Should return 3 rows (25, 30, 35) but returns 5 individual rows
--- This is the core of the proptest failure
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
-                   QUERY PLAN                    
--------------------------------------------------
- Group
-   Output: age
-   Group Key: groupby_bug_test.age
-   ->  Sort
-         Output: age
-         Sort Key: groupby_bug_test.age
-         ->  Seq Scan on public.groupby_bug_test
-               Output: age
-(8 rows)
-
--- Expected: 3 rows (25, 30, 35)
--- BUG: Returns 5 rows (25, 25, 30, 30, 35) - individual rows, not grouped!
-SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
- age 
------
-  25
-  30
-  35
-(3 rows)
-
--- Test 9.2: The exact failing proptest pattern
--- OR(NOT(name='bob'), name='bob') = TRUE for all rows, should behave like Test 9.1
--- This is the simplified version of the failing proptest query
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test 
-WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
-GROUP BY age ORDER BY age;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
-   Output: age
-   Index: groupby_bug_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
-(5 rows)
-
--- Expected: 3 rows (25, 30, 35) - same as Test 9.1
--- BUG: Returns 5 individual rows without proper grouping
-SELECT age FROM groupby_bug_test 
-WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
-GROUP BY age ORDER BY age;
- age 
------
-  25
-  30
-  35
-(3 rows)
-
--- Test 9.3: GROUP BY with COUNT should also fail
--- Expected: 3 rows with counts (25|2, 30|2, 35|1)  
--- BUG: Returns 5 rows with count=1 for each (no grouping performed)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
-                   QUERY PLAN                    
--------------------------------------------------
- GroupAggregate
-   Output: age, count(*)
-   Group Key: groupby_bug_test.age
-   ->  Sort
-         Output: age
-         Sort Key: groupby_bug_test.age
-         ->  Seq Scan on public.groupby_bug_test
-               Output: age
-(8 rows)
-
-SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
- age | count 
------+-------
-  25 |     2
-  30 |     2
-  35 |     1
-(3 rows)
-
--- ===========================================================================
--- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
--- ===========================================================================
--- Test to expose the fundamental GROUP BY bug that causes proptest failures
--- The issue: aggregate custom scan returns individual rows instead of grouped results
-DROP TABLE IF EXISTS groupby_bug_test CASCADE;
-CREATE TABLE groupby_bug_test (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    age INTEGER
-);
-INSERT INTO groupby_bug_test (name, age) VALUES 
-    ('alice', 23), ('bob', 33), ('alice', 23), ('charlie', 53), 
-    ('bob', 68), ('alice', 71), ('charlie', 74), ('alice', 8),
-    ('bob', 85), ('charlie', 87), ('alice', 96), ('bob', 23),
-    ('alice', 33), ('charlie', 53), ('bob', 68), ('alice', 71);
-CREATE INDEX groupby_bug_idx ON groupby_bug_test 
-USING bm25 (id, name, age)
-WITH (
-    key_field='id',
-    text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields='{"age": {"fast": true}}'
-);
--- Force aggregate custom scan settings
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
--- Test 9.1: This should return 10 unique ages, but aggregate custom scan returns 16 individual rows
--- Query: (NOT (name = 'bob')) OR (name = 'bob') is a tautology (always true)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
-   Output: age
-   Index: groupby_bug_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
-(5 rows)
-
--- BUG: This returns 16 rows instead of 10 grouped rows
--- Expected: 10 unique age values (23, 33, 53, 68, 71, 74, 8, 85, 87, 96)
--- Actual: 16 individual age values (one for each row in the table)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
- age 
------
-   8
-  23
-  33
-  53
-  68
-  71
-  74
-  85
-  87
-  96
-(10 rows)
-
--- Test 9.2: Verify the correct behavior with regular PostgreSQL (for comparison)
-SET paradedb.enable_aggregate_custom_scan = off;
-SELECT age FROM groupby_bug_test WHERE (NOT (name = 'bob')) OR (name = 'bob') GROUP BY age ORDER BY age;
- age 
------
-   8
-  23
-  33
-  53
-  68
-  71
-  74
-  85
-  87
-  96
-(10 rows)
-
-SET paradedb.enable_aggregate_custom_scan = on;
--- Test 9.3: Same bug exists with multiple GROUP BY columns  
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Group
-   Output: age, name
-   Group Key: groupby_bug_test.age, groupby_bug_test.name
-   ->  Sort
-         Output: age, name
-         Sort Key: groupby_bug_test.age, groupby_bug_test.name
-         ->  Custom Scan (ParadeDB Scan) on public.groupby_bug_test
-               Output: age, name
-               Table: groupby_bug_test
-               Index: groupby_bug_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: name, age
-               String Fast Fields: name
-               Numeric Fast Fields: age
-               Scores: false
-               Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-(16 rows)
-
--- BUG: This also returns 16 rows instead of grouped results
-SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
- age |  name   
------+---------
-   8 | alice
-  23 | alice
-  23 | bob
-  33 | alice
-  33 | bob
-  53 | charlie
-  68 | bob
-  71 | alice
-  74 | charlie
-  85 | bob
-  87 | charlie
-  96 | alice
-(12 rows)
-
--- ===========================================================================
--- SECTION 10: Exact Proptest Failure Reproduction
--- ===========================================================================
--- This is the EXACT query that fails in the proptest
--- Expected: 10 grouped age values like ["2", "24", "37", "39", "61", "7", "71", "72", "8", "90"]
--- Actual: 40+ individual age values like ["1", "11", "17", "2", "20", "24", "25", ...]
--- This shows the fundamental bug: aggregate custom scan returns individual document values
--- instead of performing GROUP BY aggregation
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-                                                                                                                                                                QUERY PLAN                                                                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.groupby_bug_test
-   Output: age
-   Index: groupby_bug_idx
-   Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"age","size":10000}}}
-(5 rows)
-
--- CRITICAL BUG: This returns individual rows (one per document) instead of grouped values
--- This is the core of all proptest failures - GROUP BY is completely broken
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
- age 
------
-   8
-  23
-  33
-  53
-  68
-  71
-  74
-  85
-  87
-  96
-(10 rows)
-
--- Regression test for ALL aggregate NULL handling on impossible WHERE clauses
--- This should return NULL instead of panicking with "result should be a number/float"
--- Recreate the full products index with category field for the final tests
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating, category, price)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
-);
-SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
-                           test_case                           
----------------------------------------------------------------
- Testing MAX with impossible WHERE clause (should return NULL)
-(1 row)
-
-SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
- max 
------
-    
-(1 row)
-
-SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
-                           test_case                           
----------------------------------------------------------------
- Testing MIN with impossible WHERE clause (should return NULL)
-(1 row)
-
-SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
- min 
------
-    
-(1 row)
-
-SELECT 'Testing AVG with impossible WHERE clause (should return NULL)' as test_case;
-                           test_case                           
----------------------------------------------------------------
- Testing AVG with impossible WHERE clause (should return NULL)
-(1 row)
-
-SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
- avg 
------
-    
-(1 row)
-
-SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_case;
-                           test_case                           
----------------------------------------------------------------
- Testing SUM with impossible WHERE clause (should return NULL)
-(1 row)
-
-SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
- sum 
------
-    
-(1 row)
-
-SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
-                            test_case                            
------------------------------------------------------------------
- Testing COUNT with impossible WHERE clause (should return NULL)
-(1 row)
-
-SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
- count 
--------
-     0
-(1 row)
-
--- More complex contradictory cases
-SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
-                          test_case                          
--------------------------------------------------------------
- Testing MAX with complex contradiction (should return NULL)
-(1 row)
-
-SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop'));
- max 
------
-    
-(1 row)
-
-SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
-                          test_case                          
--------------------------------------------------------------
- Testing MIN with complex contradiction (should return NULL)
-(1 row)
-
-SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
- min 
------
-    
-(1 row)
-
--- ===========================================================================
--- Clean up
--- ===========================================================================
--- Test case for NULL aggregation behavior on empty result sets (PostgreSQL standard)
--- This should return NULL for SUM/AVG/MIN/MAX, but 0 for COUNT
-SELECT 'Testing SUM on empty result set should return NULL (like PostgreSQL)' as test_case;
-                              test_case                               
-----------------------------------------------------------------------
- Testing SUM on empty result set should return NULL (like PostgreSQL)
-(1 row)
-
-SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
- sum 
------
-    
-(1 row)
-
-SELECT 'Testing COUNT on empty result set should return 0' as test_case;
-                     test_case                     
----------------------------------------------------
- Testing COUNT on empty result set should return 0
-(1 row)
-
-SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
- count 
--------
-     0
-(1 row)
-
-SELECT 'Testing AVG on empty result set should return NULL' as test_case;
-                     test_case                      
-----------------------------------------------------
- Testing AVG on empty result set should return NULL
-(1 row)
-
-SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
- avg 
------
-    
-(1 row)
-
-SELECT 'Testing MIN on empty result set should return NULL' as test_case;
-                     test_case                      
-----------------------------------------------------
- Testing MIN on empty result set should return NULL
-(1 row)
-
-SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
- min 
------
-    
-(1 row)
-
-SELECT 'Testing MAX on empty result set should return NULL' as test_case;
-                     test_case                      
-----------------------------------------------------
- Testing MAX on empty result set should return NULL
-(1 row)
-
-SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
- max 
------
-    
-(1 row)
-
--- Test contradictory WHERE clause (should have same behavior)
-SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_case;
-                           test_case                            
-----------------------------------------------------------------
- Testing SUM with contradictory WHERE clause should return NULL
-(1 row)
-
-SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
- sum 
------
-    
-(1 row)
-
--- Test contradictory rating comparison (proptest failure case)
-SELECT 'Testing SUM with contradictory rating comparison should return NULL' as test_case;
-                              test_case                              
----------------------------------------------------------------------
- Testing SUM with contradictory rating comparison should return NULL
-(1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now()
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
-   Aggregate Definition: {"0":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
-
-SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- sum 
------
-    
-(1 row)
-
-SELECT 'Testing COUNT with contradictory rating comparison should return 0' as test_case;
-                             test_case                              
---------------------------------------------------------------------
- Testing COUNT with contradictory rating comparison should return 0
-(1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now()
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(5 rows)
-
-SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- count 
--------
-     0
-(1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now(), now()
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}}}
-(5 rows)
-
-SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- count | count 
--------+-------
-     0 |     0
-(1 row)
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: now(), now()
-   Index: products_idx
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}]}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(5 rows)
-
-SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- count | sum 
--------+-----
-     0 |    
-(1 row)
-
-SELECT 'Testing AVG with contradictory rating comparison should return NULL' as test_case;
-                              test_case                              
----------------------------------------------------------------------
- Testing AVG with contradictory rating comparison should return NULL
-(1 row)
-
-SELECT AVG(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- avg 
------
-    
-(1 row)
-
-SELECT 'Testing MIN with contradictory rating comparison should return NULL' as test_case;
-                              test_case                              
----------------------------------------------------------------------
- Testing MIN with contradictory rating comparison should return NULL
-(1 row)
-
-SELECT MIN(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- min 
------
-    
-(1 row)
-
-SELECT 'Testing MAX with contradictory rating comparison should return NULL' as test_case;
-                              test_case                              
----------------------------------------------------------------------
- Testing MAX with contradictory rating comparison should return NULL
-(1 row)
-
-SELECT MAX(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
- max 
------
-    
-(1 row)
-
--- Test cases that should be rejected by aggregate custom scan validation
--- These were identified as problematic in proptest failures
--- Case 1: Valid query that should work (no conflicts - matches the proptest failure)
--- This reproduces: SELECT rating, SUM(price), AVG(price), SUM(age) FROM users WHERE (users.name @@@ 'bob') AND (1 = 1) GROUP BY rating
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price) 
-FROM products 
-WHERE description @@@ 'keyboard' 
-GROUP BY rating;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on products
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"avg":{"field":"price"}}}}}
-(4 rows)
-
-SELECT rating, SUM(price), AVG(price)
-FROM products 
-WHERE description @@@ 'keyboard' 
-GROUP BY rating
-ORDER BY rating;
- rating |  sum   |  avg   
---------+--------+--------
-      4 |  79.99 |  79.99
-      5 | 149.99 | 149.99
-(2 rows)
-
--- Case 2: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
--- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating)
+SELECT rating, SUM(price), MAX(rating)
 FROM products
 WHERE description @@@ 'keyboard'
 GROUP BY rating;
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Group Key: rating
+   Output: rating, sum(price), max(rating)
+   Group Key: products.rating
    ->  Sort
-         Sort Key: rating
-         ->  Custom Scan (ParadeDB Scan) on products
+         Output: rating, price
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating, price
                Table: products
                Index: products_idx
                Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(avg), junk(max), junk(sum), price, rating
+               Fast Fields: junk(max), junk(sum), price, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(14 rows)
 
-SELECT rating, SUM(price), AVG(price), MAX(rating) 
+SELECT rating, SUM(price), MAX(rating) 
 FROM products 
 WHERE description @@@ 'keyboard' 
 GROUP BY rating
 ORDER BY rating;
- rating |  sum   |         avg          | max 
---------+--------+----------------------+-----
-      4 |  79.99 |  79.9900000000000000 |   4
-      5 | 149.99 | 149.9900000000000000 |   5
+ rating |  sum   | max 
+--------+--------+-----
+      4 |  79.99 |   4
+      5 | 149.99 |   5
 (2 rows)
 
--- Case 2: Similar conflict with different aggregate
-EXPLAIN (COSTS OFF) SELECT category, COUNT(*), MIN(price), MAX(category)
-FROM products 
-WHERE description @@@ 'mouse'
-GROUP BY category;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: category
-   ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Scan) on products
-               Table: products
-               Index: products_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category, price
-               String Fast Fields: category
-               Numeric Fast Fields: price
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"mouse","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
-
-SELECT category, COUNT(*), MIN(price), MAX(category)
-FROM products 
-WHERE description @@@ 'mouse'
-GROUP BY category
-ORDER BY category;
-  category   | count |  min  |     max     
--------------+-------+-------+-------------
- Electronics |     1 | 79.99 | Electronics
-(1 row)
-
--- Case 3: Multiple conflicts in same query
-EXPLAIN (COSTS OFF) SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
-FROM products 
-WHERE description @@@ 'for'
-GROUP BY rating, category;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
- GroupAggregate
-   Group Key: rating, category
-   ->  Sort
-         Sort Key: rating, category
-         ->  Custom Scan (ParadeDB Scan) on products
-               Table: products
-               Index: products_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category, rating
-               String Fast Fields: category
-               Numeric Fast Fields: rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"for","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
-
-SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
-FROM products 
-WHERE description @@@ 'for'
-GROUP BY rating, category
-ORDER BY rating, category;
- rating |  category   | sum |        avg         | max | min 
---------+-------------+-----+--------------------+-----+-----
-      3 | Electronics |   3 | 3.0000000000000000 |   3 |   3
-      5 | Sports      |   5 | 5.0000000000000000 |   5 |   5
-(2 rows)
-
--- Case 4: GROUP BY field conflicts with search field (proptest failure case)
--- This should fall back to regular PostgreSQL execution since 'category' appears in both search and GROUP BY
-EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+-- Test 5.3: GROUP BY field conflicts with WHERE search field
+-- (category is both searched and grouped - should fall back)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products 
 WHERE category @@@ 'Electronics'
 GROUP BY category;
                                                                              QUERY PLAN                                                                              
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Group Key: category
+   Output: category, min(rating), max(rating), sum(price)
+   Group Key: products.category
    ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Scan) on products
+         Output: category, rating, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, rating, price
                Table: products
                Index: products_idx
                Exec Method: NormalScanExecState
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(13 rows)
 
 SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products 
@@ -1926,76 +525,119 @@ GROUP BY category
 ORDER BY category;
   category   | min | max |   sum   
 -------------+-----+-----+---------
- Electronics |   3 |   5 | 3029.95
+ Electronics |   4 |   5 | 2529.96
 (1 row)
 
--- Case 5: Double negation search field pattern (proptest failure case)
--- This reproduces: SELECT name, MIN(rating), MAX(rating), SUM(age) FROM users WHERE (NOT (NOT (users.color @@@ 'blue'))) AND (1 = 1) GROUP BY name
--- Double negation: NOT (NOT (category @@@ 'Electronics')) is equivalent to category @@@ 'Electronics'
-EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+-- =====================================================================
+-- SECTION 6: ORDER BY with GROUP BY Aggregates
+-- =====================================================================
+-- Test 6.1: ORDER BY aggregate result
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
 FROM products 
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
-GROUP BY category;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY total_price DESC;
+ERROR:  could not find pathkey item to sort
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY total_price DESC;
+ERROR:  could not find pathkey item to sort
+-- Test 6.2: ORDER BY multiple columns including aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, avg_price DESC;
+ERROR:  could not find pathkey item to sort
+SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, avg_price DESC;
+ERROR:  could not find pathkey item to sort
+-- =====================================================================
+-- SECTION 7: Complex GROUP BY Query Patterns
+-- =====================================================================
+-- Test 7.1: Complex boolean WHERE clauses with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, SUM(price), COUNT(*)
+FROM products 
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+  AND (rating >= 4 OR category @@@ 'Electronics')
+GROUP BY rating
+ORDER BY rating;
+                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  GroupAggregate
-   Group Key: category
+   Output: rating, sum(price), count(*)
+   Group Key: products.rating
    ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Scan) on products
+         Output: rating, price
+         Sort Key: products.rating
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: rating, price
+               Table: products
+               Index: products_idx
+               Exec Method: NumericFastFieldExecState
+               Fast Fields: junk(count), junk(sum), price, rating
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
+(14 rows)
+
+SELECT rating, SUM(price), COUNT(*)
+FROM products 
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+  AND (rating >= 4 OR category @@@ 'Electronics')
+GROUP BY rating
+ORDER BY rating;
+ rating |   sum   | count 
+--------+---------+-------
+      4 |   79.99 |     1
+      5 | 2449.97 |     3
+(2 rows)
+
+-- Test 7.2: Nested boolean expressions with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, AVG(price), MIN(rating), MAX(rating)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
+GROUP BY category
+ORDER BY category;
+                                                                                                                                                                 QUERY PLAN                                                                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, avg(price), min(rating), max(rating)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price, rating
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price, rating
                Table: products
                Index: products_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}]}}
+(13 rows)
 
-SELECT category, MIN(rating), MAX(rating), SUM(price)
+SELECT category, AVG(price), MIN(rating), MAX(rating)
 FROM products 
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
-  category   | min | max |   sum   
--------------+-----+-----+---------
- Electronics |   3 |   5 | 3029.95
+  category   |         avg          | min | max 
+-------------+----------------------+-----+-----
+ Electronics | 632.4900000000000000 |   4 |   5
 (1 row)
 
--- Case 6: DISTINCT aggregate functions (should fall back to PostgreSQL)
--- These should fall back to regular PostgreSQL execution since DISTINCT aggregates are not supported
-EXPLAIN (COSTS OFF) SELECT COUNT(DISTINCT category), SUM(price)
-FROM products 
-WHERE description @@@ 'laptop';
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Sort
-         Sort Key: category
-         ->  Custom Scan (ParadeDB Scan) on products
-               Table: products
-               Index: products_idx
-               Exec Method: MixedFastFieldExecState
-               Fast Fields: category, price
-               String Fast Fields: category
-               Numeric Fast Fields: price
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
-
-SELECT COUNT(DISTINCT category), SUM(price)
-FROM products 
-WHERE description @@@ 'laptop';
- count |   sum   
--------+---------
-     1 | 2799.97
-(1 row)
-
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS type_test CASCADE;
+DROP TABLE IF EXISTS groupby_test CASCADE;
 RESET paradedb.enable_aggregate_custom_scan;
-DROP TABLE support_tickets CASCADE;
-DROP TABLE type_test CASCADE;
-DROP TABLE products CASCADE;
-DROP TABLE min_max_test CASCADE;
-DROP TABLE groupby_bug_test CASCADE; 

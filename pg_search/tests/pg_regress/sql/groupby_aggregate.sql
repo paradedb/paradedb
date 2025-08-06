@@ -1,12 +1,15 @@
--- Test GROUP BY functionality in aggregate custom scan
--- This file combines and consolidates tests from multiple GROUP BY test files
+-- =====================================================================
+-- Test Suite for Aggregate Custom Scan GROUP BY Functionality
+-- =====================================================================
+-- This file tests GROUP BY queries with aggregate functions (COUNT, SUM, AVG, MIN, MAX)
+-- for the aggregate custom scan feature.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
--- ===========================================================================
--- SECTION 1: Basic GROUP BY Tests with Numeric Fields
--- ===========================================================================
+-- =====================================================================
+-- Test Data Setup
+-- =====================================================================
 
 DROP TABLE IF EXISTS products CASCADE;
 CREATE TABLE products (
@@ -21,7 +24,7 @@ CREATE TABLE products (
 INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Laptop with fast processor', 5, 'Electronics', 999.99, true),
     ('Gaming laptop with RGB', 5, 'Electronics', 1299.99, true),
-    ('Budget laptop for students', 3, 'Electronics', 499.99, false),
+    ('Toy laptop for kids', 3, 'Toys', 499.99, false),
     ('Wireless keyboard and mouse', 4, 'Electronics', 79.99, true),
     ('Mechanical keyboard RGB', 5, 'Electronics', 149.99, true),
     ('Running shoes for athletes', 5, 'Sports', 89.99, true),
@@ -36,21 +39,25 @@ WITH (
     numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
 );
 
--- Test 1.1: Basic GROUP BY with integer field
+-- =====================================================================
+-- SECTION 1: GROUP BY with Aggregate Functions
+-- =====================================================================
+
+-- Test 1.1: GROUP BY with COUNT(*)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) AS count
+SELECT category, COUNT(*) 
 FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating
-ORDER BY rating;
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
 
-SELECT rating, COUNT(*) AS count
+SELECT category, COUNT(*) 
 FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating
-ORDER BY rating;
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category;
 
--- Test 1.2: GROUP BY with SUM aggregate
+-- Test 1.2: GROUP BY with SUM
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) AS total_price
 FROM products 
@@ -64,7 +71,7 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
 
--- Test 1.3: GROUP BY with AVG aggregate  
+-- Test 1.3: GROUP BY with AVG
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) AS avg_price
 FROM products 
@@ -78,7 +85,7 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
 
--- Test 1.4: GROUP BY with MIN and MAX aggregates
+-- Test 1.4: GROUP BY with MIN and MAX
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
 FROM products 
@@ -92,838 +99,199 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
 
--- Test 1.5: GROUP BY with multiple aggregates
+-- Test 1.5: GROUP BY with all aggregate functions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+SELECT category, 
+       COUNT(*) AS count, 
+       SUM(price) AS total, 
+       AVG(price) AS avg, 
+       MIN(price) AS min_price, 
+       MAX(price) AS max_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
 
-SELECT category, COUNT(*) AS count, SUM(price) AS total, AVG(price) AS avg, MIN(price) AS min_price, MAX(price) AS max_price
+SELECT category, 
+       COUNT(*) AS count, 
+       SUM(price) AS total, 
+       AVG(price) AS avg, 
+       MIN(price) AS min_price, 
+       MAX(price) AS max_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
 
--- Test 1.2: Non-GROUP BY aggregate (should still use custom scan)
+-- Test 1.6: GROUP BY with numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) AS total_laptops
+SELECT rating, COUNT(*), SUM(price), AVG(price)
 FROM products 
-WHERE description @@@ 'laptop';
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
 
-SELECT COUNT(*) AS total_laptops
+SELECT rating, COUNT(*), SUM(price), AVG(price)
 FROM products 
-WHERE description @@@ 'laptop';
+WHERE description @@@ 'laptop' 
+GROUP BY rating
+ORDER BY rating;
 
--- Test 1.3: GROUP BY with string field
+-- =====================================================================
+-- SECTION 2: Multiple GROUP BY Columns
+-- =====================================================================
+
+-- Test 2.1: Two GROUP BY columns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) AS count
+SELECT category, rating, COUNT(*), AVG(price)
 FROM products 
-WHERE description @@@ 'laptop OR keyboard OR shoes' 
-GROUP BY category
-ORDER BY category DESC;
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
 
-SELECT category, COUNT(*) AS count
+SELECT category, rating, COUNT(*), AVG(price)
 FROM products 
-WHERE description @@@ 'laptop OR keyboard OR shoes' 
-GROUP BY category
-ORDER BY category DESC;
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
 
--- Test 1.4: Test different column orders (COUNT(*) first vs last)
--- Verify that both column orders work correctly
+-- Test 2.2: GROUP BY with different column orders
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
 
-SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
-
-SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category;
-
--- Test 1.5: Verify execution plans
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY rating;
+SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE description @@@ 'laptop';
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
 
--- ===========================================================================
--- SECTION 2: Data Type Tests
--- ===========================================================================
+SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
+
+-- =====================================================================
+-- SECTION 3: GROUP BY Edge Cases and Error Conditions
+-- =====================================================================
+
+-- Test 3.1: GROUP BY with empty result set
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'nonexistent'
+GROUP BY category;
+
+SELECT category, COUNT(*), SUM(price), AVG(price)
+FROM products 
+WHERE description @@@ 'nonexistent'
+GROUP BY category;
+
+-- Test 3.2: GROUP BY with contradictory WHERE clauses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+GROUP BY category;
+
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
+GROUP BY category;
+
+-- Test 3.3: Tautological WHERE clauses with GROUP BY
+-- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+GROUP BY category;
+
+SELECT category, COUNT(*), SUM(price), AVG(rating)
+FROM products 
+WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
+GROUP BY category;
+
+-- =====================================================================
+-- SECTION 4: GROUP BY with Different Data Types
+-- =====================================================================
 
 DROP TABLE IF EXISTS type_test CASCADE;
 CREATE TABLE type_test (
     id SERIAL PRIMARY KEY,
-    content TEXT,
-    val_int2 SMALLINT,
-    val_int4 INTEGER,
-    val_int8 BIGINT,
-    val_float4 REAL,
-    val_float8 DOUBLE PRECISION,
-    val_text TEXT,
-    val_bool BOOLEAN
+    int_val INTEGER,
+    bigint_val BIGINT,
+    smallint_val SMALLINT,
+    numeric_val NUMERIC(10,2),
+    float_val FLOAT,
+    double_val DOUBLE PRECISION,
+    text_val TEXT
 );
 
-INSERT INTO type_test (content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool) VALUES
-    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
-    ('alpha test data', 1, 100, 1000000, 1.5, 2.5, 'group_a', true),
-    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
-    ('beta test data', 2, 200, 2000000, 3.5, 4.5, 'group_b', false),
-    ('gamma test data', 3, 300, 3000000, 5.5, 6.5, 'group_c', true);
+INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val, double_val, text_val) VALUES
+    (100, 1000000, 10, 99.99, 1.5, 3.14159, 'test1'),
+    (200, 2000000, 20, 199.99, 2.5, 6.28318, 'test2'),
+    (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
 
-CREATE INDEX type_test_idx ON type_test
-USING bm25 (id, content, val_int2, val_int4, val_int8, val_float4, val_float8, val_text, val_bool)
+CREATE INDEX type_test_idx ON type_test 
+USING bm25 (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
     key_field='id',
-    text_fields='{"content": {}, "val_text": {"fast": true}}',
+    text_fields='{"text_val": {"fast": true}}',
     numeric_fields='{
-        "val_int2": {"fast": true},
-        "val_int4": {"fast": true},
-        "val_int8": {"fast": true},
-        "val_float4": {"fast": true},
-        "val_float8": {"fast": true}
-    }',
-    boolean_fields='{"val_bool": {"fast": true}}'
-);
-
--- Test 2.1: GROUP BY different numeric types
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
-
-SELECT val_int2, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int2 ORDER BY val_int2;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
-
-SELECT val_int4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int4 ORDER BY val_int4;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
-
-SELECT val_int8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_int8 ORDER BY val_int8;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
-
-SELECT val_float4, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float4 ORDER BY val_float4;
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
-
-SELECT val_float8, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_float8 ORDER BY val_float8;
-
--- Test 2.2: GROUP BY text field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
-
-SELECT val_text, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_text ORDER BY val_text;
-
--- Test 2.3: GROUP BY boolean field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
-
-SELECT val_bool, COUNT(*) FROM type_test WHERE content @@@ 'test' GROUP BY val_bool ORDER BY val_bool;
-
--- ===========================================================================
--- SECTION 3: Edge Cases and Negative Tests
--- ===========================================================================
-
--- Test 3.1: GROUP BY with no matching results
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'nonexistent_term' 
-GROUP BY rating;
-
-SELECT rating, COUNT(*) AS count
-FROM products 
-WHERE description @@@ 'nonexistent_term' 
-GROUP BY rating;
-
--- Test 3.2: Test with non-fast field (should NOT use aggregate scan)
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}}',
-    numeric_fields='{"rating": {"fast": false}}'  -- Not a fast field
-);
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) 
-FROM products 
-WHERE description @@@ 'laptop' 
-GROUP BY rating;
-
--- Test 3.3: GROUP BY without WHERE clause (should NOT use aggregate scan)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, COUNT(*) 
-FROM products 
-GROUP BY rating;
-
--- ===========================================================================
--- SECTION 4: Real-World Example - Support Ticket Analysis
--- ===========================================================================
-
-DROP TABLE IF EXISTS support_tickets CASCADE;
-CREATE TABLE support_tickets (
-    id SERIAL PRIMARY KEY,
-    description TEXT,
-    priority TEXT,
-    status TEXT,
-    category TEXT
-);
-
-INSERT INTO support_tickets (description, priority, status, category) VALUES
-    ('Cannot login to failed account', 'High', 'Open', 'Authentication'),
-    ('Password reset not working (failed)', 'High', 'Open', 'Authentication'),
-    ('Slow dashboard loading', 'Medium', 'In Progress', 'Performance'),
-    ('Export feature broken error', 'Low', 'Open', 'Features'),
-    ('Payment failed error', 'High', 'Resolved', 'Billing'),
-    ('Missing invoice', 'Low', 'Resolved', 'Billing');
-
-CREATE INDEX tickets_idx ON support_tickets
-USING bm25 (id, description, priority, status, category)
-WITH (
-    key_field='id',
-    text_fields='{
-        "description": {},
-        "priority": {"fast": true},
-        "status": {"fast": true},
-        "category": {"fast": true}
+        "int_val": {"fast": true},
+        "bigint_val": {"fast": true},
+        "smallint_val": {"fast": true},
+        "numeric_val": {"fast": true},
+        "float_val": {"fast": true},
+        "double_val": {"fast": true}
     }'
 );
 
--- Test 4.1: Analyze priority distribution for login issues
+-- Test 4.1: GROUP BY with different numeric types
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT priority, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority
-ORDER BY priority;
+SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
+FROM type_test
+WHERE text_val @@@ 'test1 OR test2 OR test3'
+GROUP BY text_val
+ORDER BY text_val;
 
-SELECT priority, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'login OR password OR authentication'
-GROUP BY priority
-ORDER BY priority;
+SELECT text_val, SUM(int_val), AVG(numeric_val), MIN(float_val), MAX(bigint_val)
+FROM type_test
+WHERE text_val @@@ 'test1 OR test2 OR test3'
+GROUP BY text_val
+ORDER BY text_val;
 
--- Test 4.2: Status breakdown by category (without ORDER BY)
--- Note: ORDER BY aggregate columns is not yet supported in custom scan
+-- =====================================================================
+-- SECTION 5: GROUP BY Validation and Fallback Tests
+-- =====================================================================
+
+-- Test 5.1: GROUP BY with DISTINCT aggregates (should fall back to PostgreSQL)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'error OR broken OR failed'
-GROUP BY category;
-
-SELECT category, COUNT(*) as count
-FROM support_tickets
-WHERE description @@@ 'error OR broken OR failed'
-GROUP BY category;
-
--- ===========================================================================
--- SECTION 5: Multi-Column GROUP BY
--- ===========================================================================
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, COUNT(*) 
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category, priority;
-
--- ---------------------------------------------------------------------------
--- Test 5.1: Multi-column GROUP BY with NO aggregate function (2 columns)
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority
-ORDER BY category, priority;
-
-SELECT category, priority
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority
-ORDER BY category, priority;
-
--- ---------------------------------------------------------------------------
--- Test 5.2: Three-column GROUP BY with COUNT(*)
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, status, COUNT(*)
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority, status;
-
-SELECT category, priority, status, COUNT(*)
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority, status;
-
--- ---------------------------------------------------------------------------
--- Test 5.3: Three-column GROUP BY without aggregates, descending ORDER BY
--- ---------------------------------------------------------------------------
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, priority, status
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY status DESC, priority DESC;
-
-SELECT category, priority, status
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category, priority, status
-ORDER BY priority DESC, status DESC;
-
--- ===========================================================================
--- SECTION 6: Verify ORDER BY functionality
--- ===========================================================================
--- Note: Our custom aggregate scan supports ORDER BY on grouping columns,
--- but ORDER BY on aggregate columns falls back to PostgreSQL.
-
--- Test 6.1: ORDER BY COUNT(*) should fall back to PostgreSQL
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY COUNT(*) DESC;
-
--- The query should work with PostgreSQL's standard execution
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY COUNT(*) DESC;
-
--- Test 6.2: ORDER BY alias should also fall back to PostgreSQL
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY count DESC;
-
--- The query should work with PostgreSQL's standard execution
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY count DESC;
-
--- Test 6.3: ORDER BY grouping column should use custom aggregate scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY category;
-
--- This should use our custom aggregate scan with ORDER BY
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category
-ORDER BY category;
-
--- Test 6.4: Verify GROUP BY without ORDER BY still uses our custom aggregate scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category;
-
--- This uses our custom aggregate scan
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'error' 
-GROUP BY category;
-
--- Test 6.5: GROUP BY without aggregates (distinct categories) should use custom aggregate scan
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category
-ORDER BY category;
-
--- This should use our custom aggregate scan and return distinct categories without COUNT(*)
-SELECT category
-FROM support_tickets
-WHERE description @@@ 'error'
-GROUP BY category
-ORDER BY category;
-
--- ===========================================================================
--- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
--- ===========================================================================
-
--- Test 7.1: GROUP BY with integer field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-
--- Aggregate UDF equivalent
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
--- ===========================================================================
--- SECTION 7: Benchmark-style comparison – GROUP BY vs paradedb.aggregate
--- ===========================================================================
-
--- Test 7.1: GROUP BY with integer field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-
-SELECT category, COUNT(*) as count
-FROM support_tickets 
-WHERE description @@@ 'failed' 
-GROUP BY category
-ORDER BY category;
-
--- Aggregate UDF equivalent
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
-
-SELECT *
-FROM paradedb.aggregate(
-        index => 'tickets_idx',
-        query => paradedb.term('description','failed'),
-        agg   => '{"buckets": {"terms": {"field": "category"}}}',
-        solve_mvcc => true
-);
--- ===========================================================================
--- SECTION 8: Forced Aggregate Custom Scan Tests (to expose bugs)
--- ===========================================================================
-
--- Test that forces aggregate custom scan to be used for edge cases
-DROP TABLE IF EXISTS min_max_test CASCADE;
-CREATE TABLE min_max_test (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    rating INTEGER
-);
-
-INSERT INTO min_max_test (name, rating) VALUES 
-    ('bob', 2),
-    ('bob', 4), 
-    ('bob', 5),
-    ('alice', 1),
-    ('alice', 3),
-    ('alice', 7);
-
-CREATE INDEX min_max_test_idx ON min_max_test USING bm25 (id, name, rating)
-WITH (
-    key_field = 'id',
-    text_fields = '{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields = '{"rating": {"fast": true}}'
-);
-
--- Force aggregate custom scan to be used by disabling parallel processing
--- This test exposes the MIN bug when GROUP BY is on the same field as the aggregate
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
-
--- Test 8.1: Basic GROUP BY test (fundamental test - should return 3 rows for bob: ratings 2, 4, 5)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
--- This should return exactly 3 rows: rating values 2, 4, 5
--- BUG: Currently returns individual rows instead of grouped results
-SELECT rating FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
--- Test 8.2: GROUP BY on different field (should return 2 rows: 'alice', 'bob')
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name FROM min_max_test GROUP BY name ORDER BY name;
-
--- This should return exactly 2 rows: 'alice', 'bob'
--- BUG: Currently returns individual rows instead of grouped results
-SELECT name FROM min_max_test GROUP BY name ORDER BY name;
-
--- Test 8.3: GROUP BY with COUNT (should work correctly if GROUP BY is fixed)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
-
--- This should return: ('alice', 3), ('bob', 3)
-SELECT name, COUNT(*) FROM min_max_test GROUP BY name ORDER BY name;
-
--- Test 8.4: MIN with GROUP BY on same field (known to be buggy)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
-SELECT rating, MIN(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
--- Test 8.5: MAX with GROUP BY on same field 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
-SELECT rating, MAX(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
--- Test 8.6: SUM with GROUP BY on same field
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
-SELECT rating, SUM(rating) FROM min_max_test WHERE name @@@ 'bob' GROUP BY rating ORDER BY rating;
-
--- Test 8.7: AVG with GROUP BY (should return NULL due to current bug)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
-
--- This should return: ('alice', 3.67), ('bob', 3.67) 
--- BUG: Currently returns NULL for AVG
-SELECT name, AVG(rating) FROM min_max_test GROUP BY name ORDER BY name;
-
--- Test 8.8: Complex boolean query like proptest - this should expose the real bug
--- This mirrors the failing proptest: OR(NOT(name='bob'), name='bob') which is always true
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
-
--- This should return exactly 4 rows: 1, 2, 3, 4, 5, 7 (all unique ratings)
--- BUG: Currently returns individual rows instead of grouped results
-SELECT rating FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY rating ORDER BY rating;
-
--- Test 8.9: Another complex boolean query like proptest
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
-
--- This should return exactly 2 rows: 'alice', 'bob'
--- BUG: Currently returns individual rows instead of grouped results  
-SELECT name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name ORDER BY name;
-
--- Test 8.10: Complex boolean with aggregates (like proptest failure)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
-
--- This should return grouped results, not individual rows
-SELECT rating, AVG(rating), name FROM min_max_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY name, rating ORDER BY name, rating;
-
-
--- ===========================================================================
--- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
--- ===========================================================================
-
--- Test to expose the fundamental GROUP BY bug that causes proptest failures
--- The issue: aggregate custom scan returns individual rows instead of grouped results
-
-DROP TABLE IF EXISTS groupby_bug_test CASCADE;
-CREATE TABLE groupby_bug_test (
-    id SERIAL PRIMARY KEY,
-    age INTEGER,
-    name TEXT
-);
-
-INSERT INTO groupby_bug_test (age, name) VALUES 
-    (25, 'alice'),
-    (25, 'bob'),   -- Two people age 25 - should group to 1 row
-    (30, 'carol'),
-    (30, 'dave'),  -- Two people age 30 - should group to 1 row  
-    (35, 'eve');   -- One person age 35 - should be 1 row
-
-CREATE INDEX groupby_bug_idx ON groupby_bug_test 
-USING bm25 (id, age, name)
-WITH (
-    key_field='id',
-    text_fields='{"name": {"fast": true}}',
-    numeric_fields='{"age": {"fast": true}}'
-);
-
--- Force aggregate custom scan
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
-
--- Test 9.1: Basic GROUP BY test 
--- CRITICAL BUG: Should return 3 rows (25, 30, 35) but returns 5 individual rows
--- This is the core of the proptest failure
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
-
--- Expected: 3 rows (25, 30, 35)
--- BUG: Returns 5 rows (25, 25, 30, 30, 35) - individual rows, not grouped!
-SELECT age FROM groupby_bug_test GROUP BY age ORDER BY age;
-
--- Test 9.2: The exact failing proptest pattern
--- OR(NOT(name='bob'), name='bob') = TRUE for all rows, should behave like Test 9.1
--- This is the simplified version of the failing proptest query
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test 
-WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
-GROUP BY age ORDER BY age;
-
--- Expected: 3 rows (25, 30, 35) - same as Test 9.1
--- BUG: Returns 5 individual rows without proper grouping
-SELECT age FROM groupby_bug_test 
-WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') 
-GROUP BY age ORDER BY age;
-
--- Test 9.3: GROUP BY with COUNT should also fail
--- Expected: 3 rows with counts (25|2, 30|2, 35|1)  
--- BUG: Returns 5 rows with count=1 for each (no grouping performed)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
-
-SELECT age, COUNT(*) FROM groupby_bug_test GROUP BY age ORDER BY age;
-
-
-
--- ===========================================================================
--- SECTION 9: Core GROUP BY Bug Tests (Reproduces proptest failures)
--- ===========================================================================
-
--- Test to expose the fundamental GROUP BY bug that causes proptest failures
--- The issue: aggregate custom scan returns individual rows instead of grouped results
-DROP TABLE IF EXISTS groupby_bug_test CASCADE;
-CREATE TABLE groupby_bug_test (
-    id SERIAL PRIMARY KEY,
-    name TEXT,
-    age INTEGER
-);
-
-INSERT INTO groupby_bug_test (name, age) VALUES 
-    ('alice', 23), ('bob', 33), ('alice', 23), ('charlie', 53), 
-    ('bob', 68), ('alice', 71), ('charlie', 74), ('alice', 8),
-    ('bob', 85), ('charlie', 87), ('alice', 96), ('bob', 23),
-    ('alice', 33), ('charlie', 53), ('bob', 68), ('alice', 71);
-
-CREATE INDEX groupby_bug_idx ON groupby_bug_test 
-USING bm25 (id, name, age)
-WITH (
-    key_field='id',
-    text_fields='{"name": {"tokenizer": {"type": "keyword"}, "fast": true}}',
-    numeric_fields='{"age": {"fast": true}}'
-);
-
--- Force aggregate custom scan settings
-SET max_parallel_workers_per_gather = 0;
-SET enable_hashagg = off;
-SET enable_sort = off;
-
--- Test 9.1: This should return 10 unique ages, but aggregate custom scan returns 16 individual rows
--- Query: (NOT (name = 'bob')) OR (name = 'bob') is a tautology (always true)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-
--- BUG: This returns 16 rows instead of 10 grouped rows
--- Expected: 10 unique age values (23, 33, 53, 68, 71, 74, 8, 85, 87, 96)
--- Actual: 16 individual age values (one for each row in the table)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-
--- Test 9.2: Verify the correct behavior with regular PostgreSQL (for comparison)
-SET paradedb.enable_aggregate_custom_scan = off;
-SELECT age FROM groupby_bug_test WHERE (NOT (name = 'bob')) OR (name = 'bob') GROUP BY age ORDER BY age;
-SET paradedb.enable_aggregate_custom_scan = on;
-
--- Test 9.3: Same bug exists with multiple GROUP BY columns  
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
-
--- BUG: This also returns 16 rows instead of grouped results
-SELECT age, name FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age, name ORDER BY age, name;
-
--- ===========================================================================
--- SECTION 10: Exact Proptest Failure Reproduction
--- ===========================================================================
-
--- This is the EXACT query that fails in the proptest
--- Expected: 10 grouped age values like ["2", "24", "37", "39", "61", "7", "71", "72", "8", "90"]
--- Actual: 40+ individual age values like ["1", "11", "17", "2", "20", "24", "25", ...]
-
--- This shows the fundamental bug: aggregate custom scan returns individual document values
--- instead of performing GROUP BY aggregation
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-
--- CRITICAL BUG: This returns individual rows (one per document) instead of grouped values
--- This is the core of all proptest failures - GROUP BY is completely broken
-SELECT age FROM groupby_bug_test WHERE (NOT (name @@@ 'bob')) OR (name @@@ 'bob') GROUP BY age ORDER BY age;
-
-
--- Regression test for ALL aggregate NULL handling on impossible WHERE clauses
--- This should return NULL instead of panicking with "result should be a number/float"
-
--- Recreate the full products index with category field for the final tests
-DROP INDEX products_idx;
-CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating, category, price)
-WITH (
-    key_field='id',
-    text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
-);
-
-SELECT 'Testing MAX with impossible WHERE clause (should return NULL)' as test_case;
-SELECT MAX(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
-SELECT 'Testing MIN with impossible WHERE clause (should return NULL)' as test_case;  
-SELECT MIN(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
-
-SELECT 'Testing AVG with impossible WHERE clause (should return NULL)' as test_case;
-SELECT AVG(rating) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
-SELECT 'Testing SUM with impossible WHERE clause (should return NULL)' as test_case;
-SELECT SUM(price) FROM products WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'));
-
-SELECT 'Testing COUNT with impossible WHERE clause (should return NULL)' as test_case;
-SELECT COUNT(*) FROM products WHERE ((NOT (category @@@ 'Electronics')) AND (category @@@ 'Electronics'));
-
--- More complex contradictory cases
-SELECT 'Testing MAX with complex contradiction (should return NULL)' as test_case;
-SELECT MAX(rating) FROM products WHERE (((category @@@ 'Electronics') AND (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop'));
-
-SELECT 'Testing MIN with complex contradiction (should return NULL)' as test_case;
-SELECT MIN(price) FROM products WHERE (((category @@@ 'Sports') AND (NOT (description @@@ 'laptop'))) AND (description @@@ 'laptop'));
-
--- ===========================================================================
--- Clean up
--- ===========================================================================
-
--- Test case for NULL aggregation behavior on empty result sets (PostgreSQL standard)
--- This should return NULL for SUM/AVG/MIN/MAX, but 0 for COUNT
-SELECT 'Testing SUM on empty result set should return NULL (like PostgreSQL)' as test_case;
-SELECT SUM(price) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT 'Testing COUNT on empty result set should return 0' as test_case;
-SELECT COUNT(*) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT 'Testing AVG on empty result set should return NULL' as test_case;
-SELECT AVG(price) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT 'Testing MIN on empty result set should return NULL' as test_case;
-SELECT MIN(price) FROM products WHERE description @@@ 'nonexistent';
-
-SELECT 'Testing MAX on empty result set should return NULL' as test_case;
-SELECT MAX(price) FROM products WHERE description @@@ 'nonexistent';
-
--- Test contradictory WHERE clause (should have same behavior)
-SELECT 'Testing SUM with contradictory WHERE clause should return NULL' as test_case;
-SELECT SUM(price) FROM products WHERE ((description @@@ 'laptop') AND (NOT (description @@@ 'laptop')));
-
--- Test contradictory rating comparison (proptest failure case)
-SELECT 'Testing SUM with contradictory rating comparison should return NULL' as test_case;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-SELECT SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-SELECT 'Testing COUNT with contradictory rating comparison should return 0' as test_case;
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-SELECT COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-SELECT COUNT(*), COUNT(*) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-SELECT COUNT(*), SUM(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-SELECT 'Testing AVG with contradictory rating comparison should return NULL' as test_case;
-SELECT AVG(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-SELECT 'Testing MIN with contradictory rating comparison should return NULL' as test_case;
-SELECT MIN(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
-SELECT 'Testing MAX with contradictory rating comparison should return NULL' as test_case;
-SELECT MAX(price) FROM products WHERE (description @@@ 'laptop') AND ((NOT (rating < 4)) AND (rating < 4));
-
--- Test cases that should be rejected by aggregate custom scan validation
--- These were identified as problematic in proptest failures
-
--- Case 1: Valid query that should work (no conflicts - matches the proptest failure)
--- This reproduces: SELECT rating, SUM(price), AVG(price), SUM(age) FROM users WHERE (users.name @@@ 'bob') AND (1 = 1) GROUP BY rating
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price) 
+SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products 
-WHERE description @@@ 'keyboard' 
-GROUP BY rating;
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category;
 
-SELECT rating, SUM(price), AVG(price)
+SELECT category, COUNT(DISTINCT rating), SUM(price)
 FROM products 
-WHERE description @@@ 'keyboard' 
-GROUP BY rating
-ORDER BY rating;
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY category;
 
--- Case 2: Aggregate field conflicts with GROUP BY field (same field used for both terms and metric aggregation)
--- This should fall back to regular PostgreSQL execution since rating appears in both GROUP BY and MAX(rating)
-EXPLAIN (COSTS OFF) SELECT rating, SUM(price), AVG(price), MAX(rating)
+-- Test 5.2: GROUP BY field conflicts with aggregate field
+-- (same field in both GROUP BY and aggregate - should fall back)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, SUM(price), MAX(rating)
 FROM products
 WHERE description @@@ 'keyboard'
 GROUP BY rating;
 
-SELECT rating, SUM(price), AVG(price), MAX(rating) 
+SELECT rating, SUM(price), MAX(rating) 
 FROM products 
 WHERE description @@@ 'keyboard' 
 GROUP BY rating
 ORDER BY rating;
 
--- Case 2: Similar conflict with different aggregate
-EXPLAIN (COSTS OFF) SELECT category, COUNT(*), MIN(price), MAX(category)
-FROM products 
-WHERE description @@@ 'mouse'
-GROUP BY category;
-
-SELECT category, COUNT(*), MIN(price), MAX(category)
-FROM products 
-WHERE description @@@ 'mouse'
-GROUP BY category
-ORDER BY category;
-
--- Case 3: Multiple conflicts in same query
-EXPLAIN (COSTS OFF) SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
-FROM products 
-WHERE description @@@ 'for'
-GROUP BY rating, category;
-
-SELECT rating, category, SUM(rating), AVG(rating), MAX(rating), MIN(rating)
-FROM products 
-WHERE description @@@ 'for'
-GROUP BY rating, category
-ORDER BY rating, category;
-
--- Case 4: GROUP BY field conflicts with search field (proptest failure case)
--- This should fall back to regular PostgreSQL execution since 'category' appears in both search and GROUP BY
-EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
+-- Test 5.3: GROUP BY field conflicts with WHERE search field
+-- (category is both searched and grouped - should fall back)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, MIN(rating), MAX(rating), SUM(price)
 FROM products 
 WHERE category @@@ 'Electronics'
 GROUP BY category;
@@ -934,38 +302,78 @@ WHERE category @@@ 'Electronics'
 GROUP BY category
 ORDER BY category;
 
--- Case 5: Double negation search field pattern (proptest failure case)
--- This reproduces: SELECT name, MIN(rating), MAX(rating), SUM(age) FROM users WHERE (NOT (NOT (users.color @@@ 'blue'))) AND (1 = 1) GROUP BY name
--- Double negation: NOT (NOT (category @@@ 'Electronics')) is equivalent to category @@@ 'Electronics'
-EXPLAIN (COSTS OFF) SELECT category, MIN(rating), MAX(rating), SUM(price)
-FROM products 
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
-GROUP BY category;
+-- =====================================================================
+-- SECTION 6: ORDER BY with GROUP BY Aggregates
+-- =====================================================================
 
-SELECT category, MIN(rating), MAX(rating), SUM(price)
+-- Test 6.1: ORDER BY aggregate result
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
 FROM products 
-WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (1 = 1)
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY total_price DESC;
+
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY total_price DESC;
+
+-- Test 6.2: ORDER BY multiple columns including aggregates
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, avg_price DESC;
+
+SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, avg_price DESC;
+
+-- =====================================================================
+-- SECTION 7: Complex GROUP BY Query Patterns
+-- =====================================================================
+
+-- Test 7.1: Complex boolean WHERE clauses with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, SUM(price), COUNT(*)
+FROM products 
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+  AND (rating >= 4 OR category @@@ 'Electronics')
+GROUP BY rating
+ORDER BY rating;
+
+SELECT rating, SUM(price), COUNT(*)
+FROM products 
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+  AND (rating >= 4 OR category @@@ 'Electronics')
+GROUP BY rating
+ORDER BY rating;
+
+-- Test 7.2: Nested boolean expressions with GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, AVG(price), MIN(rating), MAX(rating)
+FROM products 
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
 
--- Case 6: DISTINCT aggregate functions (should fall back to PostgreSQL)
--- These should fall back to regular PostgreSQL execution since DISTINCT aggregates are not supported
-EXPLAIN (COSTS OFF) SELECT COUNT(DISTINCT category), SUM(price)
+SELECT category, AVG(price), MIN(rating), MAX(rating)
 FROM products 
-WHERE description @@@ 'laptop';
+WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
+GROUP BY category
+ORDER BY category;
 
-SELECT COUNT(DISTINCT category), SUM(price)
-FROM products 
-WHERE description @@@ 'laptop';
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
 
--- Reset settings
-RESET max_parallel_workers_per_gather;
-RESET enable_hashagg;
-RESET enable_sort;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS type_test CASCADE;
+DROP TABLE IF EXISTS groupby_test CASCADE;
+
 RESET paradedb.enable_aggregate_custom_scan;
-
-DROP TABLE support_tickets CASCADE;
-DROP TABLE type_test CASCADE;
-DROP TABLE products CASCADE;
-DROP TABLE min_max_test CASCADE;
-DROP TABLE groupby_bug_test CASCADE; 

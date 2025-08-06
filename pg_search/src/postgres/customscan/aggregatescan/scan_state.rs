@@ -224,27 +224,12 @@ impl AggregateScanState {
 
     /// Extract aggregate value from JSON using serde deserialization
     /// This handles different structures: direct values, objects with "value" field, or raw objects for COUNT
-    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> &serde_json::Value {
-        // Try to deserialize using our structured type
+    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
+        // Deserialize using our structured type
         match serde_json::from_value::<AggregateResult>(agg_obj.clone()) {
-            Ok(result) => {
-                // If we successfully parsed it, we still need to return the original value
-                // for compatibility with existing code. This is a transitional approach.
-                match result {
-                    AggregateResult::DirectValue(_) => agg_obj,
-                    AggregateResult::ValueObject { value: Some(_) } => {
-                        // Return the value field if it exists
-                        if let Some(obj) = agg_obj.as_object() {
-                            obj.get("value").unwrap_or(agg_obj)
-                        } else {
-                            agg_obj
-                        }
-                    }
-                    AggregateResult::ValueObject { value: None } | AggregateResult::Null => agg_obj,
-                }
-            }
-            Err(_) => {
-                panic!("Failed to deserialize aggregate result: {agg_obj:?}");
+            Ok(result) => result,
+            Err(e) => {
+                panic!("Failed to deserialize aggregate result: {e}, value: {agg_obj:?}");
             }
         }
     }
@@ -259,11 +244,15 @@ impl AggregateScanState {
         doc_count: Option<i64>,
     ) -> AggregateValue {
         let agg_result = match (aggregate, result_source) {
-            (AggregateType::Count, AggregateResultSource::ResultMap(result_map)) => result_map
-                .get(&agg_idx.to_string())
-                .expect("missing aggregate result"),
+            (AggregateType::Count, AggregateResultSource::ResultMap(result_map)) => {
+                let raw_result = result_map
+                    .get(&agg_idx.to_string())
+                    .expect("missing aggregate result");
+                Self::extract_aggregate_value_from_json(raw_result)
+            }
             (AggregateType::Count, AggregateResultSource::BucketObj(bucket_obj)) => {
-                bucket_obj.get("doc_count").expect("missing doc_count")
+                let raw_result = bucket_obj.get("doc_count").expect("missing doc_count");
+                Self::extract_aggregate_value_from_json(raw_result)
             }
             (_, AggregateResultSource::ResultMap(result_map)) => {
                 let agg_obj = result_map
@@ -286,7 +275,7 @@ impl AggregateScanState {
             _ => None,
         };
 
-        aggregate.result_from_json_with_doc_count(agg_result, doc_count_for_aggregate)
+        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count_for_aggregate)
     }
 
     #[allow(unreachable_patterns)]

@@ -136,10 +136,10 @@ impl AggregateType {
         }
     }
 
-    /// Convert JSON result to AggregateValue, checking doc_count for empty result set handling
-    pub fn result_from_json_with_doc_count(
+    /// Convert AggregateResult to AggregateValue, checking doc_count for empty result set handling
+    pub fn result_from_aggregate_with_doc_count(
         &self,
-        result: &serde_json::Value,
+        result: AggregateResult,
         doc_count: Option<i64>,
     ) -> AggregateValue {
         // If doc_count is 0, return NULL for all aggregates except COUNT (which should return 0)
@@ -150,16 +150,10 @@ impl AggregateType {
             }
         }
 
-        self.result_from_json_internal(result)
+        self.result_from_aggregate_internal(result)
     }
 
-    fn result_from_json_internal(&self, result: &serde_json::Value) -> AggregateValue {
-        // Use serde to deserialize the result into our structured type
-        let agg_result: AggregateResult = match serde_json::from_value(result.clone()) {
-            Ok(result) => result,
-            Err(e) => panic!("Failed to deserialize aggregate result: {e}, value: {result:?}"),
-        };
-
+    fn result_from_aggregate_internal(&self, agg_result: AggregateResult) -> AggregateValue {
         // Extract the number and process it based on the aggregate type
         match agg_result.extract_number() {
             None => AggregateValue::Null,

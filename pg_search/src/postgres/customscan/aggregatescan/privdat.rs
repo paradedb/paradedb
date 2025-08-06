@@ -39,6 +39,17 @@ pub enum AggregateValue {
     Float(f64),
 }
 
+/// Enum to specify how numbers should be processed for different aggregate types
+#[derive(Debug, Clone, Copy)]
+enum NumberProcessingType {
+    /// For COUNT: validate integer, check range, always return Int
+    Count,
+    /// For SUM/MIN/MAX: preserve original type (Int or Float)
+    Numeric,
+    /// For AVG: always convert to Float
+    Float,
+}
+
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
@@ -121,37 +132,34 @@ impl AggregateType {
     fn result_from_json_internal(&self, result: &serde_json::Value) -> AggregateValue {
         match self {
             AggregateType::Count => {
-                Self::process_standard_aggregate(result, "COUNT", Self::process_count_number)
+                Self::process_standard_aggregate(result, "COUNT", NumberProcessingType::Count)
             }
             AggregateType::Sum { .. } => {
-                Self::process_standard_aggregate(result, "SUM", Self::process_numeric_number)
+                Self::process_standard_aggregate(result, "SUM", NumberProcessingType::Numeric)
             }
             AggregateType::Avg { .. } => {
-                Self::process_standard_aggregate(result, "AVG", Self::process_float_number)
+                Self::process_standard_aggregate(result, "AVG", NumberProcessingType::Float)
             }
             AggregateType::Min { .. } => {
-                Self::process_standard_aggregate(result, "MIN", Self::process_numeric_number)
+                Self::process_standard_aggregate(result, "MIN", NumberProcessingType::Numeric)
             }
             AggregateType::Max { .. } => {
-                Self::process_standard_aggregate(result, "MAX", Self::process_numeric_number)
+                Self::process_standard_aggregate(result, "MAX", NumberProcessingType::Numeric)
             }
         }
     }
 
     /// Common processing logic for standard aggregates (COUNT, SUM, AVG, MIN, MAX)
-    fn process_standard_aggregate<F>(
+    fn process_standard_aggregate(
         result: &serde_json::Value,
         agg_name: &str,
-        processor: F,
-    ) -> AggregateValue
-    where
-        F: Fn(&serde_json::Number) -> AggregateValue,
-    {
+        processing_type: NumberProcessingType,
+    ) -> AggregateValue {
         match Self::extract_value(result, agg_name) {
             None => AggregateValue::Null,
             Some(value) => {
                 if let Some(num) = value.as_number() {
-                    processor(num)
+                    Self::process_number(num, processing_type)
                 } else {
                     panic!("{agg_name} result value should be a number or null, got: {value:?}");
                 }
@@ -183,33 +191,36 @@ impl AggregateType {
         }
     }
 
-    /// Process a number value for COUNT aggregates (integer validation and range checking)
-    fn process_count_number(num: &serde_json::Number) -> AggregateValue {
-        let f64_val = num.as_f64().expect("invalid COUNT result");
-        if f64_val.fract() != 0.0 {
-            panic!("COUNT should not have a fractional result");
+    /// Process a number value based on the aggregate type requirements
+    fn process_number(
+        num: &serde_json::Number,
+        processing_type: NumberProcessingType,
+    ) -> AggregateValue {
+        match processing_type {
+            NumberProcessingType::Count => {
+                let f64_val = num.as_f64().expect("invalid COUNT result");
+                if f64_val.fract() != 0.0 {
+                    panic!("COUNT should not have a fractional result");
+                }
+                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+                    panic!("COUNT value was out of range");
+                }
+                AggregateValue::Int(f64_val as i64)
+            }
+            NumberProcessingType::Numeric => {
+                if let Some(int_val) = num.as_i64() {
+                    AggregateValue::Int(int_val)
+                } else if let Some(f64_val) = num.as_f64() {
+                    AggregateValue::Float(f64_val)
+                } else {
+                    panic!("Numeric result should be a valid number");
+                }
+            }
+            NumberProcessingType::Float => {
+                let f64_val = num.as_f64().expect("invalid float result");
+                AggregateValue::Float(f64_val)
+            }
         }
-        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-            panic!("COUNT value was out of range");
-        }
-        AggregateValue::Int(f64_val as i64)
-    }
-
-    /// Process a number value for numeric aggregates (can be int or float)
-    fn process_numeric_number(num: &serde_json::Number) -> AggregateValue {
-        if let Some(int_val) = num.as_i64() {
-            AggregateValue::Int(int_val)
-        } else if let Some(f64_val) = num.as_f64() {
-            AggregateValue::Float(f64_val)
-        } else {
-            panic!("Numeric result should be a valid number");
-        }
-    }
-
-    /// Process a number value for float aggregates (always convert to f64)
-    fn process_float_number(num: &serde_json::Number) -> AggregateValue {
-        let f64_val = num.as_f64().expect("invalid float result");
-        AggregateValue::Float(f64_val)
     }
 }
 

@@ -546,7 +546,46 @@ fn extract_and_validate_aggregates(
         }
     }
 
+    // Check for the specific SUM+MAX+AVG combination that causes "incompatible fruit types" error
+    if has_problematic_aggregation_combination(&aggregate_types, schema) {
+        return None;
+    }
+
     Some(aggregate_types)
+}
+
+/// Check if the aggregation combination would cause "incompatible fruit types" error in Tantivy.
+///
+/// The specific pattern (which is also data dependent) that triggers this error is:
+/// - SUM
+/// - MIN or MAX
+/// - AVG
+///
+/// TODO: This might be a bug in Tantivy. Let's fix it.
+///
+/// This combination causes Tantivy's aggregation merging to fail when trying to combine
+/// different result types (numeric, integer, float) in the same aggregation tree.
+fn has_problematic_aggregation_combination(
+    aggregates: &[AggregateType],
+    schema: &SearchIndexSchema,
+) -> bool {
+    let mut has_sum = false;
+    let mut has_minmax = false;
+    let mut has_avg = false;
+
+    // Identify the aggregation types and their field types
+    for aggregate in aggregates {
+        match aggregate {
+            AggregateType::Sum { field } => has_sum = true,
+            AggregateType::Max { field } => has_minmax = true,
+            AggregateType::Avg { field } => has_avg = true,
+            AggregateType::Count => {}
+            AggregateType::Min { .. } => has_minmax = true,
+        }
+    }
+
+    // Check if we have the problematic combination
+    has_sum && has_minmax && has_avg
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.

@@ -156,14 +156,25 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.products
-   Output: category, now(), now(), now(), now(), now()
-   Index: products_idx
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
-(5 rows)
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*), sum(price), avg(price), min(price), max(price)
+   Group Key: products.category
+   ->  Sort
+         Output: category, price
+         Sort Key: products.category
+         ->  Custom Scan (ParadeDB Scan) on public.products
+               Output: category, price
+               Table: products
+               Index: products_idx
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: category, price
+               String Fast Fields: category
+               Numeric Fast Fields: price
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+(16 rows)
 
 SELECT category, 
        COUNT(*) AS count, 
@@ -175,10 +186,10 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
 ORDER BY category;
-  category   | count |  total  |  avg   | min_price | max_price 
--------------+-------+---------+--------+-----------+-----------
- Electronics |     4 | 2529.96 | 632.49 |     79.99 |   1299.99
- Toys        |     1 |  499.99 | 499.99 |    499.99 |    499.99
+  category   | count |  total  |         avg          | min_price | max_price 
+-------------+-------+---------+----------------------+-----------+-----------
+ Electronics |     4 | 2529.96 | 632.4900000000000000 |     79.99 |   1299.99
+ Toys        |     1 |  499.99 | 499.9900000000000000 |    499.99 |    499.99
 (2 rows)
 
 -- Test 1.6: GROUP BY with numeric field
@@ -814,40 +825,95 @@ SELECT name, SUM(price), MAX(rating), AVG(age)
 FROM users 
 WHERE (users.color @@@ 'blue') AND (NOT (users.age < '20')) 
 GROUP BY name;
-                                                                                                                             QUERY PLAN                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
-   Index: idxusers
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"age","lower_bound":{"included":20},"upper_bound":null,"is_datetime":false}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"max":{"field":"rating"}},"agg_2":{"avg":{"field":"age"}}}}}
-(5 rows)
+                                                                                                                                         QUERY PLAN                                                                                                                                          
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate
+   Output: name, sum(price), max(rating), avg(age)
+   Group Key: users.name
+   ->  Gather Merge
+         Output: name, (PARTIAL sum(price)), (PARTIAL max(rating)), (PARTIAL avg(age))
+         Workers Planned: 2
+         ->  Sort
+               Output: name, (PARTIAL sum(price)), (PARTIAL max(rating)), (PARTIAL avg(age))
+               Sort Key: users.name
+               ->  Partial HashAggregate
+                     Output: name, PARTIAL sum(price), PARTIAL max(rating), PARTIAL avg(age)
+                     Group Key: users.name
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.users
+                           Output: name, price, rating, age
+                           Table: users
+                           Index: idxusers
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"age","lower_bound":{"included":20},"upper_bound":null,"is_datetime":false}}]}}
+(19 rows)
 
 SELECT name, SUM(price), MAX(rating), AVG(age) 
 FROM users 
 WHERE (users.color @@@ 'blue') AND (NOT (users.age < '20')) 
 GROUP BY name;
-ERROR:  incompatible fruit types in tree or missing merge_fruits handler
+      name      |    sum     | max |         avg         
+----------------+------------+-----+---------------------
+ alice          | 1002425.51 |   5 | 52.2000000000000000
+ bob            |    2293.00 |   5 | 46.4000000000000000
+ charlie        | 1011542.00 |   5 | 44.4444444444444444
+ david          | 1012134.99 |   5 | 55.2000000000000000
+ duplicate_name |    1500.00 |   5 | 27.0000000000000000
+ edge_case_1    |       0.00 |   1 | 20.0000000000000000
+ edge_case_2    |  999999.99 |   5 | 21.0000000000000000
+ emma           | 1021900.98 |   5 | 46.9000000000000000
+ frank          | 1021502.98 |   5 | 45.6666666666666667
+ sally          |   13297.25 |   5 | 51.3846153846153846
+(10 rows)
+
 --- ----
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name, SUM(price), MAX(rating), AVG(age) 
 FROM users 
 WHERE (users.color @@@ 'blue')
 GROUP BY name;
-                                                                                        QUERY PLAN                                                                                         
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.users
-   Output: name, now(), now(), now()
-   Index: idxusers
-   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"max":{"field":"rating"}},"agg_2":{"avg":{"field":"age"}}}}}
-(5 rows)
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize GroupAggregate
+   Output: name, sum(price), max(rating), avg(age)
+   Group Key: users.name
+   ->  Gather Merge
+         Output: name, (PARTIAL sum(price)), (PARTIAL max(rating)), (PARTIAL avg(age))
+         Workers Planned: 2
+         ->  Sort
+               Output: name, (PARTIAL sum(price)), (PARTIAL max(rating)), (PARTIAL avg(age))
+               Sort Key: users.name
+               ->  Partial HashAggregate
+                     Output: name, PARTIAL sum(price), PARTIAL max(rating), PARTIAL avg(age)
+                     Group Key: users.name
+                     ->  Parallel Custom Scan (ParadeDB Scan) on public.users
+                           Output: name, price, rating, age
+                           Table: users
+                           Index: idxusers
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 SELECT name, SUM(price), MAX(rating), AVG(age) 
 FROM users 
 WHERE (users.color @@@ 'blue')
 GROUP BY name;
-ERROR:  incompatible fruit types in tree or missing merge_fruits handler
+      name      |    sum     | max |         avg         
+----------------+------------+-----+---------------------
+ alice          | 1003050.51 |   5 | 44.0000000000000000
+ bob            |    3224.01 |   5 | 36.1333333333333333
+ charlie        | 1013020.00 |   5 | 34.2142857142857143
+ david          | 1022915.98 |   5 | 46.1538461538461538
+ duplicate_name |    1500.00 |   5 | 27.0000000000000000
+ edge_case_1    |       0.00 |   1 | 20.0000000000000000
+ edge_case_2    |  999999.99 |   5 | 21.0000000000000000
+ edge_case_3    |       0.01 |   1 | 19.0000000000000000
+ emma           | 1022821.98 |   5 | 39.7692307692307692
+ frank          | 1021726.99 |   5 | 38.1666666666666667
+ sally          | 1013635.25 |   5 | 44.8750000000000000
+(11 rows)
+
 --- ----
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT name, SUM(price), MAX(rating)
@@ -889,18 +955,18 @@ SELECT name, COUNT(*), SUM(price), AVG(price), MIN(rating), MAX(rating)
 FROM users 
 WHERE color @@@ 'blue' AND age >= 20
 GROUP BY name;
-      name      | count |    sum     |       avg        | min | max 
-----------------+-------+------------+------------------+-----+-----
- alice          |    10 | 1002425.51 |       100242.551 |   1 |   5
- bob            |    10 |       2293 |            229.3 |   1 |   5
- charlie        |     9 |    1011542 | 112393.555555556 |   1 |   5
- david          |    10 | 1012134.99 |       101213.499 |   1 |   5
- duplicate_name |     5 |       1500 |              300 |   1 |   5
- edge_case_1    |     1 |          0 |                0 |   1 |   1
- edge_case_2    |     1 |  999999.99 |        999999.99 |   5 |   5
- emma           |    10 | 1021900.98 |       102190.098 |   1 |   5
- frank          |     9 | 1021502.98 | 113500.331111111 |   1 |   5
- sally          |    13 |   13297.25 | 1022.86538461538 |   1 |   5
+      name      | count |    sum     |          avg           | min | max 
+----------------+-------+------------+------------------------+-----+-----
+ alice          |    10 | 1002425.51 |    100242.551000000000 |   1 |   5
+ bob            |    10 |    2293.00 |   229.3000000000000000 |   1 |   5
+ charlie        |     9 | 1011542.00 |    112393.555555555556 |   1 |   5
+ david          |    10 | 1012134.99 |    101213.499000000000 |   1 |   5
+ duplicate_name |     5 |    1500.00 |   300.0000000000000000 |   1 |   5
+ edge_case_1    |     1 |       0.00 | 0.00000000000000000000 |   1 |   1
+ edge_case_2    |     1 |  999999.99 |    999999.990000000000 |   5 |   5
+ emma           |    10 | 1021900.98 |    102190.098000000000 |   1 |   5
+ frank          |     9 | 1021502.98 |    113500.331111111111 |   1 |   5
+ sally          |    13 |   13297.25 |  1022.8653846153846154 |   1 |   5
 (10 rows)
 
 -- Test with complex WHERE conditions

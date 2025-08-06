@@ -182,17 +182,14 @@ LIMIT 10;
                                                                           QUERY PLAN                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Incremental Sort
+   ->  Sort
          Sort Key: price, valid_period
-         Presorted Key: price
          ->  Custom Scan (ParadeDB Scan) on data_records
                Table: data_records
                Index: records_no_fast_idx
-               Exec Method: TopNScanExecState
+               Exec Method: NormalScanExecState
                Scores: false
-                  TopN Order By: price asc
-                  TopN Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(9 rows)
 
 DROP TABLE data_records;

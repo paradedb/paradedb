@@ -1268,11 +1268,14 @@ unsafe fn pullup_orderby_pathkeys(
         |search_field| search_field.is_lower_sortable(),
     );
 
-    // TopN is the base scan's only executor which supports sorting.
-    let pathkey_styles = if !pathkey_styles.is_empty() && pathkey_styles.len() <= 3 {
-        Some(pathkey_styles)
-    } else {
-        None
+    // TopN is the base scan's only executor which supports sorting, and supports up to 3 order-by
+    // clauses.
+    let pathkey_styles = match &pathkey_styles {
+        Some(ps) if !ps.is_empty() && ps.len() <= 3 => pathkey_styles,
+        _ => {
+            // Either no pathkeys could be extracted, or too many were.
+            None
+        }
     };
 
     (has_any_pathkeys, pathkey_styles)
@@ -1280,24 +1283,26 @@ unsafe fn pullup_orderby_pathkeys(
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
+///
+/// Returns a boolean indicating whether any pathkeys existed, and (iff all pathkeys can be pushed
+/// down) a list of order-by-styles for pushdown.
 pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     regular_sortability_check: F1,
     lower_sortability_check: F2,
-) -> (bool, Vec<OrderByStyle>)
+) -> (bool, Option<Vec<OrderByStyle>>)
 where
     F1: Fn(&SearchField) -> bool,
     F2: Fn(&SearchField) -> bool,
 {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return (false, Vec::new());
+        return (false, None);
     }
 
     let mut pathkey_styles = Vec::new();
-
     for pathkey_ptr in pathkeys.iter_ptr() {
         let pathkey = pathkey_ptr;
         let equivclass = (*pathkey).pk_eclass;
@@ -1375,13 +1380,14 @@ where
             }
         }
 
-        // If we couldn't find any valid member for this pathkey, skip it
+        // If we couldn't find any valid member for this pathkey, then we can't handle this series
+        // of pathkeys.
         if !found_valid_member {
-            continue;
+            return (true, None);
         }
     }
 
-    (true, pathkey_styles)
+    (true, Some(pathkey_styles))
 }
 
 /// Check if a node is a lower() function call for a specific relation

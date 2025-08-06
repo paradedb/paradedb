@@ -517,10 +517,6 @@ fn extract_order_by_pathkeys(
             |_search_field| false,                 // Don't accept lower functions in aggregatescan
         );
 
-        if pathkey_styles.is_empty() {
-            None
-        } else {
-            Some(pathkey_styles)
-        }
+        pathkey_styles
     }
 }

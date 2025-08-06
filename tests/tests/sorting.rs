@@ -196,11 +196,50 @@ fn sort_by_row_return_scores(mut conn: PgConnection) {
 }
 
 #[rstest]
-async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
-    if pg_major_version(&mut conn) < 16 {
-        // Incremental Sort is only supported >=16.
-        return;
-    }
+async fn test_compound_sort(mut conn: PgConnection) {
+    "SET max_parallel_workers to 0;".execute(&mut conn);
+
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT id FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes' ORDER BY rating DESC, created_at DESC LIMIT 10"#
+        .fetch_one(&mut conn);
+
+    eprintln!("plan: {plan:#?}");
+
+    // Since both ORDER-BY fields are fast, they should be pushed down.
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/   TopN Order By"),
+        Some(&Value::String(String::from("rating desc, created_at desc")))
+    );
+}
+
+#[rstest]
+async fn compound_sort_expression(mut conn: PgConnection) {
+    "SET max_parallel_workers to 0;".execute(&mut conn);
+
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let (plan,): (Value,) = r#"
+        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
+        SELECT *, paradedb.score(id) * 2 FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes' ORDER BY 2, paradedb.score(id) LIMIT 10"#
+        .fetch_one(&mut conn);
+
+    eprintln!("plan: {plan:#?}");
+
+    // Since the ORDER BY contains an expression, we should not attempt TopN, even if other
+    // fields could be pushed down.
+    assert_eq!(
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Exec Method"),
+        Some(&Value::String(String::from("NormalScanExecState")))
+    );
+}
+
+#[rstest]
+async fn compound_sort_partitioned(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 
     // Create the partitioned sales table
@@ -219,7 +258,6 @@ async fn test_incremental_sort_with_partial_order(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    // Test BM25 with ORDER BY ... LIMIT to confirm sort optimization works
     let (plan,): (Value,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
         SELECT id, sale_date, amount FROM sales

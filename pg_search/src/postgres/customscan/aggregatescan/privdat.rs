@@ -29,7 +29,6 @@ pub enum AggregateType {
     Avg { field: String },
     Min { field: String },
     Max { field: String },
-    Stats { field: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -51,7 +50,6 @@ impl AggregateType {
             AggregateType::Avg { field } => Some(field.clone()),
             AggregateType::Min { field } => Some(field.clone()),
             AggregateType::Max { field } => Some(field.clone()),
-            AggregateType::Stats { field } => Some(field.clone()),
         }
     }
 
@@ -88,13 +86,6 @@ impl AggregateType {
             AggregateType::Max { field } => {
                 serde_json::json!({
                     "max": {
-                        "field": field
-                    }
-                })
-            }
-            AggregateType::Stats { field } => {
-                serde_json::json!({
-                    "stats": {
                         "field": field
                     }
                 })
@@ -144,7 +135,6 @@ impl AggregateType {
             AggregateType::Max { .. } => {
                 Self::process_standard_aggregate(result, "MAX", Self::process_numeric_number)
             }
-            AggregateType::Stats { .. } => Self::process_stats_aggregate(result),
         }
     }
 
@@ -166,29 +156,6 @@ impl AggregateType {
                     panic!("{agg_name} result value should be a number or null, got: {value:?}");
                 }
             }
-        }
-    }
-
-    /// Specialized processing for STATS aggregates
-    fn process_stats_aggregate(result: &serde_json::Value) -> AggregateValue {
-        if result.is_null() {
-            AggregateValue::Null
-        } else if let Some(obj) = result.as_object() {
-            // Check if the entire object is a {"value": null} wrapper
-            if let Some(value) = obj.get("value") {
-                if value.is_null() {
-                    AggregateValue::Null
-                } else if let Some(value_obj) = value.as_object() {
-                    Self::process_stats_object(value_obj)
-                } else {
-                    panic!("STATS result value should be an object, got: {value:?}");
-                }
-            } else {
-                // Normal STATS object with count directly
-                Self::process_stats_object(obj)
-            }
-        } else {
-            panic!("STATS result should be an object or null, got: {result:?}");
         }
     }
 
@@ -243,16 +210,6 @@ impl AggregateType {
     fn process_float_number(num: &serde_json::Number) -> AggregateValue {
         let f64_val = num.as_f64().expect("invalid float result");
         AggregateValue::Float(f64_val)
-    }
-
-    /// Process a STATS result object to extract the count
-    fn process_stats_object(obj: &serde_json::Map<String, serde_json::Value>) -> AggregateValue {
-        let count = obj
-            .get("count")
-            .and_then(|v| v.as_number())
-            .and_then(|n| n.as_i64())
-            .expect("STATS result should contain count");
-        AggregateValue::Int(count)
     }
 }
 

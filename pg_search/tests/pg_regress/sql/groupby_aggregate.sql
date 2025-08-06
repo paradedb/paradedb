@@ -182,7 +182,21 @@ FROM products
 WHERE description @@@ 'nonexistent'
 GROUP BY category;
 
--- Test 3.2: GROUP BY with contradictory WHERE clauses
+-- Test 3.2: GROUP BY with grouping column in the middle
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+
+SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+
+-- Test 3.3: GROUP BY with contradictory WHERE clauses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products 
@@ -194,7 +208,7 @@ FROM products
 WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
 GROUP BY category;
 
--- Test 3.3: Tautological WHERE clauses with GROUP BY
+-- Test 3.4: Tautological WHERE clauses with GROUP BY
 -- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)

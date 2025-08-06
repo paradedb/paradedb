@@ -302,7 +302,35 @@ GROUP BY category;
 ----------+-------+-----+-----
 (0 rows)
 
--- Test 3.2: GROUP BY with contradictory WHERE clauses
+-- Test 3.2: GROUP BY with grouping column in the middle
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: now(), category, now(), rating, now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_2":{"sum":{"field":"price"}}}}}}}
+(5 rows)
+
+SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category, rating
+ORDER BY category, rating;
+ count |  category   |       avg        | rating |   sum   
+-------+-------------+------------------+--------+---------
+     1 | Electronics |            79.99 |      4 |   79.99
+     3 | Electronics | 816.656666666667 |      5 | 2449.97
+     1 | Toys        |           499.99 |      3 |  499.99
+(3 rows)
+
+-- Test 3.3: GROUP BY with contradictory WHERE clauses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
 FROM products 
@@ -325,7 +353,7 @@ GROUP BY category;
 ----------+-------+-----+-----
 (0 rows)
 
--- Test 3.3: Tautological WHERE clauses with GROUP BY
+-- Test 3.4: Tautological WHERE clauses with GROUP BY
 -- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)

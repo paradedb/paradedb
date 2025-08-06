@@ -34,6 +34,14 @@ use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
 use wheregen::{Expr, SqlValue};
 
+pub const DEFAULT_GUC_SET: &str = r#"
+SET max_parallel_workers TO 8;
+SET enable_seqscan TO ON;
+SET enable_indexscan TO ON;
+SET paradedb.enable_custom_scan TO OFF;
+SET paradedb.enable_aggregate_custom_scan TO OFF;
+"#;
+
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
@@ -81,7 +89,7 @@ pub struct PgGucs {
 }
 
 impl PgGucs {
-    fn set(&self) -> String {
+    pub fn set(&self) -> String {
         let PgGucs {
             aggregate_custom_scan,
             custom_scan,
@@ -122,14 +130,7 @@ where
     // the postgres query is always run with the paradedb custom scan turned off
     // this ensures we get the actual, known-to-be-correct result from Postgres'
     // plan, and not from ours where we did some kind of pushdown
-    r#"
-        SET max_parallel_workers TO 8;
-        SET enable_seqscan TO ON;
-        SET enable_indexscan TO ON;
-        SET paradedb.enable_custom_scan TO OFF;
-        SET paradedb.enable_aggregate_custom_scan TO OFF;
-    "#
-    .execute(conn);
+    DEFAULT_GUC_SET.execute(conn);
 
     conn.deallocate_all()?;
 
@@ -160,54 +161,27 @@ where
     Ok(())
 }
 
-/// Compare with setup SQL for repro script generation
-pub fn compare_with_setup<R, F>(
+/// Helper function to handle comparison errors and generate reproduction scripts
+pub fn handle_compare_error(
+    error: TestCaseError,
     pg_query: String,
     bm25_query: String,
     gucs: PgGucs,
-    conn: &mut PgConnection,
-    run_query: F,
     setup_sql: &str,
-) -> Result<(), TestCaseError>
-where
-    R: Eq + Debug,
-    F: Fn(&str, &mut PgConnection) -> R,
-{
-    // the postgres query is always run with the paradedb custom scan turned off
-    // this ensures we get the actual, known-to-be-correct result from Postgres'
-    // plan, and not from ours where we did some kind of pushdown
-    r#"
-        SET max_parallel_workers TO 8;
-        SET enable_seqscan TO ON;
-        SET enable_indexscan TO ON;
-        SET paradedb.enable_custom_scan TO OFF;
-        SET paradedb.enable_aggregate_custom_scan TO OFF;
-    "#
-    .execute(conn);
+) -> TestCaseError {
+    let error_msg = error.to_string();
+    let failure_type = if error_msg.contains("error returned from database")
+        || error_msg.contains("SQL execution error")
+        || error_msg.contains("syntax error")
+    {
+        "QUERY EXECUTION FAILURE"
+    } else {
+        "RESULT MISMATCH"
+    };
 
-    conn.deallocate_all()?;
-
-    let pg_result = run_query(&pg_query, conn);
-
-    // and for the "bm25" query, we run it with the given GUCs set.
-    gucs.set().execute(conn);
-
-    conn.deallocate_all()?;
-
-    let bm25_result = run_query(&bm25_query, conn);
-
-    if pg_result != bm25_result {
-        // Generate a complete reproduction script
-        let explain_output = format!("EXPLAIN {bm25_query}")
-            .fetch::<(String,)>(conn)
-            .into_iter()
-            .map(|(s,)| s)
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let repro_script = format!(
-            r#"
--- ==== COMPLETE REPRODUCTION SCRIPT ====
+    let repro_script = format!(
+        r#"
+-- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
 
 -- Prerequisites: Ensure pg_search extension is available
@@ -216,25 +190,20 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 -- Table and index setup
 {setup_sql}
 
--- Set GUCs to match the failing test case
-SET paradedb.enable_aggregate_custom_scan = {aggregate_custom_scan};
-SET paradedb.enable_custom_scan = {custom_scan};
-SET paradedb.enable_custom_scan_without_operator = {custom_scan_without_operator};
-SET enable_seqscan = {seqscan};
-SET enable_indexscan = {indexscan};
-SET max_parallel_workers_per_gather = {parallel_workers};
+-- Default GUCs:
+{default_gucs}
 
--- Query that fails with aggregate custom scan enabled:
+-- PostgreSQL query:
+{pg_query}
+
+-- Set GUCs to match the failing test case
+{gucs_sql}
+
+-- BM25 query:
 {bm25_query}
 
--- Expected result (from PostgreSQL):
--- {pg_result:?}
-
--- Actual result (from BM25):
--- {bm25_result:?}
-
--- Query execution plan:
--- {explain_output}
+-- Original error:
+-- {error_msg}
 
 -- To debug further, you can also try:
 SET paradedb.enable_aggregate_custom_scan = off;
@@ -242,23 +211,21 @@ SET paradedb.enable_aggregate_custom_scan = off;
 
 -- ==== END REPRODUCTION SCRIPT ====
 "#,
-            setup_sql = setup_sql,
-            aggregate_custom_scan = gucs.aggregate_custom_scan,
-            custom_scan = gucs.custom_scan,
-            custom_scan_without_operator = gucs.custom_scan_without_operator,
-            seqscan = gucs.seqscan,
-            indexscan = gucs.indexscan,
-            parallel_workers = if gucs.parallel_workers { 2 } else { 0 },
-            bm25_query = bm25_query,
-            pg_result = pg_result,
-            bm25_result = bm25_result,
-            explain_output = explain_output
-        );
+        failure_type = failure_type,
+        setup_sql = setup_sql,
+        default_gucs = DEFAULT_GUC_SET,
+        gucs_sql = gucs.set(),
+        pg_query = pg_query,
+        bm25_query = bm25_query,
+        error_msg = error_msg
+    );
 
-        return Err(TestCaseError::fail(format!(
-            "Results differ between PostgreSQL and BM25 custom scan\n{repro_script}"
-        )));
-    }
-
-    Ok(())
+    TestCaseError::fail(format!(
+        "{}\n{repro_script}",
+        if failure_type == "QUERY EXECUTION FAILURE" {
+            "Query execution failed"
+        } else {
+            "Results differ between PostgreSQL and BM25"
+        }
+    ))
 }

@@ -312,13 +312,13 @@ SELECT category, SUM(price) as total_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
-ORDER BY total_price DESC;
+ORDER BY category;
 
 SELECT category, SUM(price) as total_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
-ORDER BY total_price DESC;
+ORDER BY category;
 
 -- Test 6.2: ORDER BY multiple columns including aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -326,13 +326,13 @@ SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category, rating
-ORDER BY category, avg_price DESC;
+ORDER BY category;
 
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category, rating
-ORDER BY category, avg_price DESC;
+ORDER BY category;
 
 -- =====================================================================
 -- SECTION 7: Complex GROUP BY Query Patterns

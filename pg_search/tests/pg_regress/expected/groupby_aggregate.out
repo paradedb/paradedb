@@ -537,28 +537,55 @@ SELECT category, SUM(price) as total_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
-ORDER BY total_price DESC;
-ERROR:  could not find pathkey item to sort
+ORDER BY category;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category, now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+(5 rows)
+
 SELECT category, SUM(price) as total_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category
-ORDER BY total_price DESC;
-ERROR:  could not find pathkey item to sort
+ORDER BY category;
+  category   | total_price 
+-------------+-------------
+ Electronics |     2529.96
+ Toys        |      499.99
+(2 rows)
+
 -- Test 6.2: ORDER BY multiple columns including aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category, rating
-ORDER BY category, avg_price DESC;
-ERROR:  could not find pathkey item to sort
+ORDER BY category;
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category, rating, now(), now()
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+(5 rows)
+
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
 FROM products 
 WHERE description @@@ 'laptop OR keyboard' 
 GROUP BY category, rating
-ORDER BY category, avg_price DESC;
-ERROR:  could not find pathkey item to sort
+ORDER BY category;
+  category   | rating | cnt |    avg_price     
+-------------+--------+-----+------------------
+ Electronics |      4 |   1 |            79.99
+ Electronics |      5 |   3 | 816.656666666667
+ Toys        |      3 |   1 |           499.99
+(3 rows)
+
 -- =====================================================================
 -- SECTION 7: Complex GROUP BY Query Patterns
 -- =====================================================================

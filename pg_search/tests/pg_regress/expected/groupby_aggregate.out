@@ -848,6 +848,40 @@ FROM users
 WHERE (users.color @@@ 'blue')
 GROUP BY name;
 ERROR:  incompatible fruit types in tree or missing merge_fruits handler
+--- ----
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, SUM(price), MAX(rating)
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.users
+   Output: name, now(), now()
+   Index: idxusers
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"name","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"max":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT name, SUM(price), MAX(rating)
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+      name      |    sum     | max 
+----------------+------------+-----
+ alice          | 1003050.51 |   5
+ bob            |    3224.01 |   5
+ charlie        |    1013020 |   5
+ david          | 1022915.98 |   5
+ duplicate_name |       1500 |   5
+ edge_case_1    |          0 |   1
+ edge_case_2    |  999999.99 |   5
+ edge_case_3    |       0.01 |   1
+ emma           | 1022821.98 |   5
+ frank          | 1021726.99 |   5
+ sally          | 1013635.25 |   5
+(11 rows)
+
 -- Additional test cases to explore the fruit types error boundary conditions
 -- Test with different combinations that might trigger the same issue
 -- Test with different aggregate combinations

@@ -532,6 +532,19 @@ FROM users
 WHERE (users.color @@@ 'blue')
 GROUP BY name;
 
+--- ----
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, SUM(price), MAX(rating)
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+
+SELECT name, SUM(price), MAX(rating)
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+
 -- Additional test cases to explore the fruit types error boundary conditions
 -- Test with different combinations that might trigger the same issue
 

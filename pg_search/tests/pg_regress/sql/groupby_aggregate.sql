@@ -387,6 +387,167 @@ ORDER BY category;
 -- =====================================================================
 
 DROP TABLE IF EXISTS products CASCADE;
+-- =====================================================================
+-- SECTION 8: Reproduction case for fruit types error
+-- =====================================================================
+
+-- Test case to reproduce the "incompatible fruit types in tree" error
+-- This reproduces the specific failure from the generated test suite
+
+DROP TABLE IF EXISTS users CASCADE;
+CREATE TABLE users
+(
+    id    SERIAL8 NOT NULL PRIMARY KEY,
+    uuid  UUID NOT NULL,
+    name  TEXT,
+    color VARCHAR,
+    age   INTEGER,
+    price NUMERIC(10,2),
+    rating INTEGER
+);
+
+-- Create the index before inserting rows to encourage multiple segments being created.
+CREATE INDEX idxusers ON users USING bm25 (id, uuid, name, color, age, price, rating)
+WITH (
+key_field = 'id',
+text_fields = '
+            {
+                "uuid": { "tokenizer": { "type": "keyword" }, "fast": true },
+                "name": { "tokenizer": { "type": "keyword" }, "fast": true },
+                "color": { "tokenizer": { "type": "keyword" }, "fast": true }
+            }',
+numeric_fields = '
+            {
+                "age": { "fast": true },
+                "price": { "fast": true },
+                "rating": { "fast": true }
+            }'
+);
+
+-- Set seed for deterministic UUID generation (optional, for extra consistency)
+SELECT setseed(0.5);
+
+-- Insert test data specifically designed to trigger the "incompatible fruit types" error
+-- Strategy: Create data patterns that stress Tantivy's aggregation field type handling
+-- Based on the original failing pattern, we need:
+-- 1. Complex boolean queries with mixed field types (text + numeric)
+-- 2. Multiple aggregation functions on different numeric field types
+-- 3. Sufficient data volume to trigger Tantivy's internal aggregation conflicts
+
+-- First, add some regular data
+INSERT into users (uuid, name, color, age, price, rating) VALUES
+    (gen_random_uuid(), 'bob', 'blue', 20, 99.99, 4),
+    (gen_random_uuid(), 'alice', 'blue', 25, 150.50, 5),
+    (gen_random_uuid(), 'sally', 'blue', 22, 175.25, 4);
+
+-- Then add many more records with patterns that might trigger the error
+-- Use a mix of data that creates aggregation conflicts
+INSERT into users (uuid, name, color, age, price, rating)
+SELECT
+    gen_random_uuid(),
+    CASE (i % 7)
+        WHEN 0 THEN 'alice'
+        WHEN 1 THEN 'bob'
+        WHEN 2 THEN 'sally'
+        WHEN 3 THEN 'charlie'
+        WHEN 4 THEN 'david'
+        WHEN 5 THEN 'emma'
+        ELSE 'frank'
+    END,
+    CASE (i % 8)
+        WHEN 0 THEN 'blue'
+        WHEN 1 THEN 'blue'
+        WHEN 2 THEN 'blue'
+        WHEN 3 THEN 'red'
+        WHEN 4 THEN 'green'
+        WHEN 5 THEN 'blue'
+        WHEN 6 THEN 'yellow'
+        ELSE 'blue'
+    END,
+    -- Ages that will create complex boolean filtering
+    CASE 
+        WHEN i % 10 < 3 THEN 15 + (i % 5)  -- Some under 20
+        WHEN i % 10 < 7 THEN 20 + (i % 30) -- Many over 20
+        ELSE 50 + (i % 40)                 -- Some much older
+    END,
+    -- Prices with extreme variations to stress aggregation
+    CASE 
+        WHEN i % 15 = 0 THEN 0.01          -- Very small values
+        WHEN i % 13 = 0 THEN 9999.99       -- Very large values
+        WHEN i % 11 = 0 THEN 1000000.00    -- Extremely large values
+        ELSE (50 + (i * 37) % 500)::numeric(10,2)  -- Regular values
+    END,
+    -- Ratings that might cause type conflicts with prices
+    CASE 
+        WHEN i % 17 = 0 THEN 1
+        WHEN i % 13 = 0 THEN 5
+        ELSE ((i * 7) % 5) + 1
+    END
+FROM generate_series(1, 150) AS i;
+
+-- Add some edge case records that are more likely to trigger conflicts
+INSERT into users (uuid, name, color, age, price, rating) VALUES
+    -- Records with NULL-like characteristics that might confuse aggregation
+    (gen_random_uuid(), 'edge_case_1', 'blue', 20, 0.00, 1),
+    (gen_random_uuid(), 'edge_case_2', 'blue', 21, 999999.99, 5),
+    (gen_random_uuid(), 'edge_case_3', 'blue', 19, 0.01, 1),
+    -- Records that create many duplicates in grouping
+    (gen_random_uuid(), 'duplicate_name', 'blue', 25, 100.00, 3),
+    (gen_random_uuid(), 'duplicate_name', 'blue', 26, 200.00, 4),
+    (gen_random_uuid(), 'duplicate_name', 'blue', 27, 300.00, 5),
+    (gen_random_uuid(), 'duplicate_name', 'blue', 28, 400.00, 1),
+    (gen_random_uuid(), 'duplicate_name', 'blue', 29, 500.00, 2);
+
+CREATE INDEX idxusers_uuid ON users (uuid);
+CREATE INDEX idxusers_name ON users (name);
+CREATE INDEX idxusers_color ON users (color);
+CREATE INDEX idxusers_age ON users (age);
+CREATE INDEX idxusers_price ON users (price);
+CREATE INDEX idxusers_rating ON users (rating);
+ANALYZE;
+
+-- Test the specific failing query that caused the "incompatible fruit types" error
+-- This query combines text search with NOT operator and multiple aggregations
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, SUM(price), MAX(rating), AVG(age) 
+FROM users 
+WHERE (users.color @@@ 'blue') AND (NOT (users.age < '20')) 
+GROUP BY name;
+
+SELECT name, SUM(price), MAX(rating), AVG(age) 
+FROM users 
+WHERE (users.color @@@ 'blue') AND (NOT (users.age < '20')) 
+GROUP BY name;
+
+--- ----
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT name, SUM(price), MAX(rating), AVG(age) 
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+
+SELECT name, SUM(price), MAX(rating), AVG(age) 
+FROM users 
+WHERE (users.color @@@ 'blue')
+GROUP BY name;
+
+-- Additional test cases to explore the fruit types error boundary conditions
+-- Test with different combinations that might trigger the same issue
+
+-- Test with different aggregate combinations
+SELECT name, COUNT(*), SUM(price), AVG(price), MIN(rating), MAX(rating)
+FROM users 
+WHERE color @@@ 'blue' AND age >= 20
+GROUP BY name;
+
+-- Test with complex WHERE conditions
+SELECT color, COUNT(*), AVG(age) 
+FROM users 
+WHERE (name @@@ 'bob' OR name @@@ 'alice') AND price > 50
+GROUP BY color;
+
+DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS type_test CASCADE;
 DROP TABLE IF EXISTS groupby_test CASCADE;
 

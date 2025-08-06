@@ -1,4 +1,4 @@
-name: benchmarks-from-main
+name: Fetch Benchmark Sources from Main
 description: Fetch latest benchmark code, suites, and actions from `main`
 
 inputs:

@@ -293,7 +293,7 @@ impl AggregateScanState {
             .and_then(|v| v.as_array())
             .expect("missing bucket results");
 
-        for bucket in buckets.iter() {
+        for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
             // Current grouping key

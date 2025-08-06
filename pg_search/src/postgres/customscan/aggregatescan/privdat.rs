@@ -129,74 +129,66 @@ impl AggregateType {
 
     fn result_from_json_internal(&self, result: &serde_json::Value) -> AggregateValue {
         match self {
-            AggregateType::Count => match Self::extract_value(result, "COUNT") {
-                None => AggregateValue::Null,
-                Some(value) => {
-                    if let Some(num) = value.as_number() {
-                        Self::process_count_number(num)
-                    } else {
-                        panic!("COUNT result value should be a number or null, got: {value:?}");
-                    }
-                }
-            },
-            AggregateType::Sum { .. } => match Self::extract_value(result, "SUM") {
-                None => AggregateValue::Null,
-                Some(value) => {
-                    if let Some(num) = value.as_number() {
-                        Self::process_numeric_number(num)
-                    } else {
-                        panic!("SUM result value should be a number or null, got: {value:?}");
-                    }
-                }
-            },
-            AggregateType::Avg { .. } => match Self::extract_value(result, "AVG") {
-                None => AggregateValue::Null,
-                Some(value) => {
-                    if let Some(num) = value.as_number() {
-                        Self::process_float_number(num)
-                    } else {
-                        panic!("AVG result value should be a number or null, got: {value:?}");
-                    }
-                }
-            },
-            AggregateType::Min { .. } | AggregateType::Max { .. } => {
-                let agg_name = if matches!(self, AggregateType::Min { .. }) {
-                    "MIN"
+            AggregateType::Count => {
+                Self::process_standard_aggregate(result, "COUNT", Self::process_count_number)
+            }
+            AggregateType::Sum { .. } => {
+                Self::process_standard_aggregate(result, "SUM", Self::process_numeric_number)
+            }
+            AggregateType::Avg { .. } => {
+                Self::process_standard_aggregate(result, "AVG", Self::process_float_number)
+            }
+            AggregateType::Min { .. } => {
+                Self::process_standard_aggregate(result, "MIN", Self::process_numeric_number)
+            }
+            AggregateType::Max { .. } => {
+                Self::process_standard_aggregate(result, "MAX", Self::process_numeric_number)
+            }
+            AggregateType::Stats { .. } => Self::process_stats_aggregate(result),
+        }
+    }
+
+    /// Common processing logic for standard aggregates (COUNT, SUM, AVG, MIN, MAX)
+    fn process_standard_aggregate<F>(
+        result: &serde_json::Value,
+        agg_name: &str,
+        processor: F,
+    ) -> AggregateValue
+    where
+        F: Fn(&serde_json::Number) -> AggregateValue,
+    {
+        match Self::extract_value(result, agg_name) {
+            None => AggregateValue::Null,
+            Some(value) => {
+                if let Some(num) = value.as_number() {
+                    processor(num)
                 } else {
-                    "MAX"
-                };
-                match Self::extract_value(result, agg_name) {
-                    None => AggregateValue::Null,
-                    Some(value) => {
-                        if let Some(num) = value.as_number() {
-                            Self::process_numeric_number(num)
-                        } else {
-                            panic!("{agg_name} result value should be a number or null, got: {value:?}");
-                        }
-                    }
+                    panic!("{agg_name} result value should be a number or null, got: {value:?}");
                 }
             }
-            AggregateType::Stats { .. } => {
-                if result.is_null() {
+        }
+    }
+
+    /// Specialized processing for STATS aggregates
+    fn process_stats_aggregate(result: &serde_json::Value) -> AggregateValue {
+        if result.is_null() {
+            AggregateValue::Null
+        } else if let Some(obj) = result.as_object() {
+            // Check if the entire object is a {"value": null} wrapper
+            if let Some(value) = obj.get("value") {
+                if value.is_null() {
                     AggregateValue::Null
-                } else if let Some(obj) = result.as_object() {
-                    // Check if the entire object is a {"value": null} wrapper
-                    if let Some(value) = obj.get("value") {
-                        if value.is_null() {
-                            AggregateValue::Null
-                        } else if let Some(value_obj) = value.as_object() {
-                            Self::process_stats_object(value_obj)
-                        } else {
-                            panic!("STATS result value should be an object, got: {value:?}");
-                        }
-                    } else {
-                        // Normal STATS object with count directly
-                        Self::process_stats_object(obj)
-                    }
+                } else if let Some(value_obj) = value.as_object() {
+                    Self::process_stats_object(value_obj)
                 } else {
-                    panic!("STATS result should be an object or null, got: {result:?}");
+                    panic!("STATS result value should be an object, got: {value:?}");
                 }
+            } else {
+                // Normal STATS object with count directly
+                Self::process_stats_object(obj)
             }
+        } else {
+            panic!("STATS result should be an object or null, got: {result:?}");
         }
     }
 

@@ -394,57 +394,65 @@ fn convert_aggregate_value_to_datum(
     agg_value: &AggregateValue,
     expected_typoid: pg_sys::Oid,
 ) -> (pg_sys::Datum, bool) {
-    match (agg_value, expected_typoid) {
-        (&AggregateValue::Null, _) => {
-            // Null value - set appropriate null datum and flag
-            (pg_sys::Datum::null(), true)
-        }
-        (AggregateValue::Int(val), _) => {
-            // Integer value - convert to appropriate integer type
-            (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
-        }
-        (AggregateValue::Float(val), pg_sys::NUMERICOID) => {
-            // NUMERIC type - convert f64 to PostgreSQL AnyNumeric
-            match pgrx::AnyNumeric::try_from(*val) {
-                Ok(numeric_val) => match numeric_val.into_datum() {
-                    Some(datum) => (datum, false),
-                    None => (pg_sys::Datum::from(0), true),
-                },
-                Err(_) => {
-                    // Fallback to null on conversion error
-                    (pg_sys::Datum::from(0), true)
-                }
-            }
-        }
-        (AggregateValue::Float(val), pg_sys::INT2OID) => {
-            // SMALLINT type - convert f64 to i16
-            let int_val = (*val) as i16;
-            (
-                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-                false,
-            )
-        }
-        (AggregateValue::Float(val), pg_sys::INT4OID) => {
-            // INTEGER type - convert f64 to i32
-            let int_val = (*val) as i32;
-            (
-                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-                false,
-            )
-        }
-        (AggregateValue::Float(val), pg_sys::INT8OID) => {
-            // BIGINT type - convert f64 to i64
-            let int_val = (*val) as i64;
-            (
-                int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-                false,
-            )
-        }
-        (AggregateValue::Float(val), _) => {
-            // Other float types - use f64 datum directly
-            (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
-        }
+    match agg_value {
+        AggregateValue::Null => (pg_sys::Datum::null(), true),
+        AggregateValue::Int(val) => convert_int_to_datum(*val),
+        AggregateValue::Float(val) => convert_float_to_datum(*val, expected_typoid),
     }
+}
+
+/// Convert an integer value to a PostgreSQL Datum
+fn convert_int_to_datum(val: i64) -> (pg_sys::Datum, bool) {
+    (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
+}
+
+/// Convert a float value to a PostgreSQL Datum with type-specific handling
+fn convert_float_to_datum(val: f64, expected_typoid: pg_sys::Oid) -> (pg_sys::Datum, bool) {
+    match expected_typoid {
+        pg_sys::NUMERICOID => convert_float_to_numeric(val),
+        pg_sys::INT2OID => convert_float_to_i16(val),
+        pg_sys::INT4OID => convert_float_to_i32(val),
+        pg_sys::INT8OID => convert_float_to_i64(val),
+        _ => (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false),
+    }
+}
+
+/// Convert float to PostgreSQL NUMERIC type
+fn convert_float_to_numeric(val: f64) -> (pg_sys::Datum, bool) {
+    match pgrx::AnyNumeric::try_from(val) {
+        Ok(numeric_val) => match numeric_val.into_datum() {
+            Some(datum) => (datum, false),
+            None => (pg_sys::Datum::from(0), true),
+        },
+        Err(_) => (pg_sys::Datum::from(0), true),
+    }
+}
+
+/// Convert float to i16 (SMALLINT)
+fn convert_float_to_i16(val: f64) -> (pg_sys::Datum, bool) {
+    let int_val = val as i16;
+    (
+        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+        false,
+    )
+}
+
+/// Convert float to i32 (INTEGER)
+fn convert_float_to_i32(val: f64) -> (pg_sys::Datum, bool) {
+    let int_val = val as i32;
+    (
+        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+        false,
+    )
+}
+
+/// Convert float to i64 (BIGINT)  
+fn convert_float_to_i64(val: f64) -> (pg_sys::Datum, bool) {
+    let int_val = val as i64;
+    (
+        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
+        false,
+    )
 }
 
 /// Extract grouping columns from pathkeys and validate they are fast fields

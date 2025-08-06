@@ -28,6 +28,14 @@ use tantivy::schema::OwnedValue;
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
 
+/// Source of aggregate result data - either from result map or bucket object
+enum AggregateResultSource<'a> {
+    /// Results from simple aggregation (no GROUP BY)
+    ResultMap(&'a serde_json::Map<String, serde_json::Value>),
+    /// Results from bucket aggregation (GROUP BY)
+    BucketObj(&'a serde_json::Map<String, serde_json::Value>),
+}
+
 pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
 
 // For GROUP BY results, we need both the group keys and aggregate values
@@ -188,21 +196,13 @@ impl AggregateScanState {
                 .aggregate_types
                 .iter()
                 .enumerate()
-                .map(move |(idx, aggregate)| {
-                    let agg_obj = result_map
-                        .get(&idx.to_string())
-                        .expect("missing aggregate result");
-
-                    let aggregate_val = Self::extract_aggregate_value_from_json(agg_obj);
-
-                    // Only use doc_count for SUM aggregates to handle empty result sets
-                    let doc_count_for_aggregate = match aggregate {
-                        super::privdat::AggregateType::Sum { .. } => doc_count,
-                        _ => None,
-                    };
-
-                    aggregate
-                        .result_from_json_with_doc_count(aggregate_val, doc_count_for_aggregate)
+                .map(|(idx, aggregate)| {
+                    self.process_aggregate_result(
+                        aggregate,
+                        idx,
+                        AggregateResultSource::ResultMap(result_map),
+                        doc_count,
+                    )
                 })
                 .collect::<AggregateRow>();
 
@@ -236,6 +236,46 @@ impl AggregateScanState {
             // Direct numeric value
             agg_obj
         }
+    }
+
+    /// Process a single aggregate result, handling doc_count for empty result sets
+    /// This consolidates the logic used in both simple and grouped aggregations
+    fn process_aggregate_result(
+        &self,
+        aggregate: &AggregateType,
+        agg_idx: usize,
+        result_source: AggregateResultSource<'_>,
+        doc_count: Option<i64>,
+    ) -> AggregateValue {
+        let agg_result = match (aggregate, result_source) {
+            (AggregateType::Count, AggregateResultSource::ResultMap(result_map)) => result_map
+                .get(&agg_idx.to_string())
+                .expect("missing aggregate result"),
+            (AggregateType::Count, AggregateResultSource::BucketObj(bucket_obj)) => {
+                bucket_obj.get("doc_count").expect("missing doc_count")
+            }
+            (_, AggregateResultSource::ResultMap(result_map)) => {
+                let agg_obj = result_map
+                    .get(&agg_idx.to_string())
+                    .expect("missing aggregate result");
+                Self::extract_aggregate_value_from_json(agg_obj)
+            }
+            (_, AggregateResultSource::BucketObj(bucket_obj)) => {
+                let agg_name = format!("agg_{agg_idx}");
+                let agg_obj = bucket_obj
+                    .get(&agg_name)
+                    .unwrap_or_else(|| panic!("missing aggregate result for '{agg_name}'"));
+                Self::extract_aggregate_value_from_json(agg_obj)
+            }
+        };
+
+        // Apply appropriate doc_count handling based on aggregate type
+        let doc_count_for_aggregate = match aggregate {
+            super::privdat::AggregateType::Sum { .. } => doc_count,
+            _ => None,
+        };
+
+        aggregate.result_from_json_with_doc_count(agg_result, doc_count_for_aggregate)
     }
 
     #[allow(unreachable_patterns)]
@@ -277,22 +317,12 @@ impl AggregateScanState {
                         .iter()
                         .enumerate()
                         .map(|(idx, aggregate)| {
-                            let agg_result = match aggregate {
-                                AggregateType::Count => {
-                                    bucket_obj.get("doc_count").expect("missing doc_count")
-                                }
-                                _ => {
-                                    let agg_name = format!("agg_{idx}");
-                                    let agg_obj = bucket_obj.get(&agg_name).unwrap_or_else(|| {
-                                        panic!("missing aggregate result for '{agg_name}'")
-                                    });
-
-                                    Self::extract_aggregate_value_from_json(agg_obj)
-                                }
-                            };
-
-                            // Use doc_count to handle empty result sets properly
-                            aggregate.result_from_json_with_doc_count(agg_result, Some(doc_count))
+                            self.process_aggregate_result(
+                                aggregate,
+                                idx,
+                                AggregateResultSource::BucketObj(bucket_obj),
+                                Some(doc_count),
+                            )
                         })
                         .collect()
                 };

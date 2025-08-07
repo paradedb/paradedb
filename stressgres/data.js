@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754538528253,
+  "lastUpdate": 1754539185117,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10314,6 +10314,42 @@ window.BENCHMARK_DATA = {
             "value": 5.97610437991918,
             "unit": "median tps",
             "extra": "avg tps: 5.353206800580037, max tps: 6.765351186632198, count: 57946"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0987f408db7c0c82ecf03091076979bf7a09aacf",
+          "message": "chore: fix release information (#2949)\n\n## What\n\nThis fixes `main` to properly reflect the recent 0.17.3 and 0.16.5\nreleases in its changelog, docs, and schema ugprade.sql scripts.\n\nIt also goes ahead and bumps `main`'s version to 0.18.0, while still\notherwise mentioning 0.17.3 as our latest release in ugprading.mdx and\nextension.mdx",
+          "timestamp": "2025-08-06T23:31:26-04:00",
+          "tree_id": "4bdb3aba83145302c52bf2a31af352609dcc9d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/0987f408db7c0c82ecf03091076979bf7a09aacf"
+        },
+        "date": 1754539183727,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.678599989840264,
+            "unit": "median tps",
+            "extra": "avg tps: 5.692417004592283, max tps: 8.513319257905051, count: 57871"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.894154712213088,
+            "unit": "median tps",
+            "extra": "avg tps: 5.28758928953826, max tps: 6.6782739941215, count: 57871"
           }
         ]
       }

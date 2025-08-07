@@ -472,16 +472,12 @@ impl TryFrom<TantivyValue> for String {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        match value.0 {
-            tantivy::schema::OwnedValue::Str(val) => Ok(val),
-            tantivy::schema::OwnedValue::I64(val) => Ok(val.to_string()),
-            tantivy::schema::OwnedValue::U64(val) => Ok(val.to_string()),
-            tantivy::schema::OwnedValue::F64(val) => Ok(val.to_string()),
-            tantivy::schema::OwnedValue::Bool(val) => Ok(val.to_string()),
-            tantivy::schema::OwnedValue::IpAddr(val) => Ok(val.to_string()),
-            _ => Err(TantivyValueError::UnsupportedIntoConversion(
+        if let tantivy::schema::OwnedValue::Str(val) = value.0 {
+            Ok(val)
+        } else {
+            Err(TantivyValueError::UnsupportedIntoConversion(
                 "String".to_string(),
-            )),
+            ))
         }
     }
 }

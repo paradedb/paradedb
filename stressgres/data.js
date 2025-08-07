@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754540455249,
+  "lastUpdate": 1754540457674,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21268,6 +21268,114 @@ window.BENCHMARK_DATA = {
             "value": 159.328125,
             "unit": "median mem",
             "extra": "avg mem: 156.89188294372207, max mem: 161.828125, count: 55488"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0987f408db7c0c82ecf03091076979bf7a09aacf",
+          "message": "chore: fix release information (#2949)\n\n## What\n\nThis fixes `main` to properly reflect the recent 0.17.3 and 0.16.5\nreleases in its changelog, docs, and schema ugprade.sql scripts.\n\nIt also goes ahead and bumps `main`'s version to 0.18.0, while still\notherwise mentioning 0.17.3 as our latest release in ugprading.mdx and\nextension.mdx",
+          "timestamp": "2025-08-06T23:31:26-04:00",
+          "tree_id": "4bdb3aba83145302c52bf2a31af352609dcc9d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/0987f408db7c0c82ecf03091076979bf7a09aacf"
+        },
+        "date": 1754540456277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.149640533381493, max cpu: 37.75811, count: 55417"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.38509829452153, max mem: 156.82421875, count: 55417"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.589245347541397, max cpu: 27.988338, count: 55417"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 146.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.16191507400708, max mem: 146.96484375, count: 55417"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.918128699669964, max cpu: 27.692308, count: 55417"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 128.5554904322004, max mem: 161.515625, count: 55417"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 22585,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22868.210440839455, max block_count: 45965.0, count: 55417"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.585982267751518, max cpu: 4.6647234, count: 55417"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.75101312830449, max mem: 130.390625, count: 55417"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.499774437446995, max segment_count: 45.0, count: 55417"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.862013529045925, max cpu: 32.876713, count: 110834"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 143.72899610848205, max mem: 170.20703125, count: 110834"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.000141079773957, max cpu: 27.961164, count: 55417"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 153.65985498301515, max mem: 157.0390625, count: 55417"
           }
         ]
       }

@@ -141,6 +141,14 @@ impl CustomScan for AggregateScan {
         // Extract and validate aggregates - must have schema for field validation
         let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
 
+        // Extract LIMIT clause if present, but reject if OFFSET is also present
+        let limit_count = extract_limit_clause(args.root());
+
+        // Check for OFFSET - we can't handle LIMIT with OFFSET
+        if has_offset_clause(args.root()) {
+            return None;
+        }
+
         // Extract ORDER BY pathkeys if present
         let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
         let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
@@ -183,6 +191,7 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             order_by_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
+            limit_count,
         }))
     }
 
@@ -254,6 +263,7 @@ impl CustomScan for AggregateScan {
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
         builder.custom_state().query = builder.custom_private().query.clone();
+        builder.custom_state().limit_count = builder.custom_private().limit_count;
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.build()
@@ -805,6 +815,60 @@ fn has_search_field_conflicts(
     }
 
     false
+}
+
+/// Check if query has OFFSET clause
+fn has_offset_clause(root: &pg_sys::PlannerInfo) -> bool {
+    unsafe {
+        let parse = root.parse;
+        if parse.is_null() {
+            return false;
+        }
+        let limit_offset = (*parse).limitOffset;
+        !limit_offset.is_null()
+    }
+}
+
+/// Extract LIMIT clause from the query
+fn extract_limit_clause(root: &pg_sys::PlannerInfo) -> Option<i64> {
+    unsafe {
+        let parse = root.parse;
+        if parse.is_null() {
+            return None;
+        }
+
+        let limit_count = (*parse).limitCount;
+        if limit_count.is_null() {
+            return None;
+        }
+
+        // Extract the limit value from the Const node
+        if let Some(const_node) = nodecast!(Const, T_Const, limit_count) {
+            if (*const_node).constisnull {
+                return None;
+            }
+
+            // Get the limit value based on the type
+            match (*const_node).consttype {
+                pg_sys::INT8OID => {
+                    let limit_val = pg_sys::DatumGetInt64((*const_node).constvalue);
+                    Some(limit_val)
+                }
+                pg_sys::INT4OID => {
+                    let limit_val = pg_sys::DatumGetInt32((*const_node).constvalue);
+                    Some(limit_val as i64)
+                }
+                pg_sys::INT2OID => {
+                    let limit_val = pg_sys::DatumGetInt16((*const_node).constvalue);
+                    Some(limit_val as i64)
+                }
+                _ => None, // Unsupported limit type
+            }
+        } else {
+            // Complex limit expressions are not supported
+            None
+        }
+    }
 }
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output

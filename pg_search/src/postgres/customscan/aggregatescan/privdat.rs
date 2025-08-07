@@ -238,6 +238,7 @@ pub struct PrivateData {
     pub grouping_columns: Vec<GroupingColumn>,
     pub order_by_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
+    pub limit_count: Option<i64>,                  // LIMIT value if present
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

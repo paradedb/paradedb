@@ -73,6 +73,8 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
+    // LIMIT count if present
+    pub limit_count: Option<i64>,
 }
 
 impl AggregateScanState {
@@ -129,8 +131,15 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
-            // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
-            terms.insert("size".to_string(), serde_json::Value::Number(10000.into())); // TODO: make configurable
+            // Set size based on LIMIT if no ORDER BY, otherwise use default large size
+            let size = if self.order_by_info.is_empty() {
+                // No ORDER BY - we can apply LIMIT directly via Tantivy's size parameter
+                self.limit_count.unwrap_or(10000)
+            } else {
+                // With ORDER BY, we need to get all results first, then sort and limit in PostgreSQL
+                10000
+            };
+            terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));

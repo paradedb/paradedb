@@ -295,6 +295,14 @@ impl TantivyValue {
                     )
                     .ok_or(TantivyValueError::DatumDeref)?,
                 ),
+                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
+                    pgrx::datum::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONOID => TantivyValue::try_from(
+                    pgrx::datum::JsonString::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
             PgOid::Custom(custom) => {

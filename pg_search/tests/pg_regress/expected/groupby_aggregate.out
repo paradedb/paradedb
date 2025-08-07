@@ -27,11 +27,12 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Winter jacket warm', 4, 'Clothing', 129.99, true),
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating, category, price)
+USING bm25 (id, description, rating, category, price, in_stock)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields='{"in_stock": {"fast": true}}'
 );
 -- =====================================================================
 -- SECTION 1: GROUP BY with Aggregate Functions
@@ -688,6 +689,261 @@ ORDER BY category;
 -------------+----------------------+-----+-----
  Electronics | 632.4900000000000000 |   4 |   5
 (1 row)
+
+-- =====================================================================
+-- SECTION 8: LIMIT Support Tests
+-- =====================================================================
+-- Test 8.1: LIMIT without ORDER BY (should use Tantivy size parameter)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+  category   | count 
+-------------+-------
+ Clothing    |     2
+ Electronics |     2
+(2 rows)
+
+-- Test 8.2: LIMIT with ORDER BY (should use PostgreSQL LIMIT after sorting)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+ORDER BY category DESC
+LIMIT 2;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+ORDER BY category DESC
+LIMIT 2;
+  category   | count 
+-------------+-------
+ Toys        |     1
+ Electronics |     2
+(2 rows)
+
+-- Test 8.3: Multi-column GROUP BY with LIMIT (no ORDER BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, in_stock, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category, in_stock
+LIMIT 3;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"in_stock","size":10000}}}}}
+(5 rows)
+
+SELECT category, in_stock, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category, in_stock
+LIMIT 3;
+  category   | in_stock | count 
+-------------+----------+-------
+ Clothing    | t        |     2
+ Electronics | t        |     2
+ Toys        | f        |     1
+(3 rows)
+
+-- Test 8.4: GROUP BY with aggregates and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"avg":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+  category   | count | avg_rating 
+-------------+-------+------------
+ Clothing    |     2 |        3.5
+ Electronics |     2 |          5
+(2 rows)
+
+-- Test 8.5: Very small LIMIT (edge case)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1;
+ category | count 
+----------+-------
+ Clothing |     2
+(1 row)
+
+-- Test 8.6: LIMIT 0 (edge case)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 0;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 0;
+ category | count 
+----------+-------
+(0 rows)
+
+-- Test 8.7: Large LIMIT (should be equivalent to no LIMIT for small result sets)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1000;
+                                                                              QUERY PLAN                                                                               
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1000;
+  category   | count 
+-------------+-------
+ Clothing    |     2
+ Electronics |     2
+ Toys        |     1
+(3 rows)
+
+-- Test 8.8: LIMIT with OFFSET (should fallback to PostgreSQL)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2 OFFSET 1;
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  GroupAggregate
+         Group Key: category
+         ->  Sort
+               Sort Key: category
+               ->  Custom Scan (ParadeDB Scan) on products
+                     Table: products
+                     Index: products_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: category
+                     String Fast Fields: category
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2 OFFSET 1;
+  category   | count 
+-------------+-------
+ Electronics |     2
+ Toys        |     1
+(2 rows)
+
+-- Test 8.9: Different aggregate functions with LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, SUM(rating) as sum_rating, MIN(rating) as min_rating, MAX(rating) as max_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Aggregate Scan) on products
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"jacket OR laptop","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"rating"}},"agg_1":{"min":{"field":"rating"}},"agg_2":{"max":{"field":"rating"}}}}}
+(5 rows)
+
+SELECT category, SUM(rating) as sum_rating, MIN(rating) as min_rating, MAX(rating) as max_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+  category   | sum_rating | min_rating | max_rating 
+-------------+------------+------------+------------
+ Clothing    |          7 |          3 |          4
+ Electronics |         10 |          5 |          5
+(2 rows)
 
 -- =====================================================================
 -- Cleanup

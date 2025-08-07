@@ -32,11 +32,12 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
 
 CREATE INDEX products_idx ON products 
-USING bm25 (id, description, rating, category, price)
+USING bm25 (id, description, rating, category, price, in_stock)
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
-    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}'
+    numeric_fields='{"rating": {"fast": true}, "price": {"fast": true}}',
+    boolean_fields='{"in_stock": {"fast": true}}'
 );
 
 -- =====================================================================
@@ -381,6 +382,138 @@ FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
+
+-- =====================================================================
+-- SECTION 8: LIMIT Support Tests
+-- =====================================================================
+
+-- Test 8.1: LIMIT without ORDER BY (should use Tantivy size parameter)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+
+-- Test 8.2: LIMIT with ORDER BY (should use PostgreSQL LIMIT after sorting)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+ORDER BY category DESC
+LIMIT 2;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+ORDER BY category DESC
+LIMIT 2;
+
+-- Test 8.3: Multi-column GROUP BY with LIMIT (no ORDER BY)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, in_stock, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category, in_stock
+LIMIT 3;
+
+SELECT category, in_stock, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category, in_stock
+LIMIT 3;
+
+-- Test 8.4: GROUP BY with aggregates and LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+
+SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+
+-- Test 8.5: Very small LIMIT (edge case)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1;
+
+-- Test 8.6: LIMIT 0 (edge case)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 0;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 0;
+
+-- Test 8.7: Large LIMIT (should be equivalent to no LIMIT for small result sets)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1000;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 1000;
+
+-- Test 8.8: LIMIT with OFFSET (should fallback to PostgreSQL)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2 OFFSET 1;
+
+SELECT category, COUNT(*) as count
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2 OFFSET 1;
+
+-- Test 8.9: Different aggregate functions with LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT category, SUM(rating) as sum_rating, MIN(rating) as min_rating, MAX(rating) as max_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
+
+SELECT category, SUM(rating) as sum_rating, MIN(rating) as min_rating, MAX(rating) as max_rating
+FROM products 
+WHERE description @@@ 'jacket OR laptop'
+GROUP BY category
+LIMIT 2;
 
 -- =====================================================================
 -- Cleanup

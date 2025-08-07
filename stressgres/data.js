@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754424373311,
+  "lastUpdate": 1754538525409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3018,6 +3018,72 @@ window.BENCHMARK_DATA = {
             "value": 147.3788485753722,
             "unit": "median tps",
             "extra": "avg tps: 177.00776996432475, max tps: 671.4252814446924, count: 55311"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0987f408db7c0c82ecf03091076979bf7a09aacf",
+          "message": "chore: fix release information (#2949)\n\n## What\n\nThis fixes `main` to properly reflect the recent 0.17.3 and 0.16.5\nreleases in its changelog, docs, and schema ugprade.sql scripts.\n\nIt also goes ahead and bumps `main`'s version to 0.18.0, while still\notherwise mentioning 0.17.3 as our latest release in ugprading.mdx and\nextension.mdx",
+          "timestamp": "2025-08-06T23:31:26-04:00",
+          "tree_id": "4bdb3aba83145302c52bf2a31af352609dcc9d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/0987f408db7c0c82ecf03091076979bf7a09aacf"
+        },
+        "date": 1754538524067,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1150.1633958466844,
+            "unit": "median tps",
+            "extra": "avg tps: 1147.2171076253908, max tps: 1153.6282547105588, count: 55301"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2753.527753812824,
+            "unit": "median tps",
+            "extra": "avg tps: 2723.5429561919796, max tps: 2772.1441682445297, count: 55301"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1198.8009792050004,
+            "unit": "median tps",
+            "extra": "avg tps: 1193.1106505825276, max tps: 1200.8051836433565, count: 55301"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1003.5797474635184,
+            "unit": "median tps",
+            "extra": "avg tps: 995.3051577990483, max tps: 1009.6945083586147, count: 55301"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 177.56094981934388,
+            "unit": "median tps",
+            "extra": "avg tps: 176.40149435545226, max tps: 178.45987329558258, count: 110602"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.77500963780167,
+            "unit": "median tps",
+            "extra": "avg tps: 162.94888685012424, max tps: 164.39112823502185, count: 55301"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 56.58089237047706,
+            "unit": "median tps",
+            "extra": "avg tps: 89.97787965009742, max tps: 753.1651766548922, count: 55301"
           }
         ]
       }

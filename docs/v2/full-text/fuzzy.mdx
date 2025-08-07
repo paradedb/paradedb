@@ -1,0 +1,91 @@
+---
+title: Fuzzy
+---
+
+Fuzziness allows for tokens to be considered a match even if they are not identical, allowing for typos
+in the query string.
+
+## Overview
+
+To add fuzziness to a query, cast it to the `fuzzy(n)` type, where `n` is the [edit distance](#how-it-works).
+Fuzziness is supported for [match](/v2/full-text/match) and [term](/v2/full-text/term) queries.
+
+```sql
+-- Fuzzy match disjunction
+SELECT id, description
+FROM mock_items
+WHERE description ||| 'runing shose'::fuzzy(2)
+LIMIT 5;
+
+-- Fuzzy match conjunction
+SELECT id, description
+FROM mock_items
+WHERE description &&& 'runing shose'::fuzzy(2)
+LIMIT 5;
+
+-- Fuzzy Term
+SELECT id, description
+FROM mock_items
+WHERE description === 'shose'::fuzzy(2)
+LIMIT 5;
+```
+
+## How It Works
+
+By default, the [match](/v2/full-text/match) and [term](/v2/full-text/term) queries require exact token matches between the query and indexed text. When a query is cast to `fuzzy(n)`, this requirement is relaxed -- tokens are matched if their Levenshtein distance, or edit distance, is less than or equal to `n`.
+
+Edit distance is a measure of how many single-character operations are needed to turn one string into another. The allowed operations are:
+
+- **Insertion** adds a character e.g., "shoe" → "shoes" (insert "s") has an edit distance of `1`
+- **Deletion** removes a character e.g. "runnning" → "running" (delete one "n") has an edit distance of `1`
+- **Transposition** replaces on character with another e.g., "shose" → "shoes" (transpose "s" → "e") has an edit distance of `2`
+
+<Note>For performance reasons, the maximum allowed edit distance is `2`.</Note>
+
+<Note>Casting a query to `fuzzy(0)` is the same as an exact token match.</Note>
+
+## Fuzzy Prefix
+
+`fuzzy` also supports prefix matching.
+For instance, "runn" is a prefix of "running" because it matches the beginning of the token exactly. "rann" is a **fuzzy prefix** of "running" because it matches the
+beginning within an edit distance of `1`.
+
+To treat the query string as a prefix, set the second argument of `fuzzy` to either `t` or `"true"`:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description === 'rann'::fuzzy(1, t)
+LIMIT 5;
+```
+
+<Note>
+  Postgres requires that `true` be double-quoted, i.e. `fuzzy(1, "true")`.
+</Note>
+
+When used with [match](/v2/full-text/match) queries, fuzzy prefix treats all tokens in the query string as prefixes.
+For instance, the following query means "find all documents containing the fuzzy prefix `rann` AND the fuzzy prefix `slee`":
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description &&& 'slee rann'::fuzzy(1, t)
+LIMIT 5;
+```
+
+## Transposition Cost
+
+By default, the cost of a transposition (i.e. "shose" → "shoes") is `2`. Setting the third argument of `fuzzy` to `t` lowers the
+cost of a transposition to `1`:
+
+```sql
+SELECT id, description
+FROM mock_items
+WHERE description === 'shose'::fuzzy(1, f, t)
+LIMIT 5;
+```
+
+<Note>
+  The default value for the second and third arguments of `fuzzy` is `f`, which
+  means `fuzzy(1)` is equivalent to `fuzzy(1, f, f)`.
+</Note>

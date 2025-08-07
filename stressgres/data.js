@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754539819325,
+  "lastUpdate": 1754539821806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17424,6 +17424,66 @@ window.BENCHMARK_DATA = {
             "value": 161.0078125,
             "unit": "median mem",
             "extra": "avg mem: 150.35850522435732, max mem: 167.8828125, count: 57531"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0987f408db7c0c82ecf03091076979bf7a09aacf",
+          "message": "chore: fix release information (#2949)\n\n## What\n\nThis fixes `main` to properly reflect the recent 0.17.3 and 0.16.5\nreleases in its changelog, docs, and schema ugprade.sql scripts.\n\nIt also goes ahead and bumps `main`'s version to 0.18.0, while still\notherwise mentioning 0.17.3 as our latest release in ugprading.mdx and\nextension.mdx",
+          "timestamp": "2025-08-06T23:31:26-04:00",
+          "tree_id": "4bdb3aba83145302c52bf2a31af352609dcc9d7e",
+          "url": "https://github.com/paradedb/paradedb/commit/0987f408db7c0c82ecf03091076979bf7a09aacf"
+        },
+        "date": 1754539820411,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.56682545263455, max cpu: 46.60194, count: 57309"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 178.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 176.94777659540821, max mem: 182.7265625, count: 57309"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18641,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17097.423650735487, max block_count: 21923.0, count: 57309"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.37395522518278, max segment_count: 119.0, count: 57309"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.347614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.24184090369421, max cpu: 33.267326, count: 57309"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 162.125,
+            "unit": "median mem",
+            "extra": "avg mem: 152.70392262231937, max mem: 172.0546875, count: 57309"
           }
         ]
       }

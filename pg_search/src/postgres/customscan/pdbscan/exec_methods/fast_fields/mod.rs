@@ -214,6 +214,10 @@ fn collect_fast_field_try_for_attno(
                     .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
                     if search_field.is_fast() {
+                        if search_field.is_json() {
+                            return true;
+                        }
+
                         let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
                             || att.type_oid().value() == pg_sys::VARCHAROID
                             || att.type_oid().value() == pg_sys::UUIDOID

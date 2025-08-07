@@ -61,7 +61,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -1345,44 +1345,15 @@ where
                         }
                     }
                 }
-            }
-            // Check if this is a RelabelType expression
-            else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid != pg_sys::Oid::INVALID {
-                        let heaprel =
-                            PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                        let tupdesc = heaprel.tuple_desc();
-                        if let Some(att) = tupdesc.get(attno as usize - 1) {
-                            if let Some(search_field) = schema.search_field(att.name()) {
-                                if regular_sortability_check(&search_field) {
-                                    pathkey_styles
-                                        .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                    found_valid_member = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Check if this is a regular Var (column reference)
-            else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid != pg_sys::Oid::INVALID {
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if regular_sortability_check(&search_field) {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                found_valid_member = true;
-                                break;
-                            }
-                        }
+            } else if let Some((var, fieldname)) = find_one_var_and_fieldname(
+                VarContext::from_planner(root),
+                expr as *mut pg_sys::Node,
+            ) {
+                if let Some(search_field) = schema.search_field(&fieldname) {
+                    if regular_sortability_check(&search_field) {
+                        pathkey_styles.push(OrderByStyle::Field(pathkey, fieldname));
+                        found_valid_member = true;
+                        break;
                     }
                 }
             }

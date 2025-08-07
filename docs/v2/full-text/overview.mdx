@@ -6,7 +6,7 @@ title: Overview
 
 Text search in ParadeDB, like Elasticsearch and most search engines, is centered around the concept of **token matching**.
 
-Token matching consists of two steps. First, at indexing time, text processed by a tokenizer, which breaks input into discrete units called **tokens** or
+Token matching consists of two steps. First, at indexing time, text is processed by a tokenizer, which breaks input into discrete units called **tokens** or
 **terms**. For example, the [default](/documentation/indexing/) tokenizer splits the text `Sleek running shoes` into the tokens `sleek`, `running`, and `shoes`.
 
 Second, at query time, the query engine looks for token matches based on the specified query and query type. Some common query types include:

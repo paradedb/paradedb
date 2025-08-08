@@ -247,5 +247,8 @@ WORKDIR /
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
 COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 
-# Explicitly set non-root user (same as official image default)
-USER postgres
+# The upstream `postgres` Docker image comes with its own `entrypoint.sh` script which
+# starts as `root` and then switches to the `postgres` user after running chown and chmod
+# on the PostgreSQL data directory. To maintain compatibility with the upstream image and
+# ensure that the `postgres` user has the correct permissions on the data directory, we let
+# the upstream `entrypoint.sh` script run as the entrypoint and don't specify a custom user.

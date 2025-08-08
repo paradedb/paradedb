@@ -92,7 +92,7 @@ jobs:
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
             -p 5432:5432 \
-            --tmpfs /tmp \
+            --tmpfs /var/lib/postgresql/data:size=1G \
             paradedb/paradedb:latest
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly

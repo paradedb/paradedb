@@ -56,7 +56,7 @@ pub struct AggregateScanState {
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
     // The ORDER BY information for sorting
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -259,12 +259,12 @@ impl AggregateScanState {
     }
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.order_by_info.is_empty() {
+        if self.orderby_info.is_empty() {
             return;
         }
 
         rows.sort_by(|a, b| {
-            for order_info in &self.order_by_info {
+            for order_info in &self.orderby_info {
                 // Find the index of this grouping column
                 let col_index = self
                     .grouping_columns

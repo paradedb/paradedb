@@ -386,6 +386,8 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+        // NOTE: This list of supported field types must be synced with the field types which are
+        // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
             FieldType::Str(options) => {
                 options.is_fast()

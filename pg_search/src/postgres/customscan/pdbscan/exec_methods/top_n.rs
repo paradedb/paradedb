@@ -18,7 +18,7 @@
 use std::cell::RefCell;
 
 use crate::api::OrderByInfo;
-use crate::index::reader::index::{SearchIndexReader, TopNSearchResults};
+use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
@@ -60,6 +60,10 @@ impl TopNScanExecState {
         limit: usize,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
+        if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPN_FEATURES) {
+            panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
+        }
+
         Self {
             heaprelid,
             limit,

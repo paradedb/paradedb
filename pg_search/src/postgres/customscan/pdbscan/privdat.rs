@@ -173,8 +173,8 @@ impl PrivateData {
         self.limit = limit.map(|l| l.round() as usize);
     }
 
-    pub fn set_maybe_orderby_info(&mut self, style: &Option<Vec<OrderByStyle>>) {
-        self.maybe_orderby_info = Some(OrderByStyle::extract_order_by_info(style));
+    pub fn set_maybe_orderby_info(&mut self, style: Option<&Vec<OrderByStyle>>) {
+        self.maybe_orderby_info = Some(OrderByStyle::extract_orderby_info(style));
     }
 
     pub fn set_var_attname_lookup(

@@ -73,7 +73,7 @@ pub struct PrivateData {
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 

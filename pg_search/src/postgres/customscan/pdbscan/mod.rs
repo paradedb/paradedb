@@ -28,7 +28,7 @@ use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::builders::custom_path::{
     restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
@@ -324,8 +324,7 @@ impl CustomScan for PdbScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let (has_any_pathkeys, topn_pathkeys) =
-                pullup_orderby_pathkeys(&mut builder, rti, &schema, root);
+            let topn_pathkey_info = pullup_topn_pathkeys(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -363,7 +362,7 @@ impl CustomScan for PdbScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_maybe_topn = limit.is_some() && topn_pathkeys.is_some();
+            let is_maybe_topn = limit.is_some() && topn_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
@@ -446,25 +445,25 @@ impl CustomScan for PdbScan {
             custom_private.set_segment_count(segment_count);
 
             // Determine whether we might be able to sort.
-            if is_maybe_topn && topn_pathkeys.is_some() {
-                let pathkeys = topn_pathkeys.as_ref().unwrap();
+            if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
+                let pathkeys = topn_pathkey_info.pathkeys().unwrap();
                 // we can only (currently) do const projections if the first sort field is a score,
                 // because we currently discard all but the first sort field, and so will not
                 // produce a valid Score value. see TopNSearchResults.
                 let orderby_supported = !maybe_needs_const_projections
                     || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
                 if orderby_supported {
-                    custom_private.set_maybe_orderby_info(&topn_pathkeys);
+                    custom_private.set_maybe_orderby_info(Some(pathkeys));
                 }
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
-            let exec_method_type = choose_exec_method(&custom_private, has_any_pathkeys);
+            let exec_method_type = choose_exec_method(&custom_private, &topn_pathkey_info);
             custom_private.set_exec_method_type(exec_method_type);
             if custom_private.exec_method_type().is_sorted_topn() {
                 // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
                 // because we don't want/need to serialize them for execution.
-                if let Some(pathkeys) = topn_pathkeys.as_ref() {
+                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
                     for pathkey in pathkeys {
                         builder = builder.add_path_key(pathkey);
                     }
@@ -1071,7 +1070,7 @@ impl CustomScan for PdbScan {
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
-fn choose_exec_method(privdata: &PrivateData, has_any_pathkeys: bool) -> ExecMethodType {
+fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
     // See if we can use TopN.
     if let Some(limit) = privdata.limit() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
@@ -1083,7 +1082,7 @@ fn choose_exec_method(privdata: &PrivateData, has_any_pathkeys: bool) -> ExecMet
                 orderby_info: Some(orderby_info.clone()),
             };
         }
-        if !has_any_pathkeys {
+        if matches!(topn_pathkey_info, PathKeyInfo::None) {
             // we have a limit but no pathkeys at all. we can still go through our "top n"
             // machinery, but getting "limit" (essentially) random docs, which is what the user
             // asked for
@@ -1249,57 +1248,92 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
+pub enum PathKeyInfo {
+    /// There are no PathKeys at all.
+    None,
+    /// There were PathKeys, but we cannot execute them.
+    Unusable,
+    /// There were PathKeys, but we can only execute a non-empty prefix of them.
+    UsablePrefix(Vec<OrderByStyle>),
+    /// There are some PathKeys, and we can execute all of them.
+    UsableAll(Vec<OrderByStyle>),
+}
+
+impl PathKeyInfo {
+    pub fn is_usable(&self) -> bool {
+        match self {
+            PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
+            PathKeyInfo::None | PathKeyInfo::Unusable => false,
+        }
+    }
+
+    pub fn pathkeys(&self) -> Option<&Vec<OrderByStyle>> {
+        match self {
+            PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
+                Some(pathkeys)
+            }
+            PathKeyInfo::None | PathKeyInfo::Unusable => None,
+        }
+    }
+}
+
 /// Determine whether there are any pathkeys at all, and whether we might be able to push down
-/// ordering in TopN or fast fields.
+/// ordering in TopN.
 ///
-/// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return OrderByStyles
-/// for them for use in TopN.
-unsafe fn pullup_orderby_pathkeys(
+/// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
+/// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
+unsafe fn pullup_topn_pathkeys(
     builder: &mut CustomPathBuilder<PdbScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
-) -> (bool, Option<Vec<OrderByStyle>>) {
-    let (has_any_pathkeys, pathkey_styles) = extract_pathkey_styles_with_sortability_check(
+) -> PathKeyInfo {
+    match extract_pathkey_styles_with_sortability_check(
         root,
         rti,
         schema,
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
-    );
-
-    // TopN is the base scan's only executor which supports sorting, and supports up to 3 order-by
-    // clauses.
-    let pathkey_styles = match &pathkey_styles {
-        Some(ps) if !ps.is_empty() && ps.len() <= 3 => pathkey_styles,
-        _ => {
-            // Either no pathkeys could be extracted, or too many were.
-            None
+    ) {
+        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPN_FEATURES => {
+            // TopN is the base scan's only executor which supports sorting, and supports up to
+            // MAX_TOPN_FEATURES order-by clauses.
+            PathKeyInfo::UsableAll(styles)
         }
-    };
-
-    (has_any_pathkeys, pathkey_styles)
+        PathKeyInfo::UsableAll(_) => {
+            // Too many pathkeys were extracted.
+            PathKeyInfo::Unusable
+        }
+        PathKeyInfo::UsablePrefix(_) => {
+            // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
+            // the suffix of the pathkey comes into play.
+            PathKeyInfo::Unusable
+        }
+        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable) => pki,
+    }
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
 ///
-/// Returns a boolean indicating whether any pathkeys existed, and (iff all pathkeys can be pushed
-/// down) a list of order-by-styles for pushdown.
+/// Returns PathKeyInfo indicating whether any PathKeys existed at all, and if so, whether they
+/// might be usable via fast fields.
+///
+/// TODO: Used by both custom scans: move up one module.
 pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     root: *mut pg_sys::PlannerInfo,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     regular_sortability_check: F1,
     lower_sortability_check: F2,
-) -> (bool, Option<Vec<OrderByStyle>>)
+) -> PathKeyInfo
 where
     F1: Fn(&SearchField) -> bool,
     F2: Fn(&SearchField) -> bool,
 {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return (false, None);
+        return PathKeyInfo::None;
     }
 
     let mut pathkey_styles = Vec::new();
@@ -1383,11 +1417,15 @@ where
         // If we couldn't find any valid member for this pathkey, then we can't handle this series
         // of pathkeys.
         if !found_valid_member {
-            return (true, None);
+            if pathkey_styles.is_empty() {
+                return PathKeyInfo::Unusable;
+            } else {
+                return PathKeyInfo::UsablePrefix(pathkey_styles);
+            }
         }
     }
 
-    (true, Some(pathkey_styles))
+    PathKeyInfo::UsableAll(pathkey_styles)
 }
 
 /// Check if a node is a lower() function call for a specific relation

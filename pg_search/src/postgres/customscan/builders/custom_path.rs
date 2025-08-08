@@ -50,9 +50,8 @@ impl OrderByStyle {
 
     /// Extract ORDER BY information from query pathkeys
     /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
-    pub fn extract_order_by_info(order_pathkeys: &Option<Vec<OrderByStyle>>) -> Vec<OrderByInfo> {
+    pub fn extract_orderby_info(order_pathkeys: Option<&Vec<OrderByStyle>>) -> Vec<OrderByInfo> {
         order_pathkeys
-            .as_ref()
             .unwrap_or(&vec![])
             .iter()
             .map(|style| style.into())

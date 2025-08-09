@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754776507369,
+  "lastUpdate": 1754777142626,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19160,6 +19160,60 @@ window.BENCHMARK_DATA = {
             "value": 18.119845855109595,
             "unit": "median tps",
             "extra": "avg tps: 18.260136097559037, max tps: 19.788078857108953, count: 55417"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e385c88549677dc0e47d2509ea746cb7170bd8d",
+          "message": "perf: Use Arrow for fast field execution (#2924)\n\n## What\n\nSwitches `Mixed` fast fields execution to fetching data into Arrow\narrays. A followup change will remove `Numeric`.\n\n## Why\n\nThis change is necessary for `Mixed`'s performance to match `Numeric`\nexecution. The:\n1. creation and destruction of `TantivyValue` and `OwnedValue`\n2. allocation and encoding/decoding of Strings\n\n...represented the largest remaining bottlenecks in (`Mixed`) fast\nfields execution.\n\nArrow removes those overheads for data held in memory, similar to how\nour `FFType` wrapper allows us to avoid `OwnedValue` overheads when\nfetching individual rows. String overhead is reduced by directly copying\nfrom the term dictionary into a `StringViewArray`, which has a single\ncontiguous buffer for the string data, and then a separate series of\nviews into that buffer (similar to allocating strings in an arena).\n\nFuture work could:\n* Push arrow arrays further down into Tantivy (e.g. as a `first_vals`\nvariant), removing additional overheads involved in fetching batches of\nrows.\n* Feed the arrow outputs of `Mixed` execution direct directly into a\nvectorized join implementation (e.g. DataFusion).\n\n## Tests\n\nGives a 1.6x speedup for `bucket-string-nofilter` and\n`bucket-string-filter`, with other changes being ~ in the noise.",
+          "timestamp": "2025-08-09T14:16:01-07:00",
+          "tree_id": "1fcdcb6500bb2e854ecfc613581ee13bc002b050",
+          "url": "https://github.com/paradedb/paradedb/commit/0e385c88549677dc0e47d2509ea746cb7170bd8d"
+        },
+        "date": 1754777141218,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.60037973730955,
+            "unit": "median tps",
+            "extra": "avg tps: 38.70019660471598, max tps: 42.06335400666795, count: 55492"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 142.63483741949582,
+            "unit": "median tps",
+            "extra": "avg tps: 196.65935103241532, max tps: 2600.7560260885944, count: 55492"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 145.3522851490073,
+            "unit": "median tps",
+            "extra": "avg tps: 144.48391699386582, max tps: 145.85337432925505, count: 55492"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 73.84508553718146,
+            "unit": "median tps",
+            "extra": "avg tps: 64.5944285125335, max tps: 120.97021608110603, count: 110984"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.315475473406387,
+            "unit": "median tps",
+            "extra": "avg tps: 18.71532700536551, max tps: 24.032027771795807, count: 55492"
           }
         ]
       }

@@ -21,17 +21,111 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     Count,
+    Sum { field: String },
+    Avg { field: String },
+    Min { field: String },
+    Max { field: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum AggregateValue {
+    #[default]
+    Null,
+    Int(i64),
+    Float(f64),
+}
+
+/// Enum to specify how numbers should be processed for different aggregate types
+#[derive(Debug, Clone, Copy)]
+enum NumberProcessingType {
+    /// For COUNT: validate integer, check range, always return Int
+    Count,
+    /// For SUM/MIN/MAX: preserve original type (Int or Float)
+    Numeric,
+    /// For AVG: always convert to Float
+    Float,
+}
+
+/// Represents an aggregate result that can be either a direct value or wrapped in a "value" object
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AggregateResult {
+    /// Direct numeric value (e.g., `42`)
+    DirectValue(serde_json::Number),
+    /// Object with "value" field (e.g., `{"value": 42}`)
+    ValueObject { value: Option<serde_json::Number> },
+    /// Null value
+    Null,
+}
+
+impl AggregateResult {
+    /// Extract the numeric value, returning None if null
+    pub fn extract_number(&self) -> Option<&serde_json::Number> {
+        match self {
+            AggregateResult::DirectValue(num) => Some(num),
+            AggregateResult::ValueObject { value } => value.as_ref(),
+            AggregateResult::Null => None,
+        }
+    }
 }
 
 // TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
+    /// Get the field name for field-based aggregates (None for COUNT)
+    pub fn field_name(&self) -> Option<String> {
+        match self {
+            AggregateType::Count => None,
+            AggregateType::Sum { field } => Some(field.clone()),
+            AggregateType::Avg { field } => Some(field.clone()),
+            AggregateType::Min { field } => Some(field.clone()),
+            AggregateType::Max { field } => Some(field.clone()),
+        }
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
+        match self {
+            AggregateType::Count => {
+                serde_json::json!({
+                    "value_count": {
+                        "field": "ctid"
+                    }
+                })
+            }
+            AggregateType::Sum { field } => {
+                serde_json::json!({
+                    "sum": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Avg { field } => {
+                serde_json::json!({
+                    "avg": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Min { field } => {
+                serde_json::json!({
+                    "min": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Max { field } => {
+                serde_json::json!({
+                    "max": {
+                        "field": field
+                    }
+                })
+            }
+        }
     }
 
     #[allow(unreachable_patterns)]
@@ -42,16 +136,84 @@ impl AggregateType {
         }
     }
 
-    pub fn result_from_json(&self, result: &serde_json::Number) -> i64 {
-        let f64_val = result.as_f64().expect("invalid aggregate result size");
+    /// Convert AggregateResult to AggregateValue, checking doc_count for empty result set handling
+    pub fn result_from_aggregate_with_doc_count(
+        &self,
+        result: AggregateResult,
+        doc_count: Option<i64>,
+    ) -> AggregateValue {
+        // If doc_count is 0, return NULL for all aggregates except COUNT (which should return 0)
+        if let Some(0) = doc_count {
+            match self {
+                AggregateType::Count => return AggregateValue::Int(0),
+                _ => return AggregateValue::Null,
+            }
+        }
 
-        if f64_val.fract() != 0.0 {
-            panic!("COUNT should not have a fractional result");
+        self.result_from_aggregate_internal(result)
+    }
+
+    fn result_from_aggregate_internal(&self, agg_result: AggregateResult) -> AggregateValue {
+        // Extract the number and process it based on the aggregate type
+        match agg_result.extract_number() {
+            None => AggregateValue::Null,
+            Some(num) => {
+                let processing_type = match self {
+                    AggregateType::Count => NumberProcessingType::Count,
+                    AggregateType::Sum { .. } => NumberProcessingType::Numeric,
+                    AggregateType::Avg { .. } => NumberProcessingType::Float,
+                    AggregateType::Min { .. } => NumberProcessingType::Numeric,
+                    AggregateType::Max { .. } => NumberProcessingType::Numeric,
+                };
+                Self::process_number(num, processing_type)
+            }
         }
-        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-            panic!("COUNT value was out of range");
+    }
+
+    /// Process a number value based on the aggregate type requirements
+    fn process_number(
+        num: &serde_json::Number,
+        processing_type: NumberProcessingType,
+    ) -> AggregateValue {
+        match processing_type {
+            NumberProcessingType::Count => {
+                let f64_val = num.as_f64().expect("invalid COUNT result");
+                if f64_val.fract() != 0.0 {
+                    panic!("COUNT should not have a fractional result");
+                }
+                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+                    panic!("COUNT value was out of range");
+                }
+                AggregateValue::Int(f64_val as i64)
+            }
+            NumberProcessingType::Numeric => {
+                if let Some(int_val) = num.as_i64() {
+                    AggregateValue::Int(int_val)
+                } else if let Some(f64_val) = num.as_f64() {
+                    AggregateValue::Float(f64_val)
+                } else {
+                    panic!("Numeric result should be a valid number");
+                }
+            }
+            NumberProcessingType::Float => {
+                let f64_val = num.as_f64().expect("invalid float result");
+                AggregateValue::Float(f64_val)
+            }
         }
-        f64_val as i64
+    }
+}
+
+impl AggregateValue {
+    pub fn into_datum(self) -> pg_sys::Datum {
+        match self {
+            AggregateValue::Int(val) => val.into_datum().unwrap(),
+            AggregateValue::Float(val) => val.into_datum().unwrap(),
+            AggregateValue::Null => pg_sys::Datum::null(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, AggregateValue::Null)
     }
 }
 

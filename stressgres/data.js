@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754777145481,
+  "lastUpdate": 1754780223305,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3150,6 +3150,72 @@ window.BENCHMARK_DATA = {
             "value": 66.2927866586812,
             "unit": "median tps",
             "extra": "avg tps: 64.01507907597292, max tps: 721.8387253483053, count: 55278"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a337b86a44df7f18c5acb24c1733e14ad9a78273",
+          "message": "chore: Remove NumericFastField exec method (#2908)\n\n# Ticket(s) Closed\n\n- Closes #2596\n\n## What\n\nRemoves the `Numeric` execution method.\n\n## Why\n\nPost #2924, `Mixed` is roughly as fast as `Numeric` execution, while\nbeing more flexible.\n\n## Tests\n\nAll changes to the benchmark suite are ~ in the noise. Notably: there\nare no regressions for numeric aggregates.",
+          "timestamp": "2025-08-09T15:41:19-07:00",
+          "tree_id": "4a36903b209b9ec5190ce077915e6b56ce4ca1c4",
+          "url": "https://github.com/paradedb/paradedb/commit/a337b86a44df7f18c5acb24c1733e14ad9a78273"
+        },
+        "date": 1754780221939,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1139.6742285885782,
+            "unit": "median tps",
+            "extra": "avg tps: 1137.3399779068334, max tps: 1141.6274009553397, count: 55376"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2484.1234620445543,
+            "unit": "median tps",
+            "extra": "avg tps: 2473.712416134862, max tps: 2550.5020663317573, count: 55376"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1095.5074342922646,
+            "unit": "median tps",
+            "extra": "avg tps: 1095.1953546024122, max tps: 1107.4532837651043, count: 55376"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 939.4457412388692,
+            "unit": "median tps",
+            "extra": "avg tps: 937.1150018010522, max tps: 947.7814605255356, count: 55376"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 154.31084061616605,
+            "unit": "median tps",
+            "extra": "avg tps: 154.78412320663796, max tps: 162.7825392237405, count: 110752"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.34531543577486,
+            "unit": "median tps",
+            "extra": "avg tps: 166.07894314278914, max tps: 170.69734002442075, count: 55376"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 88.4853008058433,
+            "unit": "median tps",
+            "extra": "avg tps: 98.88725498187111, max tps: 786.722020428024, count: 55376"
           }
         ]
       }

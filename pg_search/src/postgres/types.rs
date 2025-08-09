@@ -37,6 +37,10 @@ use std::str::FromStr;
 use tantivy::schema::{IntoIpv6Addr, OwnedValue};
 use thiserror::Error;
 
+/// A row-oriented wrapper around Tantivy's OwnedValue.
+///
+/// When working with large batches of TantivyValues, consider using the `types_arrow` module
+/// instead.
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 
@@ -294,6 +298,14 @@ impl TantivyValue {
                         datum, false,
                     )
                     .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
+                    pgrx::datum::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONOID => TantivyValue::try_from(
+                    pgrx::datum::JsonString::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754777142626,
+  "lastUpdate": 1754777145481,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21808,6 +21808,114 @@ window.BENCHMARK_DATA = {
             "value": 156.0390625,
             "unit": "median mem",
             "extra": "avg mem: 153.65985498301515, max mem: 157.0390625, count: 55417"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e385c88549677dc0e47d2509ea746cb7170bd8d",
+          "message": "perf: Use Arrow for fast field execution (#2924)\n\n## What\n\nSwitches `Mixed` fast fields execution to fetching data into Arrow\narrays. A followup change will remove `Numeric`.\n\n## Why\n\nThis change is necessary for `Mixed`'s performance to match `Numeric`\nexecution. The:\n1. creation and destruction of `TantivyValue` and `OwnedValue`\n2. allocation and encoding/decoding of Strings\n\n...represented the largest remaining bottlenecks in (`Mixed`) fast\nfields execution.\n\nArrow removes those overheads for data held in memory, similar to how\nour `FFType` wrapper allows us to avoid `OwnedValue` overheads when\nfetching individual rows. String overhead is reduced by directly copying\nfrom the term dictionary into a `StringViewArray`, which has a single\ncontiguous buffer for the string data, and then a separate series of\nviews into that buffer (similar to allocating strings in an arena).\n\nFuture work could:\n* Push arrow arrays further down into Tantivy (e.g. as a `first_vals`\nvariant), removing additional overheads involved in fetching batches of\nrows.\n* Feed the arrow outputs of `Mixed` execution direct directly into a\nvectorized join implementation (e.g. DataFusion).\n\n## Tests\n\nGives a 1.6x speedup for `bucket-string-nofilter` and\n`bucket-string-filter`, with other changes being ~ in the noise.",
+          "timestamp": "2025-08-09T14:16:01-07:00",
+          "tree_id": "1fcdcb6500bb2e854ecfc613581ee13bc002b050",
+          "url": "https://github.com/paradedb/paradedb/commit/0e385c88549677dc0e47d2509ea746cb7170bd8d"
+        },
+        "date": 1754777144097,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.520831901028703, max cpu: 41.7795, count: 55492"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 154.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.65093603019355, max mem: 156.80859375, count: 55492"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.203058299924965, max cpu: 41.819942, count: 55492"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 147.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.722941412163, max mem: 147.16015625, count: 55492"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.302325,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.034341589049497, max cpu: 23.645319, count: 55492"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 146.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 121.9601990067262, max mem: 164.82421875, count: 55492"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20854,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21604.33716571758, max block_count: 44389.0, count: 55492"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.38960261710977, max cpu: 4.660194, count: 55492"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 91.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 84.38700651670511, max mem: 128.19140625, count: 55492"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.17725077488647, max segment_count: 46.0, count: 55492"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.77725693844154, max cpu: 41.819942, count: 110984"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 133.92552618085716, max mem: 160.91796875, count: 110984"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.738606674044167, max cpu: 27.906979, count: 55492"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.8860671921178, max mem: 160.140625, count: 55492"
           }
         ]
       }

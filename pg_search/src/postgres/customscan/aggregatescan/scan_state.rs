@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateType, GroupingColumn, TargetListEntry,
 };
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
@@ -56,7 +56,7 @@ pub struct AggregateScanState {
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
     // The ORDER BY information for sorting
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -259,17 +259,17 @@ impl AggregateScanState {
     }
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.order_by_info.is_empty() {
+        if self.orderby_info.is_empty() {
             return;
         }
 
         rows.sort_by(|a, b| {
-            for order_info in &self.order_by_info {
+            for order_info in &self.orderby_info {
                 // Find the index of this grouping column
                 let col_index = self
                     .grouping_columns
                     .iter()
-                    .position(|gc| gc.field_name == order_info.field_name);
+                    .position(|gc| matches!(&order_info.feature, OrderByFeature::Field(field_name) if gc.field_name == **field_name));
 
                 let cmp = if let Some(idx) = col_index {
                     let val_a = a.group_keys.get(idx);
@@ -281,7 +281,7 @@ impl AggregateScanState {
                     let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
 
                     if let Some(base_cmp) = base_cmp {
-                        if order_info.is_desc {
+                        if matches!(order_info.direction, SortDirection::Desc) {
                             base_cmp.reverse()
                         } else {
                             base_cmp

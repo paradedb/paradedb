@@ -114,7 +114,7 @@ pub fn compute_nworkers(
     // if we are not sorting the data (which always requires fetching data from all segments), then
     // limit the number of workers to the number of segments we expect to have to query to reach
     // the limit.
-    if let (false, Some(limit)) = (exec_method.is_sorted(), limit) {
+    if let (false, Some(limit)) = (exec_method.is_sorted_topn(), limit) {
         let rows_per_segment = estimated_total_rows / segment_count.max(1) as f64;
         let segments_to_reach_limit = (limit / rows_per_segment).ceil() as usize;
         // See above re: the leader not being included in `nworkers`.

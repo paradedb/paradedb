@@ -15,11 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
-use crate::api::Varno;
+use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::qual_inspect::Qual;
@@ -52,10 +50,6 @@ pub struct PdbScanState {
     pub search_reader: Option<SearchIndexReader>,
 
     pub targetlist_len: usize,
-
-    pub limit: Option<usize>,
-    pub sort_field: Option<FieldName>,
-    pub sort_direction: Option<SortDirection>,
 
     pub query_count: usize,
     pub heap_tuple_check_count: usize,
@@ -294,11 +288,18 @@ impl PdbScanState {
         }
     }
 
-    pub fn is_sorted(&self) -> bool {
-        matches!(
-            self.sort_direction,
-            Some(SortDirection::Asc | SortDirection::Desc)
-        )
+    pub fn limit(&self) -> Option<usize> {
+        match &self.exec_method_type {
+            ExecMethodType::TopN { limit, .. } => Some(*limit),
+            _ => None,
+        }
+    }
+
+    pub fn orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
+        match &self.exec_method_type {
+            ExecMethodType::TopN { orderby_info, .. } => orderby_info,
+            _ => &None,
+        }
     }
 
     pub fn reset(&mut self) {

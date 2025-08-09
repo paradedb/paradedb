@@ -125,7 +125,7 @@ pub extern "C-unwind" fn amrescan(
 
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
-            Some(search_reader.search(None))
+            Some(search_reader.search())
         } else {
             // a parallel scan: see if there is another segment to query
             parallel::maybe_claim_segment(scan)

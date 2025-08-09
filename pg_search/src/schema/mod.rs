@@ -397,7 +397,11 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             // TODO: Neither JSON nor range fields are not yet sortable by us
-            FieldType::JsonObject(_) => false,
+            FieldType::JsonObject(options) => {
+                options.is_fast()
+                    && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
+                    && matches!(self.field_type, SearchFieldType::Json(_))
+            }
             _ => false,
         }
     }

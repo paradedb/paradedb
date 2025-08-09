@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754775867924,
+  "lastUpdate": 1754775870344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13318,6 +13318,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.25537834148365, max segment_count: 93.0, count: 57871"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e385c88549677dc0e47d2509ea746cb7170bd8d",
+          "message": "perf: Use Arrow for fast field execution (#2924)\n\n## What\n\nSwitches `Mixed` fast fields execution to fetching data into Arrow\narrays. A followup change will remove `Numeric`.\n\n## Why\n\nThis change is necessary for `Mixed`'s performance to match `Numeric`\nexecution. The:\n1. creation and destruction of `TantivyValue` and `OwnedValue`\n2. allocation and encoding/decoding of Strings\n\n...represented the largest remaining bottlenecks in (`Mixed`) fast\nfields execution.\n\nArrow removes those overheads for data held in memory, similar to how\nour `FFType` wrapper allows us to avoid `OwnedValue` overheads when\nfetching individual rows. String overhead is reduced by directly copying\nfrom the term dictionary into a `StringViewArray`, which has a single\ncontiguous buffer for the string data, and then a separate series of\nviews into that buffer (similar to allocating strings in an arena).\n\nFuture work could:\n* Push arrow arrays further down into Tantivy (e.g. as a `first_vals`\nvariant), removing additional overheads involved in fetching batches of\nrows.\n* Feed the arrow outputs of `Mixed` execution direct directly into a\nvectorized join implementation (e.g. DataFusion).\n\n## Tests\n\nGives a 1.6x speedup for `bucket-string-nofilter` and\n`bucket-string-filter`, with other changes being ~ in the noise.",
+          "timestamp": "2025-08-09T14:16:01-07:00",
+          "tree_id": "1fcdcb6500bb2e854ecfc613581ee13bc002b050",
+          "url": "https://github.com/paradedb/paradedb/commit/0e385c88549677dc0e47d2509ea746cb7170bd8d"
+        },
+        "date": 1754775868975,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.433828212172905, max cpu: 42.687748, count: 57467"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 228.10452126329022, max mem: 233.5546875, count: 57467"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.249140408514272, max cpu: 33.300297, count: 57467"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.8020389011302, max mem: 163.48046875, count: 57467"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22301,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20656.49591939722, max block_count: 23271.0, count: 57467"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.38627386152052, max segment_count: 97.0, count: 57467"
           }
         ]
       }

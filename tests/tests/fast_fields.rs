@@ -113,7 +113,7 @@ WITH (
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT id, paradedb.score(id), rating FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard'".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
-        Some(&Value::String("id, paradedb.score(), rating".into())),
+        Some(&Value::String("id, rating".into())),
         plan.pointer("/0/Plan/Fast Fields")
     )
 }
@@ -183,7 +183,6 @@ WITH (
     )
 }
 
-#[ignore = "figure out why query plan changed"]
 #[rstest]
 fn numeric_fast_field_in_window_func(mut conn: PgConnection) {
     r#"
@@ -221,8 +220,9 @@ WITH (
     LIMIT 100 OFFSET 100;
     "#
     .fetch_one::<(Value,)>(&mut conn);
+    eprintln!("plan: {plan:#?}");
     assert_eq!(
-        Some(&Value::String("NumericFastFieldExecState".into())),
-        plan.pointer("/0/Plan/Plans/0/Plans/0/Plans/0/Plans/Exec Method")
+        Some(&Value::String("MixedFastFieldExecState".into())),
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Plans/0/Plans/0/Exec Method")
     )
 }

@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod mixed;
-pub mod numeric;
 
 use std::sync::Arc;
 
@@ -392,26 +391,6 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-/// Check if we can use the Numeric fast field execution method
-pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !gucs::is_fast_field_exec_enabled() {
-        return false;
-    }
-
-    if !fast_field_capable_prereqs(privdata) {
-        return false;
-    }
-
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-    // Make sure we don't have any string fast fields
-    for ff in which_fast_fields.iter() {
-        if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
-            return false;
-        }
-    }
-    true
-}
-
 /// Check if we can use the Mixed fast field execution method
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     if !gucs::is_mixed_fast_field_exec_enabled() {
@@ -451,46 +430,36 @@ pub fn is_all_special_or_junk_fields<'a>(
 pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
-    match &state.custom_state().exec_method_type {
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            let fields: Vec<_> = which_fast_fields
-                .iter()
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
-            explainer.add_text("Fast Fields", fields.join(", "));
+    if let ExecMethodType::FastFieldMixed {
+        which_fast_fields, ..
+    } = &state.custom_state().exec_method_type
+    {
+        // Get all fast fields used
+        let string_fields: Vec<_> = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+            .map(|ff| ff.name())
+            .sorted()
+            .collect();
+
+        let numeric_fields: Vec<_> = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+            .map(|ff| ff.name())
+            .sorted()
+            .collect();
+
+        let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
+
+        explainer.add_text("Fast Fields", all_fields.join(", "));
+
+        if !string_fields.is_empty() {
+            explainer.add_text("String Fast Fields", string_fields.join(", "));
         }
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields, ..
-        } => {
-            // Get all fast fields used
-            let string_fields: Vec<_> = which_fast_fields
-                .iter()
-                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
 
-            let numeric_fields: Vec<_> = which_fast_fields
-                .iter()
-                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
-
-            let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
-
-            explainer.add_text("Fast Fields", all_fields.join(", "));
-
-            if !string_fields.is_empty() {
-                explainer.add_text("String Fast Fields", string_fields.join(", "));
-            }
-
-            if !numeric_fields.is_empty() {
-                explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
-            }
+        if !numeric_fields.is_empty() {
+            explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
         }
-        _ => {}
     }
 }
 

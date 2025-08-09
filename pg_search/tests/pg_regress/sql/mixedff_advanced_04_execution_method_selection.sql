@@ -90,7 +90,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
 
--- Test 4: Should use StringFastFieldExecState when only one string field
+-- Test 4: Should use MixedFastFieldExecState when only one string field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
@@ -102,7 +102,7 @@ FROM exec_method_test
 WHERE text_field1 @@@ 'Text'
 ORDER BY text_field1;
 
--- Test 5: Should use NumericFastFieldExecState when only numeric fields
+-- Test 5: Should use MixedFastFieldExecState when only numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test

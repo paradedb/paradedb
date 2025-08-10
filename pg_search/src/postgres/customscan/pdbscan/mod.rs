@@ -1285,8 +1285,8 @@ pub unsafe fn extract_pathkey_styles(
         rti,
         schema,
         max_pathkeys,
-        |search_field| search_field.is_raw_sortable(),
-        |search_field| search_field.is_lower_sortable(),
+        |search_field, opfamily| search_field.is_raw_sortable(opfamily),
+        |search_field, opfamily| search_field.is_lower_sortable(opfamily),
     )
 }
 
@@ -1300,8 +1300,8 @@ pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
     lower_sortability_check: F2,
 ) -> Vec<OrderByStyle>
 where
-    F1: Fn(&SearchField) -> bool,
-    F2: Fn(&SearchField) -> bool,
+    F1: Fn(&SearchField, pg_sys::Oid) -> bool,
+    F2: Fn(&SearchField, pg_sys::Oid) -> bool,
 {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
@@ -1320,6 +1320,9 @@ where
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
+            let sort_oid = (*member).em_datatype;
+            let opclass = pg_sys::GetDefaultOpClass(sort_oid, pg_sys::BTREE_AM_OID);
+            let opfamily = pg_sys::get_opclass_family(opclass);
 
             // Check if this is a score function
             if is_score_func(expr.cast(), rti) {
@@ -1336,7 +1339,7 @@ where
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {
-                            if lower_sortability_check(&search_field) {
+                            if lower_sortability_check(&search_field, opfamily) {
                                 pathkey_styles
                                     .push(OrderByStyle::Field(pathkey, att.name().into()));
                                 found_valid_member = true;
@@ -1350,7 +1353,7 @@ where
                 expr as *mut pg_sys::Node,
             ) {
                 if let Some(search_field) = schema.search_field(&fieldname) {
-                    if regular_sortability_check(&search_field) {
+                    if regular_sortability_check(&search_field, opfamily) {
                         pathkey_styles.push(OrderByStyle::Field(pathkey, fieldname));
                         found_valid_member = true;
                         break;

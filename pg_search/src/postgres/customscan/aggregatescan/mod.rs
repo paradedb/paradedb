@@ -514,8 +514,8 @@ fn extract_order_by_pathkeys(
             heap_rti,
             schema,
             None,                                  // No limit on pathkeys for aggregatescan
-            |search_field| search_field.is_fast(), // Use is_fast() for regular vars
-            |_search_field| false,                 // Don't accept lower functions in aggregatescan
+            |search_field, _| search_field.is_fast(), // Use is_fast() for regular vars
+            |_search_field, _| false,                 // Don't accept lower functions in aggregatescan
         );
 
         if pathkey_styles.is_empty() {

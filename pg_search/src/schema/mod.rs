@@ -29,6 +29,7 @@ pub use config::*;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use crate::index::utils::load_index_schema;
 use crate::postgres::rel::PgSearchRelation;
@@ -301,6 +302,35 @@ impl SearchIndexSchema {
     }
 }
 
+#[inline]
+unsafe fn get_btree_opfamily(typ: pg_sys::Oid) -> pg_sys::Oid {
+    let opclass = pg_sys::GetDefaultOpClass(typ, pg_sys::BTREE_AM_OID);
+    pg_sys::get_opclass_family(opclass)
+}
+
+macro_rules! define_btree_families {
+    ($fn_name:ident, [$($typ:expr),+ $(,)?]) => {
+        paste::paste! {
+            static [<$fn_name:upper _CACHE>]: OnceLock<Box<[pg_sys::Oid]>> = OnceLock::new();
+
+            #[inline]
+            pub(crate) fn $fn_name() -> &'static [pg_sys::Oid] {
+                [<$fn_name:upper _CACHE>].get_or_init(|| {
+                    Box::from([
+                        $( unsafe { get_btree_opfamily($typ) } ),+
+                    ])
+                })
+            }
+        }
+    }
+}
+
+define_btree_families!(str_families,   [pg_sys::TEXTOID, pg_sys::UUIDOID]);
+define_btree_families!(int_families,   [pg_sys::INT4OID]);
+define_btree_families!(float_families, [pg_sys::FLOAT4OID, pg_sys::NUMERICOID]);
+define_btree_families!(bool_families,  [pg_sys::BOOLOID]);
+define_btree_families!(date_families,  [pg_sys::DATEOID]);
+
 #[derive(Debug, Clone)]
 pub struct SearchField {
     field: Field,
@@ -390,12 +420,13 @@ impl SearchField {
             FieldType::Str(options) => {
                 options.is_fast()
                     && options.get_fast_field_tokenizer_name() == Some(desired_normalizer.name())
+                    && str_families().contains(&opfamily)
             }
-            FieldType::I64(options) => options.is_fast(),
-            FieldType::U64(options) => options.is_fast(),
-            FieldType::F64(options) => options.is_fast(),
-            FieldType::Bool(options) => options.is_fast(),
-            FieldType::Date(options) => options.is_fast(),
+            FieldType::I64(options) => options.is_fast() && int_families().contains(&opfamily),
+            FieldType::U64(options) => options.is_fast() && int_families().contains(&opfamily),
+            FieldType::F64(options) => options.is_fast() && float_families().contains(&opfamily),
+            FieldType::Bool(options) => options.is_fast() && bool_families().contains(&opfamily),
+            FieldType::Date(options) => options.is_fast() && date_families().contains(&opfamily),
             // TODO: Neither JSON nor range fields are not yet sortable by us
             FieldType::JsonObject(options) => {
                 options.is_fast()

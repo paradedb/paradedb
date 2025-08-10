@@ -3016,6 +3016,7 @@ dependencies = [
  "once_cell",
  "ordered-float",
  "parking_lot",
+ "paste",
  "pgrx",
  "pgrx-tests",
  "postcard",

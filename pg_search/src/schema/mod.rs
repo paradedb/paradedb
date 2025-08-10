@@ -325,11 +325,11 @@ macro_rules! define_btree_families {
     }
 }
 
-define_btree_families!(str_families,   [pg_sys::TEXTOID, pg_sys::UUIDOID]);
-define_btree_families!(int_families,   [pg_sys::INT4OID]);
+define_btree_families!(str_families, [pg_sys::TEXTOID, pg_sys::UUIDOID]);
+define_btree_families!(int_families, [pg_sys::INT4OID]);
 define_btree_families!(float_families, [pg_sys::FLOAT4OID, pg_sys::NUMERICOID]);
-define_btree_families!(bool_families,  [pg_sys::BOOLOID]);
-define_btree_families!(date_families,  [pg_sys::DATEOID]);
+define_btree_families!(bool_families, [pg_sys::BOOLOID]);
+define_btree_families!(date_families, [pg_sys::DATEOID]);
 
 #[derive(Debug, Clone)]
 pub struct SearchField {

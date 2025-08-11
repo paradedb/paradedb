@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754922936436,
+  "lastUpdate": 1754923574237,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19778,6 +19778,60 @@ window.BENCHMARK_DATA = {
             "value": 18.315475473406387,
             "unit": "median tps",
             "extra": "avg tps: 18.71532700536551, max tps: 24.032027771795807, count: 55492"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd0354666e6e69dab19bf098f8784ad156baabc9",
+          "message": "fix: shouldn't panic if there was an interrupt (#2955)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere were two places we were panicking if there was an interrupt: one\nat the end of `merge_index`, and another in the `Drop` impl of\n`ExactBuffer`.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-11T09:57:48-04:00",
+          "tree_id": "6d9618942f561fbb93bd8e424319662630638a66",
+          "url": "https://github.com/paradedb/paradedb/commit/bd0354666e6e69dab19bf098f8784ad156baabc9"
+        },
+        "date": 1754923572789,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.1533262805899,
+            "unit": "median tps",
+            "extra": "avg tps: 37.28571349893572, max tps: 38.51071921807162, count: 55499"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 255.31987969664303,
+            "unit": "median tps",
+            "extra": "avg tps: 290.6476547996289, max tps: 2594.705206813809, count: 55499"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 152.47557309635533,
+            "unit": "median tps",
+            "extra": "avg tps: 150.99109563427, max tps: 156.1193024926195, count: 55499"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 75.42732076885102,
+            "unit": "median tps",
+            "extra": "avg tps: 68.15434124064018, max tps: 107.45736321395673, count: 110998"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.774371037206866,
+            "unit": "median tps",
+            "extra": "avg tps: 17.774804206223365, max tps: 19.713629565839245, count: 55499"
           }
         ]
       }

@@ -299,7 +299,7 @@ impl ExecMethod for MixedFastFieldExecState {
             false
         } else {
             // First time query in non-parallel mode
-            self.search_results = Some(state.search_reader.as_ref().unwrap().search(None));
+            self.search_results = Some(state.search_reader.as_ref().unwrap().search());
             self.inner.did_query = true;
             true
         }

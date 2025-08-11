@@ -15,71 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::Cardinality;
-use crate::api::FieldName;
-use crate::api::HashSet;
+use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::CustomScan;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
-use std::fmt::{Debug, Display, Formatter};
-
-#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
-#[repr(i32)]
-pub enum SortDirection {
-    #[default]
-    Asc = pg_sys::BTLessStrategyNumber as i32,
-    Desc = pg_sys::BTGreaterStrategyNumber as i32,
-    None = pg_sys::BTEqualStrategyNumber as i32,
-}
-
-impl AsRef<str> for SortDirection {
-    fn as_ref(&self) -> &str {
-        match self {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
-            SortDirection::None => "<none>",
-        }
-    }
-}
-
-impl Display for SortDirection {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
-}
-
-impl From<i32> for SortDirection {
-    fn from(value: i32) -> Self {
-        SortDirection::from(value as u32)
-    }
-}
-
-impl From<u32> for SortDirection {
-    fn from(value: u32) -> Self {
-        match value {
-            pg_sys::BTLessStrategyNumber => SortDirection::Asc,
-            pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
-            _ => panic!("unrecognized sort strategy number: {value}"),
-        }
-    }
-}
-
-impl From<SortDirection> for crate::index::reader::index::SortDirection {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => crate::index::reader::index::SortDirection::Asc,
-            SortDirection::Desc => crate::index::reader::index::SortDirection::Desc,
-            SortDirection::None => crate::index::reader::index::SortDirection::None,
-        }
-    }
-}
-
-impl From<SortDirection> for u32 {
-    fn from(value: SortDirection) -> Self {
-        value as _
-    }
-}
 
 #[derive(Debug)]
 pub enum OrderByStyle {
@@ -100,41 +40,35 @@ impl OrderByStyle {
             let pathkey = self.pathkey();
             assert!(!pathkey.is_null());
 
-            (*self.pathkey()).pk_strategy.into()
+            match (*pathkey).pk_strategy as u32 {
+                pg_sys::BTLessStrategyNumber => SortDirection::Asc,
+                pg_sys::BTGreaterStrategyNumber => SortDirection::Desc,
+                value => panic!("unrecognized sort strategy number: {value}"),
+            }
         }
+    }
+
+    /// Extract ORDER BY information from query pathkeys
+    /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
+    pub fn extract_orderby_info(order_pathkeys: Option<&Vec<OrderByStyle>>) -> Vec<OrderByInfo> {
+        order_pathkeys
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|style| style.into())
+            .collect()
     }
 }
 
-/// Simple ORDER BY information for serialization in PrivateData
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OrderByInfo {
-    pub field_name: String,
-    pub is_desc: bool, // true for descending, false for ascending
-}
-
-impl OrderByInfo {
-    /// Extract ORDER BY information from query pathkeys
-    /// In this case, we convert OrderByStyle to OrderByInfo for serialization.
-    pub fn extract_order_by_info(
-        root: *mut pg_sys::PlannerInfo,
-        order_pathkeys: &Option<Vec<OrderByStyle>>,
-    ) -> Vec<OrderByInfo> {
-        order_pathkeys
-            .as_ref()
-            .unwrap_or(&vec![])
-            .iter()
-            .map(|style| {
-                let field_name = match style {
-                    OrderByStyle::Field(_, name) => name.to_string(),
-                    OrderByStyle::Score(_) => "score".to_string(),
-                };
-                let is_desc = matches!(style.direction(), SortDirection::Desc);
-                OrderByInfo {
-                    field_name,
-                    is_desc,
-                }
-            })
-            .collect()
+impl From<&OrderByStyle> for OrderByInfo {
+    fn from(value: &OrderByStyle) -> Self {
+        let feature = match value {
+            OrderByStyle::Field(_, name) => OrderByFeature::Field(name.to_owned()),
+            OrderByStyle::Score(_) => OrderByFeature::Score,
+        };
+        OrderByInfo {
+            feature,
+            direction: value.direction(),
+        }
     }
 }
 
@@ -155,7 +89,7 @@ pub enum ExecMethodType {
     TopN {
         heaprelid: pg_sys::Oid,
         limit: usize,
-        sort_direction: SortDirection,
+        orderby_info: Option<Vec<OrderByInfo>>,
     },
     FastFieldMixed {
         which_fast_fields: HashSet<WhichFastField>,
@@ -165,19 +99,16 @@ pub enum ExecMethodType {
 
 impl ExecMethodType {
     ///
-    /// Returns true if this execution method will emit results in sorted order with the given
-    /// number of workers.
+    /// Returns true if this is a sorted TopN execution.
     ///
-    pub fn is_sorted(&self) -> bool {
-        match self {
+    pub fn is_sorted_topn(&self) -> bool {
+        matches!(
+            self,
             ExecMethodType::TopN {
-                sort_direction: SortDirection::Asc | SortDirection::Desc,
+                orderby_info: Some(..),
                 ..
-            } => true,
-            // See https://github.com/paradedb/paradedb/issues/2623 about enabling sorted orders for
-            // String and Mixed.
-            _ => false,
-        }
+            }
+        )
     }
 }
 

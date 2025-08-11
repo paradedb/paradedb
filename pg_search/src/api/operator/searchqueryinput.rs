@@ -194,7 +194,7 @@ pub fn search_with_query_input(
         // the matches are cached so that the same input query will return the same results
         // throughout the duration of the scan
         let matches = search_reader
-            .search(None)
+            .search()
             .map(|(_, doc_address)| {
                 check_for_interrupts!();
                 ff_helper

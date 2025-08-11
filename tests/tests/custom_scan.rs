@@ -206,7 +206,7 @@ explain (analyze, format json) select * from paradedb.bm25_search where metadata
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(false)));
     assert_eq!(
-        path.get("   Top N Limit"),
+        path.get("   TopN Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -227,7 +227,7 @@ explain (analyze, format json) select paradedb.score(id), * from paradedb.bm25_s
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(true)));
     assert_eq!(
-        path.get("   Top N Limit"),
+        path.get("   TopN Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -674,48 +674,6 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
         let current = query(offset, 1);
         assert_eq!(expected, current[0]);
     }
-}
-
-#[rstest]
-fn top_n_exits_at_limit(mut conn: PgConnection) {
-    if pg_major_version(&mut conn) < 16 {
-        // Before 16, Postgres would not plan an incremental sort here.
-        return;
-    }
-
-    // When there are more results than the limit will render, but there is no `Limit` node
-    // immediately above us in the plan (in this case, we get an `Incremental Sort` instead due to
-    // the tiebreaker sort, which we can't push down until #2642), Top-N should exit on its own.
-    r#"
-        CREATE TABLE exit_at_limit (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
-        CREATE INDEX exit_at_limit_index ON exit_at_limit USING bm25 (id, message, severity) WITH (key_field = 'id');
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer wine cheese a', 1);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer wine a', 2);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer cheese a', 3);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer a', 4);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('wine cheese a', 5);
-        SET max_parallel_workers = 0;
-    "#.execute(&mut conn);
-
-    let (plan,) = r#"
-        EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-        SELECT * FROM exit_at_limit
-        WHERE message @@@ 'beer'
-        ORDER BY severity, id LIMIT 1;
-    "#
-    .fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
-
-    // The Incremental Sort node prevents the Limit node from applying early cutoff, so the custom
-    // scan node must do so itself.
-    assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/Node Type"),
-        Some(&Value::String(String::from("Incremental Sort")))
-    );
-    assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/Plans/0/   Queries"),
-        Some(&Value::Number(1.into()))
-    );
 }
 
 #[rstest]

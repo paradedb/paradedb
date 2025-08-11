@@ -32,14 +32,16 @@ use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByInfo, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
+use crate::postgres::customscan::pdbscan::{
+    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -125,8 +127,8 @@ impl CustomScan for AggregateScan {
         };
 
         // Extract ORDER BY pathkeys if present
-        let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
+        let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
+        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -145,7 +147,7 @@ impl CustomScan for AggregateScan {
 
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
-        if let Some(ref pathkeys) = order_pathkeys {
+        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
             for pathkey_style in pathkeys {
                 builder = builder.add_path_key(pathkey_style);
             }
@@ -157,7 +159,7 @@ impl CustomScan for AggregateScan {
             heap_rti,
             query,
             grouping_columns,
-            order_by_info,
+            orderby_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
         }))
     }
@@ -225,7 +227,7 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
-        builder.custom_state().order_by_info = builder.custom_private().order_by_info.clone();
+        builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
@@ -507,21 +509,14 @@ fn extract_order_by_pathkeys(
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
     schema: &SearchIndexSchema,
-) -> Option<Vec<OrderByStyle>> {
+) -> PathKeyInfo {
     unsafe {
-        let pathkey_styles = extract_pathkey_styles_with_sortability_check(
+        extract_pathkey_styles_with_sortability_check(
             root,
             heap_rti,
             schema,
-            None,                                  // No limit on pathkeys for aggregatescan
             |search_field| search_field.is_fast(), // Use is_fast() for regular vars
             |_search_field| false,                 // Don't accept lower functions in aggregatescan
-        );
-
-        if pathkey_styles.is_empty() {
-            None
-        } else {
-            Some(pathkey_styles)
-        }
+        )
     }
 }

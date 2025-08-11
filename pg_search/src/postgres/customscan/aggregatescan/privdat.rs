@@ -15,8 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::AsCStr;
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
+use crate::api::{AsCStr, OrderByInfo};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
@@ -74,7 +73,7 @@ pub struct PrivateData {
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 

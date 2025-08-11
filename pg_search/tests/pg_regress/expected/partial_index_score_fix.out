@@ -124,11 +124,10 @@ ORDER BY rating LIMIT 20;
          Index: partial_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: rating
-            Sort Direction: asc
-            Top N Limit: 20
+            TopN Order By: rating asc
+            TopN Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -165,11 +164,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -202,11 +200,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -238,11 +235,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -274,11 +270,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, category 
 FROM paradedb.test_partial_index

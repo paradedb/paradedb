@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754923576839,
+  "lastUpdate": 1754934831853,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3282,6 +3282,72 @@ window.BENCHMARK_DATA = {
             "value": 155.5583385699218,
             "unit": "median tps",
             "extra": "avg tps: 170.6974457846787, max tps: 721.5496577689973, count: 55202"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a47be49217fabab1df9aa1016aca5e6655c0e60",
+          "message": "fix: Push down order-by for multiple sort columns to TopN (#2947)\n\n# Ticket(s) Closed\n\n- Closes #2642\n\n## What\n\nAdd support to Tantivy for sorting by multiple columns, and then only\nexecute TopN if we are able to push down all `ORDER BY` pathkeys.\nAdditionally, fix a bug where we would sometimes extract pathkeys even\nif we could not actually push down a prefix of pathkeys.\n\n## Why\n\nAs described on #2642: in order to be able to push down `ORDER BY` with\n`TopN`, _all_ of the columns must be pushed down, rather than only a\nprefix.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/57: I will work on\nupstreaming that patch, because I expect that it is something that other\nTantivy consumers would be interested in.\n\n## Tests\n\nExpanded some compound sort tests, and re-enabled proptests for compound\nsorts.\n\nBenchmark impacts:\n* There is about a 15% regression for low cardinality single-column\nfield sorts: `top_n-numeric-lowcard` and `top_n-string`.\n* Both of these are very low cardinality (5 and 10 distinct values,\nrespectively), meaning that they hit the `(Lazy)TopNComputer` machinery\npretty hard.\n* For comparison, `paging-string-*` (very high cardinality string TopN)\nis unaffected.\n*  There is a 57% percent regression for `top_n-compound`.\n* This one is expected, because the previous query implementation was\nincorrect: it would eliminate results based on the first column before\neven examining the second column. That's very fast, because it means\nonly `LIMIT` total values end up being examined for the second column,\nbut it returns the _wrong_ results.\n* Additionally, similar to the first point: the first column is a low\ncardinality column (5 distinct values), which means that we almost\nalways have to fetch the second column as well.",
+          "timestamp": "2025-08-11T10:36:08-07:00",
+          "tree_id": "084f76eed84b2d945be18c385c5474c3482a2142",
+          "url": "https://github.com/paradedb/paradedb/commit/1a47be49217fabab1df9aa1016aca5e6655c0e60"
+        },
+        "date": 1754934830403,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1187.1968567159417,
+            "unit": "median tps",
+            "extra": "avg tps: 1180.3526587627837, max tps: 1192.9732378968627, count: 55361"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2644.9861934518044,
+            "unit": "median tps",
+            "extra": "avg tps: 2628.9159117371823, max tps: 2656.1711957024713, count: 55361"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1144.248295236667,
+            "unit": "median tps",
+            "extra": "avg tps: 1142.5161009187207, max tps: 1150.229362584702, count: 55361"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1010.2280605068714,
+            "unit": "median tps",
+            "extra": "avg tps: 1003.9268916565443, max tps: 1016.0695940799725, count: 55361"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 173.83348611655737,
+            "unit": "median tps",
+            "extra": "avg tps: 177.8936014003446, max tps: 185.98651372461802, count: 110722"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 143.7710994366391,
+            "unit": "median tps",
+            "extra": "avg tps: 143.12474257039582, max tps: 148.13952679346536, count: 55361"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 61.226388627605544,
+            "unit": "median tps",
+            "extra": "avg tps: 72.86771204706898, max tps: 718.4434491607863, count: 55361"
           }
         ]
       }

@@ -51,8 +51,9 @@ pub struct LinkedListData {
     /// Indicates the last BlockNumber of the linked list.
     pub last_blockno: pg_sys::BlockNumber,
 
-    /// Counts the total number of data pages in the linked list (excludes the header page)
-    pub npages: u32,
+    /// This once tracked the number of blocks in the linked list, but now it's just dead space
+    #[doc(hidden)]
+    _dead_space: u32,
 
     /// Indicates where the BlockList for this linked list starts;
     pub blocklist_start: pg_sys::BlockNumber,
@@ -63,7 +64,6 @@ impl Debug for LinkedListData {
         f.debug_struct("LinkedListData")
             .field("start_blockno", &{ self.start_blockno })
             .field("last_blockno", &{ self.last_blockno })
-            .field("npages", &{ self.npages })
             .field("blocklist_start", &{ self.blocklist_start })
             .finish()
     }

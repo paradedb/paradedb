@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754934831853,
+  "lastUpdate": 1754934835106,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9332,6 +9332,126 @@ window.BENCHMARK_DATA = {
             "value": 52.5234375,
             "unit": "median mem",
             "extra": "avg mem: 52.062219425360496, max mem: 73.85546875, count: 55202"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a47be49217fabab1df9aa1016aca5e6655c0e60",
+          "message": "fix: Push down order-by for multiple sort columns to TopN (#2947)\n\n# Ticket(s) Closed\n\n- Closes #2642\n\n## What\n\nAdd support to Tantivy for sorting by multiple columns, and then only\nexecute TopN if we are able to push down all `ORDER BY` pathkeys.\nAdditionally, fix a bug where we would sometimes extract pathkeys even\nif we could not actually push down a prefix of pathkeys.\n\n## Why\n\nAs described on #2642: in order to be able to push down `ORDER BY` with\n`TopN`, _all_ of the columns must be pushed down, rather than only a\nprefix.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/57: I will work on\nupstreaming that patch, because I expect that it is something that other\nTantivy consumers would be interested in.\n\n## Tests\n\nExpanded some compound sort tests, and re-enabled proptests for compound\nsorts.\n\nBenchmark impacts:\n* There is about a 15% regression for low cardinality single-column\nfield sorts: `top_n-numeric-lowcard` and `top_n-string`.\n* Both of these are very low cardinality (5 and 10 distinct values,\nrespectively), meaning that they hit the `(Lazy)TopNComputer` machinery\npretty hard.\n* For comparison, `paging-string-*` (very high cardinality string TopN)\nis unaffected.\n*  There is a 57% percent regression for `top_n-compound`.\n* This one is expected, because the previous query implementation was\nincorrect: it would eliminate results based on the first column before\neven examining the second column. That's very fast, because it means\nonly `LIMIT` total values end up being examined for the second column,\nbut it returns the _wrong_ results.\n* Additionally, similar to the first point: the first column is a low\ncardinality column (5 distinct values), which means that we almost\nalways have to fetch the second column as well.",
+          "timestamp": "2025-08-11T10:36:08-07:00",
+          "tree_id": "084f76eed84b2d945be18c385c5474c3482a2142",
+          "url": "https://github.com/paradedb/paradedb/commit/1a47be49217fabab1df9aa1016aca5e6655c0e60"
+        },
+        "date": 1754934833655,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.76413726839044, max cpu: 9.476802, count: 55361"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.19698758489731, max mem: 75.95703125, count: 55361"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606764226909771, max cpu: 9.329447, count: 55361"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 50.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.19822040222359, max mem: 69.65234375, count: 55361"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.766155499863903, max cpu: 9.495549, count: 55361"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 57.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.36446785078846, max mem: 76.8046875, count: 55361"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606023576594111, max cpu: 9.204219, count: 55361"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 56.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.94029931099962, max mem: 76.2890625, count: 55361"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.308628155456678, max cpu: 24.072216, count: 110722"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 65.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.17966576764329, max mem: 93.9765625, count: 110722"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3143,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3176.7901230107836, max block_count: 5622.0, count: 55361"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.511497263416485, max segment_count: 27.0, count: 55361"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.1665732292771525, max cpu: 24.072216, count: 55361"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 65.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.60392497651776, max mem: 87.2578125, count: 55361"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.109554100090224, max cpu: 9.29332, count: 55361"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 54.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.61166211886527, max mem: 74.7734375, count: 55361"
           }
         ]
       }

@@ -155,7 +155,7 @@ fn test_other_aggregates(mut conn: PgConnection) {
     for aggregate_func in ["SUM(rating)", "AVG(rating)", "MIN(rating)", "MAX(rating)"] {
         assert_uses_custom_scan(
             &mut conn,
-            true, // Changed from false to true - we now support these!
+            true,
             format!(
                 r#"
                 SELECT {aggregate_func}

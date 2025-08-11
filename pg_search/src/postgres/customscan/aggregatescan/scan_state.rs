@@ -105,7 +105,7 @@ impl AggregateScanState {
             let has_sum = self
                 .aggregate_types
                 .iter()
-                .any(|agg| matches!(agg, super::privdat::AggregateType::Sum { .. }));
+                .any(|agg| matches!(agg, AggregateType::Sum { .. }));
             if has_sum {
                 agg_map.insert(
                     "_doc_count".to_string(),
@@ -271,7 +271,7 @@ impl AggregateScanState {
 
         // Apply appropriate doc_count handling based on aggregate type
         let doc_count_for_aggregate = match aggregate {
-            super::privdat::AggregateType::Sum { .. } => doc_count,
+            AggregateType::Sum { .. } => doc_count,
             _ => None,
         };
 

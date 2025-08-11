@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754936137790,
+  "lastUpdate": 1754936140446,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18744,6 +18744,66 @@ window.BENCHMARK_DATA = {
             "value": 162.36328125,
             "unit": "median mem",
             "extra": "avg mem: 153.53492244258578, max mem: 174.73828125, count: 57673"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a47be49217fabab1df9aa1016aca5e6655c0e60",
+          "message": "fix: Push down order-by for multiple sort columns to TopN (#2947)\n\n# Ticket(s) Closed\n\n- Closes #2642\n\n## What\n\nAdd support to Tantivy for sorting by multiple columns, and then only\nexecute TopN if we are able to push down all `ORDER BY` pathkeys.\nAdditionally, fix a bug where we would sometimes extract pathkeys even\nif we could not actually push down a prefix of pathkeys.\n\n## Why\n\nAs described on #2642: in order to be able to push down `ORDER BY` with\n`TopN`, _all_ of the columns must be pushed down, rather than only a\nprefix.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/57: I will work on\nupstreaming that patch, because I expect that it is something that other\nTantivy consumers would be interested in.\n\n## Tests\n\nExpanded some compound sort tests, and re-enabled proptests for compound\nsorts.\n\nBenchmark impacts:\n* There is about a 15% regression for low cardinality single-column\nfield sorts: `top_n-numeric-lowcard` and `top_n-string`.\n* Both of these are very low cardinality (5 and 10 distinct values,\nrespectively), meaning that they hit the `(Lazy)TopNComputer` machinery\npretty hard.\n* For comparison, `paging-string-*` (very high cardinality string TopN)\nis unaffected.\n*  There is a 57% percent regression for `top_n-compound`.\n* This one is expected, because the previous query implementation was\nincorrect: it would eliminate results based on the first column before\neven examining the second column. That's very fast, because it means\nonly `LIMIT` total values end up being examined for the second column,\nbut it returns the _wrong_ results.\n* Additionally, similar to the first point: the first column is a low\ncardinality column (5 distinct values), which means that we almost\nalways have to fetch the second column as well.",
+          "timestamp": "2025-08-11T10:36:08-07:00",
+          "tree_id": "084f76eed84b2d945be18c385c5474c3482a2142",
+          "url": "https://github.com/paradedb/paradedb/commit/1a47be49217fabab1df9aa1016aca5e6655c0e60"
+        },
+        "date": 1754936139008,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.79405,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.002071358709795, max cpu: 47.477745, count: 56362"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 173.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 172.4696492511577, max mem: 179.05859375, count: 56362"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17614,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16391.588321919022, max block_count: 21864.0, count: 56362"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.69836059756574, max segment_count: 117.0, count: 56362"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.203970818356785, max cpu: 33.4995, count: 56362"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 172.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.33233862409514, max mem: 180.66796875, count: 56362"
           }
         ]
       }

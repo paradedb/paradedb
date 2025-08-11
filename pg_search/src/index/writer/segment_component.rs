@@ -161,6 +161,11 @@ impl<const CAPACITY: usize, W: Write> Drop for ExactBuffer<CAPACITY, W> {
                 pgrx::warning!(
                     "During stack unwinding due to a panic elsewhere, an ExactBuffer has {} unwritten bytes", self.len
                 );
+            } else if unsafe { pg_sys::InterruptPending } != 0 {
+                pgrx::warning!(
+                    "ExactBuffer still has {} unwritten bytes because of interrupt",
+                    self.len
+                );
             } else {
                 panic!(
                     "ExactBuffer should have been flushed before being dropped.  It still has {} unwritten bytes", self.len

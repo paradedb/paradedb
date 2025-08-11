@@ -40,15 +40,15 @@ pub enum AggregateValue {
     Float(f64),
 }
 
-/// Enum to specify how numbers should be processed for different aggregate types
+/// Enum to specify how numbers should be converted for different aggregate types
 #[derive(Debug, Clone, Copy)]
-enum NumberProcessingType {
+enum NumberConversionMode {
     /// For COUNT: validate integer, check range, always return Int
-    Count,
+    ToInt,
     /// For SUM/MIN/MAX: preserve original type (Int or Float)
-    Numeric,
+    Preserve,
     /// For AVG: always convert to Float
-    Float,
+    ToFloat,
 }
 
 /// Represents an aggregate result that can be either a direct value or wrapped in a "value" object
@@ -159,11 +159,11 @@ impl AggregateType {
             None => AggregateValue::Null,
             Some(num) => {
                 let processing_type = match self {
-                    AggregateType::Count => NumberProcessingType::Count,
-                    AggregateType::Sum { .. } => NumberProcessingType::Numeric,
-                    AggregateType::Avg { .. } => NumberProcessingType::Float,
-                    AggregateType::Min { .. } => NumberProcessingType::Numeric,
-                    AggregateType::Max { .. } => NumberProcessingType::Numeric,
+                    AggregateType::Count => NumberConversionMode::ToInt,
+                    AggregateType::Sum { .. } => NumberConversionMode::Preserve,
+                    AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
+                    AggregateType::Min { .. } => NumberConversionMode::Preserve,
+                    AggregateType::Max { .. } => NumberConversionMode::Preserve,
                 };
                 Self::process_number(num, processing_type)
             }
@@ -173,10 +173,10 @@ impl AggregateType {
     /// Process a number value based on the aggregate type requirements
     fn process_number(
         num: &serde_json::Number,
-        processing_type: NumberProcessingType,
+        processing_type: NumberConversionMode,
     ) -> AggregateValue {
         match processing_type {
-            NumberProcessingType::Count => {
+            NumberConversionMode::ToInt => {
                 let f64_val = num.as_f64().expect("invalid COUNT result");
                 if f64_val.fract() != 0.0 {
                     panic!("COUNT should not have a fractional result");
@@ -186,7 +186,7 @@ impl AggregateType {
                 }
                 AggregateValue::Int(f64_val as i64)
             }
-            NumberProcessingType::Numeric => {
+            NumberConversionMode::Preserve => {
                 if let Some(int_val) = num.as_i64() {
                     AggregateValue::Int(int_val)
                 } else if let Some(f64_val) = num.as_f64() {
@@ -195,7 +195,7 @@ impl AggregateType {
                     panic!("Numeric result should be a valid number");
                 }
             }
-            NumberProcessingType::Float => {
+            NumberConversionMode::ToFloat => {
                 let f64_val = num.as_f64().expect("invalid float result");
                 AggregateValue::Float(f64_val)
             }

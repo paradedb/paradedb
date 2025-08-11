@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754922297684,
+  "lastUpdate": 1754922933760,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15524,6 +15524,42 @@ window.BENCHMARK_DATA = {
             "value": 139.4651978073033,
             "unit": "median tps",
             "extra": "avg tps: 138.99583204523722, max tps: 141.82575619154352, count: 57274"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd0354666e6e69dab19bf098f8784ad156baabc9",
+          "message": "fix: shouldn't panic if there was an interrupt (#2955)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere were two places we were panicking if there was an interrupt: one\nat the end of `merge_index`, and another in the `Drop` impl of\n`ExactBuffer`.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-11T09:57:48-04:00",
+          "tree_id": "6d9618942f561fbb93bd8e424319662630638a66",
+          "url": "https://github.com/paradedb/paradedb/commit/bd0354666e6e69dab19bf098f8784ad156baabc9"
+        },
+        "date": 1754922932313,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 29.00153985704734,
+            "unit": "median tps",
+            "extra": "avg tps: 28.74176108196906, max tps: 29.120578618376506, count: 57673"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 139.125460122589,
+            "unit": "median tps",
+            "extra": "avg tps: 138.81331019212394, max tps: 141.1707908117947, count: 57673"
           }
         ]
       }

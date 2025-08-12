@@ -136,21 +136,32 @@ impl AggregateType {
         }
     }
 
-    /// Convert AggregateResult to AggregateValue, checking doc_count for empty result set handling
+    /// Convert AggregateResult to AggregateValue with proper empty result set handling.
+    ///
+    /// This method handles the complex interaction between aggregate types and document counts
+    /// to ensure correct behavior for empty result sets:
+    ///
+    /// ## Empty Result Set Handling (when doc_count is Some(0)):
+    /// - **COUNT**: Returns 0 (counting zero documents)
+    /// - **SUM**: Returns NULL (sum of empty set is undefined/NULL in SQL)
+    /// - **AVG/MIN/MAX**: Returns NULL (operations on empty sets are undefined)
+    ///
+    /// ## Non-empty Result Sets:
+    /// - **SUM**: Uses doc_count to detect truly empty buckets vs. buckets with all zero values
+    /// - **Other aggregates**: Ignore doc_count and process the aggregate result directly
+    ///
+    /// ## Parameters:
+    /// - `result`: The raw aggregate result from the search engine
+    /// - `doc_count`: Optional document count for the bucket/result set being processed
     pub fn result_from_aggregate_with_doc_count(
         &self,
         result: AggregateResult,
         doc_count: Option<i64>,
     ) -> AggregateValue {
-        // If doc_count is 0, return NULL for all aggregates except COUNT (which should return 0)
-        if let Some(0) = doc_count {
-            match self {
-                AggregateType::Count => return AggregateValue::Int(0),
-                _ => return AggregateValue::Null,
-            }
+        match (self, doc_count) {
+            (AggregateType::Sum { .. }, Some(0)) => AggregateValue::Null,
+            _ => self.result_from_aggregate_internal(result),
         }
-
-        self.result_from_aggregate_internal(result)
     }
 
     fn result_from_aggregate_internal(&self, agg_result: AggregateResult) -> AggregateValue {

@@ -234,8 +234,9 @@ impl AggregateScanState {
         }
     }
 
-    /// Process a single aggregate result, handling doc_count for empty result sets
-    /// This consolidates the logic used in both simple and grouped aggregations
+    /// Process a single aggregate result, extracting the raw value and delegating
+    /// doc_count handling to the aggregate type's processing method.
+    /// This consolidates the logic used in both simple and grouped aggregations.
     fn process_aggregate_result(
         &self,
         aggregate: &AggregateType,
@@ -269,13 +270,7 @@ impl AggregateScanState {
             }
         };
 
-        // Apply appropriate doc_count handling based on aggregate type
-        let doc_count_for_aggregate = match aggregate {
-            AggregateType::Sum { .. } => doc_count,
-            _ => None,
-        };
-
-        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count_for_aggregate)
+        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
     #[allow(unreachable_patterns)]

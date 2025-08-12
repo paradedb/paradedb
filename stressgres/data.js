@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1754936784257,
+  "lastUpdate": 1755034487930,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3348,6 +3348,72 @@ window.BENCHMARK_DATA = {
             "value": 61.226388627605544,
             "unit": "median tps",
             "extra": "avg tps: 72.86771204706898, max tps: 718.4434491607863, count: 55361"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5a591ba63efed64712079f47b3ae1a70ed6335",
+          "message": "feat: add support for additional aggregate functions (`SUM`, `AVG`, `MIN`, `MAX`) to custom scan (#2923)\n\n## Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nThis PR extends aggregate custom scan to support additional PostgreSQL\naggregate functions beyond the existing `COUNT(*)` functionality. The\nimplementation adds support for:\n\n- **SUM(field)**: Summation of numeric fields\n- **AVG(field)**: Average calculation returning floating-point results  \n- **MIN(field)**: Minimum value extraction from numeric fields\n- **MAX(field)**: Maximum value extraction from numeric fields\n- **Mixed aggregates**: Multiple aggregate functions in a single query\n- **Enhanced GROUP BY**: All new aggregates work seamlessly with GROUP\nBY clauses\n\n## Why\n\nPreviously, ParadeDB's aggregate custom scan only supported `COUNT(*)`\noperations, limiting the performance benefits of our push-down\naggregation capabilities. Users requiring other common aggregate\nfunctions (SUM, AVG, MIN, MAX) had to fall back to PostgreSQL's standard\nimplementation, missing out on the significant performance improvements\nthat our columnar fast field storage provides.\n\nThis enhancement unlocks the full potential of aggregate performance\noptimization for a complete set of essential aggregate operations.\n\n## How\n\n### Core Implementation Changes\n\n1. **Extended AggregateType Enum** (`privdat.rs`):\n   - Added `Sum`, `Avg`, `Min`, `Max` variants with field parameters\n- Introduced `AggregateValue` enum to handle both integer and\nfloating-point results\n- Updated JSON serialization to generate appropriate Tantivy aggregation\nqueries\n\n2. **Improved Aggregate Detection** (`mod.rs`):\n- Added PostgreSQL function OID mapping for standard aggregate functions\n- Implemented `identify_aggregate_function()` to recognize SUM, AVG,\nMIN, MAX by OID\n\n3. **Robust Type Conversion System**:\n- Implemented proper PostgreSQL NUMERIC type handling using\n`pgrx::AnyNumeric`\n- Added type-specific datum conversion based on expected PostgreSQL\ncolumn types\n- Ensured correct handling of both integer (BIGINT, INTEGER) and\nfloating-point (NUMERIC) results\n\n4. **Improved Result Processing** (`scan_state.rs`):\n- Updated JSON result extraction to handle Tantivy's aggregate response\nstructure\n- Modified `AggregateRow` to use `TinyVec<AggregateValue>` for\nmixed-type support\n- Improved recursive bucket result extraction for complex GROUP BY\nscenarios\n\n5. **Tuple Slot Management**:\n- Implemented proper virtual tuple slot handling for PostgreSQL\ncompatibility\n- Fixed slot initialization and datum array population for reliable\nresult delivery\n   - Ensured proper memory management and type safety\n\n### Technical Highlights\n\n- **PostgreSQL OID Constants**: Uses `pg_sys::F_*` constants for\nportable function identification\n- **Type Safety**: error handling with graceful fallbacks to NULL values\n- **Performance**: Leverages Tantivy's native aggregation capabilities\nfor optimal speed\n- **Compatibility**: Maintains full PostgreSQL semantics and behavior\nequivalence\n\n## Tests\n\n### Regression Tests (`groupby_aggregate.sql`)\nExtended the test suite with thorough coverage including:\n\n- **Basic aggregate operations**: Individual SUM, AVG, MIN, MAX queries\n- **GROUP BY combinations**: Multi-column grouping with various\naggregate functions\n- **Mixed aggregates**: Multiple aggregate functions in single queries\n- **Data type validation**: Testing with NUMERIC, INTEGER, BIGINT types\n- **Edge cases**: Empty results, NULL handling, type conversion\nscenarios\n- **Performance verification**: EXPLAIN plan analysis confirming custom\nscan usage\n\n### Property-Based Testing\n- Existing `generated_group_by_aggregates` tests automatically validate\nnew aggregate functions. Extended it to support more agg functions.",
+          "timestamp": "2025-08-12T14:18:43-07:00",
+          "tree_id": "6c61486d3092c8fd553a247cf74d72510ed31b9a",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5a591ba63efed64712079f47b3ae1a70ed6335"
+        },
+        "date": 1755034486577,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1163.6492861653905,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.966732030968, max tps: 1169.3579947587434, count: 55275"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2689.5629653624383,
+            "unit": "median tps",
+            "extra": "avg tps: 2671.412203694913, max tps: 2697.985703059838, count: 55275"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1165.0252778368363,
+            "unit": "median tps",
+            "extra": "avg tps: 1158.8101435747067, max tps: 1169.3801077503547, count: 55275"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 964.5577464068441,
+            "unit": "median tps",
+            "extra": "avg tps: 957.6608300059397, max tps: 974.8658031562738, count: 55275"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 175.89528432916842,
+            "unit": "median tps",
+            "extra": "avg tps: 174.40851138655512, max tps: 177.80178674601896, count: 110550"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.27154482050702,
+            "unit": "median tps",
+            "extra": "avg tps: 152.4175366369029, max tps: 154.09513226349014, count: 55275"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 135.5158800617942,
+            "unit": "median tps",
+            "extra": "avg tps: 145.81269563660484, max tps: 760.1747489712935, count: 55275"
           }
         ]
       }

@@ -74,7 +74,10 @@ impl AggregateResult {
     }
 }
 
-// TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
+// TODO: We should use Tantivy's native aggregate types (CountAggregation, SumAggregation, etc.)
+// which implement serde, but the current fork/version produces incorrect JSON structure.
+// The Tantivy types serialize to {"field": "name", "missing": null} instead of
+// the expected {"aggregation_type": {"field": "name"}} format.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
     /// Get the field name for field-based aggregates (None for COUNT)

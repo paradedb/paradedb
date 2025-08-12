@@ -505,11 +505,12 @@ GROUP BY rating;
                Output: rating, price
                Table: products
                Index: products_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(max), junk(sum), price, rating
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: price, rating
+               Numeric Fast Fields: price, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(15 rows)
 
 SELECT rating, SUM(price), MAX(rating) 
 FROM products 
@@ -637,11 +638,12 @@ ORDER BY rating;
                Output: rating, price
                Table: products
                Index: products_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: junk(count), junk(sum), price, rating
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: price, rating
+               Numeric Fast Fields: price, rating
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(14 rows)
+(15 rows)
 
 SELECT rating, SUM(price), COUNT(*)
 FROM products 

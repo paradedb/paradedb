@@ -136,39 +136,53 @@ impl AggregateType {
         }
     }
 
-    /// Convert AggregateResult to AggregateValue with proper empty result set handling.
+    /// Convert AggregateResult to AggregateValue with empty result set handling.
     ///
-    /// This method handles the complex interaction between aggregate types and document counts
-    /// to ensure correct behavior for empty result sets:
+    /// This method handles the interaction between aggregate types, document counts,
+    /// and number processing to ensure correct behavior across all scenarios:
     ///
-    /// ## Empty Result Set Handling (when doc_count is Some(0)):
-    /// - **COUNT**: Returns 0 (counting zero documents)
-    /// - **SUM**: Returns NULL (sum of empty set is undefined/NULL in SQL)
-    /// - **AVG/MIN/MAX**: Returns NULL (operations on empty sets are undefined)
+    /// ## Empty Result Set Handling
+    /// When `doc_count` is provided and equals 0, this indicates an empty result set:
+    /// - **COUNT**: Returns 0 (counting zero documents is valid and equals 0)
+    /// - **SUM**: Returns NULL (sum of empty set is undefined/NULL in SQL standard)
+    /// - **AVG/MIN/MAX**: Processed normally (will return NULL from empty AggregateResult)
     ///
-    /// ## Non-empty Result Sets:
-    /// - **SUM**: Uses doc_count to detect truly empty buckets vs. buckets with all zero values
-    /// - **Other aggregates**: Ignore doc_count and process the aggregate result directly
+    /// ## Document Count Usage by Aggregate Type
+    /// - **SUM**: Uses `doc_count` to distinguish truly empty buckets (doc_count=0) from
+    ///   buckets containing documents with zero/null field values
+    /// - **Other aggregates**: Ignore `doc_count` as they can determine emptiness from
+    ///   the aggregate result itself
     ///
-    /// ## Parameters:
-    /// - `result`: The raw aggregate result from the search engine
+    /// ## Number Processing and Type Conversion
+    /// Once a valid numeric result is extracted, it undergoes type-specific processing:
+    /// - **COUNT**: Validates integer values, checks range, always returns Int
+    /// - **SUM/MIN/MAX**: Preserves original type (Int or Float) from the result
+    /// - **AVG**: Always converts to Float (division result should be floating-point)
+    ///
+    /// ## Parameters
+    /// - `result`: The raw aggregate result from the search engine (JSON format)
     /// - `doc_count`: Optional document count for the bucket/result set being processed
+    ///
+    /// ## Returns
+    /// `AggregateValue` which can be Int, Float, or Null depending on the aggregate type
+    /// and the input data.
     pub fn result_from_aggregate_with_doc_count(
         &self,
         result: AggregateResult,
         doc_count: Option<i64>,
     ) -> AggregateValue {
-        match (self, doc_count) {
-            (AggregateType::Sum { .. }, Some(0)) => AggregateValue::Null,
-            _ => self.result_from_aggregate_internal(result),
+        // Handle empty result sets for SUM aggregates specifically
+        // SUM needs doc_count to distinguish empty buckets from buckets with zero values
+        if matches!(self, AggregateType::Sum { .. }) && doc_count == Some(0) {
+            return AggregateValue::Null;
         }
-    }
 
-    fn result_from_aggregate_internal(&self, agg_result: AggregateResult) -> AggregateValue {
-        // Extract the number and process it based on the aggregate type
-        match agg_result.extract_number() {
+        // Extract the numeric value from the aggregate result
+        // This handles both direct values and {"value": ...} wrapped objects
+        match result.extract_number() {
             None => AggregateValue::Null,
             Some(num) => {
+                // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
                     AggregateType::Count => NumberConversionMode::ToInt,
                     AggregateType::Sum { .. } => NumberConversionMode::Preserve,
@@ -176,6 +190,8 @@ impl AggregateType {
                     AggregateType::Min { .. } => NumberConversionMode::Preserve,
                     AggregateType::Max { .. } => NumberConversionMode::Preserve,
                 };
+
+                // Process and convert the number according to the aggregate type requirements
                 Self::process_number(num, processing_type)
             }
         }

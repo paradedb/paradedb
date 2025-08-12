@@ -362,6 +362,7 @@ impl CustomScan for AggregateScan {
 
             // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
             (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
             (*slot).tts_nvalid = natts as i16;
 
             slot

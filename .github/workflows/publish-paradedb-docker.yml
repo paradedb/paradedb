@@ -79,6 +79,7 @@ jobs:
             fi
           else
             VERSION=${{ github.event.inputs.version }}
+            TAG=v${{ github.event.inputs.version }}
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT

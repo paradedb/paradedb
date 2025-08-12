@@ -339,7 +339,7 @@ impl CustomScan for AggregateScan {
             for (i, entry) in target_list_mapping.iter().enumerate() {
                 match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
-                        let group_val = &row.group_keys[gc_idx];
+                        let group_val = row.group_keys[gc_idx].clone();
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
@@ -375,11 +375,11 @@ impl CustomScan for AggregateScan {
 
 /// Convert a group value (OwnedValue) to a PostgreSQL Datum
 unsafe fn convert_group_value_to_datum(
-    group_val: &OwnedValue,
+    group_val: OwnedValue,
     typoid: pg_sys::Oid,
 ) -> (pg_sys::Datum, bool) {
     let oid = pgrx::PgOid::from(typoid);
-    let tantivy_value = TantivyValue(group_val.clone());
+    let tantivy_value = TantivyValue(group_val);
     match tantivy_value.try_into_datum(oid) {
         Ok(Some(datum)) => (datum, false),
         Ok(None) => (pg_sys::Datum::from(0), true),
@@ -389,70 +389,44 @@ unsafe fn convert_group_value_to_datum(
     }
 }
 
-/// Convert an AggregateValue to a PostgreSQL Datum with appropriate type handling
+/// Convert an AggregateValue to a PostgreSQL Datum using TantivyValue's conversion infrastructure
 fn convert_aggregate_value_to_datum(
     agg_value: &AggregateValue,
     expected_typoid: pg_sys::Oid,
 ) -> (pg_sys::Datum, bool) {
-    match agg_value {
-        AggregateValue::Null => (pg_sys::Datum::null(), true),
-        AggregateValue::Int(val) => convert_int_to_datum(*val),
-        AggregateValue::Float(val) => convert_float_to_datum(*val, expected_typoid),
+    // Convert AggregateValue to OwnedValue
+    let owned_value = match agg_value {
+        AggregateValue::Null => OwnedValue::Null,
+        AggregateValue::Int(val) => OwnedValue::I64(*val),
+        AggregateValue::Float(val) => OwnedValue::F64(*val),
+    };
+
+    // Determine the best target type for conversion
+    // For numeric compatibility, prefer wider types when converting floats to integer types
+    let target_oid = match (&owned_value, expected_typoid) {
+        // For null values, use the expected type
+        (OwnedValue::Null, _) => expected_typoid,
+
+        // For integer values, use the expected type directly
+        (OwnedValue::I64(_), _) => expected_typoid,
+
+        // For float values, be more lenient with integer target types
+        (OwnedValue::F64(_), pg_sys::INT2OID) => pg_sys::INT8OID, // Use BIGINT instead of SMALLINT
+        (OwnedValue::F64(_), pg_sys::INT4OID) => pg_sys::INT8OID, // Use BIGINT instead of INTEGER
+        (OwnedValue::F64(_), _) => expected_typoid,               // Keep other types as-is
+
+        // Default case
+        _ => expected_typoid,
+    };
+
+    let tantivy_value = TantivyValue(owned_value);
+    unsafe {
+        match tantivy_value.try_into_datum(pgrx::PgOid::from(target_oid)) {
+            Ok(Some(datum)) => (datum, false),
+            Ok(None) => (pg_sys::Datum::null(), true),
+            Err(e) => (pg_sys::Datum::null(), true),
+        }
     }
-}
-
-/// Convert an integer value to a PostgreSQL Datum
-fn convert_int_to_datum(val: i64) -> (pg_sys::Datum, bool) {
-    (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false)
-}
-
-/// Convert a float value to a PostgreSQL Datum with type-specific handling
-fn convert_float_to_datum(val: f64, expected_typoid: pg_sys::Oid) -> (pg_sys::Datum, bool) {
-    match expected_typoid {
-        pg_sys::NUMERICOID => convert_float_to_numeric(val),
-        pg_sys::INT2OID => convert_float_to_i16(val),
-        pg_sys::INT4OID => convert_float_to_i32(val),
-        pg_sys::INT8OID => convert_float_to_i64(val),
-        _ => (val.into_datum().unwrap_or(pg_sys::Datum::from(0)), false),
-    }
-}
-
-/// Convert float to PostgreSQL NUMERIC type
-fn convert_float_to_numeric(val: f64) -> (pg_sys::Datum, bool) {
-    match pgrx::AnyNumeric::try_from(val) {
-        Ok(numeric_val) => match numeric_val.into_datum() {
-            Some(datum) => (datum, false),
-            None => (pg_sys::Datum::from(0), true),
-        },
-        Err(_) => (pg_sys::Datum::from(0), true),
-    }
-}
-
-/// Convert float to i16 (SMALLINT)
-fn convert_float_to_i16(val: f64) -> (pg_sys::Datum, bool) {
-    let int_val = val as i16;
-    (
-        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-        false,
-    )
-}
-
-/// Convert float to i32 (INTEGER)
-fn convert_float_to_i32(val: f64) -> (pg_sys::Datum, bool) {
-    let int_val = val as i32;
-    (
-        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-        false,
-    )
-}
-
-/// Convert float to i64 (BIGINT)  
-fn convert_float_to_i64(val: f64) -> (pg_sys::Datum, bool) {
-    let int_val = val as i64;
-    (
-        int_val.into_datum().unwrap_or(pg_sys::Datum::from(0)),
-        false,
-    )
 }
 
 /// Extract grouping columns from pathkeys and validate they are fast fields

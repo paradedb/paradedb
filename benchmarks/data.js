@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755034913052,
+  "lastUpdate": 1755035965819,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -17664,6 +17664,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.941,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5a591ba63efed64712079f47b3ae1a70ed6335",
+          "message": "feat: add support for additional aggregate functions (`SUM`, `AVG`, `MIN`, `MAX`) to custom scan (#2923)\n\n## Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nThis PR extends aggregate custom scan to support additional PostgreSQL\naggregate functions beyond the existing `COUNT(*)` functionality. The\nimplementation adds support for:\n\n- **SUM(field)**: Summation of numeric fields\n- **AVG(field)**: Average calculation returning floating-point results  \n- **MIN(field)**: Minimum value extraction from numeric fields\n- **MAX(field)**: Maximum value extraction from numeric fields\n- **Mixed aggregates**: Multiple aggregate functions in a single query\n- **Enhanced GROUP BY**: All new aggregates work seamlessly with GROUP\nBY clauses\n\n## Why\n\nPreviously, ParadeDB's aggregate custom scan only supported `COUNT(*)`\noperations, limiting the performance benefits of our push-down\naggregation capabilities. Users requiring other common aggregate\nfunctions (SUM, AVG, MIN, MAX) had to fall back to PostgreSQL's standard\nimplementation, missing out on the significant performance improvements\nthat our columnar fast field storage provides.\n\nThis enhancement unlocks the full potential of aggregate performance\noptimization for a complete set of essential aggregate operations.\n\n## How\n\n### Core Implementation Changes\n\n1. **Extended AggregateType Enum** (`privdat.rs`):\n   - Added `Sum`, `Avg`, `Min`, `Max` variants with field parameters\n- Introduced `AggregateValue` enum to handle both integer and\nfloating-point results\n- Updated JSON serialization to generate appropriate Tantivy aggregation\nqueries\n\n2. **Improved Aggregate Detection** (`mod.rs`):\n- Added PostgreSQL function OID mapping for standard aggregate functions\n- Implemented `identify_aggregate_function()` to recognize SUM, AVG,\nMIN, MAX by OID\n\n3. **Robust Type Conversion System**:\n- Implemented proper PostgreSQL NUMERIC type handling using\n`pgrx::AnyNumeric`\n- Added type-specific datum conversion based on expected PostgreSQL\ncolumn types\n- Ensured correct handling of both integer (BIGINT, INTEGER) and\nfloating-point (NUMERIC) results\n\n4. **Improved Result Processing** (`scan_state.rs`):\n- Updated JSON result extraction to handle Tantivy's aggregate response\nstructure\n- Modified `AggregateRow` to use `TinyVec<AggregateValue>` for\nmixed-type support\n- Improved recursive bucket result extraction for complex GROUP BY\nscenarios\n\n5. **Tuple Slot Management**:\n- Implemented proper virtual tuple slot handling for PostgreSQL\ncompatibility\n- Fixed slot initialization and datum array population for reliable\nresult delivery\n   - Ensured proper memory management and type safety\n\n### Technical Highlights\n\n- **PostgreSQL OID Constants**: Uses `pg_sys::F_*` constants for\nportable function identification\n- **Type Safety**: error handling with graceful fallbacks to NULL values\n- **Performance**: Leverages Tantivy's native aggregation capabilities\nfor optimal speed\n- **Compatibility**: Maintains full PostgreSQL semantics and behavior\nequivalence\n\n## Tests\n\n### Regression Tests (`groupby_aggregate.sql`)\nExtended the test suite with thorough coverage including:\n\n- **Basic aggregate operations**: Individual SUM, AVG, MIN, MAX queries\n- **GROUP BY combinations**: Multi-column grouping with various\naggregate functions\n- **Mixed aggregates**: Multiple aggregate functions in single queries\n- **Data type validation**: Testing with NUMERIC, INTEGER, BIGINT types\n- **Edge cases**: Empty results, NULL handling, type conversion\nscenarios\n- **Performance verification**: EXPLAIN plan analysis confirming custom\nscan usage\n\n### Property-Based Testing\n- Existing `generated_group_by_aggregates` tests automatically validate\nnew aggregate functions. Extended it to support more agg functions.",
+          "timestamp": "2025-08-12T14:18:43-07:00",
+          "tree_id": "6c61486d3092c8fd553a247cf74d72510ed31b9a",
+          "url": "https://github.com/paradedb/paradedb/commit/2a5a591ba63efed64712079f47b3ae1a70ed6335"
+        },
+        "date": 1755035964351,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1203.5265,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 649.698,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1471.3375,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 709.6925,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 686.2145,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1624.9279999999999,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 22.901,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 65.2935,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 90.2645,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

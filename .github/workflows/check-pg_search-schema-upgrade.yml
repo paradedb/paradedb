@@ -71,7 +71,7 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
 
       - name: Install cargo-pgrx
         run: |

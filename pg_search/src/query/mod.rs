@@ -255,6 +255,43 @@ impl SearchQueryInput {
             _ => None,
         }
     }
+
+    pub fn extract_field_names(&self, field_names: &mut crate::api::HashSet<String>) {
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
+                    q.extract_field_names(field_names);
+                }
+            }
+            SearchQueryInput::Boost { query, .. } => {
+                query.extract_field_names(field_names);
+            }
+            SearchQueryInput::ConstScore { query, .. } => {
+                query.extract_field_names(field_names);
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for q in disjuncts {
+                    q.extract_field_names(field_names);
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                query.extract_field_names(field_names);
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                indexed_query.extract_field_names(field_names);
+            }
+            SearchQueryInput::FieldedQuery { field, .. } => {
+                field_names.insert(field.root());
+            }
+            // For other query types, we can't easily extract field names
+            // This is a conservative approach - if we can't determine, we allow it
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -50,15 +50,6 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_var_relation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-
-use pgrx::pg_sys::{
-    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
-    F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
-    F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
-    F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
-    F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
-    F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
-};
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
@@ -496,7 +487,7 @@ fn extract_and_validate_aggregates(
     let aggregate_types = extract_aggregates(args)?;
 
     // Create a set of grouping column field names for quick lookup
-    let grouping_field_names: std::collections::HashSet<&String> =
+    let grouping_field_names: crate::api::HashSet<&String> =
         grouping_columns.iter().map(|gc| &gc.field_name).collect();
 
     // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
@@ -552,7 +543,7 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 // Check for DISTINCT in aggregate functions
                 if !(*aggref).aggdistinct.is_null() {
-                    pgrx::debug1!("DISTINCT in aggregate function detected - cannot use aggregate custom scan");
+                    // TODO: Support DISTINCT in aggregate custom scans if Tantivy supports it.
                     return None;
                 }
 
@@ -592,38 +583,46 @@ unsafe fn identify_aggregate_function(
     // Extract the field name from the first argument
     let field_name = extract_field_name_from_aggref(aggref, relation_oid);
 
-    match func_name.as_str() {
+    match func_name {
         "count" => Some(AggregateType::Count),
         "sum" => Some(AggregateType::Sum { field: field_name? }),
         "avg" => Some(AggregateType::Avg { field: field_name? }),
         "min" => Some(AggregateType::Min { field: field_name? }),
         "max" => Some(AggregateType::Max { field: field_name? }),
         _ => {
-            pgrx::debug1!("Unsupported aggregate function: {}", func_name);
+            pgrx::debug1!("Unsupported aggregate function: {func_name}");
             None
         }
     }
 }
 
 /// Get the name of an aggregate function from its OID
-unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<String> {
+unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<&'static str> {
+    use pgrx::pg_sys::{
+        F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
+        F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
+        F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
+        F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
+        F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
+        F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+    };
     // Use well-known PostgreSQL function OIDs for standard aggregates
     // These are consistent across PostgreSQL versions
     match aggfnoid.to_u32() {
         F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some("avg".to_string())
+            Some("avg")
         }
         F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some("sum".to_string())
+            Some("sum")
         }
         F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
         | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some("max".to_string())
+            Some("max")
         }
         F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
         | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some("min".to_string()),
-        F_COUNT_ANY => Some("count".to_string()),
+        | F_MIN_NUMERIC => Some("min"),
+        F_COUNT_ANY => Some("count"),
         _ => {
             // For unknown function OIDs, we'll reject them for now
             pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
@@ -725,61 +724,16 @@ fn has_search_field_conflicts(
         return false;
     }
 
-    let grouping_field_names: std::collections::HashSet<&String> =
-        grouping_columns.iter().map(|gc| &gc.field_name).collect();
+    let grouping_field_names: crate::api::HashSet<String> = grouping_columns
+        .iter()
+        .map(|gc| gc.field_name.clone())
+        .collect();
 
-    fn extract_field_names(
-        query: &SearchQueryInput,
-        field_names: &mut std::collections::HashSet<String>,
-    ) {
-        match query {
-            SearchQueryInput::Boolean {
-                must,
-                should,
-                must_not,
-            } => {
-                for q in must.iter().chain(should.iter()).chain(must_not.iter()) {
-                    extract_field_names(q, field_names);
-                }
-            }
-            SearchQueryInput::Boost { query, .. } => {
-                extract_field_names(query, field_names);
-            }
-            SearchQueryInput::ConstScore { query, .. } => {
-                extract_field_names(query, field_names);
-            }
-            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
-                for q in disjuncts {
-                    extract_field_names(q, field_names);
-                }
-            }
-            SearchQueryInput::WithIndex { query, .. } => {
-                extract_field_names(query, field_names);
-            }
-            SearchQueryInput::HeapFilter { indexed_query, .. } => {
-                extract_field_names(indexed_query, field_names);
-            }
-            SearchQueryInput::FieldedQuery { field, .. } => {
-                field_names.insert(field.root().to_string());
-            }
-            // For other query types, we can't easily extract field names
-            // This is a conservative approach - if we can't determine, we allow it
-            _ => {}
-        }
-    }
-
-    let mut search_field_names = std::collections::HashSet::new();
-    extract_field_names(query, &mut search_field_names);
+    let mut search_field_names = crate::api::HashSet::default();
+    query.extract_field_names(&mut search_field_names);
 
     // Check for conflicts
-    for search_field in &search_field_names {
-        if grouping_field_names.contains(search_field) {
-            // Found search field conflict: GROUP BY field is also being searched
-            return true;
-        }
-    }
-
-    false
+    !search_field_names.is_disjoint(&grouping_field_names)
 }
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output

@@ -51,7 +51,7 @@ impl Default for FSMBlockHeader {
 }
 
 const UNCOMPRESSED_MAX_BLOCKS_PER_PAGE: usize =
-    (bm25_max_free_space() / size_of::<pg_sys::BlockNumber>()) - size_of::<FSMBlockHeader>();
+    (bm25_max_free_space() - size_of::<FSMBlockHeader>()) / size_of::<pg_sys::BlockNumber>();
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

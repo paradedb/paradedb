@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755101643208,
+  "lastUpdate": 1755101655670,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3546,6 +3546,72 @@ window.BENCHMARK_DATA = {
             "value": 142.93365634287287,
             "unit": "median tps",
             "extra": "avg tps: 139.2095986884683, max tps: 712.9103066155939, count: 55170"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "78179d57e63a9d716b9d026316fa2cfb87478657",
+          "message": "fix: custom fsm \"MAX BLOCKS PER PAGE\" calculation (#2958)\n\n## What\n\nThe static `UNCOMPRESSED_MAX_BLOCKS_PER_PAGE` value is calculated\nincorrectly. It mixes units and would end up slightly smaller than it\nshould be.\n\nI don't believe this would have contributed to a correctness problem,\nonly wasting a few bytes per FSM page.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-13T11:56:40-04:00",
+          "tree_id": "7629d4579240a8ba25f2e26d12abfa362591a5e4",
+          "url": "https://github.com/paradedb/paradedb/commit/78179d57e63a9d716b9d026316fa2cfb87478657"
+        },
+        "date": 1755101654223,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1202.0373014278007,
+            "unit": "median tps",
+            "extra": "avg tps: 1193.9638188699782, max tps: 1203.7081739868113, count: 55394"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2833.9801565834464,
+            "unit": "median tps",
+            "extra": "avg tps: 2795.6853560046397, max tps: 2848.225025327405, count: 55394"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1190.3467278107664,
+            "unit": "median tps",
+            "extra": "avg tps: 1181.771946190412, max tps: 1198.3185615868317, count: 55394"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 868.0375761927091,
+            "unit": "median tps",
+            "extra": "avg tps: 866.0607164362793, max tps: 881.4947917790158, count: 55394"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 160.1503575175779,
+            "unit": "median tps",
+            "extra": "avg tps: 159.87069774165326, max tps: 168.25090120708575, count: 110788"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 133.84343068750854,
+            "unit": "median tps",
+            "extra": "avg tps: 133.88785166292524, max tps: 143.66221969010272, count: 55394"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 69.23760666279195,
+            "unit": "median tps",
+            "extra": "avg tps: 83.03006031087222, max tps: 663.320436172986, count: 55394"
           }
         ]
       }

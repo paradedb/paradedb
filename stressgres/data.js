@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755101636002,
+  "lastUpdate": 1755101640229,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3480,6 +3480,72 @@ window.BENCHMARK_DATA = {
             "value": 66.58634685870074,
             "unit": "median tps",
             "extra": "avg tps: 69.67735369636955, max tps: 912.4820241041251, count: 55204"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fdb384eab339a1776d940b3a1faebdec0658218d",
+          "message": "fix: the `LinkedListData::npages` field is dead code (#2957)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis field was once used to track the number of pages contained in one\nof our linked lists, but it's no longer used.\n\nWe had a few code paths that updated it (one, incorrectly!) but the\nfield was never read.\n\nWe leave the 4 bytes it occuppied in the `LinkedListData` struct so our\nlayout remains backwards compatabile, but we no longer use it.\n\n## Why\n\nIn trying to track down a strange bug in enterprise related to hot\nstandby promotion I realized this field is actually dead code.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-13T11:56:27-04:00",
+          "tree_id": "05c784f4471e9c0fa8c820a1e3281c8918a5928e",
+          "url": "https://github.com/paradedb/paradedb/commit/fdb384eab339a1776d940b3a1faebdec0658218d"
+        },
+        "date": 1755101638806,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1172.6374849496137,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.2411572679184, max tps: 1176.5136636260236, count: 55170"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2692.4479558097146,
+            "unit": "median tps",
+            "extra": "avg tps: 2672.0764299562356, max tps: 2705.979743291416, count: 55170"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1129.5785668291774,
+            "unit": "median tps",
+            "extra": "avg tps: 1126.3021608880968, max tps: 1134.1021833565142, count: 55170"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 950.4233482957729,
+            "unit": "median tps",
+            "extra": "avg tps: 942.8696159425294, max tps: 955.0280289931542, count: 55170"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.86967500111012,
+            "unit": "median tps",
+            "extra": "avg tps: 169.56291454523762, max tps: 181.21226993489208, count: 110340"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 144.12526551246106,
+            "unit": "median tps",
+            "extra": "avg tps: 143.73792073617716, max tps: 144.83985344625603, count: 55170"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 142.93365634287287,
+            "unit": "median tps",
+            "extra": "avg tps: 139.2095986884683, max tps: 712.9103066155939, count: 55170"
           }
         ]
       }

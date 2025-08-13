@@ -21,7 +21,7 @@ use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
-use crate::fixtures::querygen::{arb_joins_and_wheres, compare, handle_compare_error, PgGucs};
+use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
 
 use fixtures::*;
 
@@ -122,10 +122,11 @@ async fn generated_joins_small(database: Db) {
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
         compare(
-            format!("{from} WHERE {}", where_expr.to_sql(" = ")),
-            format!("{from} WHERE {}", where_expr.to_sql("@@@")),
-            gucs,
+            &format!("{from} WHERE {}", where_expr.to_sql(" = ")),
+            &format!("{from} WHERE {}", where_expr.to_sql("@@@")),
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| query.fetch_one::<(i64,)>(conn).0,
         )?;
     });
@@ -175,10 +176,11 @@ async fn generated_joins_large_limit(database: Db) {
         let from = format!("SELECT {target_list} {join_clause} ");
 
         compare(
-            format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
-            format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
-            gucs,
+            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
+            &format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| query.fetch_dynamic(conn).len(),
         )?;
     });
@@ -205,10 +207,11 @@ async fn generated_single_relation(database: Db) {
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
         compare(
-            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
-            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
-            gucs,
+            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            &format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| {
                 let mut rows = query.fetch::<(i64,)>(conn);
                 rows.sort();
@@ -300,9 +303,7 @@ async fn generated_group_by_aggregates(database: Db) {
             string_rows
         };
 
-        if let Err(e) = compare(pg_query.clone(), bm25_query.clone(), gucs, &mut pool.pull(), compare_results) {
-            return Err(handle_compare_error(e, pg_query, bm25_query, gucs, &setup_sql));
-        }
+        compare(&pg_query, &bm25_query, &gucs, &mut pool.pull(), &setup_sql, compare_results)?;
     });
 }
 
@@ -327,10 +328,11 @@ async fn generated_paging_small(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         compare(
-            format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
-            format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
-            gucs,
+            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
+            &format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| query.fetch::<(i64,)>(conn),
         )?;
     });
@@ -358,10 +360,11 @@ async fn generated_paging_large(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         compare(
-            format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
-            format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
-            gucs,
+            &format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
+            &format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| query.fetch::<(String,)>(conn),
         )?;
     });
@@ -417,10 +420,11 @@ async fn generated_subquery(database: Db) {
         );
 
         compare(
-            pg,
-            bm25,
-            gucs,
+            &pg,
+            &bm25,
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| query.fetch_one::<(i64,)>(conn),
         )?;
     });

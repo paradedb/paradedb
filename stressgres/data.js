@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755101658988,
+  "lastUpdate": 1755102301972,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11982,6 +11982,42 @@ window.BENCHMARK_DATA = {
             "value": 5.800609902387051,
             "unit": "median tps",
             "extra": "avg tps: 5.209676181579031, max tps: 6.5549512229660145, count: 57900"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98d7dcdc33169d31d80e13ef39aa7242e1a09710",
+          "message": "fix: zero worker threads (#2959)\n\n## What\n\nWe don't use any of Tantivy's threading features, and as of\nhttps://github.com/paradedb/tantivy/pull/59 it's now possible to set the\nnumber of merge and worker threads to zero.\n\nDoing so saves overhead of making threads that we never use, and joining\non them, for every segment merge operation.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-13T11:56:12-04:00",
+          "tree_id": "eb110a4751ca08cb76e53994761d930e400f4a6c",
+          "url": "https://github.com/paradedb/paradedb/commit/98d7dcdc33169d31d80e13ef39aa7242e1a09710"
+        },
+        "date": 1755102300471,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.810134405363864,
+            "unit": "median tps",
+            "extra": "avg tps: 5.818687996731729, max tps: 8.722598951090108, count: 57911"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.923925211953808,
+            "unit": "median tps",
+            "extra": "avg tps: 5.314412568717626, max tps: 6.679788064950383, count: 57911"
           }
         ]
       }

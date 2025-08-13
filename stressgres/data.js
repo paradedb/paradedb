@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755103593031,
+  "lastUpdate": 1755103596236,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24526,6 +24526,114 @@ window.BENCHMARK_DATA = {
             "value": 157.49609375,
             "unit": "median mem",
             "extra": "avg mem: 155.2672374203076, max mem: 159.375, count: 55526"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98d7dcdc33169d31d80e13ef39aa7242e1a09710",
+          "message": "fix: zero worker threads (#2959)\n\n## What\n\nWe don't use any of Tantivy's threading features, and as of\nhttps://github.com/paradedb/tantivy/pull/59 it's now possible to set the\nnumber of merge and worker threads to zero.\n\nDoing so saves overhead of making threads that we never use, and joining\non them, for every segment merge operation.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-13T11:56:12-04:00",
+          "tree_id": "eb110a4751ca08cb76e53994761d930e400f4a6c",
+          "url": "https://github.com/paradedb/paradedb/commit/98d7dcdc33169d31d80e13ef39aa7242e1a09710"
+        },
+        "date": 1755103594754,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.932382702932784, max cpu: 46.376812, count: 55634"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.86340587871175, max mem: 157.02734375, count: 55634"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.554877307621245, max cpu: 28.042841, count: 55634"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 147.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.34368287602905, max mem: 147.05078125, count: 55634"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.30362388166224, max cpu: 69.83511, count: 55634"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 128.9001886211669, max mem: 163.28125, count: 55634"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20385,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20662.905453499658, max block_count: 40966.0, count: 55634"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.071187511767414, max cpu: 4.6647234, count: 55634"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 100.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 88.69995718389384, max mem: 128.05859375, count: 55634"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.174263939317683, max segment_count: 47.0, count: 55634"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.88474621931179, max cpu: 64.73988, count: 111268"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 146.5040143083591, max mem: 172.36328125, count: 111268"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.607372953784145, max cpu: 28.015566, count: 55634"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.14157821655823, max mem: 157.97265625, count: 55634"
           }
         ]
       }

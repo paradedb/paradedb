@@ -28,8 +28,8 @@ use tantivy::SegmentReader;
 mod build;
 mod cost;
 mod delete;
-pub mod expression;
 pub mod insert;
+mod merge;
 pub mod options;
 mod ps_status;
 mod range;
@@ -48,6 +48,7 @@ pub mod rel;
 pub mod spinlock;
 pub mod storage;
 pub mod types;
+pub mod types_arrow;
 pub mod utils;
 pub mod var;
 pub mod visibility_checker;
@@ -120,6 +121,10 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
+    if relid == pg_sys::Oid::INVALID {
+        return None;
+    }
+
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
     rel.indices(pg_sys::AccessShareLock as _)
         .find(is_bm25_index)
@@ -181,7 +186,6 @@ impl ParallelScanPayload {
 
     #[inline(always)]
     fn data(&self) -> &[u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_end = self.segments.1;
             let data_ptr = self.data.as_ptr();
@@ -191,7 +195,6 @@ impl ParallelScanPayload {
 
     #[inline(always)]
     fn data_mut(&mut self) -> &mut [u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_end = self.segments.1;
             let data_ptr = self.data.as_mut_ptr();
@@ -246,7 +249,6 @@ impl ParallelScanState {
     }
 
     fn init_without_mutex(&mut self, segments: &[SegmentReader], query: &[u8]) {
-        assert!(!segments.is_empty());
         self.payload.init(segments, query);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();

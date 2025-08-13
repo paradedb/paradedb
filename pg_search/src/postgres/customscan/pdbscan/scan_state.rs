@@ -15,22 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
-use crate::api::Varno;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
+use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
-use crate::postgres::customscan::pdbscan::qual_inspect::Qual;
+use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::ParallelScanState;
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 use pgrx::heap_tuple::PgHeapTuple;
-use pgrx::{name_data_to_str, pg_sys, PgTupleDesc};
+use pgrx::{pg_sys, PgTupleDesc};
 use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
@@ -51,12 +49,7 @@ pub struct PdbScanState {
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
 
-    pub search_results: SearchResults,
     pub targetlist_len: usize,
-
-    pub limit: Option<usize>,
-    pub sort_field: Option<FieldName>,
-    pub sort_direction: Option<SortDirection>,
 
     pub query_count: usize,
     pub heap_tuple_check_count: usize,
@@ -202,10 +195,6 @@ impl PdbScanState {
         (segment_readers, serialized_query)
     }
 
-    pub fn human_readable_query_string(&self) -> String {
-        self.base_search_query_input.as_human_readable()
-    }
-
     pub fn has_postgres_expressions(&mut self) -> bool {
         self.base_search_query_input.has_postgres_expressions()
     }
@@ -243,12 +232,12 @@ impl PdbScanState {
 
     #[inline(always)]
     pub fn heaprelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*self.heaprel().rd_rel).relname) }
+        self.heaprel().name()
     }
 
     #[inline(always)]
     pub fn indexrelname(&self) -> &str {
-        unsafe { name_data_to_str(&(*self.indexrel().rd_rel).relname) }
+        self.indexrel().name()
     }
 
     #[inline(always)]
@@ -299,11 +288,18 @@ impl PdbScanState {
         }
     }
 
-    pub fn is_sorted(&self) -> bool {
-        matches!(
-            self.sort_direction,
-            Some(SortDirection::Asc | SortDirection::Desc)
-        )
+    pub fn limit(&self) -> Option<usize> {
+        match &self.exec_method_type {
+            ExecMethodType::TopN { limit, .. } => Some(*limit),
+            _ => None,
+        }
+    }
+
+    pub fn orderby_info(&self) -> &Option<Vec<OrderByInfo>> {
+        match &self.exec_method_type {
+            ExecMethodType::TopN { orderby_info, .. } => orderby_info,
+            _ => &None,
+        }
     }
 
     pub fn reset(&mut self) {
@@ -316,7 +312,6 @@ impl PdbScanState {
                 }
             }
         }
-        self.search_results = SearchResults::None;
         self.query_count = 0;
         self.heap_tuple_check_count = 0;
         self.virtual_tuple_count = 0;

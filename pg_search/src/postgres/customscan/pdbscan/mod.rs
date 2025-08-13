@@ -17,24 +17,20 @@
 
 #![allow(clippy::unnecessary_cast)] // helps with integer casting differences between postgres versions
 mod exec_methods;
-mod opexpr;
 pub mod parallel;
 mod privdat;
 mod projections;
-mod pushdown;
-mod qual_inspect;
 mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::Cardinality;
-use crate::api::{HashMap, HashSet};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::SearchIndexReader;
+use crate::index::reader::index::{SearchIndexReader, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::builders::custom_path::{
-    CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType, SortDirection,
+    restrict_info, CustomPathBuilder, ExecMethodType, Flags, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
@@ -47,30 +43,32 @@ use crate::postgres::customscan::pdbscan::exec_methods::{
 };
 use crate::postgres::customscan::pdbscan::parallel::{compute_nworkers, list_segment_ids};
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-use crate::postgres::customscan::pdbscan::projections::score::{
-    is_score_func, score_funcoid, uses_scores,
-};
+use crate::postgres::customscan::pdbscan::projections::score::{is_score_func, uses_scores};
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, uses_snippets, SnippetType,
 };
 use crate::postgres::customscan::pdbscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
-use crate::postgres::customscan::pdbscan::qual_inspect::{
-    extract_join_predicates, extract_quals, Qual, QualExtractState,
-};
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
-use crate::postgres::customscan::{self, CustomScan, CustomScanState};
+use crate::postgres::customscan::qual_inspect::{
+    extract_join_predicates, extract_quals, optimize_quals_with_heap_expr, Qual, QualExtractState,
+};
+use crate::postgres::customscan::score_funcoid;
+use crate::postgres::customscan::{
+    self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
+};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::find_var_relation;
 use crate::postgres::visibility_checker::VisibilityChecker;
+use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
+use crate::schema::{SearchField, SearchIndexSchema};
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 use pgrx::pg_sys::CustomExecMethods;
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts, PgRelation};
+use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList, PgMemoryContexts};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::atomic::Ordering;
@@ -178,54 +176,22 @@ impl PdbScan {
         }
     }
 
-    fn cleanup_varibilities_from_tantivy_query(json_value: &mut serde_json::Value) {
-        match json_value {
-            serde_json::Value::Object(obj) => {
-                // Check if this is a "with_index" object and remove its "oid" if present
-                if obj.contains_key("with_index") {
-                    if let Some(with_index) = obj.get_mut("with_index") {
-                        if let Some(with_index_obj) = with_index.as_object_mut() {
-                            with_index_obj.remove("oid");
-                        }
-                    }
-                }
-
-                // Remove any field named "postgres_expression"
-                obj.remove("postgres_expression");
-
-                // Recursively process all values in the object
-                for (_, value) in obj.iter_mut() {
-                    Self::cleanup_varibilities_from_tantivy_query(value);
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                // Recursively process all elements in the array
-                for item in arr.iter_mut() {
-                    Self::cleanup_varibilities_from_tantivy_query(item);
-                }
-            }
-            // Base cases: primitive values don't need processing
-            _ => {}
-        }
-    }
-
     unsafe fn extract_all_possible_quals(
-        builder: &mut CustomPathBuilder<PrivateData>,
+        builder: &mut CustomPathBuilder<PdbScan>,
         root: *mut pg_sys::PlannerInfo,
         rti: pg_sys::Index,
         restrict_info: PgList<pg_sys::RestrictInfo>,
-        pdbopoid: pg_sys::Oid,
         ri_type: RestrictInfoType,
-        schema: &SearchIndexSchema,
+        indexrel: &PgSearchRelation,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
             root,
             rti,
             restrict_info.as_ptr().cast(),
-            pdbopoid,
+            anyelement_query_input_opoid(),
             ri_type,
-            schema,
+            indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
         );
@@ -241,7 +207,7 @@ impl PdbScan {
                 joinri.as_ptr().cast(),
                 anyelement_query_input_opoid(),
                 RestrictInfoType::Join,
-                schema,
+                indexrel,
                 true, // Join quals should convert external to all
                 &mut state,
             );
@@ -292,7 +258,7 @@ impl PdbScan {
         if let Some(ref mut q) = quals {
             let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
             let relation_oid = (*rte).relid;
-            qual_inspect::optimize_quals_with_heap_expr(q);
+            optimize_quals_with_heap_expr(q);
         }
 
         quals.clone()
@@ -308,14 +274,13 @@ impl customscan::ExecMethod for PdbScan {
 impl CustomScan for PdbScan {
     const NAME: &'static CStr = c"ParadeDB Scan";
 
+    type Args = RelPathlistHookArgs;
     type State = PdbScanState;
     type PrivateData = PrivateData;
 
-    fn rel_pathlist_callback(
-        mut builder: CustomPathBuilder<Self::PrivateData>,
-    ) -> Option<pg_sys::CustomPath> {
+    fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         unsafe {
-            let (restrict_info, ri_type) = builder.restrict_info();
+            let (restrict_info, ri_type) = restrict_info(builder.args().rel());
             if matches!(ri_type, RestrictInfoType::None) {
                 // this relation has no restrictions (WHERE clause predicates), so there's no need
                 // for us to do anything
@@ -348,6 +313,10 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
+            // TODO: `impl Default for PrivateData` requires that many fields are in invalid
+            // states. Should consider having a separate builder for PrivateData.
+            let mut custom_private = PrivateData::default();
+
             let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
             let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
             let index = Index::open(directory).expect("custom_scan: should be able to open index");
@@ -355,7 +324,7 @@ impl CustomScan for PdbScan {
             let schema = bm25_index
                 .schema()
                 .expect("custom_scan: should have a schema");
-            let pathkey = pullup_orderby_pathkey(&mut builder, rti, &schema, root);
+            let topn_pathkey_info = pullup_topn_pathkeys(&mut builder, rti, &schema, root);
 
             #[cfg(any(feature = "pg14", feature = "pg15"))]
             let baserels = (*builder.args().root).all_baserels;
@@ -365,7 +334,11 @@ impl CustomScan for PdbScan {
             let limit = if (*builder.args().root).limit_tuples > -1.0 {
                 // Check if this is a single relation or a partitioned table setup
                 let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
-                    || is_partitioned_table_setup(builder.args().root, (*rel).relids, baserels);
+                    || range_table::is_partitioned_table_setup(
+                        builder.args().root,
+                        (*rel).relids,
+                        baserels,
+                    );
 
                 if rel_is_single_or_partitioned {
                     // We can use the limit for estimates if:
@@ -387,29 +360,27 @@ impl CustomScan for PdbScan {
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
             // Save the count of referenced columns for decision-making
-            builder
-                .custom_private()
-                .set_referenced_columns_count(referenced_columns.len());
+            custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let is_topn = limit.is_some() && pathkey.is_some();
+            let is_maybe_topn = limit.is_some() && topn_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
             // not just those in the target list. To avoid execution-time surprises, the "planned"
             // fast fields must be a superset of the fast fields which are extracted from the
             // execution-time target list: see `assign_exec_method` for more info.
-            builder.custom_private().set_planned_which_fast_fields(
+            custom_private.set_planned_which_fast_fields(
                 exec_methods::fast_fields::collect_fast_fields(
                     target_list,
                     &referenced_columns,
                     rti,
-                    &schema,
                     &table,
+                    &bm25_index,
                     false,
                 )
                 .into_iter()
                 .collect(),
             );
-            let maybe_ff = builder.custom_private().maybe_ff();
+            let maybe_ff = custom_private.maybe_ff();
 
             //
             // look for quals we can support
@@ -419,9 +390,8 @@ impl CustomScan for PdbScan {
                 root,
                 rti,
                 restrict_info,
-                anyelement_query_input_opoid(),
                 ri_type,
-                &schema,
+                &bm25_index,
             );
 
             let Some(quals) = quals else {
@@ -447,14 +417,7 @@ impl CustomScan for PdbScan {
                 UNASSIGNED_SELECTIVITY
             };
 
-            let mut selectivity = if let Some(limit) = limit {
-                // use the limit
-                limit
-                    / table
-                        .reltuples()
-                        .map(|n| n as Cardinality)
-                        .unwrap_or(UNKNOWN_SELECTIVITY)
-            } else if norm_selec != UNASSIGNED_SELECTIVITY {
+            let selectivity = if norm_selec != UNASSIGNED_SELECTIVITY {
                 // we can use the norm_selec that already happened
                 norm_selec
             } else if quals.contains_external_var() {
@@ -470,127 +433,85 @@ impl CustomScan for PdbScan {
             };
 
             // we must use this path if we need to do const projections for scores or snippets
-            builder = builder
-                .set_force_path(maybe_needs_const_projections || is_topn || quals.contains_all());
+            builder = builder.set_force_path(
+                maybe_needs_const_projections || is_maybe_topn || quals.contains_all(),
+            );
 
-            builder.custom_private().set_heaprelid(table.oid());
-            builder.custom_private().set_indexrelid(bm25_index.oid());
-            builder.custom_private().set_range_table_index(rti);
-            builder.custom_private().set_query(query);
-            builder.custom_private().set_limit(limit);
-            builder.custom_private().set_segment_count(segment_count);
+            custom_private.set_heaprelid(table.oid());
+            custom_private.set_indexrelid(bm25_index.oid());
+            custom_private.set_range_table_index(rti);
+            custom_private.set_query(query);
+            custom_private.set_limit(limit);
+            custom_private.set_segment_count(segment_count);
 
-            if is_topn && pathkey.is_some() {
-                let pathkey = pathkey.as_ref().unwrap();
-                // sorting by a field only works if we're not doing const projections
-                // the reason for this is that tantivy can't do both scoring and ordering by
-                // a fast field at the same time.
-                //
-                // and sorting by score always works
-                match (maybe_needs_const_projections, pathkey) {
-                    (false, OrderByStyle::Field(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
-                    }
-                    (_, OrderByStyle::Score(..)) => {
-                        builder.custom_private().set_sort_info(pathkey);
-                    }
-                    _ => {}
+            // Determine whether we might be able to sort.
+            if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
+                let pathkeys = topn_pathkey_info.pathkeys().unwrap();
+                // we can only (currently) do const projections if the first sort field is a score,
+                // because we currently discard all but the first sort field, and so will not
+                // produce a valid Score value. see TopNSearchResults.
+                let orderby_supported = !maybe_needs_const_projections
+                    || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
+                if orderby_supported {
+                    custom_private.set_maybe_orderby_info(Some(pathkeys));
                 }
-            } else if limit.is_some()
-                && PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                    .is_empty()
-            {
-                // we have a limit but no order by, so record that.  this will let us go through
-                // our "top n" machinery, but getting "limit" (essentially) random docs, which
-                // is what the user asked for
-                builder
-                    .custom_private()
-                    .set_sort_direction(Some(SortDirection::None));
             }
 
+            // Choose the exec method type, and make claims about whether it is sorted.
+            let exec_method_type = choose_exec_method(&custom_private, &topn_pathkey_info);
+            custom_private.set_exec_method_type(exec_method_type);
+            if custom_private.exec_method_type().is_sorted_topn() {
+                // TODO: Note that the ExecMethodType does not actually hold a pg_sys::PathKey,
+                // because we don't want/need to serialize them for execution.
+                if let Some(pathkeys) = topn_pathkey_info.pathkeys() {
+                    for pathkey in pathkeys {
+                        builder = builder.add_path_key(pathkey);
+                    }
+                }
+            }
+
+            //
+            // finally, we have enough information to set the cost and estimation information, and
+            // to decide on parallelism
+            //
+
+            // calculate the total number of rows that might match the query, and the number of
+            // rows that we expect that scan to return: these may be different in the case of a
+            // `limit`.
+            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
+            let total_rows = (reltuples * selectivity).max(1.0);
+            let mut result_rows = total_rows.min(limit.unwrap_or(f64::MAX)).max(1.0);
+
             let nworkers = if (*builder.args().rel).consider_parallel {
-                compute_nworkers(limit, segment_count, builder.custom_private().is_sorted())
+                compute_nworkers(
+                    custom_private.exec_method_type(),
+                    limit,
+                    total_rows,
+                    segment_count,
+                    quals.contains_external_var(),
+                )
             } else {
                 0
             };
 
-            // TODO: Re-examine this `is_string_fast_field_capable` check after #2612 has landed,
-            // as it should likely be checking for `is_mixed_fast_field_capable` as well, and
-            // should probably have different thresholds.
-            // See https://github.com/paradedb/paradedb/issues/2620
-            if pathkey.is_some()
-                && !is_topn
-                && fast_fields::is_string_fast_field_capable(builder.custom_private()).is_some()
-            {
-                let pathkey = pathkey.as_ref().unwrap();
+            if nworkers > 0 {
+                builder = builder.set_parallel(nworkers);
 
-                // we're going to do a StringAgg, and it may or may not be more efficient to use
-                // parallel queries, depending on the cardinality of what we're going to select
-                let parallel_scan_preferred = || -> bool {
-                    let cardinality = {
-                        let estimate = if let OrderByStyle::Field(_, field) = &pathkey {
-                            // NB:  '4' is a magic number
-                            fast_fields::estimate_cardinality(&index, field).unwrap_or(0) * 4
+                // if we're likely to do a parallel scan, divide the result_rows by the number of workers
+                // we're likely to use.  this lets Postgres make better decisions based on what
+                // an individual parallel scan is actually going to return
+                let processes = std::cmp::max(
+                    1,
+                    nworkers
+                        + if pg_sys::parallel_leader_participation {
+                            1
                         } else {
                             0
-                        };
-                        estimate as f64 * selectivity
-                    };
-
-                    let pathkey_cnt =
-                        PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys)
-                            .len();
-
-                    // if we only have 1 path key or if our estimated cardinality is over some
-                    // hardcoded value, it's seemingly more efficient to do a parallel scan
-                    pathkey_cnt == 1 || cardinality > 1_000_000.0
-                };
-
-                if nworkers > 0 && parallel_scan_preferred() {
-                    // If we use parallel workers, there is no point in sorting, because the
-                    // plan will already need to sort and merge the outputs from the workers.
-                    // See the TODO below about being able to claim sorting for parallel
-                    // workers.
-                    builder = builder.set_parallel(nworkers);
-                } else {
-                    // otherwise we'll do a regular scan
-                    builder.custom_private().set_sort_info(pathkey);
-                }
-            } else if !quals.contains_external_var() && nworkers > 0 {
-                builder = builder.set_parallel(nworkers);
+                        },
+                );
+                result_rows /= processes as f64;
             }
 
-            let exec_method_type = choose_exec_method(builder.custom_private());
-            builder
-                .custom_private()
-                .set_exec_method_type(exec_method_type);
-
-            // Once we have chosen an execution method type, we have a final determination of the
-            // properties of the output, and can make claims about whether it is sorted.
-            if builder.custom_private().exec_method_type().is_sorted() {
-                if let Some(pathkey) = pathkey.as_ref() {
-                    builder = builder.add_path_key(pathkey);
-                }
-            }
-
-            //
-            // finally, we have enough information to set the cost and estimation information
-            //
-
-            if builder.is_parallel() {
-                // if we're likely to do a parallel scan, divide the selectivity up by the number of
-                // workers we're likely to use.  this lets Postgres make better decisions based on what
-                // an individual parallel scan is actually going to return
-                selectivity /= (nworkers
-                    + if pg_sys::parallel_leader_participation {
-                        1
-                    } else {
-                        0
-                    }) as f64;
-            }
-
-            let reltuples = table.reltuples().unwrap_or(1.0) as f64;
-            let rows = (reltuples * selectivity).max(1.0);
             let per_tuple_cost = {
                 if maybe_ff {
                     // returning fields from fast fields
@@ -602,20 +523,20 @@ impl CustomScan for PdbScan {
             };
 
             let startup_cost = DEFAULT_STARTUP_COST;
-            let total_cost = startup_cost + (rows * per_tuple_cost);
+            let total_cost = startup_cost + (result_rows * per_tuple_cost);
 
-            builder = builder.set_rows(rows);
+            builder = builder.set_rows(result_rows);
             builder = builder.set_startup_cost(startup_cost);
             builder = builder.set_total_cost(total_cost);
 
             // indicate that we'll be doing projection ourselves
             builder = builder.set_flag(Flags::Projection);
 
-            Some(builder.build())
+            Some(builder.build(custom_private))
         }
     }
 
-    fn plan_custom_path(mut builder: CustomScanBuilder<Self::PrivateData>) -> pg_sys::CustomScan {
+    fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         unsafe {
             let mut tlist = PgList::<pg_sys::TargetEntry>::from_pg(builder.args().tlist.as_ptr());
 
@@ -676,7 +597,6 @@ impl CustomScan for PdbScan {
             let directory = MvccSatisfies::Snapshot.directory(&indexrel);
             let index = Index::open(directory)
                 .expect("should be able to open index for snippet extraction");
-            let schema = indexrel.schema().expect("should have a schema");
 
             let base_query = builder
                 .custom_private()
@@ -687,7 +607,7 @@ impl CustomScan for PdbScan {
                 builder.args().root,
                 rti as pg_sys::Index,
                 anyelement_query_input_opoid(),
-                &schema,
+                &indexrel,
                 &base_query,
             );
 
@@ -726,11 +646,6 @@ impl CustomScan for PdbScan {
                 builder.custom_private().exec_method_type().clone();
 
             builder.custom_state().targetlist_len = builder.target_list().len();
-
-            // information about if we're sorted by score and our limit
-            builder.custom_state().limit = builder.custom_private().limit();
-            builder.custom_state().sort_field = builder.custom_private().sort_field();
-            builder.custom_state().sort_direction = builder.custom_private().sort_direction();
 
             builder.custom_state().segment_count = builder.custom_private().segment_count();
             builder.custom_state().var_attname_lookup = builder
@@ -868,23 +783,32 @@ impl CustomScan for PdbScan {
         exec_methods::fast_fields::explain(state, explainer);
 
         explainer.add_bool("Scores", state.custom_state().need_scores());
-        if state.custom_state().is_sorted() {
-            if let Some(sort_field) = &state.custom_state().sort_field {
-                explainer.add_text("   Sort Field", sort_field);
-            } else {
-                explainer.add_text("   Sort Field", "paradedb.score()");
-            }
+        if let Some(orderby_info) = state.custom_state().orderby_info().as_ref() {
             explainer.add_text(
-                "   Sort Direction",
-                state
-                    .custom_state()
-                    .sort_direction
-                    .unwrap_or(SortDirection::Asc),
+                "   TopN Order By",
+                orderby_info
+                    .iter()
+                    .map(|oi| match oi {
+                        OrderByInfo {
+                            feature: OrderByFeature::Field(fieldname),
+                            direction,
+                        } => {
+                            format!("{fieldname} {}", direction.as_ref())
+                        }
+                        OrderByInfo {
+                            feature: OrderByFeature::Score,
+                            direction,
+                        } => {
+                            format!("paradedb.score() {}", direction.as_ref())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
             );
         }
 
-        if let Some(limit) = state.custom_state().limit {
-            explainer.add_unsigned_integer("   Top N Limit", limit as u64, None);
+        if let Some(limit) = state.custom_state().limit() {
+            explainer.add_unsigned_integer("   TopN Limit", limit as u64, None);
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
@@ -894,14 +818,6 @@ impl CustomScan for PdbScan {
             }
         }
 
-        let mut json_value = state
-            .custom_state()
-            .query_to_json()
-            .expect("query should serialize to json");
-        // Remove the oid from the with_index object
-        // This helps to reduce the variability of the explain output used in regression tests
-        Self::cleanup_varibilities_from_tantivy_query(&mut json_value);
-
         // Add a flag to indicate if the query is a full index scan
         if state
             .custom_state()
@@ -910,17 +826,7 @@ impl CustomScan for PdbScan {
         {
             explainer.add_bool("Full Index Scan", true);
         }
-
-        let updated_json_query =
-            serde_json::to_string(&json_value).expect("updated query should serialize to json");
-        explainer.add_text("Tantivy Query", &updated_json_query);
-
-        if explainer.is_verbose() {
-            explainer.add_text(
-                "Human Readable Query",
-                state.custom_state().human_readable_query_string(),
-            );
-        }
+        explainer.add_query(state.custom_state().base_search_query_input());
     }
 
     fn begin_custom_scan(
@@ -1151,7 +1057,6 @@ impl CustomScan for PdbScan {
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));
-        drop(std::mem::take(&mut state.custom_state_mut().search_results));
 
         state.custom_state_mut().heaprel.take();
         state.custom_state_mut().indexrel.take();
@@ -1164,10 +1069,7 @@ impl CustomScan for PdbScan {
 /// If the query can return "fast fields", make that determination here, falling back to the
 /// [`NormalScanExecState`] if not.
 ///
-/// We support [`StringFastFieldExecState`] when there's 1 fast field and it's a string, or
-/// [`NumericFastFieldExecState`] when there's one or more numeric fast fields, or
-/// [`MixedFastFieldExecState`] when there are multiple string fast fields or a mix of string
-/// and numeric fast fields.
+/// We support [`MixedFastFieldExecState`] when there are a mix of string and numeric fast fields.
 ///
 /// If we have failed to extract all relevant information at planning time, then the fast-field
 /// execution methods might still fall back to `Normal` at execution time: see the notes in
@@ -1176,33 +1078,40 @@ impl CustomScan for PdbScan {
 /// `paradedb.score()`, `ctid`, and `tableoid` are considered fast fields for the purposes of
 /// these specialized [`ExecMethod`]s.
 ///
-fn choose_exec_method(privdata: &PrivateData) -> ExecMethodType {
-    if let Some((limit, sort_direction)) = privdata.limit().zip(privdata.sort_direction()) {
-        // having a valid limit and sort direction means we can do a TopN query
-        // and TopN can do snippets
-        ExecMethodType::TopN {
-            heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-            limit,
-            sort_direction,
+fn choose_exec_method(privdata: &PrivateData, topn_pathkey_info: &PathKeyInfo) -> ExecMethodType {
+    // See if we can use TopN.
+    if let Some(limit) = privdata.limit() {
+        if let Some(orderby_info) = privdata.maybe_orderby_info() {
+            // having a valid limit and sort direction means we can do a TopN query
+            // and TopN can do snippets
+            return ExecMethodType::TopN {
+                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                limit,
+                orderby_info: Some(orderby_info.clone()),
+            };
         }
-    } else if fast_fields::is_numeric_fast_field_capable(privdata) {
-        // Check for numeric-only fast fields first because they're more selective
-        ExecMethodType::FastFieldNumeric {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+        if matches!(topn_pathkey_info, PathKeyInfo::None) {
+            // we have a limit but no pathkeys at all. we can still go through our "top n"
+            // machinery, but getting "limit" (essentially) random docs, which is what the user
+            // asked for
+            return ExecMethodType::TopN {
+                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                limit,
+                orderby_info: None,
+            };
         }
-    } else if let Some(field) = fast_fields::is_string_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-        }
-    } else if fast_fields::is_mixed_fast_field_capable(privdata) {
-        ExecMethodType::FastFieldMixed {
-            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-        }
-    } else {
-        // Fall back to normal execution
-        ExecMethodType::Normal
     }
+
+    // Otherwise, see if we can use a fast fields method.
+    if fast_fields::is_mixed_fast_field_capable(privdata) {
+        return ExecMethodType::FastFieldMixed {
+            which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
+            limit: privdata.limit(),
+        };
+    }
+
+    // Else, fall back to normal execution
+    ExecMethodType::Normal
 }
 
 ///
@@ -1220,56 +1129,22 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
         ExecMethodType::TopN {
             heaprelid,
             limit,
-            sort_direction,
+            orderby_info,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, sort_direction),
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
-        ExecMethodType::FastFieldString {
-            field,
+        ExecMethodType::FastFieldMixed {
             which_fast_fields,
+            limit,
         } => {
-            if let Some(which_fast_fields) =
-                compute_exec_which_fast_fields(builder, which_fast_fields)
-            {
-                builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::string::StringFastFieldExecState::new(
-                        field,
-                        which_fast_fields,
-                    ),
-                    None,
-                )
-            } else {
-                builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
-                    Some(ExecMethodType::Normal),
-                )
-            }
-        }
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            if let Some(which_fast_fields) =
-                compute_exec_which_fast_fields(builder, which_fast_fields)
-            {
-                builder.custom_state().assign_exec_method(
-                    exec_methods::fast_fields::numeric::NumericFastFieldExecState::new(
-                        which_fast_fields,
-                    ),
-                    None,
-                )
-            } else {
-                builder.custom_state().assign_exec_method(
-                    NormalScanExecState::default(),
-                    Some(ExecMethodType::Normal),
-                )
-            }
-        }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
             if let Some(which_fast_fields) =
                 compute_exec_which_fast_fields(builder, which_fast_fields)
             {
                 builder.custom_state().assign_exec_method(
                     exec_methods::fast_fields::mixed::MixedFastFieldExecState::new(
                         which_fast_fields,
+                        limit,
                     ),
                     None,
                 )
@@ -1292,26 +1167,24 @@ fn compute_exec_which_fast_fields(
     builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>,
     planned_which_fast_fields: HashSet<WhichFastField>,
 ) -> Option<Vec<WhichFastField>> {
+    let target_list = builder.target_list().as_ptr();
     let exec_which_fast_fields = unsafe {
-        let indexrel = builder.custom_state().indexrel();
-        let schema = indexrel
-            .schema()
-            .expect("create_custom_scan_state: should have a schema");
-
-        // Calculate the ordered set of fast fields which have actually been requested in
-        // the target list.
+        let custom_state = builder.custom_state();
+        let indexrel = custom_state.indexrel();
+        let execution_rti = custom_state.execution_rti;
+        let heaprel = custom_state.heaprel();
         //
         // In order for our planned ExecMethodType to be accurate, this must always be a
         // subset of the fast fields which were extracted at planning time.
         exec_methods::fast_fields::collect_fast_fields(
-            builder.target_list().as_ptr(),
+            target_list,
             // At this point, all fast fields which we need to extract are listed directly
             // in our execution-time target list, so there is no need to extract from other
             // positions.
             &HashSet::default(),
-            builder.custom_state().execution_rti,
-            &schema,
-            builder.custom_state().heaprel(),
+            execution_rti,
+            heaprel,
+            indexrel,
             true,
         )
     };
@@ -1383,68 +1256,188 @@ unsafe fn inject_score_and_snippet_placeholders(state: &mut CustomScanStateWrapp
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
 }
 
-unsafe fn pullup_orderby_pathkey<P: Into<*mut pg_sys::List> + Default>(
-    builder: &mut CustomPathBuilder<P>,
+pub enum PathKeyInfo {
+    /// There are no PathKeys at all.
+    None,
+    /// There were PathKeys, but we cannot execute them.
+    Unusable,
+    /// There were PathKeys, but we can only execute a non-empty prefix of them.
+    UsablePrefix(Vec<OrderByStyle>),
+    /// There are some PathKeys, and we can execute all of them.
+    UsableAll(Vec<OrderByStyle>),
+}
+
+impl PathKeyInfo {
+    pub fn is_usable(&self) -> bool {
+        match self {
+            PathKeyInfo::UsablePrefix(_) | PathKeyInfo::UsableAll(_) => true,
+            PathKeyInfo::None | PathKeyInfo::Unusable => false,
+        }
+    }
+
+    pub fn pathkeys(&self) -> Option<&Vec<OrderByStyle>> {
+        match self {
+            PathKeyInfo::UsablePrefix(pathkeys) | PathKeyInfo::UsableAll(pathkeys) => {
+                Some(pathkeys)
+            }
+            PathKeyInfo::None | PathKeyInfo::Unusable => None,
+        }
+    }
+}
+
+/// Determine whether there are any pathkeys at all, and whether we might be able to push down
+/// ordering in TopN.
+///
+/// If between 1 and 3 pathkeys are declared, and are indexed as fast, then return
+/// `UsableAll(Vec<OrderByStyles>)` for them for use in TopN.
+unsafe fn pullup_topn_pathkeys(
+    builder: &mut CustomPathBuilder<PdbScan>,
     rti: pg_sys::Index,
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
-) -> Option<OrderByStyle> {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*builder.args().root).query_pathkeys);
+) -> PathKeyInfo {
+    match extract_pathkey_styles_with_sortability_check(
+        root,
+        rti,
+        schema,
+        |search_field| search_field.is_raw_sortable(),
+        |search_field| search_field.is_lower_sortable(),
+    ) {
+        PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPN_FEATURES => {
+            // TopN is the base scan's only executor which supports sorting, and supports up to
+            // MAX_TOPN_FEATURES order-by clauses.
+            PathKeyInfo::UsableAll(styles)
+        }
+        PathKeyInfo::UsableAll(_) => {
+            // Too many pathkeys were extracted.
+            PathKeyInfo::Unusable
+        }
+        PathKeyInfo::UsablePrefix(_) => {
+            // TopN cannot execute for a prefix of pathkeys, because it eliminates results before
+            // the suffix of the pathkey comes into play.
+            PathKeyInfo::Unusable
+        }
+        pki @ (PathKeyInfo::None | PathKeyInfo::Unusable) => pki,
+    }
+}
 
-    if let Some(first_pathkey) = pathkeys.get_ptr(0) {
-        let equivclass = (*first_pathkey).pk_eclass;
+/// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
+/// This function handles score functions, lower functions, relabel types, and regular variables
+///
+/// Returns PathKeyInfo indicating whether any PathKeys existed at all, and if so, whether they
+/// might be usable via fast fields.
+///
+/// TODO: Used by both custom scans: move up one module.
+pub unsafe fn extract_pathkey_styles_with_sortability_check<F1, F2>(
+    root: *mut pg_sys::PlannerInfo,
+    rti: pg_sys::Index,
+    schema: &SearchIndexSchema,
+    regular_sortability_check: F1,
+    lower_sortability_check: F2,
+) -> PathKeyInfo
+where
+    F1: Fn(&SearchField) -> bool,
+    F2: Fn(&SearchField) -> bool,
+{
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return PathKeyInfo::None;
+    }
+
+    let mut pathkey_styles = Vec::new();
+    for pathkey_ptr in pathkeys.iter_ptr() {
+        let pathkey = pathkey_ptr;
+        let equivclass = (*pathkey).pk_eclass;
         let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
+
+        let mut found_valid_member = false;
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
 
-            if is_score_func(expr.cast(), rti as _) {
-                return Some(OrderByStyle::Score(first_pathkey));
-            } else if let Some(var) = is_lower_func(expr.cast(), rti as _) {
+            // Check if this is a score function
+            if is_score_func(expr.cast(), rti) {
+                pathkey_styles.push(OrderByStyle::Score(pathkey));
+                found_valid_member = true;
+                break;
+            }
+            // Check if this is a lower function
+            else if let Some(var) = is_lower_func(expr.cast(), rti) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_lower_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
-                        }
-                    }
-                }
-            } else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
-                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
                         if let Some(search_field) = schema.search_field(att.name()) {
-                            if search_field.is_raw_sortable() {
-                                return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+                            if lower_sortability_check(&search_field) {
+                                pathkey_styles
+                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                found_valid_member = true;
+                                break;
                             }
                         }
                     }
                 }
-            } else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid == pg_sys::Oid::INVALID {
-                    return None;
+            }
+            // Check if this is a RelabelType expression
+            else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
+                if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid != pg_sys::Oid::INVALID {
+                        let heaprel =
+                            PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                        let tupdesc = heaprel.tuple_desc();
+                        if let Some(att) = tupdesc.get(attno as usize - 1) {
+                            if let Some(search_field) = schema.search_field(att.name()) {
+                                if regular_sortability_check(&search_field) {
+                                    pathkey_styles
+                                        .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                    found_valid_member = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
-                let heaprel = PgRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    if let Some(search_field) = schema.search_field(att.name()) {
-                        if search_field.is_raw_sortable() {
-                            return Some(OrderByStyle::Field(first_pathkey, att.name().into()));
+            }
+            // Check if this is a regular Var (column reference)
+            else if let Some(var) = nodecast!(Var, T_Var, expr) {
+                let (heaprelid, attno, _) = find_var_relation(var, root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        if let Some(search_field) = schema.search_field(att.name()) {
+                            if regular_sortability_check(&search_field) {
+                                pathkey_styles
+                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
+                                found_valid_member = true;
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
+
+        // If we couldn't find any valid member for this pathkey, then we can't handle this series
+        // of pathkeys.
+        if !found_valid_member {
+            if pathkey_styles.is_empty() {
+                return PathKeyInfo::Unusable;
+            } else {
+                return PathKeyInfo::UsablePrefix(pathkey_styles);
+            }
+        }
     }
-    None
+
+    PathKeyInfo::UsableAll(pathkey_styles)
 }
 
-unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys::Var> {
+/// Check if a node is a lower() function call for a specific relation
+unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> Option<*mut pg_sys::Var> {
     let funcexpr = nodecast!(FuncExpr, T_FuncExpr, node)?;
     if (*funcexpr).funcid == text_lower_funcoid() {
         let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
@@ -1470,6 +1463,7 @@ unsafe fn is_lower_func(node: *mut pg_sys::Node, rti: i32) -> Option<*mut pg_sys
     None
 }
 
+/// Helper function to get the OID of the text lower function
 pub fn text_lower_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
@@ -1490,78 +1484,6 @@ pub fn is_block_all_visible(
         let status = pg_sys::visibilitymap_get_status(heaprel.as_ptr(), heap_blockno, vmbuff);
         status != 0
     }
-}
-
-// Helper function to create an iterator over Bitmapset members
-unsafe fn bms_iter(bms: *mut pg_sys::Bitmapset) -> impl Iterator<Item = pg_sys::Index> {
-    let mut set_bit: i32 = -1;
-    std::iter::from_fn(move || {
-        set_bit = pg_sys::bms_next_member(bms, set_bit);
-        if set_bit < 0 {
-            None
-        } else {
-            Some(set_bit as pg_sys::Index)
-        }
-    })
-}
-
-// Helper function to check if a Bitmapset is empty
-unsafe fn bms_is_empty(bms: *mut pg_sys::Bitmapset) -> bool {
-    bms_iter(bms).next().is_none()
-}
-
-// Helper function to determine if we're dealing with a partitioned table setup
-unsafe fn is_partitioned_table_setup(
-    root: *mut pg_sys::PlannerInfo,
-    rel_relids: *mut pg_sys::Bitmapset,
-    baserels: *mut pg_sys::Bitmapset,
-) -> bool {
-    // If the relation bitmap is empty, early return
-    if bms_is_empty(rel_relids) {
-        return false;
-    }
-
-    // Get the rtable for relkind checks
-    let rtable = (*(*root).parse).rtable;
-
-    // For each relation in baserels
-    for baserel_idx in bms_iter(baserels) {
-        // Skip invalid indices
-        if baserel_idx == 0 || baserel_idx >= (*root).simple_rel_array_size as pg_sys::Index {
-            continue;
-        }
-
-        // Get the RTE to check if this is a partitioned table
-        let rte = pg_sys::rt_fetch(baserel_idx, rtable);
-        if (*rte).relkind as u8 != pg_sys::RELKIND_PARTITIONED_TABLE {
-            continue;
-        }
-
-        // Access RelOptInfo safely using offset and read
-        if (*root).simple_rel_array.is_null() {
-            continue;
-        }
-
-        // This is a partitioned table, get its RelOptInfo to find partitions
-        let rel_info_ptr = *(*root).simple_rel_array.add(baserel_idx as usize);
-        if rel_info_ptr.is_null() {
-            continue;
-        }
-
-        let rel_info = &*rel_info_ptr;
-
-        // Check if it has partitions
-        if rel_info.all_partrels.is_null() {
-            continue;
-        }
-
-        // Check if any relation in rel_relids is among the partitions
-        if pg_sys::bms_overlap(rel_info.all_partrels, rel_relids) {
-            return true;
-        }
-    }
-
-    false
 }
 
 /// Gather all columns referenced by the specified RTE (Range Table Entry) throughout the query.
@@ -1593,6 +1515,7 @@ unsafe fn collect_maybe_fast_field_referenced_columns(
     referenced_columns
 }
 
+#[rustfmt::skip]
 /// Check if the base query has search predicates for the current table's index
 fn base_query_has_search_predicates(
     query: &SearchQueryInput,
@@ -1647,32 +1570,38 @@ fn base_query_has_search_predicates(
             .any(|q| base_query_has_search_predicates(q, current_index_oid)),
 
         // These are NOT search predicates (they're range/exists/other predicates)
-        SearchQueryInput::Range { .. }
-        | SearchQueryInput::RangeContains { .. }
-        | SearchQueryInput::RangeIntersects { .. }
-        | SearchQueryInput::RangeTerm { .. }
-        | SearchQueryInput::RangeWithin { .. }
-        | SearchQueryInput::Exists { .. }
-        | SearchQueryInput::FastFieldRangeWeight { .. }
+        SearchQueryInput::FieldedQuery { query: pdb::Query::Range { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeContains { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeIntersects { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RangeWithin { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Exists, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FastFieldRangeWeight { .. }, .. }
         | SearchQueryInput::MoreLikeThis { .. } => false,
 
         // These are search predicates that use the @@@ operator
-        SearchQueryInput::ParseWithField { query_string, .. } => {
+        SearchQueryInput::FieldedQuery { query: pdb::Query::ParseWithField { query_string, .. }, .. } => {
             // For ParseWithField, check if it's a text search or a range query
             !is_range_query_string(query_string)
         }
         SearchQueryInput::Parse { .. }
         | SearchQueryInput::TermSet { .. }
-        | SearchQueryInput::Term { field: Some(_), .. }
-        | SearchQueryInput::Phrase { .. }
-        | SearchQueryInput::PhrasePrefix { .. }
-        | SearchQueryInput::FuzzyTerm { .. }
-        | SearchQueryInput::Match { .. }
-        | SearchQueryInput::Regex { .. }
-        | SearchQueryInput::RegexPhrase { .. } => true,
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::UnclassifiedString { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Boost { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TermSet { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Term { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Phrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Proximity { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::TokenizedPhrase { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::PhrasePrefix { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::FuzzyTerm { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Match { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::Regex { .. }, .. }
+        | SearchQueryInput::FieldedQuery { query: pdb::Query::RegexPhrase { .. }, .. } => true,
 
-        // Term with no field is not a search predicate
-        SearchQueryInput::Term { field: None, .. } => false,
+        // // Term with no field is not a search predicate
+        // NB:  We don't support unqualified term queries anymore
+        // SearchQueryInput::Term { field: None, .. } => false,
 
         // Postgres expressions are unknown, assume they could be search predicates
         SearchQueryInput::PostgresExpression { .. } => true,

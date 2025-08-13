@@ -116,11 +116,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"notes","query_string":"check","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- Test 2: Query with complex conditions
 \echo 'Test 2: Complex query with multiple conditions (reproducing issue)'
@@ -147,9 +146,8 @@ LIMIT 25;
                Index: records_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 25
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 3: Same query without paradedb.all() operator
 \echo 'Test 3: Without paradedb.all() operator'
@@ -175,9 +173,8 @@ LIMIT 25;
                Index: records_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 25
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 4: Testing the impact of paradedb.all() alone
 \echo 'Test 4: Testing paradedb.all() by itself'
@@ -196,12 +193,11 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(11 rows)
+(10 rows)
 
 -- Test 5: Testing NOT with paradedb.exists
 \echo 'Test 5: Testing NOT with paradedb.exists'
@@ -220,11 +216,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 6: Testing IN negation with @@@
 \echo 'Test 6: Testing IN negation with @@@'
@@ -243,11 +238,10 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 25
+            TopN Order By: id asc
+            TopN Limit: 25
          Tantivy Query: {"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 7: Testing simplified complex query - removing one component at a time
 \echo 'Test 7: Simplified complex query - only basic conditions'
@@ -270,9 +264,8 @@ LIMIT 25;
                Index: records_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 25
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 8: Testing with each complex component isolated
 \echo 'Test 8: Component isolation - paradedb.match'
@@ -291,7 +284,7 @@ LIMIT 25;
          Index: records_search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Top N Limit: 25
+            TopN Limit: 25
          Tantivy Query: {"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
 (8 rows)
 
@@ -327,9 +320,8 @@ LIMIT 25;
                Index: records_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 25
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"source_id","query_string":"IN [source-1 source-2 source-3]","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":{"type":"ngram","max_gram":3,"min_gram":3,"lowercase":true,"prefix_only":false,"remove_long":255},"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"exists":{"field":"removed_at"}}}}]}},{"with_index":{"query":"all"}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- Test 10: Fast-field only solution - selecting only indexed fast fields
 \echo 'Test 10: Possible solution - selecting only fast fields'
@@ -352,9 +344,8 @@ LIMIT 25;
                Index: records_search_idx
                Exec Method: NormalScanExecState
                Scores: false
-                  Top N Limit: 25
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;

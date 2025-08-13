@@ -53,22 +53,10 @@ fn generates_custom_scan_for_or(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' OR description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-
-    let plan = plan
-        .get(0)
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plan")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Plans")
-        .unwrap()
-        .get(0)
-        .unwrap();
-
     eprintln!("{plan:#?}");
+
+    let plan = plan.pointer("/0/Plan").unwrap();
+
     assert_eq!(
         plan.get("Custom Plan Provider"),
         Some(&Value::String(String::from("ParadeDB Scan")))
@@ -84,8 +72,8 @@ fn generates_custom_scan_for_and(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
     eprintln!("{plan:#?}");
+    let plan = plan.pointer("/0/Plan").unwrap();
     assert_eq!(
         plan.get("Custom Plan Provider"),
         Some(&Value::String(String::from("ParadeDB Scan")))
@@ -101,7 +89,8 @@ fn includes_segment_count(mut conn: PgConnection) {
     "SET enable_indexscan TO off;".execute(&mut conn);
 
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT * FROM paradedb.bm25_search WHERE bm25_search @@@ 'description:keyboard' AND description @@@ 'shoes'".fetch_one::<(Value,)>(&mut conn);
-    let plan = plan.pointer("/0/Plan/Plans/0").unwrap();
+    eprintln!("{plan:#?}");
+    let plan = plan.pointer("/0/Plan").unwrap();
     assert!(plan.get("Segment Count").is_some());
 }
 
@@ -217,7 +206,7 @@ explain (analyze, format json) select * from paradedb.bm25_search where metadata
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(false)));
     assert_eq!(
-        path.get("   Top N Limit"),
+        path.get("   TopN Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -238,7 +227,7 @@ explain (analyze, format json) select paradedb.score(id), * from paradedb.bm25_s
     );
     assert_eq!(path.get("Scores"), Some(&Value::Bool(true)));
     assert_eq!(
-        path.get("   Top N Limit"),
+        path.get("   TopN Limit"),
         Some(&Value::Number(Number::from(1)))
     );
 }
@@ -521,15 +510,18 @@ fn without_operator_guc(mut conn: PgConnection) {
     CALL paradedb.create_bm25_test_table(table_name => 'mock_items', schema_name => 'public');
 
     CREATE INDEX search_idx ON mock_items
-    USING bm25 (id, description)
+    USING bm25 (id, description, rating)
     WITH (key_field='id');
     "#
     .execute(&mut conn);
 
-    "SET enable_indexscan TO OFF;".execute(&mut conn);
+    // This is a small table, and our startup cost (rightly!) dominates the time taken to scan it.
+    // To force the index or custom scan to be used, disable sequential scans.
+    "SET enable_seqscan TO OFF;".execute(&mut conn);
 
     fn plan_uses_custom_scan(conn: &mut PgConnection, query_string: &str) -> bool {
         let (plan,) = format!("EXPLAIN (FORMAT JSON) {query_string}").fetch_one::<(Value,)>(conn);
+        eprintln!("{query_string}");
         eprintln!("{plan:#?}");
         format!("{plan:?}").contains("ParadeDB Scan")
     }
@@ -542,7 +534,7 @@ fn without_operator_guc(mut conn: PgConnection) {
 
         // Confirm that a plan which doesn't use our operator is affected by the GUC.
         let uses_custom_scan =
-            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id = 1");
+            plan_uses_custom_scan(&mut conn, "SELECT id FROM mock_items WHERE rating = 3");
         if custom_scan_without_operator {
             assert!(
                 uses_custom_scan,
@@ -551,13 +543,13 @@ fn without_operator_guc(mut conn: PgConnection) {
         } else {
             assert!(
                 !uses_custom_scan,
-                "Should not the custom scan when the GUC is disabled."
+                "Should not use the custom scan when the GUC is disabled."
             );
         }
 
         // And that a plan which does use our operator is not affected by the GUC.
         let uses_custom_scan =
-            plan_uses_custom_scan(&mut conn, "SELECT * FROM mock_items WHERE id @@@ '1'");
+            plan_uses_custom_scan(&mut conn, "SELECT id FROM mock_items WHERE id @@@ '1'");
         assert!(
             uses_custom_scan,
             "Should use the custom scan when our operator is used, regardless of \
@@ -685,43 +677,27 @@ fn stable_limit_and_offset(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn top_n_exits_at_limit(mut conn: PgConnection) {
-    if pg_major_version(&mut conn) < 16 {
-        // Before 16, Postgres would not plan an incremental sort here.
-        return;
-    }
-
-    // When there are more results than the limit will render, but there is no `Limit` node
-    // immediately above us in the plan (in this case, we get an `Incremental Sort` instead due to
-    // the tiebreaker sort, which we can't push down until #2642), Top-N should exit on its own.
+fn top_n_is_exhausted(mut conn: PgConnection) {
     r#"
-        CREATE TABLE exit_at_limit (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
-        CREATE INDEX exit_at_limit_index ON exit_at_limit USING bm25 (id, message, severity) WITH (key_field = 'id');
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer wine cheese a', 1);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer wine a', 2);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer cheese a', 3);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('beer a', 4);
-        INSERT INTO exit_at_limit (message, severity) VALUES ('wine cheese a', 5);
+        CREATE TABLE exhausted (id SERIAL8 NOT NULL PRIMARY KEY, message TEXT, severity INTEGER);
+        CREATE INDEX exhausted_idx ON exhausted USING bm25 (id, message, severity) WITH (key_field = 'id');
+        INSERT INTO exhausted (message, severity) VALUES ('beer wine cheese a', 1);
         SET max_parallel_workers = 0;
     "#.execute(&mut conn);
 
     let (plan,) = r#"
         EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)
-        SELECT * FROM exit_at_limit
+        SELECT * FROM exhausted
         WHERE message @@@ 'beer'
-        ORDER BY severity, id LIMIT 1;
+        ORDER BY severity LIMIT 100;
     "#
     .fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
 
-    // The Incremental Sort node prevents the Limit node from applying early cutoff, so the custom
-    // scan node must do so itself.
+    // We have requested 100 results, but only 1 is available: we should detect during our first
+    // query that the search is exhausted, and not attempt to query again to find more.
     assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/Node Type"),
-        Some(&Value::String(String::from("Incremental Sort")))
-    );
-    assert_eq!(
-        plan.pointer("/0/Plan/Plans/0/Plans/0/   Queries"),
+        plan.pointer("/0/Plan/Plans/0/   Queries"),
         Some(&Value::Number(1.into()))
     );
 }

@@ -122,7 +122,7 @@ ORDER BY d.id, f.id, p.id;
                                                                                    QUERY PLAN                                                                                   
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
-   Workers Planned: 2
+   Workers Planned: 1
    ->  Sort
          Sort Key: d.id, p.fileid, p.id
          ->  Parallel Hash Join
@@ -179,7 +179,7 @@ ORDER BY d.id;
                                                                                         QUERY PLAN                                                                                        
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Gather Merge
-   Workers Planned: 2
+   Workers Planned: 1
    ->  Sort
          Sort Key: d.id
          ->  Parallel Custom Scan (ParadeDB Scan) on documents d
@@ -195,11 +195,10 @@ ORDER BY d.id;
                  Index: files_search
                  Exec Method: TopNScanExecState
                  Scores: true
-                    Sort Field: paradedb.score()
-                    Sort Direction: desc
-                    Top N Limit: 1
+                    TopN Order By: paradedb.score() desc
+                    TopN Limit: 1
                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Invoice","lenient":null,"conjunction_mode":null}}}},{}]}}
-(21 rows)
+(20 rows)
 
 SELECT d.id, d.title, d.parents,
        (

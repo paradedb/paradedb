@@ -18,9 +18,13 @@ pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg_test = []
 icu = ["tokenizers/icu"]
 unsafe-postgres = ["pgrx/unsafe-postgres"]
+block_tracker = []                         # for debugging when blocks are acquired and released
 
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
+arrow-array = "55.2.0"
+arrow-buffer = "55.2.0"
+arrow-schema = "55.2.0"
 bitpacking = "0.9.2"
 chrono = "0.4.41"
 derive_more = { version = "2.0.1", features = ["full"] }
@@ -51,10 +55,21 @@ tinyvec = "1.9.0"
 postcard = { version = "1.1.1", features = [
   "use-std",
 ], default-features = false }
+# same version as tantivy uses
+regex = { version = "1.5.5", default-features = false, features = [
+  "std",
+  "perf",
+  "unicode",
+] }
+tantivy-fst = { git = "https://github.com/paradedb/fst.git" }
+lazy_static = "1.5.0"
+macros = { path = "../macros" }
+half = "2.6.0"
 
 [dev-dependencies]
 pgrx-tests.workspace = true
 rstest = "0.25.0"
+proptest = "1.7.0"
 
 [build-dependencies]
 vergen = { version = "9.0.6", features = ["build", "cargo", "rustc", "si"] }

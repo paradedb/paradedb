@@ -1,0 +1,32 @@
+---
+title: Regex Phrase
+---
+
+Regex phrase matches a specific sequence of regex queries. Think of it like a conjunction of [regex](/v2/query-builder/term/regex)
+queries, with positions and ordering of tokens enforced.
+
+For example, the regex phrase query for `ru.* shoes` will match `running shoes`, but will not match `shoes running`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.regex_phrase(ARRAY['ru.*', 'shoes']);
+```
+
+<div className="mt-8" />
+
+<ParamField body="phrases" required>
+  An `ARRAY` of expressions that form the search phrase. These expressions must
+  appear in the specified order within the document for a match to occur,
+  although some flexibility is allowed based on the `slop` parameter. Please see
+  [regex](/v2/query-builder/term/regex) for allowed regex constructs.
+</ParamField>
+<ParamField body="slop" default={0}>
+  A slop of `0` requires the terms to appear exactly as they are in the phrase
+  and adjacent to each other. Higher slop values allow for transpositions and
+  distance between terms.
+</ParamField>
+<ParamField body="max_expansions" default={16384}>
+  Limits total number of terms that the regex phrase query can expand to. If
+  this number is exceeded, an error will be returned.
+</ParamField>

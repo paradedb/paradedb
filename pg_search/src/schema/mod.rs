@@ -203,7 +203,8 @@ impl SearchIndexSchema {
     }
 
     pub fn search_field(&self, name: impl AsRef<str>) -> Option<SearchField> {
-        match self.schema.get_field(name.as_ref()) {
+        let field_name = FieldName::from(name.as_ref());
+        match self.schema.get_field(&field_name.root()) {
             Ok(field) => Some(SearchField::new(field, &self.bm25_options, &self.schema)),
             Err(_) => None,
         }
@@ -385,6 +386,8 @@ impl SearchField {
     }
 
     fn is_sortable(&self, desired_normalizer: SearchNormalizer) -> bool {
+        // NOTE: This list of supported field types must be synced with the field types which are
+        // specialized (in a few spots!) in SearchIndexReader.
         match self.field_entry.field_type() {
             FieldType::Str(options) => {
                 options.is_fast()
@@ -411,6 +414,13 @@ impl SearchField {
 
     pub fn is_text(&self) -> bool {
         self.field_entry.field_type().is_str()
+    }
+
+    pub fn is_tokenized_with_freqs_and_positions(&self) -> bool {
+        // NB:  'uses_raw_tokenizer()' might not be enough to ensure the field is tokenized
+        self.is_text()
+            && !self.uses_raw_tokenizer()
+            && matches!(&self.field_config, SearchFieldConfig::Text { record, .. } if *record == IndexRecordOption::WithFreqsAndPositions)
     }
 
     pub fn is_json(&self) -> bool {

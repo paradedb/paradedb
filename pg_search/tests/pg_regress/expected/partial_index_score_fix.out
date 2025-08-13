@@ -25,19 +25,17 @@ SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
 WHERE description @@@ 'Apple'
 ORDER BY score DESC;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge
-   Workers Planned: 1
-   ->  Sort
-         Sort Key: (paradedb.score(id)) DESC
-         ->  Parallel Custom Scan (ParadeDB Scan) on partial_test
-               Table: partial_test
-               Index: partial_test_idx
-               Exec Method: NormalScanExecState
-               Scores: true
-               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: (paradedb.score(id)) DESC
+   ->  Custom Scan (ParadeDB Scan) on partial_test
+         Table: partial_test
+         Index: partial_test_idx
+         Exec Method: NormalScanExecState
+         Scores: true
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+(8 rows)
 
 SELECT id, description, category, paradedb.score(id) as score
 FROM partial_test 
@@ -126,11 +124,10 @@ ORDER BY rating LIMIT 20;
          Index: partial_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: rating
-            Sort Direction: asc
-            Top N Limit: 20
+            TopN Order By: rating asc
+            TopN Limit: 20
          Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -167,11 +164,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -204,11 +200,10 @@ ORDER BY rating LIMIT 20;
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -234,17 +229,16 @@ ORDER BY rating LIMIT 20;
 -------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, rating, category 
 FROM paradedb.test_partial_index
@@ -270,17 +264,16 @@ ORDER BY rating LIMIT 20;
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
-         Workers Planned: 1
+         Workers Planned: 2
          ->  Parallel Custom Scan (ParadeDB Scan) on test_partial_index
                Table: test_partial_index
                Index: partial_idx
                Exec Method: TopNScanExecState
                Scores: false
-                  Sort Field: rating
-                  Sort Direction: asc
-                  Top N Limit: 20
+                  TopN Order By: rating asc
+                  TopN Limit: 20
                Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 SELECT description, category 
 FROM paradedb.test_partial_index

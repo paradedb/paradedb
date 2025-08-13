@@ -15,26 +15,42 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+mod andandand;
+mod atatat;
+mod boost;
+mod eqeqeq;
+mod fuzzy;
+mod hashhashhash;
+mod ororor;
+mod proximity;
 mod searchqueryinput;
-mod text;
 
-use crate::api::{fieldname_typoid, FieldName};
+use crate::api::operator::boost::{boost_to_boost, BoostType};
+use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
+use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
-use crate::postgres::expression::{find_expr_attnum, PG_SEARCH_PREFIX};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::locate_bm25_index_from_heaprel;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
+use crate::query::pdb_query::pdb;
+use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
-use pgrx::pg_sys::{FuncExpr, NodeTag, OpExpr};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
 use pgrx::*;
 use std::ptr::NonNull;
+
+enum RHSValue {
+    Text(String),
+    TextArray(Vec<String>),
+    PdbQuery(pdb::Query),
+    ProximityClause(ProximityClause),
+}
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -61,14 +77,16 @@ unsafe impl SqlTranslatable for ReturnedNodePointer {
     }
 }
 
-pub fn parse_with_field_procoid() -> pg_sys::Oid {
+pub fn with_index_procoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
             // NB:  the SQL signature here needs to match our Rust implementation
-            &[c"paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)".into_datum()],
+            &[c"paradedb.with_index(regclass, paradedb.searchqueryinput)".into_datum()],
         )
-        .expect("the `paradedb.parse_with_field(paradedb.fieldname, text, bool, bool)` function should exist")
+        .expect(
+            "the `paradedb.with_index(regclass, paradedb.searchqueryinput)` function should exist",
+        )
     }
 }
 
@@ -78,27 +96,7 @@ pub fn anyelement_query_input_procoid() -> pg_sys::Oid {
             pg_sys::regprocedurein,
             &[c"paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput)".into_datum()],
         )
-        .expect("the `paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput) function should exist")
-    }
-}
-
-pub fn anyelement_text_procoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            &[c"paradedb.search_with_text(anyelement, text)".into_datum()],
-        )
-        .expect("the `paradedb.search_with_text(anyelement, text) function should exist")
-    }
-}
-
-pub fn anyelement_text_opoid() -> pg_sys::Oid {
-    unsafe {
-        direct_function_call::<pg_sys::Oid>(
-            pg_sys::regoperatorin,
-            &[c"@@@(anyelement, text)".into_datum()],
-        )
-        .expect("the `@@@(anyelement, text)` operator should exist")
+            .expect("the `paradedb.search_with_query_input(anyelement, paradedb.searchqueryinput) function should exist")
     }
 }
 
@@ -121,6 +119,60 @@ pub fn searchqueryinput_typoid() -> pg_sys::Oid {
         .expect("type `paradedb.SearchQueryInput` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `paradedb.SearchQueryInput` should exist");
+        }
+        oid
+    }
+}
+
+pub fn pdb_query_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid =
+            direct_function_call::<pg_sys::Oid>(pg_sys::regtypein, &[c"pdb.Query".into_datum()])
+                .expect("type `pdb.Query` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pdb.Query` should exist");
+        }
+        oid
+    }
+}
+
+pub fn boost_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.boost".into_datum()],
+        )
+        .expect("type `pg_catalog.boost` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.boost` should exist");
+        }
+        oid
+    }
+}
+
+pub fn fuzzy_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.fuzzy".into_datum()],
+        )
+        .expect("type `pg_catalog.fuzzy` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.fuzzy` should exist");
+        }
+        oid
+    }
+}
+
+pub fn pdb_proximityclause_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pdb.ProximityClause".into_datum()],
+        )
+        .expect("type `pdb.ProximityClause` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pdb.ProximityClause` should exist");
         }
         oid
     }
@@ -156,15 +208,159 @@ pub(crate) fn estimate_selectivity(
     Some(selectivity)
 }
 
-unsafe fn make_search_query_input_opexpr_node(
+unsafe fn get_expr_result_type(expr: *mut pg_sys::Node) -> pg_sys::Oid {
+    let mut typoid = pg_sys::Oid::INVALID;
+    let mut tupdesc = pg_sys::TupleDesc::default();
+    pg_sys::get_expr_result_type(expr, &mut typoid, &mut tupdesc);
+    if !tupdesc.is_null() {
+        pg_sys::FreeTupleDesc(tupdesc);
+    }
+    typoid
+}
+
+/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
+/// It supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
+/// the first argument of the `FuncExpr`.
+/// This function requires the node to be related to a `bm25` index, otherwise it will panic.
+///
+/// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
+pub unsafe fn tantivy_field_name_from_node(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<(pg_sys::Oid, Option<FieldName>)> {
+    match (*node).type_ {
+        pg_sys::NodeTag::T_FuncExpr => tantivy_field_name_from_func_expr(root, node),
+        pg_sys::NodeTag::T_OpExpr => match tantivy_field_name_from_func_expr(root, node) {
+            Some((oid, attname)) => Some((oid, attname)),
+            None => {
+                let (var, fieldname) =
+                    find_one_var_and_fieldname(VarContext::from_planner(root), node)?;
+                let (oid, _) = VarContext::from_planner(root).var_relation(var);
+                Some((oid, Some(fieldname)))
+            }
+        },
+        pg_sys::NodeTag::T_Var => {
+            let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
+            let (oid, attname) = attname_from_var(root, var);
+            Some((oid, attname))
+        }
+        _ => None,
+    }
+}
+
+unsafe fn tantivy_field_name_from_func_expr(
+    root: *mut pg_sys::PlannerInfo,
+    node: *mut pg_sys::Node,
+) -> Option<(pg_sys::Oid, Option<FieldName>)> {
+    use crate::PG_SEARCH_PREFIX;
+
+    let (heaprelid, _, _) = find_node_relation(node, root);
+    if heaprelid == pg_sys::Oid::INVALID {
+        panic!("could not find heap relation for node");
+    }
+    let heaprel = PgSearchRelation::open(heaprelid);
+    let indexrel =
+        locate_bm25_index_from_heaprel(&heaprel).expect("could not find bm25 index for heaprelid");
+
+    let attnum = find_expr_attnum(&indexrel, node)?;
+    let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
+    Some((heaprelid, Some(expression_str)))
+}
+
+fn find_expr_attnum(indexrel: &PgSearchRelation, node: *mut pg_sys::Node) -> Option<i32> {
+    let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
+
+    let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+    let mut expressions_iter = expressions.iter_ptr();
+
+    for i in 0..index_info.ii_NumIndexAttrs {
+        let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
+        if heap_attno == 0 {
+            let Some(expression) = expressions_iter.next() else {
+                panic!("Expected expression for index attribute {i}.");
+            };
+
+            if unsafe { pg_sys::equal(node.cast(), expression.cast()) } {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+unsafe fn request_simplify<ConstRewrite, ExecRewrite>(
+    arg: *mut pg_sys::Node,
+    const_rewrite: ConstRewrite,
+    exec_rewrite: ExecRewrite,
+) -> Option<ReturnedNodePointer>
+where
+    ConstRewrite: FnOnce(Option<FieldName>, RHSValue) -> SearchQueryInput,
+    ExecRewrite: FnOnce(Option<FieldName>, *mut pg_sys::Node) -> pg_sys::FuncExpr,
+{
+    let srs = nodecast!(SupportRequestSimplify, T_SupportRequestSimplify, arg)?;
+    if (*srs).root.is_null() {
+        return None;
+    }
+    let search_query_input_typoid = searchqueryinput_typoid();
+
+    let input_args = PgList::<pg_sys::Node>::from_pg((*(*srs).fcall).args);
+    let mut lhs = input_args.get_ptr(0)?;
+    let rhs = input_args.get_ptr(1)?;
+
+    // fast-forward through relabel types -- we're interested in the final node being relabeled
+    while let Some(relabel) = nodecast!(RelabelType, T_RelabelType, lhs) {
+        lhs = (*relabel).arg.cast();
+    }
+
+    let (_heaprelid, field) = tantivy_field_name_from_node((*srs).root, lhs)?;
+    let rhs = rewrite_rhs_to_search_query_input(
+        const_rewrite,
+        exec_rewrite,
+        search_query_input_typoid,
+        rhs,
+        field,
+    );
+
+    Some(rewrite_to_search_query_input_opexpr(srs, lhs, rhs))
+}
+
+unsafe fn rewrite_to_search_query_input_opexpr(
     srs: *mut pg_sys::SupportRequestSimplify,
-    input_args: &mut PgList<pg_sys::Node>,
     lhs: *mut pg_sys::Node,
-    query: Option<SearchQueryInput>,
-    parse_with_field: Option<(*mut pg_sys::Node, Option<FieldName>)>,
-    opoid: pg_sys::Oid,
-    procoid: pg_sys::Oid,
+    rhs: *mut pg_sys::Node,
 ) -> ReturnedNodePointer {
+    let rhs_type = get_expr_result_type(rhs);
+    assert_eq!(
+        rhs_type,
+        searchqueryinput_typoid(),
+        "rhs must represent a SearchQueryInput"
+    );
+
+    let indexrel = rewrite_lhs_to_key_field(srs, lhs);
+
+    let rhs = wrap_with_index(indexrel, rhs);
+
+    let mut args = PgList::<pg_sys::Node>::new();
+    args.push(lhs);
+    args.push(rhs);
+
+    let mut opexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
+    opexpr.args = args.into_pg();
+    opexpr.opno = anyelement_query_input_opoid();
+    opexpr.opfuncid = anyelement_query_input_procoid();
+    opexpr.opresulttype = searchqueryinput_typoid();
+    opexpr.opretset = false;
+    opexpr.opcollid = pg_sys::Oid::INVALID;
+    opexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
+    opexpr.location = (*(*srs).fcall).location;
+
+    ReturnedNodePointer(NonNull::new(opexpr.into_pg().cast()))
+}
+
+unsafe fn rewrite_lhs_to_key_field(
+    srs: *mut pg_sys::SupportRequestSimplify,
+    lhs: *mut pg_sys::Node,
+) -> PgSearchRelation {
     let (relid, _nodeattno, targetlist) = find_node_relation(lhs, (*srs).root);
     if relid == pg_sys::Oid::INVALID {
         panic!("could not determine relation for node");
@@ -187,7 +383,7 @@ unsafe fn make_search_query_input_opexpr_node(
         .get(0)
         .unwrap_or_else(|| panic!("attribute `{}` not found", keys[0]));
 
-    if (*lhs).type_ == NodeTag::T_Var {
+    if (*lhs).type_ == pg_sys::NodeTag::T_Var {
         let var = nodecast!(Var, T_Var, lhs).expect("lhs is not a Var");
         if let Some(targetlist) = &targetlist {
             // if we have a targetlist, find the first field of the index definition in it -- its location
@@ -221,108 +417,125 @@ unsafe fn make_search_query_input_opexpr_node(
         (*var).varcollid = att.attcollation;
     }
 
-    // we're about to fabricate a new pg_sys::OpExpr node to return
-    // that represents the `@@@(anyelement, paradedb.searchqueryinput)` operator
-    let mut newopexpr = PgBox::<pg_sys::OpExpr>::alloc_node(pg_sys::NodeTag::T_OpExpr);
+    indexrel
+}
 
-    if let Some(query) = query {
-        // In case a sequential scan gets triggered, we need a way to pass the index oid
-        // to the scan function. It otherwise will not know which index to use.
-        let wrapped_query = SearchQueryInput::WithIndex {
+unsafe fn wrap_with_index(indexrel: PgSearchRelation, rhs: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if let Some(rhs_const) = nodecast!(Const, T_Const, rhs) {
+        // Const nodes are always of type SearchQueryInput, so we can instantiate a new Const version
+        let query = SearchQueryInput::from_datum((*rhs_const).constvalue, (*rhs_const).constisnull)
+            .unwrap();
+        let query = SearchQueryInput::WithIndex {
             oid: indexrel.oid(),
             query: Box::new(query),
         };
-
-        // create a new pg_sys::Const node
-        let search_query_input_const = pg_sys::makeConst(
-            searchqueryinput_typoid(),
-            -1,
-            pg_sys::Oid::INVALID,
-            -1,
-            wrapped_query.into_datum().unwrap(),
-            false,
-            false,
-        );
-
-        // and assign it to the original argument list
-        input_args.replace_ptr(1, search_query_input_const.cast());
-
-        newopexpr.opno = anyelement_query_input_opoid();
-        newopexpr.opfuncid = anyelement_query_input_procoid();
-    } else if let Some((rhs, attname)) = parse_with_field {
-        // rewrite the rhs to be a function call to our `paradedb.parse_with_field(...)` function
-        let mut parse_with_field_args = PgList::<pg_sys::Node>::new();
-
-        if let Some(attname) = attname {
-            parse_with_field_args.push(
-                pg_sys::makeConst(
-                    fieldname_typoid(),
-                    -1,
-                    pg_sys::Oid::INVALID,
-                    -1,
-                    attname.into_datum().unwrap(),
-                    false,
-                    false,
-                )
-                .cast(),
-            );
-        } else {
-            parse_with_field_args.push(lhs);
-        }
-        parse_with_field_args.push(rhs.cast());
-        parse_with_field_args.push(
-            pg_sys::makeConst(
-                pg_sys::BOOLOID,
-                -1,
-                pg_sys::Oid::INVALID,
-                size_of::<bool>() as _,
-                pg_sys::Datum::from(false),
-                false,
-                true,
-            )
-            .cast(),
-        );
-        parse_with_field_args.push(
-            pg_sys::makeConst(
-                pg_sys::BOOLOID,
-                -1,
-                pg_sys::Oid::INVALID,
-                size_of::<bool>() as _,
-                pg_sys::Datum::from(false),
-                false,
-                true,
-            )
-            .cast(),
-        );
-
-        let funcexpr = pg_sys::makeFuncExpr(
-            parse_with_field_procoid(),
-            searchqueryinput_typoid(),
-            parse_with_field_args.into_pg(),
-            pg_sys::Oid::INVALID,
-            pg_sys::DEFAULT_COLLATION_OID,
-            pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
-        );
-
-        input_args.replace_ptr(1, funcexpr.cast());
-        newopexpr.opno = anyelement_query_input_opoid();
-        newopexpr.opfuncid = anyelement_query_input_procoid();
+        let as_const: *mut pg_sys::Const = query.into();
+        as_const.cast()
     } else {
-        newopexpr.opno = opoid;
-        newopexpr.opfuncid = procoid;
+        // otherwise we need to wrap the rhs in a `FuncExpr` that calls `paradedb.with_index()`
+        let mut args = PgList::<pg_sys::Node>::new();
+        args.push(
+            pg_sys::makeConst(
+                pg_sys::REGCLASSOID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<pg_sys::Oid>() as _,
+                indexrel.oid().into_datum().unwrap(),
+                false,
+                true,
+            )
+            .cast(),
+        );
+        args.push(rhs);
+
+        pg_sys::FuncExpr {
+            xpr: pg_sys::Expr {
+                type_: pg_sys::NodeTag::T_FuncExpr,
+            },
+            funcid: with_index_procoid(),
+            funcresulttype: searchqueryinput_typoid(),
+            funcretset: false,
+            funcvariadic: false,
+            funcformat: pg_sys::CoercionForm::COERCE_EXPLICIT_CALL,
+            funccollid: pg_sys::Oid::INVALID,
+            inputcollid: pg_sys::Oid::INVALID,
+            args: args.into_pg(),
+            location: -1,
+        }
+        .palloc()
+        .cast()
     }
+}
 
-    newopexpr.opresulttype = pg_sys::BOOLOID;
-    newopexpr.opcollid = pg_sys::Oid::INVALID;
-    newopexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;
-    newopexpr.location = (*(*srs).fcall).location;
+unsafe fn rewrite_rhs_to_search_query_input<ConstRewrite, ExecRewrite>(
+    const_rewrite: ConstRewrite,
+    exec_rewrite: ExecRewrite,
+    search_query_input_typoid: pg_sys::Oid,
+    rhs: *mut pg_sys::Node,
+    field: Option<FieldName>,
+) -> *mut pg_sys::Node
+where
+    ConstRewrite: FnOnce(Option<FieldName>, RHSValue) -> SearchQueryInput,
+    ExecRewrite: FnOnce(Option<FieldName>, *mut pg_sys::Node) -> pg_sys::FuncExpr,
+{
+    let rhs: *mut pg_sys::Node = if get_expr_result_type(rhs) == search_query_input_typoid {
+        // the rhs is already of type SearchQueryInput, so we can use it directly
+        rhs
+    } else if let Some(const_) = nodecast!(Const, T_Const, rhs) {
+        // the rhs is a Const of some other type.  The caller gets the opportunity to rewrite the
+        // user-provided Const to a SearchQueryInput.
+        //
+        // we currently only support rewriting Consts of type TEXT or TEXT[]
+        let rhs_value = match (*const_).consttype {
+            // these are used for the @@@, &&&, |||, ###, and === operators
+            pg_sys::TEXTOID | pg_sys::VARCHAROID => RHSValue::Text(
+                String::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text value must not be NULL"),
+            ),
 
-    // then assign that list to our new OpExpr node
-    newopexpr.args = input_args.as_ptr();
+            // these arrays are only supported by the === operator
+            pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => RHSValue::TextArray(
+                Vec::<String>::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs text array value must not be NULL"),
+            ),
 
-    let newopexpr = newopexpr.into_pg();
+            // this is specifically used for the `@@@(anyelement, pdb.query)` operator
+            other if other == pdb_query_typoid() => RHSValue::PdbQuery(
+                pdb::Query::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fielded query input value must not be NULL"),
+            ),
 
-    ReturnedNodePointer(NonNull::new(newopexpr.cast()))
+            other if other == boost_typoid() => {
+                let boost = BoostType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs boost value must not be NULL");
+                let boost = boost_to_boost(boost, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(boost.into())
+            }
+
+            other if other == fuzzy_typoid() => {
+                let fuzzy = FuzzyType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fuzzy value must not be NULL");
+                let fuzzy = fuzzy_to_fuzzy(fuzzy, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(fuzzy.into())
+            }
+
+            other if other == pdb_proximityclause_typoid() => {
+                let prox = ProximityClause::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs fielded proximity clause must not be NULL");
+                RHSValue::ProximityClause(prox)
+            }
+
+            other => panic!("operator does not support rhs type {other}"),
+        };
+
+        let query: *mut pg_sys::Const = const_rewrite(field, rhs_value).into();
+        query.cast()
+    } else {
+        // the rhs is a complex expression that needs to be evaluated at runtime
+        // but its return type is not SearchQueryInput, so we need to rewrite it
+        exec_rewrite(field, rhs).palloc().cast()
+    };
+    rhs
 }
 
 /// Given a [`pg_sys::Node`] and a [`pg_sys::PlannerInfo`], attempt to find the relation Oid that
@@ -333,7 +546,7 @@ unsafe fn make_search_query_input_opexpr_node(
 ///
 /// The returned [`pg_sys::AttrNumber`] is the physical attribute number in the relation the Node
 /// is from.
-pub unsafe fn find_node_relation(
+unsafe fn find_node_relation(
     node: *mut pg_sys::Node,
     root: *mut pg_sys::PlannerInfo,
 ) -> (
@@ -344,13 +557,13 @@ pub unsafe fn find_node_relation(
     // If the Node is var, immediately return it: otherwise examine the arguments of whatever type
     // it is.
     let args = match (*node).type_ {
-        NodeTag::T_Var => return find_var_relation(node.cast(), root),
-        NodeTag::T_FuncExpr => {
-            let funcexpr: *mut FuncExpr = node.cast();
+        pg_sys::NodeTag::T_Var => return find_var_relation(node.cast(), root),
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr: *mut pg_sys::FuncExpr = node.cast();
             PgList::<pg_sys::Node>::from_pg((*funcexpr).args)
         }
-        NodeTag::T_OpExpr => {
-            let opexpr: *mut OpExpr = node.cast();
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr: *mut pg_sys::OpExpr = node.cast();
             PgList::<pg_sys::Node>::from_pg((*opexpr).args)
         }
         _ => return (pg_sys::Oid::INVALID, 0, None),
@@ -358,7 +571,7 @@ pub unsafe fn find_node_relation(
 
     args.iter_ptr()
         .filter_map(|arg| match (*arg).type_ {
-            NodeTag::T_FuncExpr | NodeTag::T_OpExpr | NodeTag::T_Var => {
+            pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_OpExpr | pg_sys::NodeTag::T_Var => {
                 Some(find_node_relation(arg, root))
             }
             _ => None,
@@ -375,7 +588,7 @@ pub unsafe fn find_node_relation(
 /// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Var`] from it, figure out the name of the `Var`
 ///
 /// Returns the heap relation [`pg_sys::Oid`] that contains the `Var` along with its name.
-pub unsafe fn attname_from_var(
+unsafe fn attname_from_var(
     root: *mut pg_sys::PlannerInfo,
     var: *mut pg_sys::Var,
 ) -> (pg_sys::Oid, Option<FieldName>) {
@@ -395,51 +608,9 @@ pub unsafe fn attname_from_var(
     (heaprelid, attname)
 }
 
-/// Given a [`pg_sys::PlannerInfo`] and a [`pg_sys::Node`] from it, figure out the name of the `Node`.
-/// It supports `FuncExpr` and `Var` nodes. Note that for the heap relation, the `Var` must be
-/// the first argument of the `FuncExpr`.
-/// This function requires the node to be related to a `bm25` index, otherwise it will panic.
-///
-/// Returns the heap relation [`pg_sys::Oid`] that contains the `Node` along with its name.
-pub unsafe fn fieldname_from_node(
-    root: *mut pg_sys::PlannerInfo,
-    node: *mut pg_sys::Node,
-) -> Option<(pg_sys::Oid, Option<FieldName>)> {
-    match (*node).type_ {
-        NodeTag::T_FuncExpr | NodeTag::T_OpExpr => {
-            // We expect the funcexpr/opexpr to contain the var of the field name we're looking for
-            let (heaprelid, _, _) = find_node_relation(node, root);
-            if heaprelid == pg_sys::Oid::INVALID {
-                panic!("could not find heap relation for node");
-            }
-            let heaprel = PgSearchRelation::open(heaprelid);
-            let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-                .expect("could not find bm25 index for heaprelid");
-
-            let attnum = find_expr_attnum(&indexrel, node)?;
-            let expression_str = format!("{PG_SEARCH_PREFIX}{attnum}").into();
-            Some((heaprelid, Some(expression_str)))
-        }
-        NodeTag::T_Var => {
-            let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
-            let (oid, attname) = attname_from_var(root, var);
-            Some((oid, attname))
-        }
-        _ => None,
-    }
-}
-
 extension_sql!(
     r#"
-ALTER FUNCTION paradedb.search_with_text SUPPORT paradedb.text_support;
 ALTER FUNCTION paradedb.search_with_query_input SUPPORT paradedb.query_input_support;
-
-CREATE OPERATOR pg_catalog.@@@ (
-    PROCEDURE = search_with_text,
-    LEFTARG = anyelement,
-    RIGHTARG = text,
-    RESTRICT = text_restrict
-);
 
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_with_query_input,
@@ -456,9 +627,7 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     name = "bm25_ops_anyelement_operator",
     requires = [
         // for using plain text on the rhs
-        text::search_with_text,
-        text::text_restrict,
-        text::text_support,
+        atatat::search_with_parse,
         // for using SearchQueryInput on the rhs
         searchqueryinput::search_with_query_input,
         searchqueryinput::query_input_restrict,

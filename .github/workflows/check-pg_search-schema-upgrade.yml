@@ -3,7 +3,7 @@
 # Check pg_search Schema Upgrade
 # Determine if a commit introduces an extension schema change for pg_search.
 
-name: Check pg_search Schema Upgrade
+name: SchemaBot
 
 on:
   pull_request:
@@ -30,7 +30,6 @@ jobs:
   check-pg_search-schema-upgrade:
     name: SchemaBot
     runs-on: ubicloud-standard-8
-    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [14] # pg_search's minimum supported Postgres version
@@ -40,6 +39,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch the entire history
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }} # Required with fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Extract pgrx Version
         id: pgrx
@@ -69,7 +71,7 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
 
       - name: Install cargo-pgrx
         run: |
@@ -113,10 +115,9 @@ jobs:
           if test -s ~/diff.sql; then
             echo "Generating GitHub comment message"
             {
-              echo 'DIFF<<EOF'
               echo 'A schema difference was detected.'
               echo
-              echo 'A suggested "upgrade.sql" script entry might be:'
+              echo 'A suggested "upgrade.sql" script follows.  Please review it carefully as SchemaBot is not infallible.'
               echo
               echo '```sql'
               cat ~/diff.sql
@@ -134,8 +135,7 @@ jobs:
               cat ~/diff.patch
               echo '```'
               echo '</details>'
-              echo EOF
-            } >> "$GITHUB_ENV"
+            } >> commit-message.md
 
             # Set a flag to indicate a schema difference was detected
             echo "schema_diff_detected=true" >> $GITHUB_OUTPUT
@@ -149,28 +149,34 @@ jobs:
         if: steps.generate_commit_message.outputs.schema_diff_detected == 'true'
         with:
           script: |
+            const fs = require('fs');
+            const commit_message = fs.readFileSync('commit-message.md', 'utf8');
+
             const comments = await github.rest.issues.listComments({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo
             });
 
-            const botComment = comments.data.find(comment => comment.user.type === 'Bot' && comment.body.includes('A schema difference was detected.'));
+            const botComment = comments.data.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('A schema difference was detected.')
+            );
+
+            const body = `${commit_message}`;
 
             if (botComment) {
-              // Update the existing comment
               await github.rest.issues.updateComment({
                 comment_id: botComment.id,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: process.env.DIFF
+                body
               });
             } else {
-              // Create a new comment if none exists
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                body: process.env.DIFF
+                body
               });
             }

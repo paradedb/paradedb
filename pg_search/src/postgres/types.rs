@@ -17,7 +17,7 @@
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::range::RangeToTantivyValue;
-use crate::schema::AnyEnum;
+use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
@@ -37,6 +37,10 @@ use std::str::FromStr;
 use tantivy::schema::{IntoIpv6Addr, OwnedValue};
 use thiserror::Error;
 
+/// A row-oriented wrapper around Tantivy's OwnedValue.
+///
+/// When working with large batches of TantivyValues, consider using the `types_arrow` module
+/// instead.
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 
@@ -112,6 +116,40 @@ impl TantivyValue {
             _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
         }
         tantivy_values
+    }
+
+    /// Convert a JSON value to an OwnedValue based on the field type from the schema
+    pub fn json_value_to_owned_value(
+        search_field: &Option<SearchField>,
+        json_value: &Value,
+    ) -> OwnedValue {
+        if let Some(search_field) = search_field {
+            // We need to do special handling for boolean values, as we store them as numbers
+            // in the index. Thus, the schema type (bool) might not match the JSON value type (i.e.
+            // number).
+            match search_field.field_type() {
+                crate::schema::SearchFieldType::Bool(_) => {
+                    // Handle both boolean JSON values and numeric representations (0/1)
+                    if let Some(b) = json_value.as_bool() {
+                        OwnedValue::Bool(b)
+                    } else if let Some(n) = json_value.as_i64() {
+                        OwnedValue::Bool(n != 0)
+                    } else if let Some(n) = json_value.as_u64() {
+                        OwnedValue::Bool(n != 0)
+                    } else {
+                        // Fallback to OwnedValue::from(serde_json::Value)
+                        OwnedValue::from(json_value.clone())
+                    }
+                }
+                _ => {
+                    // Fallback to OwnedValue::from(serde_json::Value)
+                    OwnedValue::from(json_value.clone())
+                }
+            }
+        } else {
+            // Fallback to OwnedValue::from(serde_json::Value)
+            OwnedValue::from(json_value.clone())
+        }
     }
 
     pub unsafe fn try_from_datum_array(
@@ -261,6 +299,14 @@ impl TantivyValue {
                     )
                     .ok_or(TantivyValueError::DatumDeref)?,
                 ),
+                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
+                    pgrx::datum::JsonB::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
+                PgBuiltInOids::JSONOID => TantivyValue::try_from(
+                    pgrx::datum::JsonString::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
             PgOid::Custom(custom) => {
@@ -327,6 +373,7 @@ impl Hash for TantivyValue {
     }
 }
 
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.tantivy_schema_value() {

@@ -49,11 +49,12 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
                ->  Custom Scan (ParadeDB Scan) on test
                      Table: test
                      Index: idxtest
-                     Exec Method: NumericFastFieldExecState
-                     Fast Fields: junk(id), severity
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: severity
+                     Numeric Fast Fields: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count 
@@ -72,11 +73,12 @@ select assert(count(*), 8), count(*), max(id) from (select id from test where me
                ->  Custom Scan (ParadeDB Scan) on test
                      Table: test
                      Index: idxtest
-                     Exec Method: NumericFastFieldExecState
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: id, severity
+                     Numeric Fast Fields: id, severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count | max 
@@ -95,11 +97,12 @@ select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from tes
                ->  Custom Scan (ParadeDB Scan) on test
                      Table: test
                      Index: idxtest
-                     Exec Method: NumericFastFieldExecState
-                     Fast Fields: junk(myid), severity
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: severity
+                     Numeric Fast Fields: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(12 rows)
 
 select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count | max 

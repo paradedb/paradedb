@@ -16,16 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cell::RefCell;
-use std::iter::Peekable;
 
-use crate::api::FieldName;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
-use crate::postgres::customscan::builders::custom_path::SortDirection;
+use crate::api::OrderByInfo;
+use crate::index::reader::index::{SearchIndexReader, TopNSearchResults, MAX_TOPN_FEATURES};
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
 use crate::postgres::customscan::pdbscan::scan_state::PdbScanState;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
+
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
@@ -37,17 +36,17 @@ pub struct TopNScanExecState {
     // required
     heaprelid: pg_sys::Oid,
     limit: usize,
-    sort_direction: SortDirection,
+    orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
     search_query_input: Option<SearchQueryInput>,
     search_reader: Option<SearchIndexReader>,
-    sort_field: Option<FieldName>,
 
     // state tracking
-    search_results: Peekable<SearchResults>,
+    search_results: TopNSearchResults,
     nresults: usize,
     did_query: bool,
+    exhausted: bool,
     found: usize,
     offset: usize,
     chunk_size: usize,
@@ -56,17 +55,25 @@ pub struct TopNScanExecState {
 }
 
 impl TopNScanExecState {
-    pub fn new(heaprelid: pg_sys::Oid, limit: usize, sort_direction: SortDirection) -> Self {
+    pub fn new(
+        heaprelid: pg_sys::Oid,
+        limit: usize,
+        orderby_info: Option<Vec<OrderByInfo>>,
+    ) -> Self {
+        if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPN_FEATURES) {
+            panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
+        }
+
         Self {
             heaprelid,
             limit,
-            sort_direction,
+            orderby_info,
             search_query_input: None,
             search_reader: None,
-            sort_field: None,
-            search_results: SearchResults::None.peekable(),
+            search_results: TopNSearchResults::empty(),
             nresults: 0,
             did_query: false,
+            exhausted: false,
             found: 0,
             offset: 0,
             chunk_size: 0,
@@ -130,14 +137,6 @@ impl TopNScanExecState {
 }
 
 impl ExecMethod for TopNScanExecState {
-    fn init(&mut self, state: &mut PdbScanState, _cstate: *mut pg_sys::CustomScanState) {
-        let sort_field = state.sort_field.clone();
-
-        self.search_query_input = Some(state.search_query_input().clone());
-        self.sort_field = sort_field;
-        self.search_reader = state.search_reader.clone();
-    }
-
     ///
     /// Query more results.
     ///
@@ -149,7 +148,7 @@ impl ExecMethod for TopNScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         self.did_query = true;
 
-        if self.found >= self.limit {
+        if self.found >= self.limit || self.exhausted {
             return false;
         }
 
@@ -166,17 +165,20 @@ impl ExecMethod for TopNScanExecState {
             .unwrap()
             .search_top_n_in_segments(
                 self.segments_to_query(state.search_reader.as_ref().unwrap(), state.parallel_state),
-                self.sort_field.clone(),
-                self.sort_direction.into(),
+                self.orderby_info.as_ref(),
                 local_limit,
                 self.offset,
-            )
-            .peekable();
+            );
 
         // Record the offset to start from for the next query.
         self.offset = next_offset;
 
-        self.search_results.peek().is_some()
+        // If we got fewer results than we requested, then the query is exhausted: there is no
+        // point executing further queries.
+        self.exhausted = self.search_results.original_len() < local_limit;
+
+        // But if we got any results at all, then the query was a success.
+        self.search_results.original_len() > 0
     }
 
     fn increment_visible(&mut self) {
@@ -246,16 +248,18 @@ impl ExecMethod for TopNScanExecState {
         }
     }
 
-    fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset tracking state but don't clear search_results
+    fn reset(&mut self, state: &mut PdbScanState) {
+        // Reset state
+        self.claimed_segments.take();
+        self.did_query = false;
+        self.exhausted = false;
+        self.search_query_input = Some(state.search_query_input().clone());
+        self.search_reader = state.search_reader.clone();
+        self.search_results = TopNSearchResults::empty();
 
         // Reset counters - excluding nresults which tracks processed results
-        self.did_query = false;
-
-        // Reset the tracking state
         self.chunk_size = 0;
-        self.offset = 0;
         self.found = 0;
-        self.claimed_segments.take();
+        self.offset = 0;
     }
 }

@@ -16,29 +16,31 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod mixed;
-pub mod numeric;
-pub mod string;
+
+use std::sync::Arc;
 
 use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::gucs;
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType, WhichFastField};
-use crate::index::reader::index::SearchResults;
 use crate::nodecast;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::privdat::PrivateData;
-use crate::postgres::customscan::pdbscan::projections::score::{score_funcoid, uses_scores};
+use crate::postgres::customscan::pdbscan::projections::score::uses_scores;
 use crate::postgres::customscan::pdbscan::{scan_state::PdbScanState, PdbScan};
+use crate::postgres::customscan::score_funcoid;
 use crate::postgres::rel::PgSearchRelation;
-use crate::schema::SearchIndexSchema;
+use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext};
+
+use arrow_array::builder::StringViewBuilder;
+use arrow_array::ArrayRef;
 use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
-use std::rc::Rc;
 use tantivy::columnar::StrColumn;
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, Index, ReloadPolicy};
+use tantivy::DocAddress;
 
 const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
@@ -52,7 +54,6 @@ pub struct FastFieldExecState {
 
     slot: *mut pg_sys::TupleTableSlot,
     vmbuff: pg_sys::Buffer,
-    search_results: SearchResults,
 
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
@@ -81,7 +82,6 @@ impl FastFieldExecState {
             ffhelper: Default::default(),
             slot: std::ptr::null_mut(),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            search_results: Default::default(),
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
@@ -106,7 +106,6 @@ impl FastFieldExecState {
     }
 
     pub fn reset(&mut self, state: &mut PdbScanState) {
-        self.search_results = SearchResults::None;
         self.did_query = false;
         self.blockvis = (pg_sys::InvalidBlockNumber, false);
     }
@@ -160,15 +159,15 @@ pub unsafe fn collect_fast_fields(
     target_list: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
     rti: pg_sys::Index,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
+    index: &PgSearchRelation,
     is_execution_time: bool,
 ) -> Vec<WhichFastField> {
     let fast_fields = pullup_fast_fields(
         target_list,
         referenced_columns,
-        schema,
         heaprel,
+        index,
         rti,
         is_execution_time,
     );
@@ -180,17 +179,12 @@ pub unsafe fn collect_fast_fields(
 // Helper function to process an attribute number and add a fast field if appropriate
 fn collect_fast_field_try_for_attno(
     attno: i32,
-    processed_attnos: &mut HashSet<pg_sys::AttrNumber>,
     matches: &mut Vec<WhichFastField>,
     tupdesc: &PgTupleDesc<'_>,
     heaprel: &PgSearchRelation,
-    schema: &SearchIndexSchema,
+    index: &PgSearchRelation,
+    fieldname: Option<&FieldName>,
 ) -> bool {
-    // Skip if we've already processed this attribute number
-    if processed_attnos.contains(&(attno as pg_sys::AttrNumber)) {
-        return true;
-    }
-
     match attno {
         // any of these mean we can't use fast fields
         pg_sys::MinTransactionIdAttributeNumber
@@ -202,19 +196,14 @@ fn collect_fast_field_try_for_attno(
         // readily available during the scan, so we'll pretend
         pg_sys::SelfItemPointerAttributeNumber => {
             // okay, "ctid" is a fast field but it's secret
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
             matches.push(WhichFastField::Ctid);
         }
 
         pg_sys::TableOidAttributeNumber => {
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
             matches.push(WhichFastField::TableOid);
         }
 
         attno => {
-            // Keep track that we've processed this attribute number
-            processed_attnos.insert(attno as pg_sys::AttrNumber);
-
             // Handle attno <= 0 - this can happen in materialized views and FULL JOINs
             if attno <= 0 {
                 // Just mark it as processed and continue
@@ -223,15 +212,37 @@ fn collect_fast_field_try_for_attno(
 
             // Get attribute info - use if let to handle missing attributes gracefully
             if let Some(att) = tupdesc.get((attno - 1) as usize) {
+                let schema = index
+                    .schema()
+                    .expect("pullup_fast_fields: should have a schema");
                 if let Some(search_field) = schema.search_field(att.name()) {
                     if search_field.is_fast() {
-                        let ff_type = if att.type_oid().value() == pg_sys::TEXTOID
-                            || att.type_oid().value() == pg_sys::VARCHAROID
-                            || att.type_oid().value() == pg_sys::UUIDOID
-                        {
-                            FastFieldType::String
-                        } else {
-                            FastFieldType::Numeric
+                        let ff_type = match att.type_oid().value() {
+                            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::UUIDOID => {
+                                FastFieldType::String
+                            }
+                            pg_sys::BOOLOID
+                            | pg_sys::DATEOID
+                            | pg_sys::FLOAT4OID
+                            | pg_sys::FLOAT8OID
+                            | pg_sys::INT2OID
+                            | pg_sys::INT4OID
+                            | pg_sys::INT8OID
+                            | pg_sys::NUMERICOID
+                            | pg_sys::TIMEOID
+                            | pg_sys::TIMESTAMPOID
+                            | pg_sys::TIMESTAMPTZOID
+                            | pg_sys::TIMETZOID => FastFieldType::Numeric,
+                            _ => {
+                                // This fast field type is supported for pushdown of queries, but not for
+                                // rendering via fast field execution.
+                                //
+                                // NOTE: JSON/JSONB are included here because fast fields do not
+                                // contain the full content of the JSON in a way that we can easily
+                                // render: rather, the individual fields are exploded out into
+                                // dynamic columns.
+                                return false;
+                            }
                         };
                         matches.push(WhichFastField::Named(att.name().to_string(), ff_type));
                     }
@@ -248,13 +259,12 @@ fn collect_fast_field_try_for_attno(
 pub unsafe fn pullup_fast_fields(
     node: *mut pg_sys::List,
     referenced_columns: &HashSet<pg_sys::AttrNumber>,
-    schema: &SearchIndexSchema,
     heaprel: &PgSearchRelation,
+    index: &PgSearchRelation,
     rti: pg_sys::Index,
     is_execution_time: bool,
 ) -> Option<Vec<WhichFastField>> {
     let mut matches = Vec::new();
-    let mut processed_attnos = HashSet::default();
 
     let tupdesc = heaprel.tuple_desc();
 
@@ -267,7 +277,7 @@ pub unsafe fn pullup_fast_fields(
             continue;
         }
 
-        if let Some(var) = nodecast!(Var, T_Var, (*te).expr) {
+        let maybe_var = if let Some(var) = find_one_var((*te).expr.cast()) {
             if (*var).varno as i32 != rti as i32 {
                 // We expect all Vars in the target list to be from the same range table as the
                 // index we're searching, so if we see a Var from a different range table, we skip it.
@@ -284,14 +294,19 @@ pub unsafe fn pullup_fast_fields(
                 }
                 continue;
             }
-            let attno = (*var).varattno as i32;
+            find_one_var_and_fieldname(VarContext::from_exec(heaprel.oid()), (*te).expr.cast())
+        } else {
+            None
+        };
+
+        if let Some((var, fieldname)) = maybe_var {
             if !collect_fast_field_try_for_attno(
-                attno,
-                &mut processed_attnos,
+                (*var).varattno as i32,
                 &mut matches,
                 &tupdesc,
                 heaprel,
-                schema,
+                index,
+                Some(&fieldname),
             ) {
                 return None;
             }
@@ -333,11 +348,11 @@ pub unsafe fn pullup_fast_fields(
     for &attno in referenced_columns {
         if !collect_fast_field_try_for_attno(
             attno as i32,
-            &mut processed_attnos,
             &mut matches,
             &tupdesc,
             heaprel,
-            schema,
+            index,
+            None,
         ) {
             return None;
         }
@@ -376,85 +391,9 @@ fn fast_field_capable_prereqs(privdata: &PrivateData) -> bool {
     true
 }
 
-/// Check if we can use the String fast field execution method
-///
-/// Using StringFF when there's a limit is always a loss, performance-wise, because it
-/// collects the full set of query results (as doc ids and term ordinals) before beginning
-/// to return rows. Meanwhile, Normal is fully lazy but unsorted, and TopN searches
-/// eagerly, but avoids actually emitting anything but the limit.
-pub fn is_string_fast_field_capable(privdata: &PrivateData) -> Option<String> {
-    if !gucs::is_fast_field_exec_enabled() {
-        return None;
-    }
-
-    if privdata.limit().is_some() {
-        // See the method doc with regard to limits/laziness.
-        return None;
-    }
-
-    if !fast_field_capable_prereqs(privdata) {
-        return None;
-    }
-
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-
-    let mut string_field = None;
-    // Count the number of string fields
-    let mut string_field_count = 0;
-    for ff in which_fast_fields.iter() {
-        if let WhichFastField::Named(name, field_type) = ff {
-            match field_type {
-                FastFieldType::String => {
-                    string_field_count += 1;
-                    string_field = Some(name.clone());
-                }
-                FastFieldType::Numeric => {
-                    return None;
-                }
-            }
-        }
-    }
-
-    if string_field_count != 1 {
-        // string_agg requires exactly one string field
-        return None;
-    }
-
-    // At this point, we've verified that we have exactly one string field
-    string_field
-}
-
-/// Check if we can use the Numeric fast field execution method
-pub fn is_numeric_fast_field_capable(privdata: &PrivateData) -> bool {
-    if !gucs::is_fast_field_exec_enabled() {
-        return false;
-    }
-
-    if !fast_field_capable_prereqs(privdata) {
-        return false;
-    }
-
-    let which_fast_fields = privdata.planned_which_fast_fields().as_ref().unwrap();
-    // Make sure we don't have any string fast fields
-    for ff in which_fast_fields.iter() {
-        if matches!(ff, WhichFastField::Named(_, FastFieldType::String)) {
-            return false;
-        }
-    }
-    true
-}
-
 /// Check if we can use the Mixed fast field execution method
-///
-/// MixedFF is subject to the same constraints around limits and laziness as StringFF: see
-/// `is_string_fast_field_capable`.
 pub fn is_mixed_fast_field_capable(privdata: &PrivateData) -> bool {
     if !gucs::is_mixed_fast_field_exec_enabled() {
-        return false;
-    }
-
-    if privdata.limit().is_some() {
-        // See the method doc with regard to limits/laziness.
         return false;
     }
 
@@ -491,85 +430,65 @@ pub fn is_all_special_or_junk_fields<'a>(
 pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explainer) {
     use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 
-    match &state.custom_state().exec_method_type {
-        ExecMethodType::FastFieldString {
-            field,
-            which_fast_fields,
-        } => {
-            explainer.add_text("Fast Fields", field);
-            explainer.add_text("String Agg Field", field);
+    if let ExecMethodType::FastFieldMixed {
+        which_fast_fields, ..
+    } = &state.custom_state().exec_method_type
+    {
+        // Get all fast fields used
+        let string_fields: Vec<_> = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+            .map(|ff| ff.name())
+            .sorted()
+            .collect();
+
+        let numeric_fields: Vec<_> = which_fast_fields
+            .iter()
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
+            .map(|ff| ff.name())
+            .sorted()
+            .collect();
+
+        let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
+
+        explainer.add_text("Fast Fields", all_fields.join(", "));
+
+        if !string_fields.is_empty() {
+            explainer.add_text("String Fast Fields", string_fields.join(", "));
         }
-        ExecMethodType::FastFieldNumeric { which_fast_fields } => {
-            let fields: Vec<_> = which_fast_fields
-                .iter()
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
-            explainer.add_text("Fast Fields", fields.join(", "));
+
+        if !numeric_fields.is_empty() {
+            explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
         }
-        ExecMethodType::FastFieldMixed { which_fast_fields } => {
-            // Get all fast fields used
-            let string_fields: Vec<_> = which_fast_fields
-                .iter()
-                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
-
-            let numeric_fields: Vec<_> = which_fast_fields
-                .iter()
-                .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
-                .map(|ff| ff.name())
-                .sorted()
-                .collect();
-
-            let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
-
-            explainer.add_text("Fast Fields", all_fields.join(", "));
-
-            if !string_fields.is_empty() {
-                explainer.add_text("String Fast Fields", string_fields.join(", "));
-            }
-
-            if !numeric_fields.is_empty() {
-                explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
-            }
-        }
-        _ => {}
     }
 }
 
-pub fn estimate_cardinality(index: &Index, field: &FieldName) -> Option<usize> {
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::Manual)
-        .try_into()
-        .expect("estimate_cardinality: should be able to open the IndexReader");
-    let searcher = reader.searcher();
-    debug_assert!(searcher.segment_readers().len() == 1, "estimate_cardinality(): expected an index with only one segment, which is assumed to be the largest segment by num_docs");
-    let largest_segment_reader = searcher.segment_reader(0);
-
-    Some(
-        largest_segment_reader
-            .fast_fields()
-            .str(&field.root())
-            .ok()
-            .flatten()?
-            .num_terms(),
-    )
-}
-
-/// Given a collection of values containing TermOrdinals for the given StrColumn, return an iterator
-/// which zips each value with the term for the TermOrdinal in ascending sorted order.
+/// Given an unordered collection of TermOrdinals for the given StrColumn, return a
+/// `StringViewArray` with one row per input term ordinal (in the input order).
+///
+/// A `StringViewArray` contains a series of buffers containing arbitrarily concatenated bytes data,
+/// and then a series of (buffer, offset, len) entries representing views into those buffers. This
+/// method creates a single buffer containing the concatenated data for the given term ordinals in
+/// term sorted order, and then a view per input row in input order. A caller can ignore those
+/// details and just consume the array as if it were an array of strings.
 ///
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.
-pub fn ords_to_sorted_terms<T>(
+pub fn ords_to_string_array(
     str_ff: StrColumn,
-    mut items: Vec<T>,
-    ordinal_fn: impl Fn(&T) -> TermOrdinal,
-) -> impl Iterator<Item = (T, Option<Rc<str>>)> {
-    items.sort_unstable_by_key(&ordinal_fn);
+    term_ords: impl IntoIterator<Item = TermOrdinal>,
+) -> ArrayRef {
+    // Enumerate the term ordinals to preserve their positions, and then sort them by ordinal.
+    let mut term_ords = term_ords.into_iter().enumerate().collect::<Vec<_>>();
+    term_ords.sort_unstable_by_key(|(_, term_ord)| *term_ord);
 
+    // Iterate over the sorted term ordinals: as we visit each term ordinal, we will append the
+    // term to a StringViewBuilder's data buffer, and record a view to be appended later in sorted
+    // order.
+    let mut builder = StringViewBuilder::with_capacity(term_ords.len());
+    let mut views: Vec<Option<(u32, u32)>> = Vec::with_capacity(term_ords.len());
+    views.resize(term_ords.len(), None);
+
+    let mut buffer = Vec::new();
     let mut bytes = Vec::new();
     let mut current_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(0);
     let mut current_sstable_delta_reader = str_ff
@@ -577,26 +496,29 @@ pub fn ords_to_sorted_terms<T>(
         .sstable_delta_reader_block(current_block_addr.clone())
         .expect("Failed to open term dictionary.");
     let mut current_ordinal = 0;
-    let mut previous_term: Option<(TermOrdinal, Option<Rc<str>>)> = None;
-    let mut items = items.into_iter();
-    std::iter::from_fn(move || {
-        let item = items.next()?;
-        let ord = ordinal_fn(&item);
+    let mut previous_term: Option<(TermOrdinal, (u32, u32))> = None;
+    for (row_idx, ord) in term_ords {
+        if ord == NULL_TERM_ORDINAL {
+            // NULL_TERM_ORDINAL sorts highest, so all remaining ords will have `None` views, and
+            // be appended to the builder as null.
+            break;
+        }
 
         // only advance forward if the new ord is different than the one we just processed
         //
         // this allows the input TermOrdinal iterator to contain and reuse duplicates, so long as
         // it's still sorted
         match &previous_term {
-            Some((previous_ord, term)) if *previous_ord == ord => {
-                // This is the same term ordinal: reuse the previous term value.
-                return Some((item, term.clone()));
+            Some((previous_ord, previous_view)) if *previous_ord == ord => {
+                // This is the same term ordinal: reuse the previous view.
+                views[row_idx] = Some(*previous_view);
+                continue;
             }
             // Fall through.
             _ => {}
         }
 
-        // This is a new term ordinal: decode and allocate it.
+        // This is a new term ordinal: decode it and append it to the builder.
         assert!(ord >= current_ordinal);
         // check if block changed for new term_ord
         let new_block_addr = str_ff.dictionary().sstable_index.get_block_with_ord(ord);
@@ -610,15 +532,10 @@ pub fn ords_to_sorted_terms<T>(
             bytes.clear();
         }
 
-        // move to ord inside that block
+        // Move to ord inside that block
         for _ in current_ordinal..=ord {
             match current_sstable_delta_reader.advance() {
                 Ok(true) => {}
-                Ok(false) if ord == NULL_TERM_ORDINAL => {
-                    // NULL_TERM_ORDINAL sorts highest, so all remaining terms are None.
-                    previous_term = Some((ord, None));
-                    return Some((item, None));
-                }
                 Ok(false) => {
                     panic!("Term ordinal {ord} did not exist in the dictionary.");
                 }
@@ -631,12 +548,31 @@ pub fn ords_to_sorted_terms<T>(
         }
         current_ordinal = ord + 1;
 
-        let term: Option<Rc<str>> = Some(
-            std::str::from_utf8(&bytes)
-                .expect("term should be valid utf8")
-                .into(),
-        );
-        previous_term = Some((ord, term.clone()));
-        Some((item, term))
-    })
+        // Set the view for this row_idx.
+        let offset: u32 = buffer
+            .len()
+            .try_into()
+            .expect("Too many terms requested in `ords_to_string_array`");
+        let len: u32 = bytes
+            .len()
+            .try_into()
+            .expect("Single term is too long in `ords_to_string_array`");
+        buffer.extend_from_slice(&bytes);
+        previous_term = Some((ord, (offset, len)));
+        views[row_idx] = Some((offset, len));
+    }
+
+    // Append all the rows' views to the builder.
+    let block_no = builder.append_block(arrow_buffer::Buffer::from(buffer));
+    for view in views {
+        // Each view is an offset and len in our single block, or None for a null.
+        match view {
+            Some((offset, len)) => unsafe {
+                builder.append_view_unchecked(block_no, offset, len);
+            },
+            None => builder.append_null(),
+        }
+    }
+
+    Arc::new(builder.finish())
 }

@@ -1,0 +1,73 @@
+name: Commit and Push File
+description: Checks out the specified remote repository, stages the provided file, commits it if there are changes, and pushes to the given branch.
+
+inputs:
+  repository:
+    description: "Remote repository in owner/name format."
+    required: true
+  branch:
+    description: "Branch to check out and push to."
+    required: false
+    default: "main"
+  repo-path:
+    description: "Local path to check out the repo into."
+    required: false
+    default: "push-file-temp"
+  file-name:
+    description: "File path (relative to repo) to add and commit."
+    required: true
+  commit-message:
+    description: "Commit message to use."
+    required: true
+  deploy-secret:
+    description: "The secret to be able to deploy to the specified repository"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout target repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repository }}
+        ssh-key: ${{ inputs.deploy-secret }}
+        ssh-known-hosts: github.com
+        ref: ${{ inputs.branch }}
+        path: ${{ inputs.repo-path }}
+
+    - name: Configure Git user
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        git config user.name "ParadeDB GitHub Actions"
+        git config user.email "developers@paradedb.com"
+
+    - name: Stage changes
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        cp ../${{ inputs.file-name }} ./
+        git add "${{ inputs.file-name }}"
+
+    - name: Commit changes if needed
+      shell: bash
+      id: commit
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        if git diff --cached --quiet; then
+          echo "no_changes=true" >> $GITHUB_OUTPUT
+        else
+          git commit -m "${{ inputs.commit-message }}"
+          echo "no_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Push changes
+      shell: bash
+      if: steps.commit.outputs.no_changes == 'false'
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        git push origin HEAD:${{ inputs.branch }}
+
+    - name: Cleanup
+      shell: bash
+      run: rm -rf "${{ inputs.repo-path }}"

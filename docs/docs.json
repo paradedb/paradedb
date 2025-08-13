@@ -11,7 +11,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.16.3",
+        "version": "v0.17.3",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -20,7 +20,16 @@
               {
                 "group": "Documentation",
                 "pages": [
-                  "welcome/introduction",
+                  {
+                    "group": "Why ParadeDB?",
+                    "pages": [
+                      "welcome/introduction",
+                      "welcome/architecture",
+                      "welcome/guarantees",
+                      "welcome/limitations",
+                      "welcome/roadmap"
+                    ]
+                  },
                   {
                     "group": "Getting Started",
                     "pages": [
@@ -185,6 +194,89 @@
             ]
           },
           {
+            "anchor": "Docs v2 (beta)",
+            "icon": "sparkles",
+            "groups": [
+              {
+                "group": "Documentation",
+                "pages": [
+                  "v2/overview",
+                  {
+                    "group": "Getting Started",
+                    "pages": [
+                      "v2/getting-started/install",
+                      "v2/getting-started/quickstart",
+                      "v2/getting-started/load"
+                    ]
+                  },
+                  {
+                    "group": "Reference",
+                    "pages": [
+                      {
+                        "group": "Indexing",
+                        "pages": [
+                          "v2/indexing/create_index"
+                        ]
+                      },
+                      {
+                        "group": "Full Text Search",
+                        "pages": [
+                          "v2/full-text/overview",
+                          "v2/full-text/match",
+                          "v2/full-text/phrase",
+                          "v2/full-text/term",
+                          "v2/full-text/fuzzy",
+                          "v2/full-text/score",
+                          "v2/full-text/highlight",
+                          "v2/full-text/boost"
+                        ]
+                      },
+                      {
+                        "group": "Query Builder",
+                        "pages": [
+                          "v2/query-builder/overview",
+                          "v2/query-builder/match",
+                          {
+                            "group": "Phrase",
+                            "pages": [
+                              "v2/query-builder/phrase/phrase",
+                              "v2/query-builder/phrase/phrase_prefix",
+                              "v2/query-builder/phrase/regex_phrase"
+                            ]
+                          },
+                          {
+                            "group": "Term",
+                            "pages": [
+                              "v2/query-builder/term/exists",
+                              "v2/query-builder/term/fuzzy_term",
+                              "v2/query-builder/term/range",
+                              "v2/query-builder/term/range_term",
+                              "v2/query-builder/term/regex",
+                              "v2/query-builder/term/term",
+                              "v2/query-builder/term/term_set"
+                            ]
+                          },
+                          "v2/query-builder/json"
+                        ]
+                      },
+                      {
+                        "group": "Aggregates",
+                        "pages": [
+                          "v2/aggregates/overview"
+                        ]
+                      }
+                    ]
+                  },
+                  "welcome/support",
+                  {
+                    "group": "Latest Version: v0.17.3",
+                    "pages": []
+                  }
+                ]
+              }
+            ]
+          },
+          {
             "anchor": "Deploy",
             "icon": "server",
             "groups": [
@@ -237,6 +329,12 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.17.3",
+                  "changelog/0.17.2",
+                  "changelog/0.17.1",
+                  "changelog/0.17.0",
+                  "changelog/0.16.5",
+                  "changelog/0.16.4",
                   "changelog/0.16.3",
                   "changelog/0.16.2",
                   "changelog/0.16.1",
@@ -270,55 +368,6 @@
                   "changelog/0.15.0",
                   "changelog/0.14.1",
                   "changelog/0.14.0",
-                  "changelog/0.13.2",
-                  "changelog/0.13.1",
-                  "changelog/0.13.0",
-                  "changelog/0.12.2",
-                  "changelog/0.12.1",
-                  "changelog/0.12.0",
-                  "changelog/0.11.1",
-                  "changelog/0.11.0",
-                  "changelog/0.10.3",
-                  "changelog/0.10.2",
-                  "changelog/0.10.1",
-                  "changelog/0.10.0",
-                  "changelog/0.9.4",
-                  "changelog/0.9.3",
-                  "changelog/0.9.2",
-                  "changelog/0.9.1",
-                  "changelog/0.9.0",
-                  "changelog/0.8.6",
-                  "changelog/0.8.5",
-                  "changelog/0.8.4",
-                  "changelog/0.8.3",
-                  "changelog/0.8.2",
-                  "changelog/0.8.1",
-                  "changelog/0.8.0",
-                  "changelog/0.7.6",
-                  "changelog/0.7.5",
-                  "changelog/0.7.4",
-                  "changelog/0.7.3",
-                  "changelog/0.7.2",
-                  "changelog/0.7.1",
-                  "changelog/0.7.0",
-                  "changelog/0.6.1",
-                  "changelog/0.6.0",
-                  "changelog/0.5.11",
-                  "changelog/0.5.10",
-                  "changelog/0.5.9",
-                  "changelog/0.5.8",
-                  "changelog/0.5.7",
-                  "changelog/0.5.6",
-                  "changelog/0.5.5",
-                  "changelog/0.5.4",
-                  "changelog/0.5.3",
-                  "changelog/0.5.2",
-                  "changelog/0.5.1",
-                  "changelog/0.4.5",
-                  "changelog/0.4.4",
-                  "changelog/0.4.3",
-                  "changelog/0.4.2",
-                  "changelog/0.4.1",
                   "changelog/deprecated"
                 ]
               }
@@ -343,7 +392,7 @@
     "links": [
       {
         "label": "Community",
-        "href": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ"
+        "href": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw"
       },
       {
         "label": "Blog",
@@ -358,7 +407,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/paradedb/paradedb",
-      "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-2lkzdsetw-OiIgbyFeiibd1DG~6wFgTQ",
+      "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw",
       "twitter": "https://twitter.com/paradedb"
     }
   },

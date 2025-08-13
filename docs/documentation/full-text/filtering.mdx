@@ -2,96 +2,105 @@
 title: Filtering
 ---
 
-Filters over numeric, boolean, or datetime fields that are indexed as [fast fields](/documentation/indexing/fast_fields) can be "pushed down" into the BM25 index using the `@@@` operator. For instance, the following
-two queries produce identical results, but the second query "pushes down" the `rating > 2` filter into the BM25 index.
+Adding filters to text search is as simple as using PostgreSQL's built-in `WHERE` clauses and operators.
+For instance, the following query filters out results that do not meet `rating > 2`.
 
 ```sql
--- Without BM25 pushdown
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND rating > 2;
-
--- With BM25 pushdown
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ '>2';
 ```
 
-<Note>
-  Automatically executing the first type of query as the second query is on the
-  roadmap, but not yet supported.
-</Note>
+## Filter Pushdown
 
-## Numeric Filter
+### Non-Text Fields
 
-The following query returns all rows matching `description:shoes` where `rating` equals `4`.
+While not required, filtering performance over non-text columns can be improved by including them in the BM25 index, and making sure they are configured as [fast](/documentation/indexing/fast_fields)
+(which is already the default for non-text fields). When these columns are part of the index, `WHERE` clauses that reference them can be pushed down into the index scan itself. This can result in faster query execution over large datasets.
+
+For example, if `rating` and `created_at` are frequently used in filters, they can be added to the BM25 index during index creation:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25(id, description, rating, created_at)
+WITH (key_field = 'id');
+```
+
+Filter pushdown is currently supported for the following combinations of types and operators:
+
+| Operator                                   | Left Operand Type | Right Operand Type | Example                    |
+| ------------------------------------------ | ----------------- | ------------------ | -------------------------- |
+| `=`, `<`, `>`, `<=`, `>=`, `<>`, `BETWEEN` | `int2`            | `int2`             | `WHERE rating = 2`         |
+|                                            | `int4`            | `int4`             |
+|                                            | `int8`            | `int8`             |
+|                                            | `int2`            | `int4`             |
+|                                            | `int2`            | `int8`             |
+|                                            | `int4`            | `int8`             |
+|                                            | `float4`          | `float4`           |
+|                                            | `float8`          | `float8`           |
+|                                            | `float4`          | `float8`           |
+|                                            | `date`            | `date`             |
+|                                            | `time`            | `time`             |
+|                                            | `timetz`          | `timetz`           |
+|                                            | `timestamp`       | `timestamp`        |
+|                                            | `timestamptz`     | `timestamptz`      |
+|                                            | `uuid`            | `uuid`             |
+| `=`                                        | `bool`            | `bool`             | `WHERE in_stock = true`    |
+| `IN`, `ANY`, `ALL`                         | `bool`            | `bool[]`           | `WHERE rating IN (1,2,3)`  |
+|                                            | `int2`            | `int2[]`           |
+|                                            | `int4`            | `int4[]`           |
+|                                            | `int8`            | `int8[]`           |
+|                                            | `int2`            | `int4[]`           |
+|                                            | `int2`            | `int8[]`           |
+|                                            | `int4`            | `int8[]`           |
+|                                            | `float4`          | `float4[]`         |
+|                                            | `float8`          | `float8[]`         |
+|                                            | `float4`          | `float8[]`         |
+|                                            | `date`            | `date[]`           |
+|                                            | `timetz`          | `timetz[]`         |
+|                                            | `timestamp`       | `timestamp[]`      |
+|                                            | `timestamptz`     | `timestamptz[]`    |
+|                                            | `uuid`            | `uuid[]`           |
+| `IS`, `IS NOT`                             | `bool`            | `bool`             | `WHERE in_stock IS true`   |
+| `IS NULL`, `IS NOT NULL`                   | `bool`            |                    | `WHERE rating IS NOT NULL` |
+|                                            | `int2`            |                    |
+|                                            | `int4`            |                    |
+|                                            | `int8`            |                    |
+|                                            | `int2`            |                    |
+|                                            | `int2`            |                    |
+|                                            | `int4`            |                    |
+|                                            | `float4`          |                    |
+|                                            | `float8`          |                    |
+|                                            | `float4`          |                    |
+|                                            | `date`            |                    |
+|                                            | `time`            |                    |
+|                                            | `timetz`          |                    |
+|                                            | `timestamp`       |                    |
+|                                            | `timestamptz`     |                    |
+|                                            | `uuid`            |                    |
+
+### Text Fields
+
+Suppose we have a text filter that looks for an exact string match like `category = 'Footwear'`:
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ '4';
+WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
 
-Comparison operators `>`, `>=`, `<`, and `<=` are supported.
+To push down the `category = 'Footwear'` filter, `category` must be indexed using the `keyword` tokenizer:
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25(id, description, category)
+WITH (key_field = 'id', text_fields = '{"category": {"tokenizer": {"type": "keyword"}}}');
+```
+
+Pushdown of set filters over text fields also requires the `keyword` tokenizer:
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ '>=4';
-```
-
-## Datetime Filter
-
-RFC 3339 formatted dates wrapped in double quotes can be used to filter over datetime fields.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND created_at @@@ '"2023-04-20T16:38:02Z"';
-```
-
-## Boolean Filter
-
-Boolean fields can be filtered with `true` or `false`.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND in_stock @@@ 'true';
-```
-
-## Range Filter
-
-The inclusive `[]` and exclusive `{}` bounds can be used for range filtering.
-
-```sql
--- Numeric
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ '[1 TO 4]';
-
--- Datetime
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND created_at @@@ '[2020-01-31T00:00:00Z TO 2024-01-31T00:00:00Z]';
-```
-
-Range filters can also be applied over text fields. The following query finds all documents where
-`description` contains a token that is lexicographically between `book` and `camera` (i.e. would come between
-`book` and `camera` in a dictionary).
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ '[book TO camera]';
-```
-
-## Set Filter
-
-The `IN` operator finds documents that match at least one element in a set.
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ 'shoes' AND rating @@@ 'IN [2 3 4]';
+WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
 ```

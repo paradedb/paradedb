@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 #![recursion_limit = "512"]
 
+mod aggregate;
 mod api;
 mod bootstrap;
 mod index;
@@ -28,6 +29,9 @@ pub mod parallel_worker;
 
 use self::postgres::customscan;
 use pgrx::*;
+
+/// The prefix applied to tantivy fields that are actually Postgres expressions.
+pub const PG_SEARCH_PREFIX: &str = "_pg_search_";
 
 /// Postgres' value for a `norm_selec` that hasn't been assigned
 const UNASSIGNED_SELECTIVITY: f64 = -1.0;
@@ -49,7 +53,10 @@ const DEFAULT_STARTUP_COST: f64 = 10.0;
 pgrx::pg_module_magic!();
 
 extension_sql!(
-    "GRANT ALL ON SCHEMA paradedb TO PUBLIC;",
+    r#"
+        GRANT ALL ON SCHEMA paradedb TO PUBLIC;
+        GRANT ALL ON SCHEMA pdb TO PUBLIC;
+    "#,
     name = "paradedb_grant_all",
     finalize
 );
@@ -79,6 +86,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     #[allow(static_mut_refs)]
     #[allow(deprecated)]
     customscan::register_rel_pathlist(customscan::pdbscan::PdbScan);
+    customscan::register_upper_path(customscan::aggregatescan::AggregateScan);
 }
 
 #[pg_extern]

@@ -17,11 +17,11 @@
 
 mod fixtures;
 
-use crate::fixtures::querygen::arb_joins_and_wheres;
-use crate::fixtures::querygen::compare;
+use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
+use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
 
 use fixtures::*;
 
@@ -29,7 +29,7 @@ use futures::executor::block_on;
 use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
-use sqlx::PgConnection;
+use sqlx::{PgConnection, Row};
 
 fn generated_queries_setup(conn: &mut PgConnection, tables: &[(&str, usize)]) -> String {
     "CREATE EXTENSION pg_search;".execute(conn);
@@ -47,37 +47,48 @@ CREATE TABLE {tname}
     uuid  UUID NOT NULL,
     name  TEXT,
     color VARCHAR,
-    age   VARCHAR
+    age   INTEGER,
+    price NUMERIC(10,2),
+    rating INTEGER
 );
 
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age)
+CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age, price, rating)
 WITH (
 key_field = 'id',
 text_fields = '
             {{
                 "uuid": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+            }}',
+numeric_fields = '
+            {{
+                "age": {{ "fast": true }},
+                "price": {{ "fast": true }},
+                "rating": {{ "fast": true }}
             }}'
 );
 
-INSERT into {tname} (uuid, name, color, age)
-VALUES (gen_random_uuid(), 'bob', 'blue', 20);
+INSERT into {tname} (uuid, name, color, age, price, rating)
+VALUES (gen_random_uuid(), 'bob', 'blue', 20, 99.99, 4);
 
-INSERT into {tname} (uuid, name, color, age)
+INSERT into {tname} (uuid, name, color, age, price, rating)
 SELECT
       gen_random_uuid(),
       (ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
       (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int::text
+      (floor(random() * 100) + 1)::int,
+      (random() * 1000 + 10)::numeric(10,2),
+      (floor(random() * 5) + 1)::int
 FROM generate_series(1, {row_count});
 
 CREATE INDEX idx{tname}_uuid ON {tname} (uuid);
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
+CREATE INDEX idx{tname}_price ON {tname} (price);
+CREATE INDEX idx{tname}_rating ON {tname} (rating);
 ANALYZE;
 "#
         );
@@ -115,6 +126,7 @@ async fn generated_joins_small(database: Db) {
             tables,
             vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
+        gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
 
@@ -123,6 +135,7 @@ async fn generated_joins_small(database: Db) {
         compare(
             format!("{from} WHERE {}", where_expr.to_sql(" = ")),
             format!("{from} WHERE {}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_one::<(i64,)>(conn).0,
         )?;
@@ -159,6 +172,7 @@ async fn generated_joins_large_limit(database: Db) {
             vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         target_list in proptest::sample::subsequence(vec!["id", "name", "color", "age"], 1..=4),
+        gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
         let used_tables = join.used_tables();
@@ -174,6 +188,7 @@ async fn generated_joins_large_limit(database: Db) {
         compare(
             format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql(" = ")),
             format!("{from} WHERE {} LIMIT 10;", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_dynamic(conn).len(),
         )?;
@@ -197,10 +212,13 @@ async fn generated_single_relation(database: Db) {
             vec![table_name],
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
+        gucs in any::<PgGucs>(),
+        target in prop_oneof![Just("COUNT(*)"), Just("id")],
     )| {
         compare(
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
-            format!("SELECT id FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql(" = ")),
+            format!("SELECT {target} FROM {table_name} WHERE {}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| {
                 let mut rows = query.fetch::<(i64,)>(conn);
@@ -208,6 +226,101 @@ async fn generated_single_relation(database: Db) {
                 rows
             }
         )?;
+    });
+}
+
+///
+/// Property test for GROUP BY aggregates - ensures equivalence between PostgreSQL and bm25 behavior
+///
+#[rstest]
+#[tokio::test]
+async fn generated_group_by_aggregates(database: Db) {
+    let pool = MutexObjectPool::<PgConnection>::new(
+        move || block_on(async { database.connection().await }),
+        |_| {},
+    );
+
+    let table_name = "users";
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)]);
+    eprintln!("{setup_sql}");
+
+    // Columns that can be used for grouping (must have fast: true in index)
+    let grouping_columns = ["name", "color", "age", "rating"];
+
+    proptest!(|(
+        text_where_expr in arb_wheres(
+            vec![table_name],
+            vec![("name", "bob"), ("color", "blue")]
+        ),
+        numeric_where_expr in arb_wheres(
+            vec![table_name],
+            vec![("age", "20"), ("price", "99.99"), ("rating", "4")]
+        ),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
+        gucs in any::<PgGucs>(),
+    )| {
+        let select_list = group_by_expr.to_select_list();
+        let group_by_clause = group_by_expr.to_sql();
+
+        // Create combined WHERE clause for PostgreSQL using = operator
+        let pg_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        // Create combined WHERE clause for BM25 using appropriate operators
+        let bm25_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        let pg_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
+        );
+
+        let bm25_query = format!(
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
+        );
+
+        // Custom result comparator for GROUP BY results
+        let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
+            // Fetch all rows as dynamic results and convert to string representation
+            let rows = query.fetch_dynamic(conn);
+            let mut string_rows: Vec<String> = rows
+                .into_iter()
+                .map(|row| {
+                    // Convert entire row to a string representation for comparison
+                    let mut row_string = String::new();
+                    for i in 0..row.len() {
+                        if i > 0 {
+                            row_string.push('|');
+                        }
+
+                        // Try to get value as different types, converting to string
+                        let value_str = if let Ok(val) = row.try_get::<i64, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<i32, _>(i) {
+                            val.to_string()
+                        } else if let Ok(val) = row.try_get::<String, _>(i) {
+                            val
+                        } else {
+                            "NULL".to_string()
+                        };
+
+                        row_string.push_str(&value_str);
+                    }
+                    row_string
+                })
+                .collect();
+
+            // Sort for consistent comparison
+            string_rows.sort();
+            string_rows
+        };
+
+        compare(pg_query, bm25_query, gucs, &mut pool.pull(), compare_results)?;
     });
 }
 
@@ -225,14 +338,13 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         compare(
             format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql(" = ")),
             format!("SELECT id FROM {table_name} WHERE {} {paging_exprs}", where_expr.to_sql("@@@")),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch::<(i64,)>(conn),
         )?;
@@ -258,10 +370,12 @@ async fn generated_paging_large(database: Db) {
 
     proptest!(|(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         compare(
             format!("SELECT uuid::text FROM {table_name} WHERE name  =  'bob' {paging_exprs}"),
             format!("SELECT uuid::text FROM {table_name} WHERE name @@@ 'bob' {paging_exprs}"),
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch::<(String,)>(conn),
         )?;
@@ -294,12 +408,8 @@ async fn generated_subquery(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        // TODO: Not ordering by `uuid` until https://github.com/paradedb/paradedb/issues/2703
-        // is fixed.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
+        gucs in any::<PgGucs>(),
     )| {
         let pg = format!(
             "SELECT COUNT(*) FROM {outer_table_name} \
@@ -321,6 +431,7 @@ async fn generated_subquery(database: Db) {
         compare(
             pg,
             bm25,
+            gucs,
             &mut pool.pull(),
             |query, conn| query.fetch_one::<(i64,)>(conn),
         )?;

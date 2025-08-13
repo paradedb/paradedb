@@ -72,8 +72,6 @@ pub extern "C-unwind" fn ambuild(
         )
         .unwrap_or_else(|e| panic!("{e}"));
 
-        record_create_index_segment_ids(&index_relation).unwrap_or_else(|e| panic!("{e}"));
-
         pgrx::debug1!("build_index: flushing buffers");
         pg_sys::FlushRelationBuffers(indexrel);
 
@@ -290,18 +288,5 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;
-    Ok(())
-}
-
-unsafe fn record_create_index_segment_ids(indexrel: &PgSearchRelation) -> anyhow::Result<()> {
-    let directory = MvccSatisfies::Snapshot.directory(indexrel);
-    let index = Index::open(directory.clone())?;
-    let segment_ids = index.searchable_segment_ids()?;
-
-    pgrx::debug1!("record_create_index_segment_ids: {:?}", segment_ids);
-
-    MetaPage::open(indexrel)
-        .record_create_index_segment_ids(segment_ids)
-        .expect("do_heap_scan: should be able to record segment ids in merge lock");
     Ok(())
 }

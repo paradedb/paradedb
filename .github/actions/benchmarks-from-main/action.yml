@@ -1,4 +1,4 @@
-name: benchmarks-from-main
+name: Fetch Benchmark Sources from Main
 description: Fetch latest benchmark code, suites, and actions from `main`
 
 inputs:
@@ -29,11 +29,6 @@ runs:
 
         echo "Copied benchmark files to benchmarks/:"
         ls -la benchmarks/
-
-    - name: Copy latest actions into place
-      shell: bash
-      run: |
-        cp -rv bench-temp/.github/actions .github/
 
     - name: Cleanup temporary checkout
       shell: bash

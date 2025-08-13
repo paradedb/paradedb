@@ -18,6 +18,7 @@
 // TODO: See https://github.com/pgcentralfoundation/pgrx/pull/2089
 #![allow(for_loops_over_fallibles)]
 
+mod admin;
 pub mod aggregate;
 pub mod builder_fns;
 pub mod config;
@@ -29,10 +30,51 @@ use pgrx::{
 };
 pub use rustc_hash::FxHashMap as HashMap;
 pub use rustc_hash::FxHashSet as HashSet;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
+
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct Regex(regex::Regex);
+impl Deref for Regex {
+    type Target = regex::Regex;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl Eq for Regex {}
+impl PartialEq for Regex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
+impl Serialize for Regex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.0.as_str())
+    }
+}
+impl<'de> Deserialize<'de> for Regex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let pattern = String::deserialize(deserializer)?;
+        regex::Regex::new(&pattern)
+            .map(Regex)
+            .map_err(serde::de::Error::custom)
+    }
+}
+impl Regex {
+    pub fn new(pattern: &str) -> Result<Self, regex::Error> {
+        regex::Regex::new(pattern).map(Regex)
+    }
+}
 
 #[macro_export]
 macro_rules! nodecast {
@@ -147,6 +189,20 @@ impl InOutFuncs for FieldName {
 }
 
 impl FieldName {
+    pub fn into_const(self) -> *mut pg_sys::Const {
+        unsafe {
+            pg_sys::makeConst(
+                fieldname_typoid(),
+                -1,
+                pg_sys::Oid::INVALID,
+                -1,
+                self.into_datum().unwrap_unchecked(),
+                false,
+                false,
+            )
+        }
+    }
+
     #[inline(always)]
     pub fn into_inner(self) -> String {
         self.0
@@ -193,4 +249,49 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
         }
         oid
     }
+}
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[repr(i32)]
+pub enum SortDirection {
+    #[default]
+    Asc = pg_sys::BTLessStrategyNumber as i32,
+    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+}
+
+impl AsRef<str> for SortDirection {
+    fn as_ref(&self) -> &str {
+        match self {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        }
+    }
+}
+
+impl Display for SortDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+impl From<SortDirection> for tantivy::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => tantivy::Order::Asc,
+            SortDirection::Desc => tantivy::Order::Desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum OrderByFeature {
+    Score,
+    Field(FieldName),
+}
+
+/// Simple ORDER BY information for serialization in PrivateData
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrderByInfo {
+    pub feature: OrderByFeature,
+    pub direction: SortDirection,
 }

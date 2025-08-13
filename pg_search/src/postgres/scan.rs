@@ -17,7 +17,7 @@
 
 use crate::index::fast_fields_helper::{FFHelper, FastFieldType};
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::parallel::list_segment_ids;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::{parallel, ScanStrategy};
@@ -28,7 +28,7 @@ use pgrx::*;
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
     reader: SearchIndexReader,
-    results: SearchResults,
+    results: Option<MultiSegmentSearchResults>,
     itup: (Vec<pg_sys::Datum>, Vec<bool>),
     key_field_oid: PgOid,
 }
@@ -125,13 +125,11 @@ pub extern "C-unwind" fn amrescan(
 
         let results = if (*scan).parallel_scan.is_null() {
             // not a parallel scan
-            search_reader.search(None)
-        } else if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-            // a parallel scan: got a segment to query
-            search_reader.search_segments([segment_number].into_iter(), 0)
+            Some(search_reader.search())
         } else {
-            // a parallel scan: no more segments to query
-            SearchResults::None
+            // a parallel scan: see if there is another segment to query
+            parallel::maybe_claim_segment(scan)
+                .map(|segment_number| search_reader.search_segments([segment_number].into_iter()))
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
@@ -193,7 +191,7 @@ pub unsafe extern "C-unwind" fn amgettuple(
     (*scan).xs_recheck = false;
 
     loop {
-        match state.results.next() {
+        match state.results.as_mut().and_then(|r| r.next()) {
             Some((scored, doc_address)) => {
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(scored.ctid, ipd);
@@ -295,15 +293,17 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
 
     let mut cnt = 0i64;
     loop {
-        for (scored, _) in state.results.by_ref() {
-            let mut ipd = pg_sys::ItemPointerData::default();
-            crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut ipd);
+        if let Some(search_results) = state.results.as_mut() {
+            for (scored, _) in search_results {
+                let mut ipd = pg_sys::ItemPointerData::default();
+                crate::postgres::utils::u64_to_item_pointer(scored.ctid, &mut ipd);
 
-            // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
-            // initialized as a stack-allocated ItemPointerData
-            pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
+                // SAFETY:  `tbm` has been asserted to be non-null and our `&mut tid` has been
+                // initialized as a stack-allocated ItemPointerData
+                pg_sys::tbm_add_tuples(tbm, &mut ipd, 1, false);
 
-            cnt += 1;
+                cnt += 1;
+            }
         }
 
         // check if the bitmap scan needs to claim another individual segment
@@ -320,9 +320,7 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
 // if there's a segment to be claimed for parallel query execution, do that now
 unsafe fn search_next_segment(scan: IndexScanDesc, state: &mut Bm25ScanState) -> bool {
     if let Some(segment_number) = parallel::maybe_claim_segment(scan) {
-        state.results = state
-            .reader
-            .search_segments([segment_number].into_iter(), 0);
+        state.results = Some(state.reader.search_segments([segment_number].into_iter()));
         return true;
     }
     false

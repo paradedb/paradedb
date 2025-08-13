@@ -15,30 +15,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
+use std::cmp::Ordering;
+use std::fmt::{Debug, Display};
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::api::{HashMap, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::scorer_iter::DeferredScorer;
+use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+
 use anyhow::Result;
-use std::cmp::Ordering;
-use std::fmt::{Debug, Display};
-use std::path::PathBuf;
-use std::sync::Arc;
-use tantivy::collector::{Collector, TopDocs};
+use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs, TopOrderable};
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
-    query::Query, DocAddress, DocId, DocSet, Executor, IndexReader, Order, ReloadPolicy, Score,
-    Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
+    query::Query, schema::OwnedValue, DocAddress, DocId, DocSet, Executor, IndexReader,
+    ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
 };
+
+/// The maximum number of sort-features/`OrderByInfo`s supported for
+/// `SearchIndexReader::search_top_n_in_segments`.
+pub const MAX_TOPN_FEATURES: usize = 3;
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -57,170 +62,152 @@ impl SearchIndexScore {
 
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // TODO: Should also compare the ctid for stability.
         self.bm25.partial_cmp(&other.bm25)
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum SortDirection {
-    Asc,
-    Desc,
-    None,
-}
-
-impl From<SortDirection> for Order {
-    fn from(value: SortDirection) -> Self {
-        match value {
-            SortDirection::Asc => Order::Asc,
-            SortDirection::Desc => Order::Desc,
-            SortDirection::None => Order::Asc,
-        }
-    }
-}
-
 pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
-/// An iterator of the different styles of search results we can return
-#[allow(clippy::large_enum_variant)]
-#[derive(Default)]
-pub enum SearchResults {
-    #[default]
-    None,
-    TopNByScore(
-        Searcher,
-        FastFieldCache,
-        std::vec::IntoIter<(Score, DocAddress)>,
-    ),
-    TopNByTweakedScore(
-        Searcher,
-        FastFieldCache,
-        std::vec::IntoIter<(TweakedScore, DocAddress)>,
-    ),
-    TopNByField(Searcher, FastFieldCache, std::vec::IntoIter<DocAddress>),
-    MultiSegment(
-        Searcher,
-        Option<FFType>,
-        Vec<scorer_iter::ScorerIter>,
-        usize,
-    ),
+
+/// See `SearchIndexReader::erased_features`.
+type ErasedFeature = Arc<dyn Feature<Output = OwnedValue, SegmentOutput = u64>>;
+
+/// A known-size iterator of results for Top-N.
+pub struct TopNSearchResults {
+    results_original_len: usize,
+    results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
 }
 
-#[derive(PartialEq, Clone)]
-pub struct TweakedScore {
-    dir: SortDirection,
-    score: Score,
-}
+impl TopNSearchResults {
+    pub fn empty() -> Self {
+        Self::new(vec![])
+    }
 
-impl PartialOrd for TweakedScore {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let cmp = self.score.partial_cmp(&other.score);
-        match self.dir {
-            SortDirection::Desc => cmp,
-            SortDirection::Asc => cmp.map(|o| o.reverse()),
-            SortDirection::None => Some(Ordering::Equal),
+    fn new(results: Vec<(SearchIndexScore, DocAddress)>) -> Self {
+        Self {
+            results_original_len: results.len(),
+            results: results.into_iter(),
         }
     }
-}
 
-impl Iterator for SearchResults {
-    type Item = (SearchIndexScore, DocAddress);
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        let (searcher, ff_lookup, (score, doc_address)) = match self {
-            SearchResults::None => return None,
-            SearchResults::TopNByScore(searcher, ff_lookup, iter) => {
-                (searcher, ff_lookup, iter.next()?)
-            }
-            SearchResults::TopNByTweakedScore(searcher, ff_lookup, iter) => {
-                let (score, doc_id) = iter.next()?;
-                (searcher, ff_lookup, (score.score, doc_id))
-            }
-            SearchResults::TopNByField(searcher, ff_lookup, iter) => {
-                let doc_id = iter.next()?;
-                (searcher, ff_lookup, (1.0, doc_id))
-            }
-            SearchResults::MultiSegment(searcher, fftype, iters, offset) => loop {
-                let last = iters.last_mut()?;
-                match last.next() {
-                    Some((score, doc_address)) => {
-                        if *offset > 0 {
-                            *offset -= 1;
-                            continue;
-                        }
-
-                        let ctid_ff = fftype.get_or_insert_with(|| {
+    fn new_for_score(
+        searcher: &Searcher,
+        results: impl IntoIterator<Item = (Score, DocAddress)>,
+    ) -> Self {
+        // TODO: Execute batch lookups for ctids?
+        let mut ff_lookup = FastFieldCache::default();
+        Self::new(
+            results
+                .into_iter()
+                .map(|(score, doc_address)| {
+                    let ctid = ff_lookup
+                        .entry(doc_address.segment_ord)
+                        .or_insert_with(|| {
                             FFType::new_ctid(
                                 searcher
                                     .segment_reader(doc_address.segment_ord)
                                     .fast_fields(),
                             )
-                        });
-                        let scored = SearchIndexScore {
-                            ctid: ctid_ff
-                                .as_u64(doc_address.doc_id)
-                                .expect("ctid should be present"),
-                            bm25: score,
-                        };
+                        })
+                        .as_u64(doc_address.doc_id)
+                        .expect("ctid should be present");
 
-                        return Some((scored, doc_address));
-                    }
-                    None => {
-                        // last iterator is empty, so pop it off, clear the fast field type cache,
-                        // and loop back around to get the next one
-                        iters.pop();
-                        *fftype = None;
-                        continue;
-                    }
-                }
-            },
-        };
-
-        let ctid_ff = ff_lookup.entry(doc_address.segment_ord).or_insert_with(|| {
-            FFType::new_ctid(
-                searcher
-                    .segment_reader(doc_address.segment_ord)
-                    .fast_fields(),
-            )
-        });
-        let scored = SearchIndexScore {
-            ctid: ctid_ff
-                .as_u64(doc_address.doc_id)
-                .expect("ctid should be present"),
-            bm25: score,
-        };
-        Some((scored, doc_address))
+                    let scored = SearchIndexScore { ctid, bm25: score };
+                    (scored, doc_address)
+                })
+                .collect(),
+        )
     }
+
+    /// After a TopDocs search on a field, we have a valid field value, which this method will
+    /// discard.
+    ///
+    /// TODO: We could in theory actually render that field using a virtual tuple (for the right
+    /// query), similar to what we do in fast-fields execution.
+    fn new_for_discarded_field<T>(
+        searcher: &Searcher,
+        results: impl IntoIterator<Item = (T, DocAddress)>,
+    ) -> Self {
+        Self::new_for_score(searcher, results.into_iter().map(|(_, doc)| (1.0, doc)))
+    }
+
+    pub fn original_len(&self) -> usize {
+        self.results_original_len
+    }
+}
+
+/// A set of search results across multiple segments.
+///
+/// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
+pub struct MultiSegmentSearchResults {
+    searcher: Searcher,
+    ctid_column: Option<FFType>,
+    iterators: Vec<ScorerIter>,
+}
+
+/// A score which sorts in ascending direction.
+#[derive(PartialEq, Clone)]
+pub struct AscendingScore {
+    score: Score,
+}
+
+impl PartialOrd for AscendingScore {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.score.partial_cmp(&other.score).map(|o| o.reverse())
+    }
+}
+
+impl Iterator for TopNSearchResults {
+    type Item = (SearchIndexScore, DocAddress);
 
     #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            SearchResults::None => (0, Some(0)),
-            SearchResults::TopNByScore(_, _, iter) => iter.size_hint(),
-            SearchResults::TopNByTweakedScore(_, _, iter) => iter.size_hint(),
-            SearchResults::TopNByField(_, _, iter) => iter.size_hint(),
-            SearchResults::MultiSegment(_, _, iters, offset) => {
-                let hint = iters
-                    .first()
-                    .map(|iter| iter.size_hint())
-                    .unwrap_or((0, Some(0)));
-                let lower_bound = hint.0.saturating_sub(*offset);
-                (lower_bound, hint.1.map(|n| n * iters.len()))
-            }
-        }
+    fn next(&mut self) -> Option<Self::Item> {
+        self.results.next()
+    }
+}
+
+impl MultiSegmentSearchResults {
+    pub fn current_segment(&mut self) -> Option<&mut ScorerIter> {
+        self.iterators.last_mut()
     }
 
-    fn count(self) -> usize
-    where
-        Self: Sized,
-    {
-        match self {
-            SearchResults::None => 0,
-            SearchResults::TopNByScore(_, _, iter) => iter.count(),
-            SearchResults::TopNByTweakedScore(_, _, iter) => iter.count(),
-            SearchResults::TopNByField(_, _, iter) => iter.count(),
-            SearchResults::MultiSegment(_, _, iters, offset) => {
-                let total: usize = iters.into_iter().map(|iter| iter.count()).sum();
-                total.saturating_sub(offset)
+    pub fn current_segment_pop(&mut self) -> Option<ScorerIter> {
+        self.iterators.pop()
+    }
+}
+
+impl Iterator for MultiSegmentSearchResults {
+    type Item = (SearchIndexScore, DocAddress);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let last = self.iterators.last_mut()?;
+            match last.next() {
+                Some((score, doc_address)) => {
+                    let ctid_ff = self.ctid_column.get_or_insert_with(|| {
+                        FFType::new_ctid(
+                            self.searcher
+                                .segment_reader(doc_address.segment_ord)
+                                .fast_fields(),
+                        )
+                    });
+                    let scored = SearchIndexScore {
+                        ctid: ctid_ff
+                            .as_u64(doc_address.doc_id)
+                            .expect("ctid should be present"),
+                        bm25: score,
+                    };
+
+                    return Some((scored, doc_address));
+                }
+                None => {
+                    // last iterator is empty, so pop it off, clear the fast field type cache,
+                    // and loop back around to get the next one
+                    self.iterators.pop();
+                    self.ctid_column = None;
+                    continue;
+                }
             }
         }
     }
@@ -296,19 +283,20 @@ impl SearchIndexReader {
 
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
-            let mut parser = QueryParser::for_index(
-                &index,
-                schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-            );
             search_query_input
                 .into_tantivy_query(
                     &schema,
-                    &mut parser,
+                    &|| {
+                        QueryParser::for_index(
+                            &index,
+                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                        )
+                    },
                     &searcher,
                     index_relation.oid(),
                     index_relation.rel_oid(),
                 )
-                .expect("must be able to parse query")
+                .unwrap_or_else(|e| panic!("{e}"))
         };
 
         Ok(Self {
@@ -356,23 +344,24 @@ impl SearchIndexReader {
     }
 
     pub fn make_query(&self, search_query_input: SearchQueryInput) -> Box<dyn Query> {
-        let mut parser = QueryParser::for_index(
-            &self.underlying_index,
-            self.schema
-                .fields()
-                .map(|(field, _)| field)
-                .collect::<Vec<_>>(),
-        );
         search_query_input
             .clone()
             .into_tantivy_query(
                 &self.schema,
-                &mut parser,
+                &|| {
+                    QueryParser::for_index(
+                        &self.underlying_index,
+                        self.schema
+                            .fields()
+                            .map(|(field, _)| field)
+                            .collect::<Vec<_>>(),
+                    )
+                },
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
             )
-            .expect("must be able to parse query")
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
@@ -434,27 +423,13 @@ impl SearchIndexReader {
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    pub fn search(&self, _estimated_rows: Option<usize>) -> SearchResults {
-        let iters = self
-            .searcher()
-            .segment_readers()
-            .iter()
-            .enumerate()
-            .map(move |(segment_ord, segment_reader)| {
-                scorer_iter::ScorerIter::new(
-                    DeferredScorer::new(
-                        self.query().box_clone(),
-                        self.need_scores,
-                        segment_reader.clone(),
-                        self.searcher.clone(),
-                    ),
-                    segment_ord as SegmentOrdinal,
-                    segment_reader.clone(),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, 0)
+    pub fn search(&self) -> MultiSegmentSearchResults {
+        self.search_segments(
+            self.searcher()
+                .segment_readers()
+                .iter()
+                .map(|s| s.segment_id()),
+        )
     }
 
     /// Search specific index segments for matching documents.
@@ -466,10 +441,9 @@ impl SearchIndexReader {
     pub fn search_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        offset: usize,
-    ) -> SearchResults {
-        let iters = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            scorer_iter::ScorerIter::new(
+    ) -> MultiSegmentSearchResults {
+        let iterators = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
+            ScorerIter::new(
                 DeferredScorer::new(
                     self.query().box_clone(),
                     self.need_scores,
@@ -481,69 +455,236 @@ impl SearchIndexReader {
             )
         });
 
-        SearchResults::MultiSegment(self.searcher.clone(), Default::default(), iters, offset)
+        MultiSegmentSearchResults {
+            searcher: self.searcher.clone(),
+            ctid_column: Default::default(),
+            iterators,
+        }
     }
 
     /// Search the Tantivy index for the "top N" matching documents in specific segments.
     ///
-    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
-    /// or least relevant first if it's [`SortDirection::Asc`].
+    /// The documents are returned in either score or field order, in the given direction.
     ///
     /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
     /// handle that, if it's necessary.
-    #[allow(clippy::too_many_arguments)]
     pub fn search_top_n_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        sort_field: Option<FieldName>,
-        sortdir: SortDirection,
+        orderby_info: Option<&Vec<OrderByInfo>>,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
-        if let Some(sort_field) = sort_field {
-            let field = self
-                .schema
-                .search_field(&sort_field)
-                .expect("sort field should exist in index schema");
-            match field.field_entry().field_type().value_type() {
-                tantivy::schema::Type::Str => self.top_by_string_field_in_segments(
-                    segment_ids,
-                    sort_field,
-                    sortdir,
-                    n,
-                    offset,
-                ),
-                _ => self.top_by_field_in_segments(segment_ids, sort_field, sortdir, n, offset),
+    ) -> TopNSearchResults {
+        let erased_features = self.erased_features(orderby_info);
+        match orderby_info.and_then(|oi| oi.first()) {
+            Some(OrderByInfo {
+                feature: OrderByFeature::Field(sort_field),
+                direction,
+            }) => {
+                let field = self
+                    .schema
+                    .search_field(sort_field)
+                    .expect("sort field should exist in index schema");
+                match field.field_entry().field_type().value_type() {
+                    tantivy::schema::Type::Str => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::string(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    tantivy::schema::Type::U64 => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::u64(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    tantivy::schema::Type::I64 => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::i64(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    tantivy::schema::Type::F64 => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::f64(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    tantivy::schema::Type::Bool => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::bool(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    tantivy::schema::Type::Date => TopNSearchResults::new_for_discarded_field(
+                        &self.searcher,
+                        self.top_in_segments(
+                            segment_ids,
+                            FieldFeature::datetime(sort_field),
+                            *direction,
+                            erased_features,
+                            n,
+                            offset,
+                        ),
+                    ),
+                    x => {
+                        // NOTE: This list of supported field types must be synced with
+                        // `SearchField::is_sortable`.
+                        panic!("Unsupported order-by field type: {x:?}");
+                    }
+                }
             }
-        } else {
-            self.top_by_score_in_segments(segment_ids, sortdir, n, offset)
+            Some(OrderByInfo {
+                feature: OrderByFeature::Score,
+                direction,
+            }) if !erased_features.is_empty() => {
+                // If we've directly sorted on the score, then we have it available here.
+                TopNSearchResults::new_for_score(
+                    &self.searcher,
+                    self.top_in_segments(
+                        segment_ids,
+                        ScoreFeature,
+                        *direction,
+                        erased_features,
+                        n,
+                        offset,
+                    ),
+                )
+            }
+            Some(OrderByInfo {
+                feature: OrderByFeature::Score,
+                direction,
+            }) => {
+                // TODO: See method docs.
+                self.top_by_score_in_segments(segment_ids, *direction, n, offset)
+            }
+            None => {
+                // Do an un-ordered search.
+                TopNSearchResults::new(
+                    self.search_segments(segment_ids)
+                        .skip(offset)
+                        .take(n)
+                        .collect(),
+                )
+            }
         }
     }
 
-    /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in the given segments.
+    /// Called by `search_top_n_in_segments`.
     ///
-    /// The documents are returned in field order.  Largest first if `sortdir` is [`SortDirection::Desc`],
-    /// or smallest first if it's [`SortDirection::Asc`].
+    /// `search_top_n_in_segments` is specialized for all combinations of:
+    /// 1. first sort field type -- via the generic `F: Feature` parameter of this method. This
+    ///    gets us unboxed/optimized comparison for the first feature, which always receives more
+    ///    comparison than the remaining features (sometimes a lot more).
+    /// 2. supported sort field counts (from 1 to MAX_TOPN_FEATURES) -- by calls to
+    ///    `top_in_segments_for_orderable` for varying tuple lengths. Ordering on tuples is what is
+    ///    supported by `TopDocs::order_by`, because it avoids allocation, and allows for the most
+    ///    inlining of comparisons.
     ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    fn top_by_field_in_segments(
+    /// To avoid a combinatorial explosion of generated code we do not support specializing more
+    /// than the first sort field type: to do so, we'd likely need a macro which generated all
+    /// possible permutations of `F: Feature` types for three columns (which would be 7^3=343 copies
+    /// of the method at time of writing).
+    fn top_in_segments<F: Feature + Clone>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
-        sort_field: impl AsRef<str> + Display,
-        sortdir: SortDirection,
+        first_feature: F,
+        first_sortdir: SortDirection,
+        mut erased_features: Vec<(ErasedFeature, SortDirection)>,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> Vec<(F::Output, DocAddress)> {
+        match erased_features.len() {
+            0 => self
+                .top_in_segments_for_orderable(
+                    segment_ids,
+                    ((first_feature, first_sortdir.into()),),
+                    n,
+                    offset,
+                )
+                .into_iter()
+                .map(|((f,), doc)| (f, doc))
+                .collect(),
+            1 => {
+                let erased_feature = erased_features.pop().unwrap();
+                self.top_in_segments_for_orderable(
+                    segment_ids,
+                    (
+                        (first_feature, first_sortdir.into()),
+                        (erased_feature.0, erased_feature.1.into()),
+                    ),
+                    n,
+                    offset,
+                )
+                .into_iter()
+                .map(|((f, _), doc)| (f, doc))
+                .collect()
+            }
+            2 => {
+                let erased_feature2 = erased_features.pop().unwrap();
+                let erased_feature1 = erased_features.pop().unwrap();
+                self.top_in_segments_for_orderable(
+                    segment_ids,
+                    (
+                        (first_feature, first_sortdir.into()),
+                        (erased_feature1.0, erased_feature1.1.into()),
+                        (erased_feature2.0, erased_feature2.1.into()),
+                    ),
+                    n,
+                    offset,
+                )
+                .into_iter()
+                .map(|((f, _, _), doc)| (f, doc))
+                .collect()
+            }
+            x => {
+                panic!(
+                    "Unsupported sort-field count: {}. At most {MAX_TOPN_FEATURES} are supported.",
+                    x + 1,
+                )
+            }
+        }
+    }
+
+    /// See `top_in_segments` and `search_top_n_in_segments`.
+    fn top_in_segments_for_orderable<O: TopOrderable>(
+        &self,
+        segment_ids: impl Iterator<Item = SegmentId>,
+        orderable: O,
+        n: usize,
+        offset: usize,
+    ) -> Vec<(O::Output, DocAddress)> {
         let collector = TopDocs::with_limit(n)
             .and_offset(offset)
-            .order_by_u64_field(&sort_field, sortdir.into());
-        let weight = self
-            .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
+            .order_by(orderable);
+        let query = self.query();
+        let weight = query
+            .weight(enable_scoring(self.need_scores, &self.searcher))
             .expect("creating a Weight from a Query should not fail");
 
         let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
@@ -552,85 +693,23 @@ impl SearchIndexReader {
                 .expect("should be able to collect top-n in segment")
         });
 
-        let top_docs = collector
+        collector
             .merge_fruits(top_docs)
-            .expect("should be able to merge top-n in segments");
-        SearchResults::TopNByField(
-            self.searcher.clone(),
-            Default::default(),
-            // TODO: We are discarding a u64-encoded numeric field value here.
-            // To actually fetch it, we might switch the `TopDocs::order_by_u64_field` call to
-            // `TopDocs::order_by_fast_field`, which handles the decoding.
-            top_docs
-                .into_iter()
-                .map(|(_, doc)| doc)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
+            .expect("should be able to merge top-n in segments")
     }
 
-    /// Search the Tantivy index for the "top N" matching documents (ordered by a field) in the given segments.
+    /// Order by score only.
     ///
-    /// The documents are returned in field order.  Largest first if `sortdir` is [`SortDirection::Desc`],
-    /// or smallest first if it's [`SortDirection::Asc`].
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
-    fn top_by_string_field_in_segments(
-        &self,
-        segment_ids: impl Iterator<Item = SegmentId>,
-        sort_field: FieldName,
-        sortdir: SortDirection,
-        n: usize,
-        offset: usize,
-    ) -> SearchResults {
-        let collector = TopDocs::with_limit(n)
-            .and_offset(offset)
-            .order_by_string_fast_field(&sort_field, sortdir.into());
-        let weight = self
-            .query
-            .weight(tantivy::query::EnableScoring::Enabled {
-                searcher: &self.searcher,
-                statistics_provider: &self.searcher,
-            })
-            .expect("creating a Weight from a Query should not fail");
-
-        let top_docs = self.collect_segments(segment_ids, |segment_ord, segment_reader| {
-            collector
-                .collect_segment(weight.as_ref(), segment_ord, segment_reader)
-                .expect("should be able to collect top-n in segment")
-        });
-
-        let top_docs = collector
-            .merge_fruits(top_docs)
-            .expect("should be able to merge top-n in segments");
-        SearchResults::TopNByField(
-            self.searcher.clone(),
-            Default::default(),
-            // TODO: We are discarding a valid string field value here, but could in theory actually
-            // render it using a virtual tuple for the right query shape.
-            top_docs
-                .into_iter()
-                .map(|(_, doc)| doc)
-                .collect::<Vec<_>>()
-                .into_iter(),
-        )
-    }
-
-    /// Search the Tantivy index for the "top N" matching documents (ordered by score) in the given segments.
-    ///
-    /// The documents are returned in score order.  Most relevant first if `sortdir` is [`SortDirection::Desc`],
-    /// or least relevant first if it's [`SortDirection::Asc`].
-    ///
-    /// It has no understanding of Postgres MVCC visibility.  It is the caller's responsibility to
-    /// handle that, if it's necessary.
+    /// TODO: This is a special case for a single score feature: the score-only codepath is highly
+    /// specialized, and at least 50% faster than `TopDocs::order_by` when sorting on only the
+    /// score. We should try to close that gap over time, but for now we special case it.
     fn top_by_score_in_segments(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
         sortdir: SortDirection,
         n: usize,
         offset: usize,
-    ) -> SearchResults {
+    ) -> TopNSearchResults {
         match sortdir {
             // requires tweaking the score, which is a bit slower
             SortDirection::Asc => {
@@ -644,8 +723,7 @@ impl SearchIndexReader {
 
                 let collector = TopDocs::with_limit(n).and_offset(offset).tweak_score(
                     move |_segment_reader: &tantivy::SegmentReader| {
-                        move |_doc: DocId, original_score: Score| TweakedScore {
-                            dir: sortdir,
+                        move |_doc: DocId, original_score: Score| AscendingScore {
                             score: original_score,
                         }
                     },
@@ -661,10 +739,11 @@ impl SearchIndexReader {
                     .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
-                SearchResults::TopNByTweakedScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
+                TopNSearchResults::new_for_score(
+                    &self.searcher,
+                    top_docs
+                        .into_iter()
+                        .map(|(score, doc_address)| (score.score, doc_address)),
                 )
             }
 
@@ -690,14 +769,8 @@ impl SearchIndexReader {
                     .merge_fruits(top_docs)
                     .expect("should be able to merge top-n in segment");
 
-                SearchResults::TopNByScore(
-                    self.searcher.clone(),
-                    Default::default(),
-                    top_docs.into_iter(),
-                )
+                TopNSearchResults::new_for_score(&self.searcher, top_docs)
             }
-
-            SortDirection::None => self.search_segments(segment_ids, offset),
         }
     }
 
@@ -731,6 +804,50 @@ impl SearchIndexReader {
             .expect("search should not fail")
     }
 
+    /// Create erased Features for the given OrderByInfo.
+    ///
+    /// See `top_in_segments` and `sort_features!`.
+    fn erased_features(
+        &self,
+        orderby_infos: Option<&Vec<OrderByInfo>>,
+    ) -> Vec<(ErasedFeature, SortDirection)> {
+        let remainder = orderby_infos.and_then(|oi| oi.get(1..)).unwrap_or(&[]);
+        remainder
+            .iter()
+            .map(|orderby_info| match orderby_info {
+                OrderByInfo {
+                    feature: OrderByFeature::Field(sort_field),
+                    direction,
+                } => {
+                    let field = self
+                        .schema
+                        .search_field(sort_field)
+                        .expect("sort field should exist in index schema");
+
+                    let feature = match field.field_entry().field_type().value_type() {
+                        tantivy::schema::Type::Str => FieldFeature::string(sort_field).erased(),
+                        tantivy::schema::Type::U64 => FieldFeature::u64(sort_field).erased(),
+                        tantivy::schema::Type::I64 => FieldFeature::i64(sort_field).erased(),
+                        tantivy::schema::Type::F64 => FieldFeature::f64(sort_field).erased(),
+                        tantivy::schema::Type::Bool => FieldFeature::bool(sort_field).erased(),
+                        tantivy::schema::Type::Date => FieldFeature::datetime(sort_field).erased(),
+                        x => {
+                            // NOTE: This list of supported field types must be synced with
+                            // `SearchField::is_sortable`.
+                            panic!("Unsupported order-by field type: {x:?}");
+                        }
+                    };
+
+                    (feature, *direction)
+                }
+                OrderByInfo {
+                    feature: OrderByFeature::Score,
+                    direction,
+                } => (ScoreFeature.erased(), *direction),
+            })
+            .collect()
+    }
+
     fn collect_segments<T>(
         &self,
         segment_ids: impl Iterator<Item = SegmentId>,
@@ -751,147 +868,10 @@ impl SearchIndexReader {
     }
 }
 
-fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
+pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
     } else {
         EnableScoring::disabled_from_searcher(searcher)
-    }
-}
-
-mod scorer_iter {
-    use crate::index::reader::index::enable_scoring;
-    use std::sync::OnceLock;
-    use tantivy::query::{Query, Scorer};
-    use tantivy::{DocAddress, DocId, DocSet, Score, Searcher, SegmentOrdinal, SegmentReader};
-
-    pub struct DeferredScorer {
-        query: Box<dyn Query>,
-        need_scores: bool,
-        segment_reader: SegmentReader,
-        searcher: Searcher,
-        scorer: OnceLock<Box<dyn Scorer>>,
-    }
-
-    impl DeferredScorer {
-        pub fn new(
-            query: Box<dyn Query>,
-            need_scores: bool,
-            segment_reader: SegmentReader,
-            searcher: Searcher,
-        ) -> Self {
-            Self {
-                query,
-                need_scores,
-                segment_reader,
-                searcher,
-                scorer: Default::default(),
-            }
-        }
-
-        #[track_caller]
-        #[inline(always)]
-        fn scorer_mut(&mut self) -> &mut Box<dyn Scorer> {
-            self.scorer();
-            self.scorer
-                .get_mut()
-                .expect("deferred scorer should have been initialized")
-        }
-
-        #[track_caller]
-        #[inline(always)]
-        fn scorer(&self) -> &dyn Scorer {
-            self.scorer.get_or_init(|| {
-                let weight = self
-                    .query
-                    .weight(enable_scoring(self.need_scores, &self.searcher))
-                    .expect("weight should be constructable");
-
-                weight
-                    .scorer(&self.segment_reader, 1.0)
-                    .expect("scorer should be constructable")
-            })
-        }
-    }
-
-    impl DocSet for DeferredScorer {
-        #[inline(always)]
-        fn advance(&mut self) -> DocId {
-            self.scorer_mut().advance()
-        }
-
-        #[inline(always)]
-        fn doc(&self) -> DocId {
-            self.scorer().doc()
-        }
-
-        fn size_hint(&self) -> u32 {
-            self.scorer().size_hint()
-        }
-    }
-
-    impl Scorer for DeferredScorer {
-        #[inline(always)]
-        fn score(&mut self) -> Score {
-            self.scorer_mut().score()
-        }
-    }
-
-    pub struct ScorerIter {
-        deferred: DeferredScorer,
-        segment_ord: SegmentOrdinal,
-        segment_reader: SegmentReader,
-    }
-
-    impl ScorerIter {
-        pub fn new(
-            scorer: DeferredScorer,
-            segment_ord: SegmentOrdinal,
-            segment_reader: SegmentReader,
-        ) -> Self {
-            Self {
-                deferred: scorer,
-                segment_ord,
-                segment_reader,
-            }
-        }
-    }
-
-    impl Iterator for ScorerIter {
-        type Item = (Score, DocAddress);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            loop {
-                let doc_id = self.deferred.doc();
-
-                if doc_id == tantivy::TERMINATED {
-                    // we've read all the docs
-                    return None;
-                } else if self
-                    .segment_reader
-                    .alive_bitset()
-                    .map(|alive_bitset| alive_bitset.is_alive(doc_id))
-                    // if there's no alive_bitset, the doc is alive
-                    .unwrap_or(true)
-                {
-                    // this doc is alive
-                    let score = self.deferred.score();
-                    let this = (score, DocAddress::new(self.segment_ord, doc_id));
-
-                    // move to the next doc for the next iteration
-                    self.deferred.advance();
-
-                    // return the live doc
-                    return Some(this);
-                }
-
-                // this doc isn't alive, move to the next doc and loop around
-                self.deferred.advance();
-            }
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            (0, Some(self.deferred.size_hint() as usize))
-        }
     }
 }

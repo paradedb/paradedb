@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::reader::index::SearchResults;
+use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::pdbscan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::pdbscan::is_block_all_visible;
 use crate::postgres::customscan::pdbscan::parallel::checkout_segment;
@@ -31,7 +31,7 @@ pub struct NormalScanExecState {
     slot: *mut pg_sys::TupleTableSlot,
     vmbuff: pg_sys::Buffer,
 
-    search_results: SearchResults,
+    search_results: Option<MultiSegmentSearchResults>,
 
     // tracks our previous block visibility so we can elide checking again
     blockvis: (pg_sys::BlockNumber, bool),
@@ -46,7 +46,7 @@ impl Default for NormalScanExecState {
             heaprel: None,
             slot: std::ptr::null_mut(),
             vmbuff: pg_sys::InvalidBuffer as pg_sys::Buffer,
-            search_results: SearchResults::None,
+            search_results: None,
             blockvis: (pg_sys::InvalidBlockNumber, false),
             did_query: false,
         }
@@ -84,16 +84,18 @@ impl ExecMethod for NormalScanExecState {
     fn query(&mut self, state: &mut PdbScanState) -> bool {
         if let Some(parallel_state) = state.parallel_state {
             if let Some(segment_id) = unsafe { checkout_segment(parallel_state) } {
-                self.search_results = state
-                    .search_reader
-                    .as_ref()
-                    .unwrap()
-                    .search_segments([segment_id].into_iter(), 0);
+                self.search_results = Some(
+                    state
+                        .search_reader
+                        .as_ref()
+                        .unwrap()
+                        .search_segments([segment_id].into_iter()),
+                );
                 return true;
             }
 
             // no more segments to query
-            self.search_results = SearchResults::None;
+            self.search_results = None;
             false
         } else if self.did_query {
             // not parallel, so we're done
@@ -107,7 +109,11 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn internal_next(&mut self, _state: &mut PdbScanState) -> ExecState {
-        match self.search_results.next() {
+        let Some(search_results) = self.search_results.as_mut() else {
+            return ExecState::Eof;
+        };
+
+        match search_results.next() {
             // no more rows
             None => ExecState::Eof,
 
@@ -162,7 +168,8 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn reset(&mut self, _state: &mut PdbScanState) {
-        // Reset tracking state but don't clear search_results - that's handled by PdbScanState.reset()
+        // Reset state
+        self.search_results = None;
         self.did_query = false;
 
         // Reset the block visibility cache
@@ -176,11 +183,13 @@ impl NormalScanExecState {
         if self.did_query {
             return false;
         }
-        self.search_results = state
-            .search_reader
-            .as_ref()
-            .expect("must have a search_reader to do a query")
-            .search(state.limit);
+        self.search_results = Some(
+            state
+                .search_reader
+                .as_ref()
+                .expect("must have a search_reader to do a query")
+                .search(),
+        );
         self.did_query = true;
         true
     }

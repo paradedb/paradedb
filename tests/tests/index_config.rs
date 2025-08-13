@@ -657,12 +657,9 @@ fn partitioned_uses_custom_scan(mut conn: PgConnection) {
             per_partition_plan.get("Node Type"),
             Some(&Value::String(String::from("Custom Scan")))
         );
-        let query = per_partition_plan
-            .get("Human Readable Query")
-            .unwrap()
-            .to_string();
+        let query = per_partition_plan.get("Tantivy Query").unwrap().to_string();
         assert!(
-            query.to_string().contains("sale_date:2023-01-10"),
+            query.to_string().contains("2023-01-10"),
             "Expected sale_date to be pushed down into query: {query:?}",
         );
     }
@@ -956,13 +953,13 @@ fn partitioned_order_by_limit_pushdown(mut conn: PgConnection) {
 
     // Verify sort field and direction
     assert!(
-        explain_output.contains("Sort Field: sale_date"),
+        explain_output.contains("TopN Order By: sale_date asc"),
         "Expected sort field to be sale_date"
     );
 
     // Verify the limit is pushed down
     assert!(
-        explain_output.contains("Top N Limit: 5"),
+        explain_output.contains("TopN Limit: 5"),
         "Expected limit 5 to be pushed down"
     );
 

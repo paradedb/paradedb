@@ -551,7 +551,7 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
  Text 8      | Sample 8    |          8 | t
 (25 rows)
 
--- Test 4: Should use StringFastFieldExecState when only one string field
+-- Test 4: Should use MixedFastFieldExecState when only one string field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT text_field1
 FROM exec_method_test
@@ -564,14 +564,12 @@ ORDER BY text_field1;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Exec Method: StringFastFieldExecState
+         Exec Method: MixedFastFieldExecState
          Fast Fields: text_field1
-         String Agg Field: text_field1
+         String Fast Fields: text_field1
          Scores: false
-            Sort Field: text_field1
-            Sort Direction: asc
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(10 rows)
 
 SELECT text_field1
 FROM exec_method_test
@@ -631,7 +629,7 @@ ORDER BY text_field1;
  Text 9
 (50 rows)
 
--- Test 5: Should use NumericFastFieldExecState when only numeric fields
+-- Test 5: Should use MixedFastFieldExecState when only numeric fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT num_field1, num_field2
 FROM exec_method_test
@@ -644,11 +642,12 @@ ORDER BY num_field1, num_field2;
    ->  Custom Scan (ParadeDB Scan) on exec_method_test
          Table: exec_method_test
          Index: exec_method_idx
-         Exec Method: NumericFastFieldExecState
+         Exec Method: MixedFastFieldExecState
          Fast Fields: num_field1, num_field2
+         Numeric Fast Fields: num_field1, num_field2
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
-(9 rows)
+(10 rows)
 
 SELECT num_field1, num_field2
 FROM exec_method_test

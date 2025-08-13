@@ -48,6 +48,7 @@ pub mod rel;
 pub mod spinlock;
 pub mod storage;
 pub mod types;
+pub mod types_arrow;
 pub mod utils;
 pub mod var;
 pub mod visibility_checker;

@@ -101,9 +101,7 @@ pub fn check_execution_plan_metrics(execution_method: &str, plan: &Value) {
     for metric in metrics {
         let values = collect_json_field_values(plan, metric);
         if ASSERT_HEAP_VIRTUAL_TUPLES {
-            if execution_method == "MixedFastFieldExec"
-                || execution_method == "NumericFastFieldExec"
-            {
+            if execution_method == "MixedFastFieldExec" {
                 values.iter().for_each(|v| {
                     assert!(v.is_number());
                     if metric == "Heap Fetches" {
@@ -149,8 +147,6 @@ pub fn detect_exec_method(plan: &Value) -> String {
     if plan_str.contains("Exec Method") {
         if plan_str.contains("MixedFastFieldExecState") {
             return "MixedFastFieldExec".to_string();
-        } else if plan_str.contains("NumericFastFieldExecState") {
-            return "NumericFastFieldExec".to_string();
         } else if plan_str.contains("NormalScanExecState") {
             return "NormalScanExecState".to_string();
         } else if uses_custom_scan {
@@ -272,10 +268,9 @@ pub fn display_results(results: &[BenchmarkResult]) {
     test_groups.sort_by_key(|(name, _)| name.to_string());
     for (base_name, group_results) in test_groups {
         // Identify results by their test names, which include the execution method
-        let mixed_result = group_results.iter().find(|r| {
-            r.test_name.contains("MixedFastFieldExec")
-                || r.test_name.contains("NumericFastFieldExec")
-        });
+        let mixed_result = group_results
+            .iter()
+            .find(|r| r.test_name.contains("MixedFastFieldExec"));
 
         let normal_result = group_results
             .iter()
@@ -356,19 +351,12 @@ pub async fn set_execution_method(
     table_name: &str,
 ) -> Result<()> {
     // Create appropriate index if execution method is specified
-    // This should be either "MixedFastFieldExec" or "NumericFastFieldExec"
+    // This should be "MixedFastFieldExec"
     if execution_method == "MixedFastFieldExec" {
         sqlx::query("SET paradedb.enable_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
         sqlx::query("SET paradedb.enable_mixed_fast_field_exec = true")
-            .execute(&mut *conn)
-            .await?;
-    } else if execution_method == "NumericFastFieldExec" {
-        sqlx::query("SET paradedb.enable_fast_field_exec = true")
-            .execute(&mut *conn)
-            .await?;
-        sqlx::query("SET paradedb.enable_mixed_fast_field_exec = false")
             .execute(&mut *conn)
             .await?;
     } else {
@@ -617,16 +605,6 @@ pub async fn benchmark_mixed_fast_fields(
     )
     .await?;
 
-    run_benchmarks_with_methods(
-        conn,
-        group_count_query,
-        "Group By Count - NumericFF",
-        &["NumericFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
-
     // Test 8: Select ID with filter
     let select_id_query = "SELECT id FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
 
@@ -640,16 +618,6 @@ pub async fn benchmark_mixed_fast_fields(
     )
     .await?;
 
-    run_benchmarks_with_methods(
-        conn,
-        select_id_query,
-        "Select ID - NumericFF",
-        &["NumericFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
-
     // Test 9: Aggregation with sum
     let sum_query = "SELECT SUM(numeric_field1) FROM benchmark_data WHERE string_field1 @@@ '\"alpha_complex_identifier_123456789\"'";
 
@@ -658,16 +626,6 @@ pub async fn benchmark_mixed_fast_fields(
         sum_query,
         "Sum Aggregation - MixedFF",
         &["MixedFastFieldExec", "NormalScanExecState"],
-        &mut results,
-        &config,
-    )
-    .await?;
-
-    run_benchmarks_with_methods(
-        conn,
-        sum_query,
-        "Sum Aggregation - NumericFF",
-        &["NumericFastFieldExec", "NormalScanExecState"],
         &mut results,
         &config,
     )

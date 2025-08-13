@@ -225,7 +225,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
+          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark bulk-updates.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -237,7 +237,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
+          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark wide-table.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -249,7 +249,7 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
+          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark background-merge.toml
         uses: ./.github/actions/benchmark-stressgres
@@ -261,4 +261,4 @@ jobs:
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.BENCHMARK_DATA_DEPLOY_KEY }}
+          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}

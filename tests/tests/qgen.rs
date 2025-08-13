@@ -47,37 +47,48 @@ CREATE TABLE {tname}
     uuid  UUID NOT NULL,
     name  TEXT,
     color VARCHAR,
-    age   VARCHAR
+    age   INTEGER,
+    price NUMERIC(10,2),
+    rating INTEGER
 );
 
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age)
+CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age, price, rating)
 WITH (
 key_field = 'id',
 text_fields = '
             {{
                 "uuid": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
                 "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "age": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
+            }}',
+numeric_fields = '
+            {{
+                "age": {{ "fast": true }},
+                "price": {{ "fast": true }},
+                "rating": {{ "fast": true }}
             }}'
 );
 
-INSERT into {tname} (uuid, name, color, age)
-VALUES (gen_random_uuid(), 'bob', 'blue', 20);
+INSERT into {tname} (uuid, name, color, age, price, rating)
+VALUES (gen_random_uuid(), 'bob', 'blue', 20, 99.99, 4);
 
-INSERT into {tname} (uuid, name, color, age)
+INSERT into {tname} (uuid, name, color, age, price, rating)
 SELECT
       gen_random_uuid(),
       (ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
       (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int::text
+      (floor(random() * 100) + 1)::int,
+      (random() * 1000 + 10)::numeric(10,2),
+      (floor(random() * 5) + 1)::int
 FROM generate_series(1, {row_count});
 
 CREATE INDEX idx{tname}_uuid ON {tname} (uuid);
 CREATE INDEX idx{tname}_name ON {tname} (name);
 CREATE INDEX idx{tname}_color ON {tname} (color);
 CREATE INDEX idx{tname}_age ON {tname} (age);
+CREATE INDEX idx{tname}_price ON {tname} (price);
+CREATE INDEX idx{tname}_rating ON {tname} (rating);
 ANALYZE;
 "#
         );
@@ -237,34 +248,43 @@ async fn generated_group_by_aggregates(database: Db) {
     eprintln!("{setup_sql}");
 
     // Columns that can be used for grouping (must have fast: true in index)
-    // TODO(#2903): Add support for more data types (other than text)
-    let grouping_columns = ["name", "color", "age"];
+    let grouping_columns = ["name", "color", "age", "rating"];
 
     proptest!(|(
-        where_expr in arb_wheres(
+        text_where_expr in arb_wheres(
             vec![table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            vec![("name", "bob"), ("color", "blue")]
         ),
-        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)"]),
+        numeric_where_expr in arb_wheres(
+            vec![table_name],
+            vec![("age", "20"), ("price", "99.99"), ("rating", "4")]
+        ),
+        group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
         gucs in any::<PgGucs>(),
     )| {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
+        // Create combined WHERE clause for PostgreSQL using = operator
+        let pg_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql(" = "),
+            numeric_where_expr.to_sql(" < ")
+        );
+
+        // Create combined WHERE clause for BM25 using appropriate operators
+        let bm25_where_clause = format!(
+            "({}) AND ({})",
+            text_where_expr.to_sql("@@@"),
+            numeric_where_expr.to_sql(" < ")
+        );
+
         let pg_query = format!(
-            "SELECT {} FROM {} WHERE {} {}",
-            select_list,
-            table_name,
-            where_expr.to_sql(" = "),
-            group_by_clause
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
         );
 
         let bm25_query = format!(
-            "SELECT {} FROM {} WHERE {} {}",
-            select_list,
-            table_name,
-            where_expr.to_sql("@@@"),
-            group_by_clause
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
         );
 
         // Custom result comparator for GROUP BY results
@@ -321,10 +341,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        paging_exprs in arb_paging_exprs(table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         compare(
@@ -396,10 +413,7 @@ async fn generated_subquery(database: Db) {
             vec![("name", "bob"), ("color", "blue"), ("age", "20")]
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
-        // TODO: Until https://github.com/paradedb/paradedb/issues/2642 is resolved, we do not
-        // tiebreak appropriately for compound columns, and so we do not pass any non-tiebreak
-        // columns here.
-        paging_exprs in arb_paging_exprs(inner_table_name, vec![], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         let pg = format!(

@@ -15,23 +15,119 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::AsCStr;
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
+use crate::api::{AsCStr, OrderByInfo};
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     Count,
+    Sum { field: String },
+    Avg { field: String },
+    Min { field: String },
+    Max { field: String },
 }
 
-// TODO: We should likely directly using tantivy's aggregate types, which all derive serde.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum AggregateValue {
+    #[default]
+    Null,
+    Int(i64),
+    Float(f64),
+}
+
+/// Enum to specify how numbers should be converted for different aggregate types
+#[derive(Debug, Clone, Copy)]
+enum NumberConversionMode {
+    /// For COUNT: validate integer, check range, always return Int
+    ToInt,
+    /// For SUM/MIN/MAX: preserve original type (Int or Float)
+    Preserve,
+    /// For AVG: always convert to Float
+    ToFloat,
+}
+
+/// Represents an aggregate result that can be either a direct value or wrapped in a "value" object
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AggregateResult {
+    /// Direct numeric value (e.g., `42`)
+    DirectValue(serde_json::Number),
+    /// Object with "value" field (e.g., `{"value": 42}`)
+    ValueObject { value: Option<serde_json::Number> },
+    /// Null value
+    Null,
+}
+
+impl AggregateResult {
+    /// Extract the numeric value, returning None if null
+    pub fn extract_number(&self) -> Option<&serde_json::Number> {
+        match self {
+            AggregateResult::DirectValue(num) => Some(num),
+            AggregateResult::ValueObject { value } => value.as_ref(),
+            AggregateResult::Null => None,
+        }
+    }
+}
+
+// TODO: We should use Tantivy's native aggregate types (CountAggregation, SumAggregation, etc.)
+// which implement serde, but the current fork/version produces incorrect JSON structure.
+// The Tantivy types serialize to {"field": "name", "missing": null} instead of
+// the expected {"aggregation_type": {"field": "name"}} format.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
+    /// Get the field name for field-based aggregates (None for COUNT)
+    pub fn field_name(&self) -> Option<String> {
+        match self {
+            AggregateType::Count => None,
+            AggregateType::Sum { field } => Some(field.clone()),
+            AggregateType::Avg { field } => Some(field.clone()),
+            AggregateType::Min { field } => Some(field.clone()),
+            AggregateType::Max { field } => Some(field.clone()),
+        }
+    }
+
     pub fn to_json(&self) -> serde_json::Value {
-        serde_json::from_str(r#"{"value_count": {"field": "ctid"}}"#).unwrap()
+        match self {
+            AggregateType::Count => {
+                serde_json::json!({
+                    "value_count": {
+                        "field": "ctid"
+                    }
+                })
+            }
+            AggregateType::Sum { field } => {
+                serde_json::json!({
+                    "sum": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Avg { field } => {
+                serde_json::json!({
+                    "avg": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Min { field } => {
+                serde_json::json!({
+                    "min": {
+                        "field": field
+                    }
+                })
+            }
+            AggregateType::Max { field } => {
+                serde_json::json!({
+                    "max": {
+                        "field": field
+                    }
+                })
+            }
+        }
     }
 
     #[allow(unreachable_patterns)]
@@ -42,16 +138,111 @@ impl AggregateType {
         }
     }
 
-    pub fn result_from_json(&self, result: &serde_json::Number) -> i64 {
-        let f64_val = result.as_f64().expect("invalid aggregate result size");
+    /// Convert AggregateResult to AggregateValue with empty result set handling.
+    ///
+    /// This method handles the interaction between aggregate types, document counts,
+    /// and number processing to ensure correct behavior across all scenarios:
+    ///
+    /// ## Empty Result Set Handling
+    /// When `doc_count` is provided and equals 0, this indicates an empty result set:
+    /// - **COUNT**: Returns 0 (counting zero documents is valid and equals 0)
+    /// - **SUM**: Returns NULL (sum of empty set is undefined/NULL in SQL standard)
+    /// - **AVG/MIN/MAX**: Processed normally (will return NULL from empty AggregateResult)
+    ///
+    /// ## Document Count Usage by Aggregate Type
+    /// - **SUM**: Uses `doc_count` to distinguish truly empty buckets (doc_count=0) from
+    ///   buckets containing documents with zero/null field values
+    /// - **Other aggregates**: Ignore `doc_count` as they can determine emptiness from
+    ///   the aggregate result itself
+    ///
+    /// ## Number Processing and Type Conversion
+    /// Once a valid numeric result is extracted, it undergoes type-specific processing:
+    /// - **COUNT**: Validates integer values, checks range, always returns Int
+    /// - **SUM/MIN/MAX**: Preserves original type (Int or Float) from the result
+    /// - **AVG**: Always converts to Float (division result should be floating-point)
+    ///
+    /// ## Parameters
+    /// - `result`: The raw aggregate result from the search engine (JSON format)
+    /// - `doc_count`: Optional document count for the bucket/result set being processed
+    ///
+    /// ## Returns
+    /// `AggregateValue` which can be Int, Float, or Null depending on the aggregate type
+    /// and the input data.
+    pub fn result_from_aggregate_with_doc_count(
+        &self,
+        result: AggregateResult,
+        doc_count: Option<i64>,
+    ) -> AggregateValue {
+        // Handle empty result sets for SUM aggregates specifically
+        // SUM needs doc_count to distinguish empty buckets from buckets with zero values
+        if matches!(self, AggregateType::Sum { .. }) && doc_count == Some(0) {
+            return AggregateValue::Null;
+        }
 
-        if f64_val.fract() != 0.0 {
-            panic!("COUNT should not have a fractional result");
+        // Extract the numeric value from the aggregate result
+        // This handles both direct values and {"value": ...} wrapped objects
+        match result.extract_number() {
+            None => AggregateValue::Null,
+            Some(num) => {
+                // Determine the appropriate number conversion mode based on aggregate type
+                let processing_type = match self {
+                    AggregateType::Count => NumberConversionMode::ToInt,
+                    AggregateType::Sum { .. } => NumberConversionMode::Preserve,
+                    AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
+                    AggregateType::Min { .. } => NumberConversionMode::Preserve,
+                    AggregateType::Max { .. } => NumberConversionMode::Preserve,
+                };
+
+                // Process and convert the number according to the aggregate type requirements
+                Self::process_number(num, processing_type)
+            }
         }
-        if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
-            panic!("COUNT value was out of range");
+    }
+
+    /// Process a number value based on the aggregate type requirements
+    fn process_number(
+        num: &serde_json::Number,
+        processing_type: NumberConversionMode,
+    ) -> AggregateValue {
+        match processing_type {
+            NumberConversionMode::ToInt => {
+                let f64_val = num.as_f64().expect("invalid COUNT result");
+                if f64_val.fract() != 0.0 {
+                    panic!("COUNT should not have a fractional result");
+                }
+                if f64_val < (i64::MIN as f64) || (i64::MAX as f64) < f64_val {
+                    panic!("COUNT value was out of range");
+                }
+                AggregateValue::Int(f64_val as i64)
+            }
+            NumberConversionMode::Preserve => {
+                if let Some(int_val) = num.as_i64() {
+                    AggregateValue::Int(int_val)
+                } else if let Some(f64_val) = num.as_f64() {
+                    AggregateValue::Float(f64_val)
+                } else {
+                    panic!("Numeric result should be a valid number");
+                }
+            }
+            NumberConversionMode::ToFloat => {
+                let f64_val = num.as_f64().expect("invalid float result");
+                AggregateValue::Float(f64_val)
+            }
         }
-        f64_val as i64
+    }
+}
+
+impl AggregateValue {
+    pub fn into_datum(self) -> pg_sys::Datum {
+        match self {
+            AggregateValue::Int(val) => val.into_datum().unwrap(),
+            AggregateValue::Float(val) => val.into_datum().unwrap(),
+            AggregateValue::Null => pg_sys::Datum::null(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, AggregateValue::Null)
     }
 }
 
@@ -74,7 +265,7 @@ pub struct PrivateData {
     pub heap_rti: pg_sys::Index,
     pub query: SearchQueryInput,
     pub grouping_columns: Vec<GroupingColumn>,
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
 }
 

@@ -250,3 +250,48 @@ pub fn fieldname_typoid() -> pg_sys::Oid {
         oid
     }
 }
+
+#[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
+#[repr(i32)]
+pub enum SortDirection {
+    #[default]
+    Asc = pg_sys::BTLessStrategyNumber as i32,
+    Desc = pg_sys::BTGreaterStrategyNumber as i32,
+}
+
+impl AsRef<str> for SortDirection {
+    fn as_ref(&self) -> &str {
+        match self {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        }
+    }
+}
+
+impl Display for SortDirection {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+
+impl From<SortDirection> for tantivy::Order {
+    fn from(value: SortDirection) -> Self {
+        match value {
+            SortDirection::Asc => tantivy::Order::Asc,
+            SortDirection::Desc => tantivy::Order::Desc,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum OrderByFeature {
+    Score,
+    Field(FieldName),
+}
+
+/// Simple ORDER BY information for serialization in PrivateData
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrderByInfo {
+    pub feature: OrderByFeature,
+    pub direction: SortDirection,
+}

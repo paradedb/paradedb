@@ -15,10 +15,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, TargetListEntry,
+    AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
-use crate::postgres::customscan::builders::custom_path::OrderByInfo;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
@@ -28,9 +28,15 @@ use tantivy::schema::OwnedValue;
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
 
-// TODO: This should match the output types of the extracted aggregate functions. For now we only
-// support COUNT.
-pub type AggregateRow = TinyVec<[i64; 4]>;
+/// Source of aggregate result data - either from result map or bucket object
+enum AggregateResultSource<'a> {
+    /// Results from simple aggregation (no GROUP BY)
+    ResultMap(&'a serde_json::Map<String, serde_json::Value>),
+    /// Results from bucket aggregation (GROUP BY)
+    BucketObj(&'a serde_json::Map<String, serde_json::Value>),
+}
+
+pub type AggregateRow = TinyVec<[AggregateValue; 4]>;
 
 // For GROUP BY results, we need both the group keys and aggregate values
 #[derive(Debug, Clone)]
@@ -56,7 +62,7 @@ pub struct AggregateScanState {
     // The grouping columns for GROUP BY
     pub grouping_columns: Vec<GroupingColumn>,
     // The ORDER BY information for sorting
-    pub order_by_info: Vec<OrderByInfo>,
+    pub orderby_info: Vec<OrderByInfo>,
     // Maps target list position to data type
     pub target_list_mapping: Vec<TargetListEntry>,
     // The query that will be executed.
@@ -88,13 +94,30 @@ impl AggregateScanState {
     pub fn aggregates_to_json(&self) -> serde_json::Value {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - simple aggregation
-            return serde_json::Value::Object(
-                self.aggregate_types
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
-                    .collect(),
-            );
+            let mut agg_map: serde_json::Map<String, serde_json::Value> = self
+                .aggregate_types
+                .iter()
+                .enumerate()
+                .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
+                .collect();
+
+            // Add a document count aggregation only if we have SUM aggregates (to detect empty result sets)
+            let has_sum = self
+                .aggregate_types
+                .iter()
+                .any(|agg| matches!(agg, AggregateType::Sum { .. }));
+            if has_sum {
+                agg_map.insert(
+                    "_doc_count".to_string(),
+                    serde_json::json!({
+                        "value_count": {
+                            "field": "ctid"
+                        }
+                    }),
+                );
+            }
+
+            return serde_json::Value::Object(agg_map);
         }
         // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
         // We build the JSON bottom-up so that each grouping column nests the next one.
@@ -106,6 +129,9 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
+            // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
+            // TODO: make configurable via issue ##2964
+            terms.insert("size".to_string(), serde_json::Value::Number(10000.into()));
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
@@ -157,22 +183,27 @@ impl AggregateScanState {
                 .as_object()
                 .expect("unexpected aggregate result collection type");
 
+            // Check document count for SUM empty result set detection
+            let doc_count = result_map
+                .get("_doc_count")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get("value"))
+                .and_then(|v| {
+                    // Try both integer and float values
+                    v.as_i64().or_else(|| v.as_f64().map(|f| f as i64))
+                });
+
             let row = self
                 .aggregate_types
                 .iter()
                 .enumerate()
-                .map(move |(idx, aggregate)| {
-                    let aggregate_val = result_map
-                        .get(&idx.to_string())
-                        .expect("missing aggregate result")
-                        .as_object()
-                        .expect("unexpected aggregate structure")
-                        .get("value")
-                        .expect("missing aggregate result value")
-                        .as_number()
-                        .expect("unexpected aggregate result type");
-
-                    aggregate.result_from_json(aggregate_val)
+                .map(|(idx, aggregate)| {
+                    self.process_aggregate_result(
+                        aggregate,
+                        idx,
+                        AggregateResultSource::ResultMap(result_map),
+                        doc_count,
+                    )
                 })
                 .collect::<AggregateRow>();
 
@@ -190,6 +221,57 @@ impl AggregateScanState {
         // Sort according to ORDER BY
         self.sort_rows(&mut rows);
         rows
+    }
+
+    /// Extract aggregate value from JSON using serde deserialization
+    /// This handles different structures: direct values, objects with "value" field, or raw objects for COUNT
+    fn extract_aggregate_value_from_json(agg_obj: &serde_json::Value) -> AggregateResult {
+        // Deserialize using our structured type
+        match serde_json::from_value::<AggregateResult>(agg_obj.clone()) {
+            Ok(result) => result,
+            Err(e) => {
+                panic!("Failed to deserialize aggregate result: {e}, value: {agg_obj:?}");
+            }
+        }
+    }
+
+    /// Process a single aggregate result, extracting the raw value and delegating
+    /// doc_count handling to the aggregate type's processing method.
+    /// This consolidates the logic used in both simple and grouped aggregations.
+    fn process_aggregate_result(
+        &self,
+        aggregate: &AggregateType,
+        agg_idx: usize,
+        result_source: AggregateResultSource<'_>,
+        doc_count: Option<i64>,
+    ) -> AggregateValue {
+        let agg_result = match (aggregate, result_source) {
+            (AggregateType::Count, AggregateResultSource::ResultMap(result_map)) => {
+                let raw_result = result_map
+                    .get(&agg_idx.to_string())
+                    .expect("missing aggregate result");
+                Self::extract_aggregate_value_from_json(raw_result)
+            }
+            (AggregateType::Count, AggregateResultSource::BucketObj(bucket_obj)) => {
+                let raw_result = bucket_obj.get("doc_count").expect("missing doc_count");
+                Self::extract_aggregate_value_from_json(raw_result)
+            }
+            (_, AggregateResultSource::ResultMap(result_map)) => {
+                let agg_obj = result_map
+                    .get(&agg_idx.to_string())
+                    .expect("missing aggregate result");
+                Self::extract_aggregate_value_from_json(agg_obj)
+            }
+            (_, AggregateResultSource::BucketObj(bucket_obj)) => {
+                let agg_name = format!("agg_{agg_idx}");
+                let agg_obj = bucket_obj
+                    .get(&agg_name)
+                    .unwrap_or_else(|| panic!("missing aggregate result for '{agg_name}'"));
+                Self::extract_aggregate_value_from_json(agg_obj)
+            }
+        };
+
+        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
     #[allow(unreachable_patterns)]
@@ -221,30 +303,25 @@ impl AggregateScanState {
                 let aggregate_values: AggregateRow = if self.aggregate_types.is_empty() {
                     AggregateRow::default()
                 } else {
+                    // Extract doc_count for empty result set handling
+                    let doc_count = bucket_obj
+                        .get("doc_count")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+
                     self.aggregate_types
                         .iter()
                         .enumerate()
                         .map(|(idx, aggregate)| {
-                            let agg_result = match aggregate {
-                                AggregateType::Count => bucket_obj
-                                    .get("doc_count")
-                                    .and_then(|v| v.as_number())
-                                    .expect("missing doc_count"),
-                                _ => {
-                                    let agg_name = format!("agg_{idx}");
-                                    bucket_obj
-                                        .get(&agg_name)
-                                        .and_then(|v| v.as_object())
-                                        .and_then(|v| v.get("value"))
-                                        .and_then(|v| v.as_number())
-                                        .expect("missing aggregate result")
-                                }
-                            };
-                            aggregate.result_from_json(agg_result)
+                            self.process_aggregate_result(
+                                aggregate,
+                                idx,
+                                AggregateResultSource::BucketObj(bucket_obj),
+                                Some(doc_count),
+                            )
                         })
                         .collect()
                 };
-
                 rows.push(GroupedAggregateRow {
                     group_keys: prefix_keys.clone(),
                     aggregate_values,
@@ -259,17 +336,17 @@ impl AggregateScanState {
     }
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.order_by_info.is_empty() {
+        if self.orderby_info.is_empty() {
             return;
         }
 
         rows.sort_by(|a, b| {
-            for order_info in &self.order_by_info {
+            for order_info in &self.orderby_info {
                 // Find the index of this grouping column
                 let col_index = self
                     .grouping_columns
                     .iter()
-                    .position(|gc| gc.field_name == order_info.field_name);
+                    .position(|gc| matches!(&order_info.feature, OrderByFeature::Field(field_name) if gc.field_name == **field_name));
 
                 let cmp = if let Some(idx) = col_index {
                     let val_a = a.group_keys.get(idx);
@@ -281,7 +358,7 @@ impl AggregateScanState {
                     let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
 
                     if let Some(base_cmp) = base_cmp {
-                        if order_info.is_desc {
+                        if matches!(order_info.direction, SortDirection::Desc) {
                             base_cmp.reverse()
                         } else {
                             base_cmp

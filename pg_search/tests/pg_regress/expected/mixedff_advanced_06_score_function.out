@@ -369,9 +369,8 @@ LIMIT 10;
                String Fast Fields: title
                Numeric Fast Fields: id, rating
                Scores: true
-                  Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT title, paradedb.score(id), rating
 FROM score_test
@@ -412,9 +411,8 @@ LIMIT 5;
                String Fast Fields: author, title
                Numeric Fast Fields: id, rating, views
                Scores: true
-                  Top N Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(12 rows)
 
 SELECT title, author, rating, views, paradedb.score(id)
 FROM score_test
@@ -492,9 +490,8 @@ LIMIT 10;
                String Fast Fields: author, title
                Numeric Fast Fields: id, rating
                Scores: true
-                  Top N Limit: 10
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
-(13 rows)
+(12 rows)
 
 WITH scored_posts AS (
     SELECT title, author, rating, paradedb.score(id) as relevance
@@ -692,9 +689,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                  Index: score_test_idx
                                  Exec Method: TopNScanExecState
                                  Scores: true
-                                    Sort Field: paradedb.score()
-                                    Sort Direction: desc
-                                    Top N Limit: 5
+                                    TopN Order By: paradedb.score() desc
+                                    TopN Limit: 5
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
@@ -705,7 +701,7 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+(27 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (

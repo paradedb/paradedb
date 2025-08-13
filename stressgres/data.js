@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755101640229,
+  "lastUpdate": 1755101643208,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9890,6 +9890,126 @@ window.BENCHMARK_DATA = {
             "value": 52.9609375,
             "unit": "median mem",
             "extra": "avg mem: 52.772962557061085, max mem: 74.04296875, count: 55204"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fdb384eab339a1776d940b3a1faebdec0658218d",
+          "message": "fix: the `LinkedListData::npages` field is dead code (#2957)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis field was once used to track the number of pages contained in one\nof our linked lists, but it's no longer used.\n\nWe had a few code paths that updated it (one, incorrectly!) but the\nfield was never read.\n\nWe leave the 4 bytes it occuppied in the `LinkedListData` struct so our\nlayout remains backwards compatabile, but we no longer use it.\n\n## Why\n\nIn trying to track down a strange bug in enterprise related to hot\nstandby promotion I realized this field is actually dead code.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-13T11:56:27-04:00",
+          "tree_id": "05c784f4471e9c0fa8c820a1e3281c8918a5928e",
+          "url": "https://github.com/paradedb/paradedb/commit/fdb384eab339a1776d940b3a1faebdec0658218d"
+        },
+        "date": 1755101641729,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.771689185990321, max cpu: 9.476802, count: 55170"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 56.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.33632932866594, max mem: 72.890625, count: 55170"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630300289628698, max cpu: 9.266409, count: 55170"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 50.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 50.22918103985409, max mem: 69.84375, count: 55170"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.785759598646545, max cpu: 9.495549, count: 55170"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.21195332325086, max mem: 75.3671875, count: 55170"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1014444961308065, max cpu: 4.733728, count: 55170"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 57.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.52953470522929, max mem: 77.47265625, count: 55170"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.143197691329425, max cpu: 24.096386, count: 110340"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 66.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.39789680617864, max mem: 91.24609375, count: 110340"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3185,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3171.8350009062897, max block_count: 5732.0, count: 55170"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.511654884901214, max segment_count: 28.0, count: 55170"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.8276755751538705, max cpu: 23.506365, count: 55170"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 72.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 71.24752016494472, max mem: 95.96875, count: 55170"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.028773297243243, max cpu: 9.204219, count: 55170"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 52.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.95023471485862, max mem: 72.70703125, count: 55170"
           }
         ]
       }

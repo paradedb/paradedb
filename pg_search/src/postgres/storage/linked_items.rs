@@ -109,7 +109,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 0;
 
         header_blockno
     }
@@ -127,7 +126,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 0;
 
         _self
     }

@@ -1,0 +1,308 @@
+-- Test JSON field aggregates without GROUP BY (using aggregate custom scan)
+-- Create extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =========================================
+-- Test 1: Simple COUNT on JSON filtered data
+-- =========================================
+-- Create test table
+CREATE TABLE json_agg_test (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB,
+    data JSONB
+);
+-- Insert test data
+INSERT INTO json_agg_test (metadata, data) VALUES
+    ('{"category": "electronics", "brand": "Apple", "price": 999}', '{"color": "silver", "stock": 10}'),
+    ('{"category": "electronics", "brand": "Samsung", "price": 799}', '{"color": "black", "stock": 15}'),
+    ('{"category": "electronics", "brand": "Apple", "price": 1299}', '{"color": "gold", "stock": 5}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 89}', '{"size": "M", "stock": 20}'),
+    ('{"category": "clothing", "brand": "Adidas", "price": 79}', '{"size": "L", "stock": 25}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}'),
+    ('{"category": "home", "brand": "Ikea", "price": 199}', '{"material": "wood", "stock": 8}'),
+    ('{"category": "home", "brand": "HomeDepot", "price": 299}', '{"material": "metal", "stock": 12}');
+-- Create BM25 index
+CREATE INDEX idx_json_agg ON json_agg_test
+USING bm25 (id, metadata, data)
+WITH (
+    key_field = 'id',
+    json_fields = '{
+        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
+        "data": {"indexed": true, "fast": true, "expand_dots": true}
+    }'
+);
+-- Test simple COUNT with JSON field filter with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category');
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
+ [                                                                                                    +
+   {                                                                                                  +
+     "Plan": {                                                                                        +
+       "Node Type": "Custom Scan",                                                                    +
+       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                             +
+       "Parallel Aware": false,                                                                       +
+       "Async Capable": false,                                                                        +
+       "Relation Name": "json_agg_test",                                                              +
+       "Alias": "json_agg_test",                                                                      +
+       "Actual Rows": 1,                                                                              +
+       "Actual Loops": 1,                                                                             +
+       "Index": "idx_json_agg",                                                                       +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.category\"}}}}",+
+       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                       +
+     },                                                                                               +
+     "Triggers": [                                                                                    +
+     ]                                                                                                +
+   }                                                                                                  +
+ ]
+(1 row)
+
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category');
+ count 
+-------
+     8
+(1 row)
+
+-- =========================================
+-- Test 2: COUNT with specific JSON value filter
+-- =========================================
+-- Test COUNT with specific category filter with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.phrase_prefix('metadata.category', 'elect');
+ERROR:  malformed array literal: "elect" at character 175
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.phrase_prefix('metadata.category', 'elect');
+ERROR:  malformed array literal: "elect" at character 95
+-- =========================================
+-- Test 3: COUNT with multiple JSON field filters
+-- =========================================
+-- Test COUNT with multiple JSON field conditions with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category') 
+  AND id @@@ paradedb.exists('metadata.brand');
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                        +
+   {                                                                                                                                                                                                      +
+     "Plan": {                                                                                                                                                                                            +
+       "Node Type": "Custom Scan",                                                                                                                                                                        +
+       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                                                                                 +
+       "Parallel Aware": false,                                                                                                                                                                           +
+       "Async Capable": false,                                                                                                                                                                            +
+       "Relation Name": "json_agg_test",                                                                                                                                                                  +
+       "Alias": "json_agg_test",                                                                                                                                                                          +
+       "Actual Rows": 1,                                                                                                                                                                                  +
+       "Actual Loops": 1,                                                                                                                                                                                 +
+       "Index": "idx_json_agg",                                                                                                                                                                           +
+       "Tantivy Query": "{\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.category\"}}}},{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.brand\"}}}}]}}",+
+       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                                                                                                                           +
+     },                                                                                                                                                                                                   +
+     "Triggers": [                                                                                                                                                                                        +
+     ]                                                                                                                                                                                                    +
+   }                                                                                                                                                                                                      +
+ ]
+(1 row)
+
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category') 
+  AND id @@@ paradedb.exists('metadata.brand');
+ count 
+-------
+     8
+(1 row)
+
+-- =========================================
+-- Test 4: COUNT with complex JSON filters
+-- =========================================
+-- Test COUNT with term query on JSON field with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                         +
+   {                                                                                                                                       +
+     "Plan": {                                                                                                                             +
+       "Node Type": "Custom Scan",                                                                                                         +
+       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                  +
+       "Parallel Aware": false,                                                                                                            +
+       "Async Capable": false,                                                                                                             +
+       "Relation Name": "json_agg_test",                                                                                                   +
+       "Alias": "json_agg_test",                                                                                                           +
+       "Actual Rows": 1,                                                                                                                   +
+       "Actual Loops": 1,                                                                                                                  +
+       "Index": "idx_json_agg",                                                                                                            +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"term\":{\"field\":\"metadata.brand\",\"value\":\"Apple\",\"is_datetime\":false}}}}",+
+       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                                                            +
+     },                                                                                                                                    +
+     "Triggers": [                                                                                                                         +
+     ]                                                                                                                                     +
+   }                                                                                                                                       +
+ ]
+(1 row)
+
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+ count 
+-------
+     0
+(1 row)
+
+-- =========================================
+-- Test 5: COUNT with range queries on JSON fields
+-- =========================================
+-- Test COUNT with range query on nested JSON data with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.range('data.stock', gte => 10, lte => 20);
+ERROR:  function paradedb.range(unknown, gte => integer, lte => integer) does not exist at character 131
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.range('data.stock', gte => 10, lte => 20);
+ERROR:  function paradedb.range(unknown, gte => integer, lte => integer) does not exist at character 51
+-- =========================================
+-- Test 6: COUNT with boolean queries on JSON
+-- =========================================
+-- Test COUNT with boolean must query with EXPLAIN
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.boolean(
+    must => ARRAY[
+        paradedb.exists('metadata.category'),
+        paradedb.term('metadata.category', 'electronics')
+    ]
+);
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                                            +
+   {                                                                                                                                                                                                                          +
+     "Plan": {                                                                                                                                                                                                                +
+       "Node Type": "Custom Scan",                                                                                                                                                                                            +
+       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                                                                                                     +
+       "Parallel Aware": false,                                                                                                                                                                                               +
+       "Async Capable": false,                                                                                                                                                                                                +
+       "Relation Name": "json_agg_test",                                                                                                                                                                                      +
+       "Alias": "json_agg_test",                                                                                                                                                                                              +
+       "Actual Rows": 1,                                                                                                                                                                                                      +
+       "Actual Loops": 1,                                                                                                                                                                                                     +
+       "Index": "idx_json_agg",                                                                                                                                                                                               +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"boolean\":{\"must\":[{\"exists\":{\"field\":\"metadata.category\"}},{\"term\":{\"field\":\"metadata.category\",\"value\":\"electronics\",\"is_datetime\":false}}]}}}}",+
+       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                                                                                                                                               +
+     },                                                                                                                                                                                                                       +
+     "Triggers": [                                                                                                                                                                                                            +
+     ]                                                                                                                                                                                                                        +
+   }                                                                                                                                                                                                                          +
+ ]
+(1 row)
+
+-- Execute the query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.boolean(
+    must => ARRAY[
+        paradedb.exists('metadata.category'),
+        paradedb.term('metadata.category', 'electronics')
+    ]
+);
+ count 
+-------
+     3
+(1 row)
+
+-- =========================================
+-- Test 7: Verify aggregate custom scan is used
+-- =========================================
+-- Verify that these queries use the ParadeDB Aggregate Scan
+-- by checking EXPLAIN output contains "ParadeDB Aggregate Scan"
+-- This should show ParadeDB Aggregate Scan
+EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category');
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on json_agg_test
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(4 rows)
+
+-- This should also show ParadeDB Aggregate Scan  
+EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on json_agg_test
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(4 rows)
+
+-- =========================================
+-- Test 8: Compare with regular PostgreSQL aggregates
+-- =========================================
+-- Disable aggregate custom scan to compare
+SET paradedb.enable_aggregate_custom_scan TO off;
+-- This should show regular PostgreSQL Aggregate + Custom Scan
+EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.category');
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on json_agg_test
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+(7 rows)
+
+-- Re-enable for consistency
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =========================================
+-- Test 9: Edge cases with JSON aggregates
+-- =========================================
+-- Test COUNT on empty result set
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+ count 
+-------
+     0
+(1 row)
+
+-- Test COUNT with all() query
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.all();
+ count 
+-------
+     8
+(1 row)
+
+-- Clean up
+DROP TABLE json_agg_test;

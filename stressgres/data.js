@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755187358975,
+  "lastUpdate": 1755187362002,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10262,6 +10262,126 @@ window.BENCHMARK_DATA = {
             "value": 52.09765625,
             "unit": "median mem",
             "extra": "avg mem: 51.67693181459183, max mem: 72.765625, count: 55394"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2e3eef6d5c4af94e9412c05f5154829c477c875",
+          "message": "test: print reproduction script on prop-test failures (#2950)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis change prints the reproduction script on prop-test failures.\n\n## Why\n\nPreviously, we had to go look into the code to see how to repro.\n\n## How\n\nBy adding a helper function that prints out the repro script.\n\n## Tests\n\nBy manually adding incorrectness issues and checking the output.",
+          "timestamp": "2025-08-14T08:46:33-07:00",
+          "tree_id": "f6ac8be18f34fcbf6a14a0aac39973040238fee6",
+          "url": "https://github.com/paradedb/paradedb/commit/e2e3eef6d5c4af94e9412c05f5154829c477c875"
+        },
+        "date": 1755187360583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768098691718059, max cpu: 9.599999, count: 55298"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 55.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.486031860894606, max mem: 74.5234375, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.597658596986115, max cpu: 9.213051, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 49.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.342070534309556, max mem: 69.09375, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.767190565940518, max cpu: 9.486166, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 56.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.71298090290336, max mem: 75.51953125, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.27396437050652, max cpu: 4.738401, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 55.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.526900201521755, max mem: 75.6328125, count: 55298"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.288940564383031, max cpu: 28.09756, count: 110596"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 69.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 68.39182683341848, max mem: 93.09375, count: 110596"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3154,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3155.376324641036, max block_count: 5587.0, count: 55298"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.567398459257117, max segment_count: 26.0, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.801568161986398, max cpu: 18.934912, count: 55298"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 69.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 69.6461420536231, max mem: 93.90625, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.347511818936589, max cpu: 9.302325, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 55.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.44616166328348, max mem: 73.234375, count: 55298"
           }
         ]
       }

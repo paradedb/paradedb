@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755188032845,
+  "lastUpdate": 1755188674703,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17168,6 +17168,42 @@ window.BENCHMARK_DATA = {
             "value": 114.49171009595509,
             "unit": "median tps",
             "extra": "avg tps: 114.17968465077904, max tps: 116.56432723823411, count: 57953"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2e3eef6d5c4af94e9412c05f5154829c477c875",
+          "message": "test: print reproduction script on prop-test failures (#2950)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis change prints the reproduction script on prop-test failures.\n\n## Why\n\nPreviously, we had to go look into the code to see how to repro.\n\n## How\n\nBy adding a helper function that prints out the repro script.\n\n## Tests\n\nBy manually adding incorrectness issues and checking the output.",
+          "timestamp": "2025-08-14T08:46:33-07:00",
+          "tree_id": "f6ac8be18f34fcbf6a14a0aac39973040238fee6",
+          "url": "https://github.com/paradedb/paradedb/commit/e2e3eef6d5c4af94e9412c05f5154829c477c875"
+        },
+        "date": 1755188673199,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.35395885544737,
+            "unit": "median tps",
+            "extra": "avg tps: 28.184569853310492, max tps: 28.512765834689404, count: 57699"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 123.15411285013738,
+            "unit": "median tps",
+            "extra": "avg tps: 122.19416562564916, max tps: 124.51427041655818, count: 57699"
           }
         ]
       }

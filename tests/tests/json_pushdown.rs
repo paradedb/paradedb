@@ -568,10 +568,11 @@ async fn json_pushdown_correctness(database: Db) {
         );
 
         compare(
-            pg_query,
-            bm25_query,
-            gucs,
+            &pg_query,
+            &bm25_query,
+            &gucs,
             &mut pool.pull(),
+            &setup_sql,
             |query, conn| {
                 query.fetch::<(i64, Option<serde_json::Value>)>(conn)
             },

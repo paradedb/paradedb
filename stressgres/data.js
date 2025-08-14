@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755103596236,
+  "lastUpdate": 1755187358975,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3612,6 +3612,72 @@ window.BENCHMARK_DATA = {
             "value": 69.23760666279195,
             "unit": "median tps",
             "extra": "avg tps: 83.03006031087222, max tps: 663.320436172986, count: 55394"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2e3eef6d5c4af94e9412c05f5154829c477c875",
+          "message": "test: print reproduction script on prop-test failures (#2950)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nThis change prints the reproduction script on prop-test failures.\n\n## Why\n\nPreviously, we had to go look into the code to see how to repro.\n\n## How\n\nBy adding a helper function that prints out the repro script.\n\n## Tests\n\nBy manually adding incorrectness issues and checking the output.",
+          "timestamp": "2025-08-14T08:46:33-07:00",
+          "tree_id": "f6ac8be18f34fcbf6a14a0aac39973040238fee6",
+          "url": "https://github.com/paradedb/paradedb/commit/e2e3eef6d5c4af94e9412c05f5154829c477c875"
+        },
+        "date": 1755187357571,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1183.2691564334814,
+            "unit": "median tps",
+            "extra": "avg tps: 1174.9408009578922, max tps: 1186.5695143797332, count: 55298"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2751.222344076489,
+            "unit": "median tps",
+            "extra": "avg tps: 2724.378956655599, max tps: 2769.9846241019018, count: 55298"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1143.266100803798,
+            "unit": "median tps",
+            "extra": "avg tps: 1139.4589488403542, max tps: 1146.0575107280915, count: 55298"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 985.7983264705412,
+            "unit": "median tps",
+            "extra": "avg tps: 974.573726825067, max tps: 994.761678671768, count: 55298"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 165.39081007984794,
+            "unit": "median tps",
+            "extra": "avg tps: 164.49699557588065, max tps: 166.57780703639435, count: 110596"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 150.41720724558394,
+            "unit": "median tps",
+            "extra": "avg tps: 150.02673629489806, max tps: 152.4586495679345, count: 55298"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 59.92345537606143,
+            "unit": "median tps",
+            "extra": "avg tps: 64.30003074933519, max tps: 888.2919566939906, count: 55298"
           }
         ]
       }

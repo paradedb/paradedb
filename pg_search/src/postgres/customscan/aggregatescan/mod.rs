@@ -618,9 +618,17 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                 // This is a Var - it should be a grouping column, skip it
                 continue;
             } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
-                // This could be a JSON operator expression used in GROUP BY
-                // We'll treat it as a grouping column and skip it
-                continue;
+                // This might be a JSON operator expression - verify it's recognized
+                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+                if let Some((_var, _field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    // This is a recognized JSON operator expression used in GROUP BY - skip it
+                    continue;
+                } else {
+                    // This is an unrecognized OpExpr, we can't support it
+                    return None;
+                }
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 // Check for DISTINCT in aggregate functions
                 if !(*aggref).aggdistinct.is_null() {

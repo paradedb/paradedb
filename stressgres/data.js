@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755289398924,
+  "lastUpdate": 1755289402349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10446,6 +10446,124 @@ window.BENCHMARK_DATA = {
             "value": 55.01953125,
             "unit": "median mem",
             "extra": "avg mem: 53.44616166328348, max mem: 73.234375, count: 55298"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3f8baf8a4104344bb0f823c01036bc698926415a",
+          "message": "fix: bugs with 0.17.x exposed by the custom FSM (#2971)\n\nThis PR starts off fixing three distinct bugs that we've had for awhile\nbut the new custom FSM brought to light:\n\n- failed to properly identify an orphaned \".deletes\" files, which could\nlead to adding the same block to the FSM multiple times\n- `BufferMut.return_to_fsm()` needs to unlock/release the buffer before\ngiving the block number to the FSM\n- `AtomicGuard::commit()` was returning a block to the FSM prematurely\n\nWe also retool the FSM so that it will only return blocks when they're\nknown to be all visible by all concurrent transactions. Here on\ncommunity that is actually \"immediately\" but is more sophsicated on our\n-enterprise product.\n\nThis also allows us to completely remove the concept of the\n\"segment_meta_garbage\" list. Now that the FSM ensures blocks don't get\nreused until they're allowed, we don't need a separate way of tracking\nthat.\n\nThe FSM is also largely rewritten to be centered around a \"draining\niterator\".\n\nAnother minor change is that if we forget to call\n`AtomicGuard::commit()` its Drop impl now panics\n\n---\n\nAnd one follow-up change is porting a fix we apparently only made to\n-enterprise related to parallel build workers not being able to get the\ncurrent transaction id.\n\nThat's necessary here too.",
+          "timestamp": "2025-08-15T19:51:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3f8baf8a4104344bb0f823c01036bc698926415a"
+        },
+        "date": 1755289400927,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.787705331236007, max cpu: 9.448819, count: 55224"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 60.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 60.18896774387042, max mem: 83.66796875, count: 55224"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669036161334037, max cpu: 9.284333, count: 55224"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 53.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.9996301992793, max mem: 76.234375, count: 55224"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.798044287300046, max cpu: 9.448819, count: 55224"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 60.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.84461756041304, max mem: 84.125, count: 55224"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.495508882287847, max cpu: 4.701273, count: 55224"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 59.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 60.060679573192814, max mem: 83.20703125, count: 55224"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.517021127087126, max cpu: 23.66864, count: 110448"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 62.75780288008837, max mem: 91.0234375, count: 110448"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 3716,
+            "unit": "median block_count",
+            "extra": "avg block_count: 3721.339616833261, max block_count: 6689.0, count: 55224"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.880903230479502, max segment_count: 28.0, count: 55224"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.931097427937076, max cpu: 14.229248, count: 55224"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 77.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 78.09949733132333, max mem: 107.03515625, count: 55224"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.553240353333389, max cpu: 9.221902, count: 55224"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 60.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 58.719054158970735, max mem: 82.84765625, count: 55224"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755290719337,
+  "lastUpdate": 1755290722262,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20618,6 +20618,64 @@ window.BENCHMARK_DATA = {
             "value": 165.5390625,
             "unit": "median mem",
             "extra": "avg mem: 155.19700914173123, max mem: 174.5078125, count: 57699"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3f8baf8a4104344bb0f823c01036bc698926415a",
+          "message": "fix: bugs with 0.17.x exposed by the custom FSM (#2971)\n\nThis PR starts off fixing three distinct bugs that we've had for awhile\nbut the new custom FSM brought to light:\n\n- failed to properly identify an orphaned \".deletes\" files, which could\nlead to adding the same block to the FSM multiple times\n- `BufferMut.return_to_fsm()` needs to unlock/release the buffer before\ngiving the block number to the FSM\n- `AtomicGuard::commit()` was returning a block to the FSM prematurely\n\nWe also retool the FSM so that it will only return blocks when they're\nknown to be all visible by all concurrent transactions. Here on\ncommunity that is actually \"immediately\" but is more sophsicated on our\n-enterprise product.\n\nThis also allows us to completely remove the concept of the\n\"segment_meta_garbage\" list. Now that the FSM ensures blocks don't get\nreused until they're allowed, we don't need a separate way of tracking\nthat.\n\nThe FSM is also largely rewritten to be centered around a \"draining\niterator\".\n\nAnother minor change is that if we forget to call\n`AtomicGuard::commit()` its Drop impl now panics\n\n---\n\nAnd one follow-up change is porting a fix we apparently only made to\n-enterprise related to parallel build workers not being able to get the\ncurrent transaction id.\n\nThat's necessary here too.",
+          "timestamp": "2025-08-15T19:51:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3f8baf8a4104344bb0f823c01036bc698926415a"
+        },
+        "date": 1755290720754,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.637496981140384, max cpu: 47.38401, count: 57328"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 177.875,
+            "unit": "median mem",
+            "extra": "avg mem: 176.13744061039108, max mem: 181.06640625, count: 57328"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18418,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16986.43701158247, max block_count: 22499.0, count: 57328"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 41,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.85169550655875, max segment_count: 118.0, count: 57328"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.136442629138926, max cpu: 33.07087, count: 57328"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 152.494361939192, max mem: 173.109375, count: 57328"
           }
         ]
       }

@@ -36,6 +36,56 @@ extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
+/// TransactionIdPrecedesOrEquals --- is id1 logically <= id2?
+///
+/// Ported to rust from the Postgres sources to avoid the pgrx FFI overhead
+#[allow(non_snake_case)]
+#[inline]
+pub fn TransactionIdPrecedesOrEquals(
+    id1: pg_sys::TransactionId,
+    id2: pg_sys::TransactionId,
+) -> bool {
+    //
+    // #define TransactionIdIsNormal(xid)		((xid) >= FirstNormalTransactionId)
+    //
+    // /*
+    //  * TransactionIdPrecedesOrEquals --- is id1 logically <= id2?
+    //  */
+    // bool
+    // TransactionIdPrecedesOrEquals(TransactionId id1, TransactionId id2)
+    // {
+    //     /*
+    //      * If either ID is a permanent XID then we can just do unsigned
+    //      * comparison.  If both are normal, do a modulo-2^32 comparison.
+    //      */
+    //     int32		diff;
+    //
+    //     if (!TransactionIdIsNormal(id1) || !TransactionIdIsNormal(id2))
+    //         return (id1 <= id2);
+    //
+    //     diff = (int32) (id1 - id2);
+    //     return (diff <= 0);
+    // }
+
+    #[inline]
+    fn is_transaction_id_normal(xid: pg_sys::TransactionId) -> bool {
+        xid >= pg_sys::FirstNormalTransactionId
+    }
+
+    if !is_transaction_id_normal(id1) || !is_transaction_id_normal(id2) {
+        return id1 <= id2;
+    }
+
+    // Compare as i32 to handle wraparound
+    unsafe {
+        // SAFETY: `pg_sysTransactionId` is a #[repr(transparent)] wrapper around a `u32`
+        let id1: i32 = std::mem::transmute(id1);
+        let id2: i32 = std::mem::transmute(id2);
+        let diff = id1.wrapping_sub(id2);
+        diff <= 0
+    }
+}
+
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgSearchRelation> {

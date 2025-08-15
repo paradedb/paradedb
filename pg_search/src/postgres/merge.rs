@@ -172,7 +172,11 @@ impl IndexLayerSizes {
 ///
 /// First merge into the smaller layers in the foreground,
 /// then launch a background worker to merge down the larger layers.
-pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::Result<()> {
+pub unsafe fn do_merge(
+    index: &PgSearchRelation,
+    style: MergeStyle,
+    current_xid: Option<pg_sys::TransactionId>,
+) -> anyhow::Result<()> {
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
     let layer_sizes = IndexLayerSizes::from(index);
     let foreground_layers = layer_sizes.foreground();
@@ -199,6 +203,7 @@ pub unsafe fn do_merge(index: &PgSearchRelation, style: MergeStyle) -> anyhow::R
                 merge_lock,
                 cleanup_lock,
                 false,
+                current_xid.expect("foreground merging requires a current transaction id"),
             )
         };
     } else {
@@ -263,6 +268,7 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             BackgroundWorker::get_name()
         );
 
+        let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
         let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
         let index = PgSearchRelation::try_open(args.index_oid());
         if index.is_none() {
@@ -286,7 +292,16 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             let merge_policy = LayeredMergePolicy::new(foreground_layers);
             let cleanup_lock = metadata.cleanup_lock_shared();
             let merge_lock = unsafe { metadata.acquire_merge_lock() };
-            unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
+            unsafe {
+                merge_index(
+                    &index,
+                    merge_policy,
+                    merge_lock,
+                    cleanup_lock,
+                    true,
+                    current_xid,
+                )
+            };
         }
 
         pgrx::debug1!(
@@ -298,7 +313,16 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         let merge_policy = LayeredMergePolicy::new(background_layers);
         let cleanup_lock = metadata.cleanup_lock_shared();
         let merge_lock = unsafe { metadata.acquire_merge_lock() };
-        unsafe { merge_index(&index, merge_policy, merge_lock, cleanup_lock, true) };
+        unsafe {
+            merge_index(
+                &index,
+                merge_policy,
+                merge_lock,
+                cleanup_lock,
+                true,
+                current_xid,
+            )
+        };
     });
 }
 
@@ -309,6 +333,7 @@ unsafe fn merge_index(
     merge_lock: MergeLock,
     cleanup_lock: Buffer,
     gc_after_merge: bool,
+    current_xid: pg_sys::TransactionId,
 ) {
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
@@ -354,7 +379,7 @@ unsafe fn merge_index(
                 break;
             }
             if gc_after_merge {
-                garbage_collect_index(indexrel);
+                garbage_collect_index(indexrel, current_xid);
                 need_gc = false;
             }
         }
@@ -369,7 +394,7 @@ unsafe fn merge_index(
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {
-            garbage_collect_index(indexrel);
+            garbage_collect_index(indexrel, current_xid);
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
@@ -392,7 +417,10 @@ unsafe fn merge_index(
 /// moved to the `SEGMENT_METAS_GARBAGE` list until those replicas indicate that they are no longer
 /// in use, at which point they can be freed by `free_garbage`.
 ///
-pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
+pub unsafe fn garbage_collect_index(
+    indexrel: &PgSearchRelation,
+    current_xid: pg_sys::TransactionId,
+) {
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
     // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
     // transactions either.
@@ -407,14 +435,19 @@ pub unsafe fn garbage_collect_index(indexrel: &PgSearchRelation) {
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.
     segment_metas.commit();
-    free_entries(indexrel, entries);
+    free_entries(indexrel, entries, current_xid);
 }
 
 /// Chase down all the files in a segment and return them to the FSM
-pub fn free_entries(indexrel: &PgSearchRelation, freeable_entries: Vec<SegmentMetaEntry>) {
+pub fn free_entries(
+    indexrel: &PgSearchRelation,
+    freeable_entries: Vec<SegmentMetaEntry>,
+    current_xid: pg_sys::TransactionId,
+) {
     let mut bman = BufferManager::new(indexrel);
-    bman.fsm().extend(
+    bman.fsm().extend_with_when_recyclable(
         &mut bman,
+        current_xid,
         freeable_entries.iter().flat_map(move |entry| {
             // if the entry is a "fake" `DeleteEntry`, we need to free the blocks for the old `DeleteEntry` only
             let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()

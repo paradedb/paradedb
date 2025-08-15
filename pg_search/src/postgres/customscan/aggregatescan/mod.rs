@@ -189,7 +189,6 @@ impl CustomScan for AggregateScan {
         let grouping_columns = &builder.custom_private().grouping_columns;
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
-        let mut grouping_idx = 0; // Track which grouping column we're on
 
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
             let te = unsafe {
@@ -218,16 +217,37 @@ impl CustomScan for AggregateScan {
                     (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
                     te
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
-                    // This is likely a JSON operator expression used in GROUP BY
-                    // Map it to the next available grouping column
-                    if grouping_idx >= grouping_columns.len() {
-                        panic!("More grouping expressions in target list than grouping columns");
-                    }
-                    target_list_mapping.push(TargetListEntry::GroupingColumn(grouping_idx));
-                    grouping_idx += 1;
+                    // This might be a JSON operator expression - verify and find matching grouping column
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    if let Some((var, field_name)) = find_one_var_and_fieldname(
+                        var_context,
+                        (*input_te).expr as *mut pg_sys::Node,
+                    ) {
+                        // Find which grouping column this expression matches
+                        let mut found_idx = None;
+                        for (i, gc) in grouping_columns.iter().enumerate() {
+                            if (*var).varattno == gc.attno
+                                && gc.field_name == field_name.to_string()
+                            {
+                                found_idx = Some(i);
+                                break;
+                            }
+                        }
 
-                    // Keep it as-is
-                    pg_sys::flatCopyTargetEntry(input_te)
+                        if let Some(idx) = found_idx {
+                            target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
+                            // Keep it as-is
+                            pg_sys::flatCopyTargetEntry(input_te)
+                        } else {
+                            panic!(
+                                "OpExpr in target list does not match any detected grouping column"
+                            );
+                        }
+                    } else {
+                        panic!(
+                            "OpExpr in target list is not a recognized JSON operator expression"
+                        );
+                    }
                 } else {
                     // Other expression types we don't support yet
                     panic!(

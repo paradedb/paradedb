@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755189322722,
+  "lastUpdate": 1755289398924,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3678,6 +3678,70 @@ window.BENCHMARK_DATA = {
             "value": 59.92345537606143,
             "unit": "median tps",
             "extra": "avg tps: 64.30003074933519, max tps: 888.2919566939906, count: 55298"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "3f8baf8a4104344bb0f823c01036bc698926415a",
+          "message": "fix: bugs with 0.17.x exposed by the custom FSM (#2971)\n\nThis PR starts off fixing three distinct bugs that we've had for awhile\nbut the new custom FSM brought to light:\n\n- failed to properly identify an orphaned \".deletes\" files, which could\nlead to adding the same block to the FSM multiple times\n- `BufferMut.return_to_fsm()` needs to unlock/release the buffer before\ngiving the block number to the FSM\n- `AtomicGuard::commit()` was returning a block to the FSM prematurely\n\nWe also retool the FSM so that it will only return blocks when they're\nknown to be all visible by all concurrent transactions. Here on\ncommunity that is actually \"immediately\" but is more sophsicated on our\n-enterprise product.\n\nThis also allows us to completely remove the concept of the\n\"segment_meta_garbage\" list. Now that the FSM ensures blocks don't get\nreused until they're allowed, we don't need a separate way of tracking\nthat.\n\nThe FSM is also largely rewritten to be centered around a \"draining\niterator\".\n\nAnother minor change is that if we forget to call\n`AtomicGuard::commit()` its Drop impl now panics\n\n---\n\nAnd one follow-up change is porting a fix we apparently only made to\n-enterprise related to parallel build workers not being able to get the\ncurrent transaction id.\n\nThat's necessary here too.",
+          "timestamp": "2025-08-15T19:51:00Z",
+          "url": "https://github.com/paradedb/paradedb/commit/3f8baf8a4104344bb0f823c01036bc698926415a"
+        },
+        "date": 1755289397495,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1213.8240319533581,
+            "unit": "median tps",
+            "extra": "avg tps: 1210.3251759898517, max tps: 1259.1222895046574, count: 55224"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2806.9197995135555,
+            "unit": "median tps",
+            "extra": "avg tps: 2785.500718076914, max tps: 2830.4692558834104, count: 55224"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1277.5917177803158,
+            "unit": "median tps",
+            "extra": "avg tps: 1270.2471740254791, max tps: 1282.3540467757769, count: 55224"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1039.4490558443817,
+            "unit": "median tps",
+            "extra": "avg tps: 1028.437350545256, max tps: 1050.3339497990655, count: 55224"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.9295705430364,
+            "unit": "median tps",
+            "extra": "avg tps: 168.3476040409183, max tps: 174.3680625514303, count: 110448"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 172.54153789410393,
+            "unit": "median tps",
+            "extra": "avg tps: 170.64300414177413, max tps: 173.2311496433032, count: 55224"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 27.605715652270852,
+            "unit": "median tps",
+            "extra": "avg tps: 34.0056994915074, max tps: 795.6937056649414, count: 55224"
           }
         ]
       }

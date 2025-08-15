@@ -49,7 +49,9 @@ impl BM25Page for pg_sys::Page {
     unsafe fn read_item(&self, offno: OffsetNumber) -> Option<PgItem> {
         let item_id = pg_sys::PageGetItemId(*self, offno);
 
-        if (*item_id).lp_flags() != pg_sys::LP_NORMAL {
+        // in order for a page to have an item it must have normal line pointers and be non-empty
+        // the lp_len() is effectively Postgres' `#define ItemIdHasStorage(itemId)` macro
+        if (*item_id).lp_flags() != pg_sys::LP_NORMAL || (*item_id).lp_len() == 0 {
             return None;
         }
 

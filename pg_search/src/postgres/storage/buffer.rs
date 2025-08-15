@@ -255,6 +255,8 @@ impl BufferMut {
     /// it available for future reuse as a new buffer.
     pub fn return_to_fsm(self, bman: &mut BufferManager) {
         let blockno = self.number();
+        drop(self);
+
         bman.fsm().extend(bman, std::iter::once(blockno));
     }
 }
@@ -458,10 +460,6 @@ impl PageMut<'_> {
         header
     }
 
-    pub fn special<T>(&self) -> &T {
-        unsafe { &*(pg_sys::PageGetSpecialPointer(self.pg_page) as *const T) }
-    }
-
     pub fn special_mut<T>(&mut self) -> &mut T {
         let special = unsafe { &mut *(pg_sys::PageGetSpecialPointer(self.pg_page) as *mut T) };
         self.buffer.dirty = true;
@@ -518,10 +516,6 @@ impl PageMut<'_> {
         self.header_mut().pd_lower += len;
         self.buffer.dirty = true;
         true
-    }
-
-    pub fn contents<T: Copy>(&self) -> T {
-        unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
     }
 
     pub fn contents_mut<T>(&mut self) -> &mut T {
@@ -604,29 +598,56 @@ impl BufferManager {
     /// Like [`new_buffer`], but returns an iterator of buffers instead.
     /// This is better than calling [`new_buffer`] multiple times because it avoids potentially
     /// locking the relation for every new buffer.
-    pub fn new_buffers(&mut self, npages: usize) -> impl Iterator<Item = BufferMut> {
-        let fsm_blocknos = self.fsm().pop_many(self, npages);
-        let needed = npages - fsm_blocknos.len();
-        let new_buffers = self.rbufacc.new_buffers(needed);
+    pub fn new_buffers(&mut self, npages: usize) -> Box<dyn Iterator<Item = BufferMut>> {
+        if npages == 0 {
+            return Box::new(std::iter::empty());
+        } else if npages == 1 {
+            return Box::new(std::iter::once(self.new_buffer()));
+        }
 
-        let rbufacc = self.rbufacc.clone();
-        fsm_blocknos
-            .into_iter()
-            .map(move |blockno| {
-                let pg_buffer = rbufacc.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
-                block_tracker::track!(Write, pg_buffer);
-                BufferMut {
-                    dirty: false,
-                    inner: Buffer { pg_buffer },
-                }
-            })
-            .chain(new_buffers.map(|pg_buffer| {
-                block_tracker::track!(Write, pg_buffer);
-                BufferMut {
-                    dirty: false,
-                    inner: Buffer { pg_buffer },
-                }
-            }))
+        let buffer_access = self.buffer_access().clone();
+
+        let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
+            let pg_buffer = buffer_access.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            block_tracker::track!(Write, pg_buffer);
+            BufferMut {
+                dirty: false,
+                inner: Buffer { pg_buffer },
+            }
+        });
+
+        let bman = self.clone();
+        let mut remaining_from_fsm = npages;
+        let mut new_buffers = None;
+        let buffers = std::iter::from_fn(move || {
+            if remaining_from_fsm == 0 {
+                // got all we wanted from the fsm
+                return None;
+            }
+
+            if let Some(from_fsm) = fsm_blocknos.next() {
+                remaining_from_fsm -= 1;
+                return Some(from_fsm);
+            }
+
+            if new_buffers.is_none() {
+                // the fsm didn't give us all the buffers we asked for, so we need to get the rest
+                // by extending the relation with brand new buffers
+                new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
+                    move |pg_buffer| {
+                        block_tracker::track!(Write, pg_buffer);
+                        BufferMut {
+                            dirty: false,
+                            inner: Buffer { pg_buffer },
+                        }
+                    },
+                ));
+            }
+
+            new_buffers.as_mut().unwrap().next()
+        });
+
+        Box::new(buffers)
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {

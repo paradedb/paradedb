@@ -195,8 +195,9 @@ LIMIT 25;
          Scores: false
             TopN Order By: id asc
             TopN Limit: 25
+         Full Index Scan: true
          Tantivy Query: {"with_index":{"query":"all"}}
-(9 rows)
+(10 rows)
 
 -- Test 5: Testing NOT with paradedb.exists
 \echo 'Test 5: Testing NOT with paradedb.exists'

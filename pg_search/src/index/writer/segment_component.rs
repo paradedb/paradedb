@@ -98,7 +98,7 @@ impl InnerSegmentComponentWriter {
             total_bytes: Default::default(),
             buffer: ExactBuffer {
                 writer: Some(segment_component.writer()),
-                buffer: [0; BUFWRITER_CAPACITY],
+                buffer: Box::new([0; BUFWRITER_CAPACITY]),
                 len: 0,
             },
         }
@@ -147,7 +147,7 @@ impl TerminatingWrite for InnerSegmentComponentWriter {
 /// capacity.  Except on `flush()` where any remaining bytes are written.
 struct ExactBuffer<const CAPACITY: usize, W: Write> {
     writer: Option<W>,
-    buffer: [u8; CAPACITY],
+    buffer: Box<[u8; CAPACITY]>,
     len: usize,
 }
 
@@ -201,7 +201,7 @@ impl<const CAPACITY: usize, W: Write> Write for ExactBuffer<CAPACITY, W> {
 
         if self.len == CAPACITY {
             // buffer is full -- write it out
-            let _ = writer.write(&self.buffer)?;
+            let _ = writer.write(&*self.buffer)?;
             self.len = 0;
         }
 

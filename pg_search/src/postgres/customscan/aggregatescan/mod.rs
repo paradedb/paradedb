@@ -49,7 +49,7 @@ use crate::postgres::customscan::{
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
@@ -68,7 +68,7 @@ impl CustomScan for AggregateScan {
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
 
-        // We can only handle single relations.
+        // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
         }
@@ -216,11 +216,43 @@ impl CustomScan for AggregateScan {
                     let te = pg_sys::flatCopyTargetEntry(input_te);
                     (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
                     te
+                } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
+                    // This might be a JSON operator expression - verify and find matching grouping column
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    if let Some((var, field_name)) = find_one_var_and_fieldname(
+                        var_context,
+                        (*input_te).expr as *mut pg_sys::Node,
+                    ) {
+                        // Find which grouping column this expression matches
+                        let mut found_idx = None;
+                        for (i, gc) in grouping_columns.iter().enumerate() {
+                            if (*var).varattno == gc.attno
+                                && gc.field_name == field_name.to_string()
+                            {
+                                found_idx = Some(i);
+                                break;
+                            }
+                        }
+
+                        if let Some(idx) = found_idx {
+                            target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
+                            // Keep it as-is
+                            pg_sys::flatCopyTargetEntry(input_te)
+                        } else {
+                            panic!(
+                                "OpExpr in target list does not match any detected grouping column"
+                            );
+                        }
+                    } else {
+                        panic!(
+                            "OpExpr in target list is not a recognized JSON operator expression"
+                        );
+                    }
                 } else {
-                    // For now, we only support Vars (grouping cols) and Aggrefs
-                    todo!(
-                        "Support other target list entry types: {:?}",
-                        (*input_te).expr
+                    // Other expression types we don't support yet
+                    panic!(
+                        "Unsupported target list entry type: node tag {:?}",
+                        (*(*input_te).expr).type_
                     );
                 }
             };
@@ -441,30 +473,71 @@ fn extract_grouping_columns(
             for member in members.iter_ptr() {
                 let expr = (*member).em_expr;
 
-                // We only support simple Var expressions for now
-                let Some(var) = nodecast!(Var, T_Var, expr) else {
-                    continue;
-                };
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid == pg_sys::Oid::INVALID {
-                    continue;
-                }
+                // Create VarContext for JSON path extraction
+                let var_context = VarContext::from_planner(root);
 
-                let heaprel = PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    let field_name = att.name();
+                // First try to extract JSON operator expressions
+                if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
 
                     // Check if this field exists in the index schema as a fast field
-                    if let Some(search_field) = schema.search_field(field_name) {
+                    if let Some(search_field) = schema.search_field(&field_name) {
                         let is_fast = search_field.is_fast();
                         if is_fast {
+                            // Check if this is a JSON field access
+                            let (base_field, json_path) = if field_name.contains('.') {
+                                // This is a JSON path like "metadata.reservation_id"
+                                let parts: Vec<&str> = field_name.split('.').collect();
+                                if parts.len() >= 2 {
+                                    (parts[0].to_string(), Some(parts[1..].join(".")))
+                                } else {
+                                    (field_name.to_string(), None)
+                                }
+                            } else {
+                                (field_name.to_string(), None)
+                            };
+
                             grouping_columns.push(GroupingColumn {
-                                field_name: field_name.to_string(),
+                                field_name: field_name.to_string(), // Store full path for Tantivy
                                 attno,
+                                json_path, // Store JSON subpath if present
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
+                        }
+                    }
+                }
+
+                if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    // Fallback to simple Var handling for non-JSON columns
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
+
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        let field_name = att.name();
+
+                        // Check if this field exists in the index schema as a fast field
+                        if let Some(search_field) = schema.search_field(field_name) {
+                            let is_fast = search_field.is_fast();
+                            if is_fast {
+                                grouping_columns.push(GroupingColumn {
+                                    field_name: field_name.to_string(),
+                                    attno,
+                                    json_path: None, // Regular column, no JSON path
+                                });
+                                found_valid_column = true;
+                                break; // Found a valid grouping column for this pathkey
+                            }
                         }
                     }
                 }
@@ -539,8 +612,14 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
     let mut aggregate_types = Vec::new();
     for expr in target_list.iter_ptr() {
         unsafe {
+            let node_tag = (*expr).type_;
+
             if let Some(_var) = nodecast!(Var, T_Var, expr) {
                 // This is a Var - it should be a grouping column, skip it
+                continue;
+            } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
+                // This could be a JSON operator expression used in GROUP BY
+                // We'll treat it as a grouping column and skip it
                 continue;
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 // Check for DISTINCT in aggregate functions

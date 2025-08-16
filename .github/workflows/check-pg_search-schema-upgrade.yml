@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - 0.*.x
+      - 0.*.x # Release branches
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"

@@ -17,7 +17,7 @@ jobs:
   publish-docs:
     name: Publish Docs to Mintlify
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref, '-rc') }}
+    if: ${{ !contains(github.ref, '-') }}
 
     steps:
       - name: Checkout Repository

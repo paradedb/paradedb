@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - main
+      - 0.*.x # Release branches
     paths:
       - ".github/stressgres/**"
       - "**/*.rs"
@@ -19,6 +20,7 @@ on:
     types: [labeled, synchronize]
     branches:
       - main
+      - 0.*.x # Release branches
   workflow_dispatch:
     inputs:
       commit:

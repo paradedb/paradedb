@@ -32,33 +32,19 @@ WITH (
         "data": {"indexed": true, "fast": true, "expand_dots": true}
     }'
 );
--- Test simple COUNT with JSON field filter with EXPLAIN
-EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+-- Test simple COUNT with JSON field filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category');
-                                              QUERY PLAN                                               
--------------------------------------------------------------------------------------------------------
- [                                                                                                    +
-   {                                                                                                  +
-     "Plan": {                                                                                        +
-       "Node Type": "Custom Scan",                                                                    +
-       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                             +
-       "Parallel Aware": false,                                                                       +
-       "Async Capable": false,                                                                        +
-       "Relation Name": "json_agg_test",                                                              +
-       "Alias": "json_agg_test",                                                                      +
-       "Actual Rows": 1,                                                                              +
-       "Actual Loops": 1,                                                                             +
-       "Index": "idx_json_agg",                                                                       +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.category\"}}}}",+
-       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                       +
-     },                                                                                               +
-     "Triggers": [                                                                                    +
-     ]                                                                                                +
-   }                                                                                                  +
- ]
-(1 row)
+                                     QUERY PLAN                                     
+------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
 
 -- Execute the query
 SELECT COUNT(*) 
@@ -72,48 +58,46 @@ WHERE id @@@ paradedb.exists('metadata.category');
 -- =========================================
 -- Test 2: COUNT with specific JSON value filter
 -- =========================================
--- Test COUNT with specific category filter with EXPLAIN
-EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+-- Test COUNT with specific category filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.phrase_prefix('metadata.category', 'elect');
-ERROR:  malformed array literal: "elect" at character 175
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
 -- Execute the query
 SELECT COUNT(*) 
 FROM json_agg_test 
-WHERE id @@@ paradedb.phrase_prefix('metadata.category', 'elect');
-ERROR:  malformed array literal: "elect" at character 95
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+ count 
+-------
+     3
+(1 row)
+
 -- =========================================
 -- Test 3: COUNT with multiple JSON field filters
 -- =========================================
--- Test COUNT with multiple JSON field conditions with EXPLAIN
-EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
+-- Test COUNT with multiple JSON field conditions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.category') 
   AND id @@@ paradedb.exists('metadata.brand');
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                        +
-   {                                                                                                                                                                                                      +
-     "Plan": {                                                                                                                                                                                            +
-       "Node Type": "Custom Scan",                                                                                                                                                                        +
-       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                                                                                 +
-       "Parallel Aware": false,                                                                                                                                                                           +
-       "Async Capable": false,                                                                                                                                                                            +
-       "Relation Name": "json_agg_test",                                                                                                                                                                  +
-       "Alias": "json_agg_test",                                                                                                                                                                          +
-       "Actual Rows": 1,                                                                                                                                                                                  +
-       "Actual Loops": 1,                                                                                                                                                                                 +
-       "Index": "idx_json_agg",                                                                                                                                                                           +
-       "Tantivy Query": "{\"boolean\":{\"must\":[{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.category\"}}}},{\"with_index\":{\"query\":{\"exists\":{\"field\":\"metadata.brand\"}}}}]}}",+
-       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                                                                                                                           +
-     },                                                                                                                                                                                                   +
-     "Triggers": [                                                                                                                                                                                        +
-     ]                                                                                                                                                                                                    +
-   }                                                                                                                                                                                                      +
- ]
-(1 row)
+                                                                                QUERY PLAN                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
 
 -- Execute the query
 SELECT COUNT(*) 
@@ -126,68 +110,316 @@ WHERE id @@@ paradedb.exists('metadata.category')
 (1 row)
 
 -- =========================================
--- Test 4: COUNT with complex JSON filters
+-- Test 4: SUM aggregate on JSON numeric fields
 -- =========================================
--- Test COUNT with term query on JSON field with EXPLAIN
-EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
-SELECT COUNT(*) 
+-- Test SUM on JSON numeric field with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-                                                                 QUERY PLAN                                                                 
---------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                         +
-   {                                                                                                                                       +
-     "Plan": {                                                                                                                             +
-       "Node Type": "Custom Scan",                                                                                                         +
-       "Custom Plan Provider": "ParadeDB Aggregate Scan",                                                                                  +
-       "Parallel Aware": false,                                                                                                            +
-       "Async Capable": false,                                                                                                             +
-       "Relation Name": "json_agg_test",                                                                                                   +
-       "Alias": "json_agg_test",                                                                                                           +
-       "Actual Rows": 1,                                                                                                                   +
-       "Actual Loops": 1,                                                                                                                  +
-       "Index": "idx_json_agg",                                                                                                            +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"term\":{\"field\":\"metadata.brand\",\"value\":\"Apple\",\"is_datetime\":false}}}}",+
-       "Aggregate Definition": "{\"0\":{\"value_count\":{\"field\":\"ctid\"}}}"                                                            +
-     },                                                                                                                                    +
-     "Triggers": [                                                                                                                         +
-     ]                                                                                                                                     +
-   }                                                                                                                                       +
- ]
-(1 row)
+WHERE id @@@ paradedb.exists('metadata.price');
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Aggregate
+   Output: sum(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(9 rows)
 
 -- Execute the query
-SELECT COUNT(*) 
+SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
- count 
--------
-     0
+WHERE id @@@ paradedb.exists('metadata.price');
+ total_price 
+-------------
+        3862
+(1 row)
+
+-- Test SUM with category filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM((metadata->>'price')::numeric) as electronics_total
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: sum(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
+(9 rows)
+
+SELECT SUM((metadata->>'price')::numeric) as electronics_total
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+ electronics_total 
+-------------------
+              3097
+(1 row)
+
+-- Test SUM on data.stock field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT SUM((data->>'stock')::integer) as total_stock
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('data.stock');
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Aggregate
+   Output: sum(((data ->> 'stock'::text))::integer)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: data
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
+(9 rows)
+
+SELECT SUM((data->>'stock')::integer) as total_stock
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('data.stock');
+ total_stock 
+-------------
+         125
 (1 row)
 
 -- =========================================
--- Test 5: COUNT with range queries on JSON fields
+-- Test 5: AVG aggregate on JSON numeric fields
 -- =========================================
--- Test COUNT with range query on nested JSON data with EXPLAIN
-EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
-SELECT COUNT(*) 
+-- Test AVG on JSON numeric field with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.range('data.stock', gte => 10, lte => 20);
-ERROR:  function paradedb.range(unknown, gte => integer, lte => integer) does not exist at character 131
+WHERE id @@@ paradedb.exists('metadata.price');
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(9 rows)
+
 -- Execute the query
-SELECT COUNT(*) 
+SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
-WHERE id @@@ paradedb.range('data.stock', gte => 10, lte => 20);
-ERROR:  function paradedb.range(unknown, gte => integer, lte => integer) does not exist at character 51
+WHERE id @@@ paradedb.exists('metadata.price');
+      avg_price       
+----------------------
+ 482.7500000000000000
+(1 row)
+
+-- Test AVG with brand filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple","is_datetime":false}}}}
+(9 rows)
+
+SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
+ apple_avg_price 
+-----------------
+                
+(1 row)
+
+-- Test AVG on stock levels
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT AVG((data->>'stock')::integer) as avg_stock
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: avg(((data ->> 'stock'::text))::integer)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: data
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing","is_datetime":false}}}}
+(9 rows)
+
+SELECT AVG((data->>'stock')::integer) as avg_stock
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'clothing');
+      avg_stock      
+---------------------
+ 25.0000000000000000
+(1 row)
+
 -- =========================================
--- Test 6: COUNT with boolean queries on JSON
+-- Test 6: MIN/MAX aggregates on JSON fields
 -- =========================================
--- Test COUNT with boolean must query with EXPLAIN
+-- Test MIN/MAX on price with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    MIN((metadata->>'price')::numeric) as min_price,
+    MAX((metadata->>'price')::numeric) as max_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.price');
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(9 rows)
+
+-- Execute the query
+SELECT 
+    MIN((metadata->>'price')::numeric) as min_price,
+    MAX((metadata->>'price')::numeric) as max_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.price');
+ min_price | max_price 
+-----------+-----------
+        79 |      1299
+(1 row)
+
+-- Test MIN/MAX on specific category
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    MIN((metadata->>'price')::numeric) as min_electronics_price,
+    MAX((metadata->>'price')::numeric) as max_electronics_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
+(9 rows)
+
+SELECT 
+    MIN((metadata->>'price')::numeric) as min_electronics_price,
+    MAX((metadata->>'price')::numeric) as max_electronics_price
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.category', 'electronics');
+ min_electronics_price | max_electronics_price 
+-----------------------+-----------------------
+                   799 |                  1299
+(1 row)
+
+-- Test MIN/MAX on text fields (alphabetical)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    MIN(metadata->>'brand') as first_brand,
+    MAX(metadata->>'brand') as last_brand
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.brand');
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
+ Aggregate
+   Output: min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
+(9 rows)
+
+SELECT 
+    MIN(metadata->>'brand') as first_brand,
+    MAX(metadata->>'brand') as last_brand
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.brand');
+ first_brand | last_brand 
+-------------+------------
+ Adidas      | Samsung
+(1 row)
+
+-- =========================================
+-- Test 7: Mixed aggregate functions in single query
+-- =========================================
+-- Test multiple aggregates in one query with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    COUNT(*) as item_count,
+    SUM((metadata->>'price')::numeric) as total_value,
+    AVG((metadata->>'price')::numeric) as avg_price,
+    MIN((metadata->>'price')::numeric) as min_price,
+    MAX((metadata->>'price')::numeric) as max_price,
+    MIN(metadata->>'brand') as first_brand,
+    MAX(metadata->>'brand') as last_brand
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.price');
+                                                                                                                                    QUERY PLAN                                                                                                                                    
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate
+   Output: count(*), sum(((metadata ->> 'price'::text))::numeric), avg(((metadata ->> 'price'::text))::numeric), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric), min((metadata ->> 'brand'::text)), max((metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
+         Output: metadata
+         Table: json_agg_test
+         Index: idx_json_agg
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(9 rows)
+
+-- Execute the query
+SELECT 
+    COUNT(*) as item_count,
+    SUM((metadata->>'price')::numeric) as total_value,
+    AVG((metadata->>'price')::numeric) as avg_price,
+    MIN((metadata->>'price')::numeric) as min_price,
+    MAX((metadata->>'price')::numeric) as max_price,
+    MIN(metadata->>'brand') as first_brand,
+    MAX(metadata->>'brand') as last_brand
+FROM json_agg_test 
+WHERE id @@@ paradedb.exists('metadata.price');
+ item_count | total_value |      avg_price       | min_price | max_price | first_brand | last_brand 
+------------+-------------+----------------------+-----------+-----------+-------------+------------
+          8 |        3862 | 482.7500000000000000 |        79 |      1299 | Adidas      | Samsung
+(1 row)
+
+-- =========================================
+-- Test 8: COUNT with boolean queries on JSON
+-- =========================================
+-- Test COUNT with boolean must query
 EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON)
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.boolean(
-    must => ARRAY[
+    must := ARRAY[
         paradedb.exists('metadata.category'),
         paradedb.term('metadata.category', 'electronics')
     ]
@@ -219,7 +451,7 @@ WHERE id @@@ paradedb.boolean(
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.boolean(
-    must => ARRAY[
+    must := ARRAY[
         paradedb.exists('metadata.category'),
         paradedb.term('metadata.category', 'electronics')
     ]
@@ -230,63 +462,22 @@ WHERE id @@@ paradedb.boolean(
 (1 row)
 
 -- =========================================
--- Test 7: Verify aggregate custom scan is used
--- =========================================
--- Verify that these queries use the ParadeDB Aggregate Scan
--- by checking EXPLAIN output contains "ParadeDB Aggregate Scan"
--- This should show ParadeDB Aggregate Scan
-EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
-SELECT COUNT(*) 
-FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
-                                     QUERY PLAN                                     
-------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on json_agg_test
-   Index: idx_json_agg
-   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(4 rows)
-
--- This should also show ParadeDB Aggregate Scan  
-EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
-SELECT COUNT(*) 
-FROM json_agg_test 
-WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on json_agg_test
-   Index: idx_json_agg
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple","is_datetime":false}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
-(4 rows)
-
--- =========================================
--- Test 8: Compare with regular PostgreSQL aggregates
--- =========================================
--- Disable aggregate custom scan to compare
-SET paradedb.enable_aggregate_custom_scan TO off;
--- This should show regular PostgreSQL Aggregate + Custom Scan
-EXPLAIN (COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
-SELECT COUNT(*) 
-FROM json_agg_test 
-WHERE id @@@ paradedb.exists('metadata.category');
-                                        QUERY PLAN                                        
-------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Scan) on json_agg_test
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-(7 rows)
-
--- Re-enable for consistency
-SET paradedb.enable_aggregate_custom_scan TO on;
--- =========================================
 -- Test 9: Edge cases with JSON aggregates
 -- =========================================
 -- Test COUNT on empty result set
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.nonexistent","value":"value","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
@@ -296,6 +487,19 @@ WHERE id @@@ paradedb.term('metadata.nonexistent', 'value');
 (1 row)
 
 -- Test COUNT with all() query
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_agg_test 
+WHERE id @@@ paradedb.all();
+                           QUERY PLAN                           
+----------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
 SELECT COUNT(*) 
 FROM json_agg_test 
 WHERE id @@@ paradedb.all();
@@ -304,5 +508,338 @@ WHERE id @@@ paradedb.all();
      8
 (1 row)
 
+-- =========================================
+-- Test 10: Deep nested JSON aggregates
+-- =========================================
+-- Create table with deeply nested structures
+CREATE TABLE json_deep_agg (
+    id SERIAL PRIMARY KEY,
+    nested_data JSONB
+);
+-- Insert deeply nested test data
+INSERT INTO json_deep_agg (nested_data) VALUES
+    ('{"level1": {"level2": {"level3": {"level4": {"value": "target1", "score": 100}}}}}'),
+    ('{"level1": {"level2": {"level3": {"level4": {"value": "target2", "score": 85}}}}}'),
+    ('{"level1": {"level2": {"level3": {"level4": {"value": "target1", "score": 95}}}}}'),
+    ('{"level1": {"level2": {"alt_level3": {"level4": {"value": "target3", "score": 70}}}}}'),
+    ('{"level1": {"different": {"level3": {"level4": {"value": "target1", "score": 80}}}}}');
+-- Create BM25 index
+CREATE INDEX idx_json_deep_agg ON json_deep_agg
+USING bm25 (id, nested_data)
+WITH (
+    key_field = 'id',
+    json_fields = '{"nested_data": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test COUNT on deeply nested path (4 levels deep)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_deep_agg 
+WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
+   Output: now()
+   Index: idx_json_deep_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"nested_data.level1.level2.level3.level4.value"}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_deep_agg 
+WHERE id @@@ paradedb.exists('nested_data.level1.level2.level3.level4.value');
+ count 
+-------
+     3
+(1 row)
+
+-- Test COUNT with deep filtering
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_deep_agg 
+WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_deep_agg
+   Output: now()
+   Index: idx_json_deep_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"nested_data.level1.level2.level3.level4.value","value":"target1","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_deep_agg 
+WHERE id @@@ paradedb.term('nested_data.level1.level2.level3.level4.value', 'target1');
+ count 
+-------
+     2
+(1 row)
+
+-- =========================================
+-- Test 11: Heterogeneous structures aggregates
+-- =========================================
+-- Create table with mixed document types
+CREATE TABLE json_mixed_agg (
+    id SERIAL PRIMARY KEY,
+    doc JSONB
+);
+-- Insert various document structures
+INSERT INTO json_mixed_agg (doc) VALUES
+    -- IoT sensor data
+    ('{"type": "sensor", "device": {"id": "temp001", "location": "warehouse", "readings": {"temperature": 22.5, "humidity": 65}}}'),
+    ('{"type": "sensor", "device": {"id": "temp002", "location": "office", "readings": {"temperature": 21.0, "humidity": 55}}}'),
+    
+    -- User activity logs  
+    ('{"type": "activity", "user": {"id": "user123", "session": {"duration": 1800, "pages": ["home", "products", "cart"]}}}'),
+    ('{"type": "activity", "user": {"id": "user456", "session": {"duration": 3600, "pages": ["home", "about"]}}}'),
+    
+    -- Financial transactions
+    ('{"type": "transaction", "payment": {"method": "credit", "amount": 99.99, "merchant": {"category": "retail", "name": "Store A"}}}'),
+    ('{"type": "transaction", "payment": {"method": "debit", "amount": 25.50, "merchant": {"category": "food", "name": "Restaurant B"}}}');
+-- Create BM25 index
+CREATE INDEX idx_json_mixed_agg ON json_mixed_agg
+USING bm25 (id, doc)
+WITH (
+    key_field = 'id',
+    json_fields = '{"doc": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test COUNT by document type
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'sensor');
+                                                  QUERY PLAN                                                  
+--------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
+   Output: now()
+   Index: idx_json_mixed_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"doc.type","value":"sensor","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'sensor');
+ count 
+-------
+     2
+(1 row)
+
+-- Test COUNT on sensor data in specific location
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'sensor')
+  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+                                                                                                                  QUERY PLAN                                                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
+   Output: now()
+   Index: idx_json_mixed_agg
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"sensor","is_datetime":false}}}},{"with_index":{"query":{"term":{"field":"doc.device.location","value":"warehouse","is_datetime":false}}}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'sensor')
+  AND id @@@ paradedb.term('doc.device.location', 'warehouse');
+ count 
+-------
+     1
+(1 row)
+
+-- Test COUNT on credit transactions
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'transaction')
+  AND id @@@ paradedb.term('doc.payment.method', 'credit');
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
+   Output: now()
+   Index: idx_json_mixed_agg
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"doc.type","value":"transaction","is_datetime":false}}}},{"with_index":{"query":{"term":{"field":"doc.payment.method","value":"credit","is_datetime":false}}}}]}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.term('doc.type', 'transaction')
+  AND id @@@ paradedb.term('doc.payment.method', 'credit');
+ count 
+-------
+     1
+(1 row)
+
+-- =========================================
+-- Test 12: Simple boolean queries on JSON
+-- =========================================
+-- Test COUNT with simple boolean must logic
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('doc.type', 'sensor'),
+        paradedb.term('doc.device.location', 'office')
+    ]
+);
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_mixed_agg
+   Output: now()
+   Index: idx_json_mixed_agg
+   Tantivy Query: {"with_index":{"query":{"boolean":{"must":[{"term":{"field":"doc.type","value":"sensor","is_datetime":false}},{"term":{"field":"doc.device.location","value":"office","is_datetime":false}}]}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_mixed_agg 
+WHERE id @@@ paradedb.boolean(
+    must := ARRAY[
+        paradedb.term('doc.type', 'sensor'),
+        paradedb.term('doc.device.location', 'office')
+    ]
+);
+ count 
+-------
+     1
+(1 row)
+
+-- =========================================
+-- Test 13: Array field aggregates
+-- =========================================
+-- Create table with array fields
+CREATE TABLE json_array_agg (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+-- Insert data with arrays
+INSERT INTO json_array_agg (data) VALUES
+    ('{"tags": ["urgent", "customer", "billing"], "metadata": {"source": "email", "priority": "high"}}'),
+    ('{"tags": ["feature", "enhancement"], "metadata": {"source": "github", "priority": "medium"}}'),
+    ('{"tags": ["bug", "urgent", "frontend"], "metadata": {"source": "jira", "priority": "high"}}'),
+    ('{"tags": ["documentation"], "metadata": {"source": "confluence", "priority": "low"}}');
+-- Create BM25 index
+CREATE INDEX idx_json_array_agg ON json_array_agg
+USING bm25 (id, data)
+WITH (
+    key_field = 'id',
+    json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test COUNT on documents with specific tags
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_array_agg 
+WHERE id @@@ paradedb.term('data.tags', 'urgent');
+                                                  QUERY PLAN                                                   
+---------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
+   Output: now()
+   Index: idx_json_array_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"data.tags","value":"urgent","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_array_agg 
+WHERE id @@@ paradedb.term('data.tags', 'urgent');
+ count 
+-------
+     2
+(1 row)
+
+-- Test COUNT with high priority items
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_array_agg 
+WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_array_agg
+   Output: now()
+   Index: idx_json_array_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"data.metadata.priority","value":"high","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_array_agg 
+WHERE id @@@ paradedb.term('data.metadata.priority', 'high');
+ count 
+-------
+     2
+(1 row)
+
+-- =========================================
+-- Test 14: Special characters and edge cases
+-- =========================================
+-- Create table with special JSON keys
+CREATE TABLE json_special_agg (
+    id SERIAL PRIMARY KEY,
+    payload JSONB
+);
+-- Insert data with special characters
+INSERT INTO json_special_agg (payload) VALUES
+    ('{"user-profile": {"first_name": "John", "email@work": "john@company.com", "settings.theme": "dark"}}'),
+    ('{"user-profile": {"first_name": "Jane", "email@work": "jane@company.com", "settings.theme": "light"}}'),
+    ('{"api-response": {"status_code": 200, "response.time": 150, "cache-hit": true}}'),
+    ('{"api-response": {"status_code": 404, "response.time": 50, "cache-hit": false}}');
+-- Create BM25 index
+CREATE INDEX idx_json_special_agg ON json_special_agg
+USING bm25 (id, payload)
+WITH (
+    key_field = 'id',
+    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test COUNT with special character fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_special_agg 
+WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
+   Output: now()
+   Index: idx_json_special_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.user-profile.email@work"}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_special_agg 
+WHERE id @@@ paradedb.exists('payload.user-profile.email@work');
+ count 
+-------
+     2
+(1 row)
+
+-- Test COUNT on API responses
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(*) 
+FROM json_special_agg 
+WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_special_agg
+   Output: now()
+   Index: idx_json_special_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"payload.api-response.status_code","value":"200","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(5 rows)
+
+SELECT COUNT(*) 
+FROM json_special_agg 
+WHERE id @@@ paradedb.term('payload.api-response.status_code', '200');
+ count 
+-------
+     0
+(1 row)
+
 -- Clean up
 DROP TABLE json_agg_test;
+DROP TABLE json_deep_agg;
+DROP TABLE json_mixed_agg;
+DROP TABLE json_array_agg;
+DROP TABLE json_special_agg;

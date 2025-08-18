@@ -1,0 +1,132 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CREATE TABLE numeric_pushdown(
+    id SERIAL PRIMARY KEY,
+    text_col TEXT,
+    numeric_col NUMERIC,
+    float_col FLOAT4,
+    int_col INTEGER
+);
+INSERT INTO numeric_pushdown(text_col, numeric_col, float_col, int_col)
+SELECT
+    (ARRAY['Alice', 'Bob', 'Charlie', 'David', 'Eve'])[i % 5 + 1],
+    (i % 5)::numeric,
+    (i % 5)::float4,
+    (i % 5)::integer
+FROM generate_series(1, 100) i;
+CREATE INDEX numeric_pushdown_idx ON numeric_pushdown USING bm25 (
+    id, text_col, numeric_col, float_col, int_col
+) WITH (key_field = 'id');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col = 1
+ORDER BY id LIMIT 10;
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":1.0,"is_datetime":false}}]}}
+(9 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col = 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  1 | Bob      |           1 |         1 |       1
+  6 | Bob      |           1 |         1 |       1
+ 11 | Bob      |           1 |         1 |       1
+ 16 | Bob      |           1 |         1 |       1
+ 21 | Bob      |           1 |         1 |       1
+ 26 | Bob      |           1 |         1 |       1
+ 31 | Bob      |           1 |         1 |       1
+ 36 | Bob      |           1 |         1 |       1
+ 41 | Bob      |           1 |         1 |       1
+ 46 | Bob      |           1 |         1 |       1
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col > 1
+ORDER BY id LIMIT 10;
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":1.0},"upper_bound":null,"is_datetime":false}}]}}
+(9 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col > 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  2 | Charlie  |           2 |         2 |       2
+  3 | David    |           3 |         3 |       3
+  4 | Eve      |           4 |         4 |       4
+  7 | Charlie  |           2 |         2 |       2
+  8 | David    |           3 |         3 |       3
+  9 | Eve      |           4 |         4 |       4
+ 12 | Charlie  |           2 |         2 |       2
+ 13 | David    |           3 |         3 |       3
+ 14 | Eve      |           4 |         4 |       4
+ 17 | Charlie  |           2 |         2 |       2
+(10 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col::int > 1
+ORDER BY id LIMIT 10;
+                                                                                                                                                                                                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Scan) on numeric_pushdown
+         Table: numeric_pushdown
+         Index: numeric_pushdown_idx
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: id asc
+            TopN Limit: 10
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 1744 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 1 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 3 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 1 0 0 0 0 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 521"}]}}]}}
+(9 rows)
+
+SELECT * FROM numeric_pushdown
+WHERE id @@@ paradedb.all()
+AND numeric_col::int > 1
+ORDER BY id LIMIT 10;
+ id | text_col | numeric_col | float_col | int_col 
+----+----------+-------------+-----------+---------
+  2 | Charlie  |           2 |         2 |       2
+  3 | David    |           3 |         3 |       3
+  4 | Eve      |           4 |         4 |       4
+  7 | Charlie  |           2 |         2 |       2
+  8 | David    |           3 |         3 |       3
+  9 | Eve      |           4 |         4 |       4
+ 12 | Charlie  |           2 |         2 |       2
+ 13 | David    |           3 |         3 |       3
+ 14 | Eve      |           4 |         4 |       4
+ 17 | Charlie  |           2 |         2 |       2
+(10 rows)
+
+DROP TABLE numeric_pushdown;

@@ -117,7 +117,6 @@ pub unsafe fn try_pushdown_inner(
     let search_field = pushdown.search_field();
 
     static EQUALITY_OPERATOR_LOOKUP: OnceLock<HashMap<PostgresOperatorOid, TantivyOperator>> = OnceLock::new();
-    pgrx::info!("pushdown for {:?}", search_field);
     match EQUALITY_OPERATOR_LOOKUP.get_or_init(|| unsafe { initialize_equality_operator_lookup(OperatorAccepts::All) }).get(&opexpr.opno()) {
         Some(pgsearch_operator) => {
             // can't push down tokenized text
@@ -147,7 +146,6 @@ pub unsafe fn try_pushdown_inner(
             }
         },
         None => {
-            pgrx::info!("no pushdown for {:?}", search_field);
             // TODO:  support other types of OpExprs
             None
         }

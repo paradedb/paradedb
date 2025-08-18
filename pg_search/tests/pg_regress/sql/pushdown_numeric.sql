@@ -52,3 +52,5 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col::int > 1
 ORDER BY id LIMIT 10;
+
+DROP TABLE numeric_pushdown;

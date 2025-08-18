@@ -110,9 +110,9 @@ WHERE id @@@ paradedb.exists('metadata.category')
 (1 row)
 
 -- =========================================
--- Test 4: SUM aggregate on JSON numeric fields
+-- Test 4: SUM aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 -- =========================================
--- Test SUM on JSON numeric field with EXPLAIN
+-- Test SUM on JSON numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
@@ -192,9 +192,9 @@ WHERE id @@@ paradedb.exists('data.stock');
 (1 row)
 
 -- =========================================
--- Test 5: AVG aggregate on JSON numeric fields
+-- Test 5: AVG aggregate on JSON numeric fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 -- =========================================
--- Test AVG on JSON numeric field with EXPLAIN
+-- Test AVG on JSON numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
@@ -274,9 +274,9 @@ WHERE id @@@ paradedb.term('metadata.category', 'clothing');
 (1 row)
 
 -- =========================================
--- Test 6: MIN/MAX aggregates on JSON fields
+-- Test 6: MIN/MAX aggregates on JSON fields (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 -- =========================================
--- Test MIN/MAX on price with EXPLAIN
+-- Test MIN/MAX on price
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     MIN((metadata->>'price')::numeric) as min_price,
@@ -368,9 +368,9 @@ WHERE id @@@ paradedb.exists('metadata.brand');
 (1 row)
 
 -- =========================================
--- Test 7: Mixed aggregate functions in single query
+-- Test 7: Mixed aggregate functions in single query (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 -- =========================================
--- Test multiple aggregates in one query with EXPLAIN
+-- Test multiple aggregates in one query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT 
     COUNT(*) as item_count,

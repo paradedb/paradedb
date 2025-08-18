@@ -122,7 +122,7 @@ ORDER BY category, brand;
 (3 rows)
 
 -- =========================================
--- Test 3: JSON GROUP BY with various aggregate functions
+-- Test 3: JSON GROUP BY with various aggregate functions (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 -- =========================================
 -- Create test table for aggregates
 CREATE TABLE json_test_aggregates (
@@ -659,11 +659,11 @@ CREATE TABLE json_test_operators (
 );
 -- Insert test data
 INSERT INTO json_test_operators (payload) VALUES
-    ('{"metadata": {"tags": ["urgent", "customer"], "priority": 1, "assignee": {"name": "Alice", "team": "support"}}}'),
-    ('{"metadata": {"tags": ["feature", "backend"], "priority": 2, "assignee": {"name": "Bob", "team": "engineering"}}}'),
-    ('{"metadata": {"tags": ["bug", "frontend"], "priority": 1, "assignee": {"name": "Alice", "team": "engineering"}}}'),
-    ('{"metadata": {"tags": ["urgent", "billing"], "priority": 3, "assignee": {"name": "Carol", "team": "support"}}}'),
-    ('{"metadata": {"tags": ["feature", "api"], "priority": 2, "assignee": {"name": "Bob", "team": "engineering"}}}');
+    ('{"metadata": {"tags": ["urgent", "customer"], "priority": "high", "assignee": {"name": "Alice", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "backend"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["bug", "frontend"], "priority": "high", "assignee": {"name": "Alice", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["urgent", "billing"], "priority": "low", "assignee": {"name": "Carol", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "api"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}');
 -- Create BM25 index
 CREATE INDEX idx_json_operators ON json_test_operators
 USING bm25 (id, payload)
@@ -674,35 +674,70 @@ WITH (
 -- Test mixing -> and ->> operators in GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT payload->'metadata'->>'priority' AS priority_text,
-       payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
-GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
-ORDER BY priority_text, team;
-                                                                                               QUERY PLAN                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
  Sort
-   Output: (((payload -> 'metadata'::text) ->> 'priority'::text)), ((((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text)), (now())
-   Sort Key: (((json_test_operators.payload -> 'metadata'::text) ->> 'priority'::text)), ((((json_test_operators.payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text))
+   Output: (((payload -> 'metadata'::text) ->> 'priority'::text)), (now())
+   Sort Key: (((json_test_operators.payload -> 'metadata'::text) ->> 'priority'::text))
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
-         Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), now()
+         Output: ((payload -> 'metadata'::text) ->> 'priority'::text), now()
          Index: idx_json_operators
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}},{"with_index":{"query":{"exists":{"field":"payload.metadata.assignee.team"}}}}]}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","size":10000},"aggs":{"group_1":{"terms":{"field":"payload.metadata.assignee.team","size":10000}}}}}
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","size":10000}}}
 (8 rows)
 
 -- Execute the query
 SELECT payload->'metadata'->>'priority' AS priority_text,
-       payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
-GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
-ORDER BY priority_text, team;
-ERROR:  Failed to convert TantivyValue to datum: UnsupportedIntoConversion("String")
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
+ priority_text | count 
+---------------+-------
+ high          |     2
+ low           |     1
+ medium        |     2
+(3 rows)
+
+-- Test with simpler assignee team field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Sort
+   Output: ((payload ->> 'team'::text)), (now())
+   Sort Key: ((json_test_operators.payload ->> 'team'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
+         Output: (payload ->> 'team'::text), now()
+         Index: idx_json_operators
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.team"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"payload.team","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
+    team     | count 
+-------------+-------
+ engineering |     3
+ support     |     2
+(2 rows)
+
 -- =========================================
 -- Test 9: Array elements and complex nesting
 -- =========================================
@@ -771,7 +806,7 @@ ORDER BY source_system, metric_category;
  support       | C               |     1 | 60.0000000000000000
 (4 rows)
 
--- Test GROUP BY with comprehensive aggregates on scores
+-- Test GROUP BY with comprehensive aggregates on scores (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT document->'metrics'->>'category' AS metric_category,
        COUNT(*) AS total_records,

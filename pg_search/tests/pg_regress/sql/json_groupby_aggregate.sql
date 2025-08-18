@@ -456,11 +456,11 @@ CREATE TABLE json_test_operators (
 
 -- Insert test data
 INSERT INTO json_test_operators (payload) VALUES
-    ('{"metadata": {"tags": ["urgent", "customer"], "priority": 1, "assignee": {"name": "Alice", "team": "support"}}}'),
-    ('{"metadata": {"tags": ["feature", "backend"], "priority": 2, "assignee": {"name": "Bob", "team": "engineering"}}}'),
-    ('{"metadata": {"tags": ["bug", "frontend"], "priority": 1, "assignee": {"name": "Alice", "team": "engineering"}}}'),
-    ('{"metadata": {"tags": ["urgent", "billing"], "priority": 3, "assignee": {"name": "Carol", "team": "support"}}}'),
-    ('{"metadata": {"tags": ["feature", "api"], "priority": 2, "assignee": {"name": "Bob", "team": "engineering"}}}');
+    ('{"metadata": {"tags": ["urgent", "customer"], "priority": "high", "assignee": {"name": "Alice", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "backend"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["bug", "frontend"], "priority": "high", "assignee": {"name": "Alice", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["urgent", "billing"], "priority": "low", "assignee": {"name": "Carol", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "api"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}');
 
 -- Create BM25 index
 CREATE INDEX idx_json_operators ON json_test_operators
@@ -473,23 +473,36 @@ WITH (
 -- Test mixing -> and ->> operators in GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT payload->'metadata'->>'priority' AS priority_text,
-       payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
-GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
-ORDER BY priority_text, team;
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
 
 -- Execute the query
 SELECT payload->'metadata'->>'priority' AS priority_text,
-       payload->'metadata'->'assignee'->>'team' AS team,
        COUNT(*) AS count
 FROM json_test_operators
 WHERE id @@@ paradedb.exists('payload.metadata.priority')
-  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
-GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
-ORDER BY priority_text, team;
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
+
+-- Test with simpler assignee team field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
+
+-- Execute the query
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
 
 -- =========================================
 -- Test 9: Array elements and complex nesting

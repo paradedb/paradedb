@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755541286516,
+  "lastUpdate": 1755541289167,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15842,6 +15842,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.58581128133704, max segment_count: 95.0, count: 57440"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1932ac9a15aa216a3cd52febdbe5d16c3d814dba",
+          "message": "chore: merge 0.17.x to main (fix bugs with 0.17.x exposed by the custom FSM (#2971)) (#2979)\n\nThis PR starts off fixing three distinct bugs that we've had for awhile\nbut the new custom FSM brought to light:\n\n- failed to properly identify an orphaned \".deletes\" files, which could\nlead to adding the same block to the FSM multiple times\n- `BufferMut.return_to_fsm()` needs to unlock/release the buffer before\ngiving the block number to the FSM\n- `AtomicGuard::commit()` was returning a block to the FSM prematurely\n\nWe also retool the FSM so that it will only return blocks when they're\nknown to be all visible by all concurrent transactions. Here on\ncommunity that is actually \"immediately\" but is more sophsicated on our\n-enterprise product.\n\nThis also allows us to completely remove the concept of the\n\"segment_meta_garbage\" list. Now that the FSM ensures blocks don't get\nreused until they're allowed, we don't need a separate way of tracking\nthat.\n\nThe FSM is also largely rewritten to be centered around a \"draining\niterator\".\n\nAnother minor change is that if we forget to call\n`AtomicGuard::commit()` its Drop impl now panics\n\n---\n\nAnd one follow-up change is porting a fix we apparently only made to\n-enterprise related to parallel build workers not being able to get the\ncurrent transaction id.\n\nThat's necessary here too.\n\n---\n\nThe full set of individual commits squashed here are:\n\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/95d7b1594c53600a543a8f2340b61fd060d60687\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/01d69b2a2a8728ee00190134e852621ee0318c77\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/ab7bc08ae59afa239bb87f77d7d27113351d73f5\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/7c4ddcd2e315af4d7df00b5386846c66944f7521\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/885295995a921682849cc27e412c5c2c7ddf78c4\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/a520c5988dc5cc87859d3046e10877c44b93d974\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/cd0df327689fa92ba9198f3f92c4df8810108c66\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/3f8baf8a4104344bb0f823c01036bc698926415a\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/707c55b0a36223c016d33a5e6db16abdbc9a93c6\n\nhttps://github.com/paradedb/paradedb/pull/2979/commits/c5ee9b5617b07d66cb770f6a088268b7e7d542ad\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Philippe Noël <21990816+philippemnoel@users.noreply.github.com>",
+          "timestamp": "2025-08-18T13:52:30-04:00",
+          "tree_id": "dc2c08727128996ae6c942c716f6c7e7aba8693e",
+          "url": "https://github.com/paradedb/paradedb/commit/1932ac9a15aa216a3cd52febdbe5d16c3d814dba"
+        },
+        "date": 1755541287725,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.262683297131577, max cpu: 60.173576, count: 57434"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 238.9609375,
+            "unit": "median mem",
+            "extra": "avg mem: 237.72002843753265, max mem: 243.984375, count: 57434"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.13562700982448, max cpu: 33.333336, count: 57434"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.2682105764878, max mem: 165.08203125, count: 57434"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22462,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20737.161071838982, max block_count: 23632.0, count: 57434"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.56619772260333, max segment_count: 95.0, count: 57434"
           }
         ]
       }

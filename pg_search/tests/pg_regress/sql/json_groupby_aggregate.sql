@@ -504,6 +504,26 @@ WHERE id @@@ paradedb.exists('payload.team')
 GROUP BY payload->>'team'
 ORDER BY team;
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       payload->'metadata'->'assignee'->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
+ORDER BY priority_text, team;
+
+-- Execute the query
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       payload->'metadata'->'assignee'->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
+ORDER BY priority_text, team;
+
 -- =========================================
 -- Test 9: Array elements and complex nesting
 -- =========================================

@@ -40,10 +40,13 @@ pub struct MetaPageData {
     ambulkdelete_sentinel: pg_sys::BlockNumber,
 
     #[allow(dead_code)]
+    #[doc(hidden)]
     _dead_space_2: [u32; 2],
 
-    /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
-    segment_meta_garbage: pg_sys::BlockNumber,
+    /// This used to be the header block for a [`LinkedItemsList<SegmentMergeEntry>]`
+    #[allow(dead_code)]
+    #[doc(hidden)]
+    _dead_space_3: pg_sys::BlockNumber,
 
     /// Merge lock block number
     merge_lock: pg_sys::BlockNumber,
@@ -82,8 +85,6 @@ impl MetaPage {
         unsafe {
             metadata.active_vacuum_list = init_new_buffer(indexrel).number();
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
-            metadata.segment_meta_garbage =
-                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
             metadata.merge_lock = init_new_buffer(indexrel).number();
             metadata.fsm = FreeSpaceManager::create(indexrel);
 
@@ -113,7 +114,6 @@ impl MetaPage {
         // our old hardcoded values
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
-            || !block_number_is_valid(metadata.segment_meta_garbage)
             || !block_number_is_valid(metadata.merge_lock)
             || !block_number_is_valid(metadata.fsm);
 
@@ -133,11 +133,6 @@ impl MetaPage {
 
                 if !block_number_is_valid(metadata.ambulkdelete_sentinel) {
                     metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
-                }
-
-                if !block_number_is_valid(metadata.segment_meta_garbage) {
-                    metadata.segment_meta_garbage =
-                        LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
 
                 if !block_number_is_valid(metadata.merge_lock) {
@@ -165,26 +160,6 @@ impl MetaPage {
     pub unsafe fn acquire_merge_lock(&self) -> MergeLock {
         assert!(block_number_is_valid(self.data.merge_lock));
         MergeLock::acquire(self.bman.buffer_access().rel(), self.data.merge_lock)
-    }
-
-    ///
-    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
-    /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
-    /// be reading them on physical replicas.
-    ///
-    /// Deferring recycling avoids readers needing to hold a lock all the way from when
-    /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
-    /// for the segments it references.
-    ///
-    pub fn segment_metas_garbage(&self) -> Option<LinkedItemList<SegmentMetaEntry>> {
-        if !block_number_is_valid(self.data.segment_meta_garbage) {
-            return None;
-        }
-
-        Some(LinkedItemList::<SegmentMetaEntry>::open(
-            self.bman.buffer_access().rel(),
-            self.data.segment_meta_garbage,
-        ))
     }
 
     pub fn vacuum_list(&self) -> VacuumList {

@@ -201,7 +201,6 @@ impl SegmentMetaEntry {
     /// This function returns true if the `SegmentMetaEntry` is a "fake" `DeleteEntry`
     pub fn is_orphaned_delete(&self) -> bool {
         self.segment_id == SegmentId::from_bytes([0; 16])
-            && self.xmax == pg_sys::FrozenTransactionId
     }
 
     /// Fake an `Opstamp` that's always zero

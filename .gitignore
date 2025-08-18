@@ -34,3 +34,7 @@ pgvector/
 
 # samply
 profile.json*
+
+# patch/diff
+*.orig
+*.rej

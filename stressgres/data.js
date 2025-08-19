@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755637615249,
+  "lastUpdate": 1755638239484,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19232,6 +19232,42 @@ window.BENCHMARK_DATA = {
             "value": 120.30307266793416,
             "unit": "median tps",
             "extra": "avg tps: 119.67001825727513, max tps: 121.65830575822059, count: 56339"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84ba75e63359cd3795b04a44b19e09e607658066",
+          "message": "perf: improve FSM extend and pop/pop_many performance (#2988)\n\n## What\n\nReduce general overhead in the FSM between extending it and popping off\none or more blocks. In doing so, fix a bug where the header's `empty`\nflag was not being set as eagerly as it could have been.\n\nAdditionally, teach our lower-level new block code to use\n`RBM_ZERO_AND_LOCK` for when opening buffers returned from the FSM. This\npotentially avoids disk I/O if the buffer isn't in Postgres' buffer\ncache and also elides a rountrip over FFI to lock the buffer since\nReadBufferExtended is doing it for us with this flag set.\n\nAlso cleans up lifetime annotations a bit so it's not possible to have\nmultiple mutable borrows from a BufferMut, even when those borrows\nhappen through Page/PageMut.\n\n## Why\n\n0.17.4 is a big release as it fixes issues with and around our custom\nFSM and it, unfortunately, introduced some performance regressions\nrelative to 0.17.3 (that was bugged).\n\nThis gets that perf, plus maybe little more, back.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-19T16:39:14-04:00",
+          "tree_id": "f2f9b5a6cf148657825fbd2f53a405386c3ea128",
+          "url": "https://github.com/paradedb/paradedb/commit/84ba75e63359cd3795b04a44b19e09e607658066"
+        },
+        "date": 1755638237988,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.674355936462955,
+            "unit": "median tps",
+            "extra": "avg tps: 28.46193788579384, max tps: 28.787312613597095, count: 57803"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 123.54981486381347,
+            "unit": "median tps",
+            "extra": "avg tps: 122.92976619844727, max tps: 125.15360036813692, count: 57803"
           }
         ]
       }

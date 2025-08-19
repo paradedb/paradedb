@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755635910991,
+  "lastUpdate": 1755635914245,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22104,6 +22104,66 @@ window.BENCHMARK_DATA = {
             "value": 165.296875,
             "unit": "median mem",
             "extra": "avg mem: 156.0250633695566, max mem: 176.14453125, count: 56674"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f3803867a6ebda750f8de457809b3e1e5b6586e",
+          "message": "perf: improve FSM extend and pop/pop_many performance (cherry pick from 0.18.x) (#2992)\n\n## What\n\nReduce general overhead in the FSM between extending it and popping off\none or more blocks. In doing so, fix a bug where the header's `empty`\nflag was not being set as eagerly as it could have been.\n\nAdditionally, teach our lower-level new block code to use\n`RBM_ZERO_AND_LOCK` for when opening buffers returned from the FSM. This\npotentially avoids disk I/O if the buffer isn't in Postgres' buffer\ncache and also elides a rountrip over FFI to lock the buffer since\nReadBufferExtended is doing it for us with this flag set.\n\nAlso cleans up lifetime annotations a bit so it's not possible to have\nmultiple mutable borrows from a BufferMut, even when those borrows\nhappen through Page/PageMut.\n\n## Why\n\nPulling up the changes from PR #2989 and #2988.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-19T15:59:48-04:00",
+          "tree_id": "52d0b094bfd574f3f9f64a9fe07ed30eeab8d1d9",
+          "url": "https://github.com/paradedb/paradedb/commit/6f3803867a6ebda750f8de457809b3e1e5b6586e"
+        },
+        "date": 1755635912747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.228310137825915, max cpu: 111.51984, count: 56339"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 174.9130372471778, max mem: 180.8359375, count: 56339"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17636,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16308.598714922167, max block_count: 21376.0, count: 56339"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 39,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 40.991852890537636, max segment_count: 110.0, count: 56339"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.786694,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.918152552719857, max cpu: 157.83366, count: 56339"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.56933314677664, max mem: 176.4765625, count: 56339"
           }
         ]
       }

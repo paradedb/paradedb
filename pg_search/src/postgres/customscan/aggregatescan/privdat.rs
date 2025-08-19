@@ -250,7 +250,6 @@ impl AggregateValue {
 pub struct GroupingColumn {
     pub field_name: String,
     pub attno: pg_sys::AttrNumber,
-    pub json_path: Option<String>, // JSON path if this is a JSON field access (e.g., "reservation_id" for metadata->>'reservation_id')
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

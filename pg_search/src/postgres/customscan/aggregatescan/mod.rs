@@ -491,12 +491,10 @@ fn extract_grouping_columns(
                         if is_fast {
                             // Check if this is a JSON field access
                             let base_field = field_name.root();
-                            let json_path = field_name.path();
 
                             grouping_columns.push(GroupingColumn {
                                 field_name: field_name.to_string(), // Store full path for Tantivy
                                 attno,
-                                json_path, // Store JSON subpath if present
                             });
                             found_valid_column = true;
                             break; // Found a valid grouping column for this pathkey
@@ -524,7 +522,6 @@ fn extract_grouping_columns(
                                 grouping_columns.push(GroupingColumn {
                                     field_name: field_name.to_string(),
                                     attno,
-                                    json_path: None, // Regular column, no JSON path
                                 });
                                 found_valid_column = true;
                                 break; // Found a valid grouping column for this pathkey

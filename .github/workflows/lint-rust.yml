@@ -72,7 +72,7 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings --no-deps
 
       - name: Install cargo-machete
-        run: cargo install cargo-machete --debug
+        run: cargo install cargo-machete --locked --debug
 
       - name: Install taplo
         run: cargo install taplo-cli --version ^0.9 --locked --debug

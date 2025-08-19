@@ -490,17 +490,8 @@ fn extract_grouping_columns(
                         let is_fast = search_field.is_fast();
                         if is_fast {
                             // Check if this is a JSON field access
-                            let (base_field, json_path) = if field_name.contains('.') {
-                                // This is a JSON path like "metadata.reservation_id"
-                                let parts: Vec<&str> = field_name.split('.').collect();
-                                if parts.len() >= 2 {
-                                    (parts[0].to_string(), Some(parts[1..].join(".")))
-                                } else {
-                                    (field_name.to_string(), None)
-                                }
-                            } else {
-                                (field_name.to_string(), None)
-                            };
+                            let base_field = field_name.root();
+                            let json_path = field_name.path();
 
                             grouping_columns.push(GroupingColumn {
                                 field_name: field_name.to_string(), // Store full path for Tantivy

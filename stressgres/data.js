@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755636922771,
+  "lastUpdate": 1755636951418,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4068,6 +4068,72 @@ window.BENCHMARK_DATA = {
             "value": 100.26968914818401,
             "unit": "median tps",
             "extra": "avg tps: 103.14097351380744, max tps: 729.6213119466734, count: 55249"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "71a7dd7b16652c7e872d1fa718fea2b9849f18a8",
+          "message": "perf: improve FSM extend and pop/pop_many performance (#2989)\n\n## What\n\nReduce general overhead in the FSM between extending it and popping off\none or more blocks. In doing so, fix a bug where the header's `empty`\nflag was not being set as eagerly as it could have been.\n\nAdditionally, teach our lower-level new block code to use\n`RBM_ZERO_AND_LOCK` for when opening buffers returned from the FSM. This\npotentially avoids disk I/O if the buffer isn't in Postgres' buffer\ncache and also elides a rountrip over FFI to lock the buffer since\nReadBufferExtended is doing it for us with this flag set.\n\nAlso cleans up lifetime annotations a bit so it's not possible to have\nmultiple mutable borrows from a BufferMut, even when those borrows\nhappen through Page/PageMut.\n\n## Why\n\nFor the same reasons as PR #2988 \n\n## How\n\n## Tests",
+          "timestamp": "2025-08-19T16:39:48-04:00",
+          "tree_id": "52d0b094bfd574f3f9f64a9fe07ed30eeab8d1d9",
+          "url": "https://github.com/paradedb/paradedb/commit/71a7dd7b16652c7e872d1fa718fea2b9849f18a8"
+        },
+        "date": 1755636949918,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1181.4591732170632,
+            "unit": "median tps",
+            "extra": "avg tps: 1173.2260968244352, max tps: 1186.9039119937406, count: 55248"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2888.42096716366,
+            "unit": "median tps",
+            "extra": "avg tps: 2857.2217935906065, max tps: 2904.592066267297, count: 55248"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1162.9987924898421,
+            "unit": "median tps",
+            "extra": "avg tps: 1155.4562400078794, max tps: 1165.399352531669, count: 55248"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 845.3235650813908,
+            "unit": "median tps",
+            "extra": "avg tps: 845.4692911993918, max tps: 897.8625245311006, count: 55248"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 168.48768406689754,
+            "unit": "median tps",
+            "extra": "avg tps: 167.44734248891766, max tps: 169.95248130177384, count: 110496"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 145.70616871458563,
+            "unit": "median tps",
+            "extra": "avg tps: 144.50155947170052, max tps: 150.7137539638659, count: 55248"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 115.93743532077318,
+            "unit": "median tps",
+            "extra": "avg tps: 111.35689343726713, max tps: 736.0317730195777, count: 55248"
           }
         ]
       }

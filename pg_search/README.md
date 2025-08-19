@@ -88,22 +88,7 @@ rustup install stable
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconsistencies with Homebrew's Rust installation on macOS.
 
-Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
-
-```bash
-# macOS
-brew install postgresql@17
-
-# Ubuntu
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update && sudo apt-get install -y postgresql-17 postgresql-server-dev-17
-
-# Arch Linux
-sudo pacman -S extra/postgresql
-```
-
-If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
+Then, install pgrx. Pgrx will install its own version of postgres:
 
 ```bash
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
@@ -116,16 +101,16 @@ Then, install and initialize `pgrx`:
 cargo install --locked cargo-pgrx --version 0.15.0
 
 # macOS arm64
-cargo pgrx init --pg17=/opt/homebrew/opt/postgresql@17/bin/pg_config
+cargo pgrx init
 
 # macOS amd64
-cargo pgrx init --pg17=/usr/local/opt/postgresql@17/bin/pg_config
+cargo pgrx init
 
 # Ubuntu
-cargo pgrx init --pg17=/usr/lib/postgresql/17/bin/pg_config
+cargo pgrx init
 
 # Arch Linux
-cargo pgrx init --pg17=/usr/bin/pg_config
+cargo pgrx init
 ```
 
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.

@@ -219,35 +219,27 @@ impl CustomScan for AggregateScan {
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
                     // This might be a JSON operator expression - verify and find matching grouping column
                     let var_context = VarContext::from_planner(builder.args().root);
-                    if let Some((var, field_name)) = find_one_var_and_fieldname(
+                    let (var, field_name) = find_one_var_and_fieldname(
                         var_context,
                         (*input_te).expr as *mut pg_sys::Node,
-                    ) {
-                        // Find which grouping column this expression matches
-                        let mut found_idx = None;
-                        for (i, gc) in grouping_columns.iter().enumerate() {
-                            if (*var).varattno == gc.attno
-                                && gc.field_name == field_name.to_string()
-                            {
-                                found_idx = Some(i);
-                                break;
-                            }
-                        }
+                    )
+                    .expect("OpExpr in target list is not a recognized JSON operator expression");
 
-                        if let Some(idx) = found_idx {
-                            target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
-                            // Keep it as-is
-                            pg_sys::flatCopyTargetEntry(input_te)
-                        } else {
-                            panic!(
-                                "OpExpr in target list does not match any detected grouping column"
-                            );
+                    // Find which grouping column this expression matches
+                    let mut found_idx = None;
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        if (*var).varattno == gc.attno && gc.field_name == field_name.to_string() {
+                            found_idx = Some(i);
+                            break;
                         }
-                    } else {
-                        panic!(
-                            "OpExpr in target list is not a recognized JSON operator expression"
-                        );
                     }
+
+                    let idx = found_idx.expect(
+                        "OpExpr in target list does not match any detected grouping column",
+                    );
+                    target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
+                    // Keep it as-is
+                    pg_sys::flatCopyTargetEntry(input_te)
                 } else {
                     // Other expression types we don't support yet
                     panic!(

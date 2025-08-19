@@ -152,15 +152,29 @@ impl RelationBufferAccess {
     /// Retrieve an existing [`pg_sys::Buffer`] by its number.  The returned buffer is always pinned
     /// and if `lock` is `Some`, it'll be locked with that lock level.
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber, lock: Option<u32>) -> pg_sys::Buffer {
-        self.get_buffer_with_strategy(blockno, std::ptr::null_mut(), lock)
+        self.get_buffer_extended(
+            blockno,
+            std::ptr::null_mut(),
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            lock,
+        )
     }
 
-    fn get_buffer_with_strategy(
+    pub fn get_buffer_extended(
         &self,
         blockno: pg_sys::BlockNumber,
         strategy: pg_sys::BufferAccessStrategy,
+        buffer_mode: pg_sys::ReadBufferMode::Type,
         lock: Option<u32>,
     ) -> pg_sys::Buffer {
+        // don't allow callers to try and specify a lock when the `buffer_mode` will cause the buffer to be locked
+        debug_assert!(
+            lock.is_none()
+                || (buffer_mode != pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK
+                    && buffer_mode != pg_sys::ReadBufferMode::RBM_ZERO_AND_CLEANUP_LOCK),
+            "cannot specify a lock when the buffer mode indicates locking"
+        );
+
         unsafe {
             let buffer = if blockno == pg_sys::InvalidBlockNumber {
                 pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
@@ -172,7 +186,7 @@ impl RelationBufferAccess {
                     self.rel.as_ptr(),
                     pg_sys::ForkNumber::MAIN_FORKNUM,
                     blockno,
-                    pg_sys::ReadBufferMode::RBM_NORMAL,
+                    buffer_mode,
                     strategy,
                 )
             };

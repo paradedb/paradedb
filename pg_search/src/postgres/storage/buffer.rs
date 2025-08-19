@@ -292,7 +292,7 @@ pub struct Page<'a> {
     _buffer: &'a Buffer,
 }
 
-impl Page<'_> {
+impl<'a> Page<'a> {
     #[allow(dead_code)]
     pub fn free_space(&self) -> usize {
         unsafe { pg_sys::PageGetFreeSpace(self.pg_page) }
@@ -344,6 +344,10 @@ impl Page<'_> {
         unsafe { (pg_sys::PageGetContents(self.pg_page) as *const T).read_unaligned() }
     }
 
+    pub fn contents_ref<T>(&self) -> &'a T {
+        unsafe { &*(pg_sys::PageGetContents(self.pg_page) as *const T) }
+    }
+
     pub fn next_blockno(&self) -> pg_sys::BlockNumber {
         unsafe {
             let special = pg_sys::PageGetSpecialPointer(self.pg_page) as *mut BM25PageSpecialData;
@@ -357,7 +361,7 @@ pub struct PageMut<'a> {
     pg_page: pg_sys::Page,
 }
 
-impl PageMut<'_> {
+impl<'a> PageMut<'a> {
     pub fn max_offset_number(&self) -> pg_sys::OffsetNumber {
         unsafe { pg_sys::PageGetMaxOffsetNumber(self.pg_page) }
     }
@@ -518,7 +522,7 @@ impl PageMut<'_> {
         true
     }
 
-    pub fn contents_mut<T>(&mut self) -> &mut T {
+    pub fn contents_mut<T>(&mut self) -> &'a mut T {
         let contents = unsafe {
             let contents = pg_sys::PageGetContents(self.pg_page) as *mut T;
 
@@ -608,7 +612,12 @@ impl BufferManager {
         let buffer_access = self.buffer_access().clone();
 
         let mut fsm_blocknos = self.fsm().drain(self, npages).map(move |blockno| {
-            let pg_buffer = buffer_access.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+            let pg_buffer = buffer_access.get_buffer_extended(
+                blockno,
+                std::ptr::null_mut(),
+                pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
+                None,
+            );
             block_tracker::track!(Write, pg_buffer);
             BufferMut {
                 dirty: false,

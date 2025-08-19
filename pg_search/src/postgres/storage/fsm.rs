@@ -221,23 +221,32 @@ impl FreeSpaceManager {
                 *buffer.page_mut().contents_mut::<FSMBlock>() = FSMBlock::default();
             }
 
-            let blocks = buffer.page().contents::<FSMBlock>();
-            blocks
-                .entries
-                .iter()
-                .enumerate()
-                .filter(|(_, FSMEntry(blockno, _))| *blockno == pg_sys::InvalidBlockNumber)
-                .zip(&mut extend_with)
-                .for_each(|((i, _), blockno)| {
-                    let mut page = buffer.page_mut();
-                    let contents = page.contents_mut::<FSMBlock>();
+            let page = buffer.page();
+            let contents = page.contents_ref::<FSMBlock>();
+            let space_available = contents.header.empty || contents.all_invalid();
+
+            if space_available {
+                let mut page = buffer.page_mut();
+                let contents = page.contents_mut::<FSMBlock>();
+                let mut cnt = 0;
+                contents
+                    .entries
+                    .iter_mut()
+                    .filter(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
+                    .zip(&mut extend_with)
+                    .for_each(|(entry, blockno)| {
+                        *entry = FSMEntry(blockno, when_recyclable);
+                        cnt += 1;
+                    });
+
+                if cnt > 0 {
+                    // we added at least one block to this page so it's no longer empty
                     contents.header.empty = false;
-                    contents.entries[i].0 = blockno;
-                    contents.entries[i].1 = when_recyclable;
-                });
-            if extend_with.peek().is_none() {
-                // no more blocks to add to the FSM
-                return;
+                }
+                if extend_with.peek().is_none() {
+                    // no more blocks to add to the FSM
+                    return;
+                }
             }
 
             // we still have blocks to apply
@@ -357,38 +366,45 @@ impl Iterator for FSMDrainIter {
             // We still keep the backing `buffer` locked with a BufferMut
             let block = block.get_or_insert_with(|| buffer.page().contents::<FSMBlock>());
 
-            // find the next valid entry in the page.  a valid entry is one that doesn't reference
+            // find the next recyclable entry in the page.  a recyclable entry is one that doesn't reference
             // the invalid block number and also has a transaction id that precedes or equals the visibility horizon
-            while self.entry_idx < MAX_ENTRIES_PER_PAGE {
-                let i = self.entry_idx;
-                let FSMEntry(ref mut blockno, xid) = block.entries[i];
+            let recyclable = block.entries[self.entry_idx..MAX_ENTRIES_PER_PAGE]
+                .iter_mut()
+                .enumerate()
+                .find(|(_, FSMEntry(blockno, xid))| {
+                    *blockno != pg_sys::InvalidBlockNumber
+                        && crate::postgres::utils::TransactionIdPrecedesOrEquals(
+                            *xid,
+                            self.xid_horizon,
+                        )
+                });
 
-                // whether this entry is valid or not we're still going to eventually move to the next entry
-                self.entry_idx += 1;
+            let Some((idx, entry)) = recyclable else {
+                // done with this page -- move to the next one
+                self.next_block();
+                continue;
+            };
 
-                if *blockno != pg_sys::InvalidBlockNumber
-                    && crate::postgres::utils::TransactionIdPrecedesOrEquals(xid, self.xid_horizon)
-                {
-                    let returned = FSMEntry(*blockno, xid);
+            // we'll return this entry -- copy it before we mark it as used in our local view
+            let recyclable = *entry;
 
-                    // mark it as used on-disk
-                    buffer.page_mut().contents_mut::<FSMBlock>().entries[i].0 =
-                        pg_sys::InvalidBlockNumber;
+            // mark as used in our local view
+            entry.0 = pg_sys::InvalidBlockNumber;
 
-                    // and in our local view
-                    *blockno = pg_sys::InvalidBlockNumber;
+            // and as used on disk
+            let mut page = buffer.page_mut();
+            let contents = page.contents_mut::<FSMBlock>();
 
-                    return Some(returned);
-                }
+            contents.entries[idx + self.entry_idx].0 = pg_sys::InvalidBlockNumber;
+            contents.header.empty = block.all_invalid();
+
+            if contents.header.empty {
+                // the page is now empty -- move to the next page for the next iteration
+                self.next_block();
             }
 
-            if block.all_invalid() {
-                // if we have drained the page fully, set the empty hint now.
-                buffer.page_mut().contents_mut::<V1Header>().empty = true;
-            }
-
-            // done with this page -- move to the next one
-            self.next_block();
+            self.entry_idx += 1;
+            return Some(recyclable);
         }
     }
 }

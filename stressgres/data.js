@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755638239484,
+  "lastUpdate": 1755638242300,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22668,6 +22668,66 @@ window.BENCHMARK_DATA = {
             "value": 168.55078125,
             "unit": "median mem",
             "extra": "avg mem: 157.56933314677664, max mem: 176.4765625, count: 56339"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84ba75e63359cd3795b04a44b19e09e607658066",
+          "message": "perf: improve FSM extend and pop/pop_many performance (#2988)\n\n## What\n\nReduce general overhead in the FSM between extending it and popping off\none or more blocks. In doing so, fix a bug where the header's `empty`\nflag was not being set as eagerly as it could have been.\n\nAdditionally, teach our lower-level new block code to use\n`RBM_ZERO_AND_LOCK` for when opening buffers returned from the FSM. This\npotentially avoids disk I/O if the buffer isn't in Postgres' buffer\ncache and also elides a rountrip over FFI to lock the buffer since\nReadBufferExtended is doing it for us with this flag set.\n\nAlso cleans up lifetime annotations a bit so it's not possible to have\nmultiple mutable borrows from a BufferMut, even when those borrows\nhappen through Page/PageMut.\n\n## Why\n\n0.17.4 is a big release as it fixes issues with and around our custom\nFSM and it, unfortunately, introduced some performance regressions\nrelative to 0.17.3 (that was bugged).\n\nThis gets that perf, plus maybe little more, back.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-19T16:39:14-04:00",
+          "tree_id": "f2f9b5a6cf148657825fbd2f53a405386c3ea128",
+          "url": "https://github.com/paradedb/paradedb/commit/84ba75e63359cd3795b04a44b19e09e607658066"
+        },
+        "date": 1755638240769,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.75,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.673987436113993, max cpu: 116.1665, count: 57803"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.375,
+            "unit": "median mem",
+            "extra": "avg mem: 175.2020300227713, max mem: 181.2109375, count: 57803"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18304,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16870.180059858485, max block_count: 21605.0, count: 57803"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.35347646315935, max segment_count: 116.0, count: 57803"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.713451,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.95368960364165, max cpu: 161.69392, count: 57803"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 167.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.59555191772054, max mem: 176.91796875, count: 57803"
           }
         ]
       }

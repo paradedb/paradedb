@@ -1,0 +1,42 @@
+name: Cherry Pick
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cherry-pick-to-0-17:
+    if: |
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base_branch == 'main' &&
+      contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.17.x')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Cherry Pick
+        uses: carloscastrojumo/github-cherry-pick-action@v1
+        with:
+          branch: "0.17.x"
+          commit: ${{ github.event.pull_request.merge_commit_sha }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  cherry-pick-to-0-18:
+    if: |
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base_branch == 'main' &&
+      contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.18.x')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Cherry Pick
+        uses: carloscastrojumo/github-cherry-pick-action@v1
+        with:
+          branch: "0.18.x"
+          commit: ${{ github.event.pull_request.merge_commit_sha }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}

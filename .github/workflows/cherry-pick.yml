@@ -6,6 +6,7 @@ on:
 
 jobs:
   cherry-pick-to-0-17:
+    name: Cherry Pick to 0.17.x
     if: |
       github.event.pull_request.merged == true &&
       github.event.pull_request.base_branch == 'main' &&
@@ -24,6 +25,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   cherry-pick-to-0-18:
+    name: Cherry Pick to 0.18.x
     if: |
       github.event.pull_request.merged == true &&
       github.event.pull_request.base_branch == 'main' &&

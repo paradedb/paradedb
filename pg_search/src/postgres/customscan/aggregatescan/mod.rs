@@ -473,37 +473,21 @@ fn extract_grouping_columns(
             for member in members.iter_ptr() {
                 let expr = (*member).em_expr;
 
-                // Create VarContext for JSON path extraction
+                // Create VarContext for field extraction
                 let var_context = VarContext::from_planner(root);
 
-                // First try to extract JSON operator expressions
-                if let Some((var, field_name)) =
+                // Try to extract field name and variable info
+                let (field_name, attno) = if let Some((var, field_name)) =
                     find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                 {
+                    // JSON operator expression or complex field access
                     let (heaprelid, attno, _) = find_var_relation(var, root);
                     if heaprelid == pg_sys::Oid::INVALID {
                         continue;
                     }
-
-                    // Check if this field exists in the index schema as a fast field
-                    if let Some(search_field) = schema.search_field(&field_name) {
-                        let is_fast = search_field.is_fast();
-                        if is_fast {
-                            // Check if this is a JSON field access
-                            let base_field = field_name.root();
-
-                            grouping_columns.push(GroupingColumn {
-                                field_name: field_name.to_string(), // Store full path for Tantivy
-                                attno,
-                            });
-                            found_valid_column = true;
-                            break; // Found a valid grouping column for this pathkey
-                        }
-                    }
-                }
-
-                if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    // Fallback to simple Var handling for non-JSON columns
+                    (field_name.to_string(), attno)
+                } else if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    // Simple Var - extract field name from attribute
                     let (heaprelid, attno, _) = find_var_relation(var, root);
                     if heaprelid == pg_sys::Oid::INVALID {
                         continue;
@@ -513,20 +497,20 @@ fn extract_grouping_columns(
                         PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
                     if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        let field_name = att.name();
+                        (att.name().to_string(), attno)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    continue;
+                };
 
-                        // Check if this field exists in the index schema as a fast field
-                        if let Some(search_field) = schema.search_field(field_name) {
-                            let is_fast = search_field.is_fast();
-                            if is_fast {
-                                grouping_columns.push(GroupingColumn {
-                                    field_name: field_name.to_string(),
-                                    attno,
-                                });
-                                found_valid_column = true;
-                                break; // Found a valid grouping column for this pathkey
-                            }
-                        }
+                // Check if this field exists in the index schema as a fast field
+                if let Some(search_field) = schema.search_field(&field_name) {
+                    if search_field.is_fast() {
+                        grouping_columns.push(GroupingColumn { field_name, attno });
+                        found_valid_column = true;
+                        break; // Found a valid grouping column for this pathkey
                     }
                 }
             }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755724992212,
+  "lastUpdate": 1755725040851,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -578,6 +578,70 @@ window.BENCHMARK_DATA = {
             "value": 4.746050810671489,
             "unit": "median tps",
             "extra": "avg tps: 8.87791559524838, max tps: 1133.171440906809, count: 55305"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f816692c9dd7d6faf21fccfd39aa05c498fa324a",
+          "message": "chore: Fix triggers of cherry-pick workflow (#3002)\n\n## What\n\nAttempt to fix the triggers of [the cherry-pick\nworkflow](https://github.com/paradedb/paradedb/actions/workflows/cherry-pick.yml)\nso that it will actually run for a labeled PR.\n\n## Tests\n\nNone! Don't think that there is a way to test this.",
+          "timestamp": "2025-08-20T18:13:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f816692c9dd7d6faf21fccfd39aa05c498fa324a"
+        },
+        "date": 1755725039390,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1084.0767931626222,
+            "unit": "median tps",
+            "extra": "avg tps: 1082.3479983227169, max tps: 1090.8473801144446, count: 55285"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2844.6019772452682,
+            "unit": "median tps",
+            "extra": "avg tps: 2806.4354406134757, max tps: 2852.5974983741553, count: 55285"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1182.9875738386045,
+            "unit": "median tps",
+            "extra": "avg tps: 1172.7220771926984, max tps: 1189.409145698208, count: 55285"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1034.3083597082002,
+            "unit": "median tps",
+            "extra": "avg tps: 1023.1894045701273, max tps: 1039.4448406402678, count: 55285"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 155.40121192429842,
+            "unit": "median tps",
+            "extra": "avg tps: 155.65064615676448, max tps: 159.50883259001134, count: 110570"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.299482352109,
+            "unit": "median tps",
+            "extra": "avg tps: 137.2478414265768, max tps: 142.51725955271812, count: 55285"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.47563402926256,
+            "unit": "median tps",
+            "extra": "avg tps: 51.37275116939526, max tps: 749.9242576499773, count: 55285"
           }
         ]
       }

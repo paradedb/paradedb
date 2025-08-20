@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755691048418,
+  "lastUpdate": 1755691051348,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23706,6 +23706,66 @@ window.BENCHMARK_DATA = {
             "value": 166.71484375,
             "unit": "median mem",
             "extra": "avg mem: 156.57319702019535, max mem: 175.95703125, count: 56820"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33f9ca80b5f1e0567b356b766a7c6bdca4ce6b99",
+          "message": "fix: parallel vacuum process now runs correctly (#2987) (#3000)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-08-20T07:19:49-04:00",
+          "tree_id": "9ff2410b3b291a138df72478e150f682bd8ba8db",
+          "url": "https://github.com/paradedb/paradedb/commit/33f9ca80b5f1e0567b356b766a7c6bdca4ce6b99"
+        },
+        "date": 1755691049780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.82353,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.097760374464197, max cpu: 130.7393, count: 56817"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 173.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 172.1127320635769, max mem: 177.265625, count: 56817"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18236,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16562.902863579562, max block_count: 20983.0, count: 56817"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 39,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.02391889751307, max segment_count: 115.0, count: 56817"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.768328,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.726431236742343, max cpu: 149.1262, count: 56817"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.44956209464158, max mem: 173.58203125, count: 56817"
           }
         ]
       }

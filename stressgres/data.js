@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755726153487,
+  "lastUpdate": 1755726370637,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2924,6 +2924,40 @@ window.BENCHMARK_DATA = {
             "value": 121.87635268790595,
             "unit": "median tps",
             "extra": "avg tps: 121.08808709076678, max tps: 123.68287900340925, count: 57901"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f816692c9dd7d6faf21fccfd39aa05c498fa324a",
+          "message": "chore: Fix triggers of cherry-pick workflow (#3002)\n\n## What\n\nAttempt to fix the triggers of [the cherry-pick\nworkflow](https://github.com/paradedb/paradedb/actions/workflows/cherry-pick.yml)\nso that it will actually run for a labeled PR.\n\n## Tests\n\nNone! Don't think that there is a way to test this.",
+          "timestamp": "2025-08-20T18:13:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f816692c9dd7d6faf21fccfd39aa05c498fa324a"
+        },
+        "date": 1755726369201,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.605926938859938,
+            "unit": "median tps",
+            "extra": "avg tps: 27.51511685225382, max tps: 27.796150463475772, count: 57911"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 125.63255786603655,
+            "unit": "median tps",
+            "extra": "avg tps: 124.30101917813028, max tps: 127.42199761021526, count: 57911"
           }
         ]
       }

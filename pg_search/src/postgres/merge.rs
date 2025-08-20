@@ -404,7 +404,11 @@ unsafe fn merge_index(
         check_for_interrupts!();
 
         if let Err(e) = merge_result {
-            panic!("failed to merge: {e:?}");
+            if unsafe { pg_sys::InterruptPending } != 0 {
+                pgrx::warning!("failed to merge: {e:?} because of interrupt");
+            } else {
+                panic!("failed to merge: {e:?}");
+            }
         }
     } else {
         drop(merge_lock);

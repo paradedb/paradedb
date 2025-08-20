@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755689780763,
+  "lastUpdate": 1755690415130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14334,6 +14334,42 @@ window.BENCHMARK_DATA = {
             "value": 5.771134860431821,
             "unit": "median tps",
             "extra": "avg tps: 5.187566960319064, max tps: 6.550227629680932, count: 57500"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33f9ca80b5f1e0567b356b766a7c6bdca4ce6b99",
+          "message": "fix: parallel vacuum process now runs correctly (#2987) (#3000)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-08-20T07:19:49-04:00",
+          "tree_id": "9ff2410b3b291a138df72478e150f682bd8ba8db",
+          "url": "https://github.com/paradedb/paradedb/commit/33f9ca80b5f1e0567b356b766a7c6bdca4ce6b99"
+        },
+        "date": 1755690413611,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.850427968974274,
+            "unit": "median tps",
+            "extra": "avg tps: 5.86204622761821, max tps: 8.751245608707528, count: 57954"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.772360981215499,
+            "unit": "median tps",
+            "extra": "avg tps: 5.18307958401266, max tps: 6.540537210198208, count: 57954"
           }
         ]
       }

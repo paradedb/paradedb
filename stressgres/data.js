@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755726370637,
+  "lastUpdate": 1755726373448,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3252,6 +3252,64 @@ window.BENCHMARK_DATA = {
             "value": 167.515625,
             "unit": "median mem",
             "extra": "avg mem: 158.260034099152, max mem: 176.32421875, count: 57901"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Stu Hood",
+            "username": "stuhood",
+            "email": "stuhood@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "f816692c9dd7d6faf21fccfd39aa05c498fa324a",
+          "message": "chore: Fix triggers of cherry-pick workflow (#3002)\n\n## What\n\nAttempt to fix the triggers of [the cherry-pick\nworkflow](https://github.com/paradedb/paradedb/actions/workflows/cherry-pick.yml)\nso that it will actually run for a labeled PR.\n\n## Tests\n\nNone! Don't think that there is a way to test this.",
+          "timestamp": "2025-08-20T18:13:09Z",
+          "url": "https://github.com/paradedb/paradedb/commit/f816692c9dd7d6faf21fccfd39aa05c498fa324a"
+        },
+        "date": 1755726372018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.786694,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.986929191245167, max cpu: 47.66634, count: 57911"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 174.5593554926957, max mem: 180.859375, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18696,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16969.1119476438, max block_count: 21706.0, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.31988741344477, max segment_count: 118.0, count: 57911"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.159468347197958, max cpu: 166.15385, count: 57911"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 169.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.74774998219252, max mem: 177.35546875, count: 57911"
           }
         ]
       }

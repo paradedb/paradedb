@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755712664261,
+  "lastUpdate": 1755713308745,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26880,6 +26880,60 @@ window.BENCHMARK_DATA = {
             "value": 16.518984369139098,
             "unit": "median tps",
             "extra": "avg tps: 16.624333504705234, max tps: 18.52809308217515, count: 55589"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c24754d20e6e698f4572ec42c4dfba29b4d6d57a",
+          "message": "feat: support aggregation over JSON data in aggregate custom scan. (#2970) (#3004)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nAdds JSON aggregates support to the aggregate custom scan, enabling\nGROUP BY queries on JSON field extractions like `metadata->>'category'`\nand `metadata_json->>'reservation_id'`.\n\n## Why\n\nUsers need to aggregate data grouped by values extracted from JSON\nfields. Previously, such queries fell back to standard PostgreSQL\naggregation, missing the performance benefits of ParadeDB's custom\naggregate scan.\n\n## How\n\n- Added `json_path` field to GroupingColumn to store JSON subpaths\n- Used `find_one_var_and_fieldname` to detect JSON expressions (`->`,\n`->>`) in GROUP BY clauses\n- Updated aggregate extraction to handle `OpExpr` nodes for JSON\noperators\n- Fixed target list mapping to verify JSON expressions match grouping\ncolumns by column reference and field name\n\n## Tests\n\n- SQL regression tests in `json_groupby_aggregate.sql`:\n  - Single and multiple JSON field GROUP BY\n  - NULL handling and edge cases\n  - EXPLAIN plan verification showing \"ParadeDB Aggregate Scan\"\n- `json_aggregate.sql` for non-GROUP BY JSON aggregate queries\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-20T10:19:32-07:00",
+          "tree_id": "ea4c8ac793f458897fd8e6bf47ac570bc72e3210",
+          "url": "https://github.com/paradedb/paradedb/commit/c24754d20e6e698f4572ec42c4dfba29b4d6d57a"
+        },
+        "date": 1755713307172,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.77866563066862,
+            "unit": "median tps",
+            "extra": "avg tps: 34.024461417348675, max tps: 37.570205826021, count: 55690"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 259.9360134304717,
+            "unit": "median tps",
+            "extra": "avg tps: 297.9989447035977, max tps: 2577.6401317947402, count: 55690"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 125.57818168507592,
+            "unit": "median tps",
+            "extra": "avg tps: 125.05332577931388, max tps: 125.94438929773605, count: 55690"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 69.45847623140716,
+            "unit": "median tps",
+            "extra": "avg tps: 65.31160839526443, max tps: 103.50475162368421, count: 111380"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.963346846645658,
+            "unit": "median tps",
+            "extra": "avg tps: 15.996091611215059, max tps: 19.56771550795852, count: 55690"
           }
         ]
       }

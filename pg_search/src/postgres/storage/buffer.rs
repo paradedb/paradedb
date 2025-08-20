@@ -587,8 +587,12 @@ impl BufferManager {
             .fsm()
             .pop(self)
             .map(|blockno| {
-                self.rbufacc
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE))
+                self.rbufacc.get_buffer_extended(
+                    blockno,
+                    std::ptr::null_mut(),
+                    pg_sys::ReadBufferMode::RBM_ZERO_AND_LOCK,
+                    None,
+                )
             })
             .unwrap_or_else(|| self.rbufacc.new_buffer());
 

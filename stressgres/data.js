@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755690434858,
+  "lastUpdate": 1755690437908,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17986,6 +17986,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.76866135210685, max segment_count: 97.0, count: 57954"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae93300f79e99c2a80e4d5bc1cc7d5c681e17346",
+          "message": "fix: parallel vacuum process now runs correctly (#2987) (#3001)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-08-20T07:20:12-04:00",
+          "tree_id": "5cb485fded56b7c400de8393bcc34c0d054b4eb3",
+          "url": "https://github.com/paradedb/paradedb/commit/ae93300f79e99c2a80e4d5bc1cc7d5c681e17346"
+        },
+        "date": 1755690436344,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.08876509016471, max cpu: 46.466602, count: 57447"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.94006778802637, max mem: 242.82421875, count: 57447"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.167361912555222, max cpu: 33.333336, count: 57447"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.69833308310268, max mem: 163.59375, count: 57447"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22546,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20874.288735704213, max block_count: 23683.0, count: 57447"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.71683464758821, max segment_count: 96.0, count: 57447"
           }
         ]
       }

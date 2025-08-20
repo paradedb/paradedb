@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755691703749,
+  "lastUpdate": 1755709368089,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4332,6 +4332,72 @@ window.BENCHMARK_DATA = {
             "value": 127.42375857040851,
             "unit": "median tps",
             "extra": "avg tps: 128.35235282388587, max tps: 737.9452946394179, count: 55304"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "32bddc4ee0ed2a597327b66e887fcf5170866873",
+          "message": "feat: support aggregation over JSON data in aggregate custom scan. (#2970)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nAdds JSON aggregates support to the aggregate custom scan, enabling\nGROUP BY queries on JSON field extractions like `metadata->>'category'`\nand `metadata_json->>'reservation_id'`.\n\n## Why\n\nUsers need to aggregate data grouped by values extracted from JSON\nfields. Previously, such queries fell back to standard PostgreSQL\naggregation, missing the performance benefits of ParadeDB's custom\naggregate scan.\n\n## How\n\n- Added `json_path` field to GroupingColumn to store JSON subpaths\n- Used `find_one_var_and_fieldname` to detect JSON expressions (`->`,\n`->>`) in GROUP BY clauses\n- Updated aggregate extraction to handle `OpExpr` nodes for JSON\noperators\n- Fixed target list mapping to verify JSON expressions match grouping\ncolumns by column reference and field name\n\n## Tests\n\n- SQL regression tests in `json_groupby_aggregate.sql`:\n  - Single and multiple JSON field GROUP BY\n  - NULL handling and edge cases\n  - EXPLAIN plan verification showing \"ParadeDB Aggregate Scan\"\n- `json_aggregate.sql` for non-GROUP BY JSON aggregate queries",
+          "timestamp": "2025-08-20T09:46:44-07:00",
+          "tree_id": "9674741ca164f4e33b81e52d9bdfda0051c622bf",
+          "url": "https://github.com/paradedb/paradedb/commit/32bddc4ee0ed2a597327b66e887fcf5170866873"
+        },
+        "date": 1755709366490,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1152.3637128210437,
+            "unit": "median tps",
+            "extra": "avg tps: 1147.8384873675172, max tps: 1157.6990746924712, count: 55362"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2535.4405430604847,
+            "unit": "median tps",
+            "extra": "avg tps: 2525.38245083484, max tps: 2571.042056381721, count: 55362"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1141.4424106441343,
+            "unit": "median tps",
+            "extra": "avg tps: 1136.817400904567, max tps: 1145.9981425588926, count: 55362"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 904.0958423648357,
+            "unit": "median tps",
+            "extra": "avg tps: 903.6205413447241, max tps: 920.8296571061518, count: 55362"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.7420275475023,
+            "unit": "median tps",
+            "extra": "avg tps: 166.84998601272218, max tps: 173.14177052202538, count: 110724"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 149.8702903295968,
+            "unit": "median tps",
+            "extra": "avg tps: 149.2587770503313, max tps: 150.5244505300807, count: 55362"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 41.04760968843133,
+            "unit": "median tps",
+            "extra": "avg tps: 50.30569874760504, max tps: 808.478023950353, count: 55362"
           }
         ]
       }

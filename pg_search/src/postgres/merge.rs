@@ -270,7 +270,10 @@ extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
 
         let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
         let args = unsafe { BackgroundMergeArgs::from_datum(arg, false) }.unwrap();
-        let index = PgSearchRelation::try_open(args.index_oid());
+        let index = PgSearchRelation::try_open(
+            args.index_oid(),
+            pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+        );
         if index.is_none() {
             pgrx::debug1!(
                 "{}: index not found, suggesting it was just dropped",

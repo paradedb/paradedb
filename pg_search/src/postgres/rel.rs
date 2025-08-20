@@ -145,11 +145,11 @@ impl PgSearchRelation {
 
     /// Open a relation with the specified [`pg_sys::Oid`]
     ///
-    /// Like `open`, but fallible
-    pub fn try_open(oid: pg_sys::Oid) -> Option<Self> {
+    /// Like [`Self::with_lock`], but fallible
+    pub fn try_open(oid: pg_sys::Oid, lockmode: pg_sys::LOCKMODE) -> Option<Self> {
         // SAFETY: See `open`
         unsafe {
-            let relation = pg_sys::RelationIdGetRelation(oid);
+            let relation = pg_sys::try_relation_open(oid, lockmode);
             if relation.is_null() {
                 None
             } else {

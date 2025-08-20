@@ -64,5 +64,4 @@ CREATE INDEX ON benchmark_logs USING btree (severity);
 CREATE INDEX ON benchmark_logs USING btree (timestamp);
 UPDATE benchmark_logs SET severity = severity + 1 WHERE id > 90000;
 VACUUM benchmark_logs;
-ERROR:  cannot assign transaction IDs during a parallel operation
 DROP TABLE benchmark_logs;

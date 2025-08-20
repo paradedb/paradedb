@@ -48,7 +48,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -397,17 +397,10 @@ unsafe fn convert_group_value_to_datum(
     typoid: pg_sys::Oid,
 ) -> (pg_sys::Datum, bool) {
     let oid = pgrx::PgOid::from(typoid);
-    let tantivy_value = TantivyValue(group_val.clone());
+    let tantivy_value = TantivyValue(group_val);
     match tantivy_value.try_into_datum(oid) {
         Ok(Some(datum)) => (datum, false),
         Ok(None) => (pg_sys::Datum::from(0), true),
-        Err(TantivyValueError::UnsupportedIntoConversion(target_type))
-            if target_type == "String" =>
-        {
-            // Handle conversions to String type for JSON GROUP BY aggregates
-            let converted_string = TantivyValue(group_val).to_string();
-            (converted_string.into_datum().unwrap(), false)
-        }
         Err(e) => {
             panic!("Failed to convert TantivyValue to datum: {e:?}");
         }

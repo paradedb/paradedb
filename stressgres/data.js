@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755689758571,
+  "lastUpdate": 1755689777665,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4266,6 +4266,72 @@ window.BENCHMARK_DATA = {
             "value": 131.2021220015133,
             "unit": "median tps",
             "extra": "avg tps: 149.8174860485444, max tps: 759.1043176335378, count: 55052"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae93300f79e99c2a80e4d5bc1cc7d5c681e17346",
+          "message": "fix: parallel vacuum process now runs correctly (#2987) (#3001)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-08-20T07:20:12-04:00",
+          "tree_id": "5cb485fded56b7c400de8393bcc34c0d054b4eb3",
+          "url": "https://github.com/paradedb/paradedb/commit/ae93300f79e99c2a80e4d5bc1cc7d5c681e17346"
+        },
+        "date": 1755689776147,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1063.2362149649234,
+            "unit": "median tps",
+            "extra": "avg tps: 1071.6578992921898, max tps: 1122.150363998511, count: 55304"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2863.8218441774184,
+            "unit": "median tps",
+            "extra": "avg tps: 2839.5469548674805, max tps: 2886.4229270872984, count: 55304"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1181.4007088252752,
+            "unit": "median tps",
+            "extra": "avg tps: 1176.016850846356, max tps: 1195.1327556910157, count: 55304"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1026.3804739579646,
+            "unit": "median tps",
+            "extra": "avg tps: 1016.3328059221772, max tps: 1036.4492516096882, count: 55304"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 158.06934539025463,
+            "unit": "median tps",
+            "extra": "avg tps: 158.08305396270615, max tps: 167.16300594951193, count: 110608"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 137.98845877152058,
+            "unit": "median tps",
+            "extra": "avg tps: 137.63228207150004, max tps: 139.6140420448829, count: 55304"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 127.42375857040851,
+            "unit": "median tps",
+            "extra": "avg tps: 128.35235282388587, max tps: 737.9452946394179, count: 55304"
           }
         ]
       }

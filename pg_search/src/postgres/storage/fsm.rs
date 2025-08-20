@@ -194,11 +194,9 @@ impl FreeSpaceManager {
         bman: &mut BufferManager,
         extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
     ) {
-        self.extend_with_when_recyclable(
-            bman,
-            unsafe { pg_sys::GetCurrentTransactionId() },
-            extend_with,
-        );
+        let current_xid =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
+        self.extend_with_when_recyclable(bman, current_xid, extend_with);
     }
 
     /// Add the specified `extend_with` iterator of [`pg_sys::BlockNumber`]s to this [`FreeSpaceManager`].
@@ -273,16 +271,17 @@ impl FreeSpaceManager {
     }
 }
 
-/// The "visibility horizon" is the oldest transaction id, across the Postgres cluster, that can see
-/// blocks in the FSM.
+/// The `xid_horizon` argument represents the oldest transaction id, across the Postgres cluster,
+/// that can see blocks in the FSM.
 ///
-/// We use the current transaction id.
-///
-/// When being drained, the FSM compares each block's stored xid with this value, ensuring the stored
-/// value precedes or equals this one, before it is considered recyclable.
+/// When being drained, the FSM compares each block's stored `fsm_xid`` with this value, ensuring the stored
+/// value precedes or equals this `xid_horizon`, before it is considered recyclable.
 #[inline(always)]
-fn visibility_horizon() -> pg_sys::TransactionId {
-    unsafe { pg_sys::GetCurrentTransactionId() }
+fn passses_visibility_horizon(
+    fsm_xid: pg_sys::TransactionId,
+    xid_horizon: pg_sys::TransactionId,
+) -> bool {
+    crate::postgres::utils::TransactionIdPrecedesOrEquals(fsm_xid, xid_horizon)
 }
 
 /// Draining iterator over FSM entries. As entries are yielded, they are
@@ -300,7 +299,8 @@ struct FSMDrainIter {
 impl FSMDrainIter {
     #[inline]
     fn new(fsm: &FreeSpaceManager, bman: &BufferManager) -> Self {
-        let xid_horizon = visibility_horizon();
+        let xid_horizon =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
         Self {
             bman: bman.clone(),
             current_blockno: fsm.start_blockno,
@@ -373,10 +373,7 @@ impl Iterator for FSMDrainIter {
                 .enumerate()
                 .find(|(_, FSMEntry(blockno, xid))| {
                     *blockno != pg_sys::InvalidBlockNumber
-                        && crate::postgres::utils::TransactionIdPrecedesOrEquals(
-                            *xid,
-                            self.xid_horizon,
-                        )
+                        && passses_visibility_horizon(*xid, self.xid_horizon)
                 });
 
             let Some((idx, entry)) = recyclable else {

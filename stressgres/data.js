@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755712013464,
+  "lastUpdate": 1755712016314,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18922,6 +18922,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.65502715499234, max segment_count: 98.0, count: 57448"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c24754d20e6e698f4572ec42c4dfba29b4d6d57a",
+          "message": "feat: support aggregation over JSON data in aggregate custom scan. (#2970) (#3004)\n\n# Ticket(s) Closed\n\n- Closes #2885\n\n## What\n\nAdds JSON aggregates support to the aggregate custom scan, enabling\nGROUP BY queries on JSON field extractions like `metadata->>'category'`\nand `metadata_json->>'reservation_id'`.\n\n## Why\n\nUsers need to aggregate data grouped by values extracted from JSON\nfields. Previously, such queries fell back to standard PostgreSQL\naggregation, missing the performance benefits of ParadeDB's custom\naggregate scan.\n\n## How\n\n- Added `json_path` field to GroupingColumn to store JSON subpaths\n- Used `find_one_var_and_fieldname` to detect JSON expressions (`->`,\n`->>`) in GROUP BY clauses\n- Updated aggregate extraction to handle `OpExpr` nodes for JSON\noperators\n- Fixed target list mapping to verify JSON expressions match grouping\ncolumns by column reference and field name\n\n## Tests\n\n- SQL regression tests in `json_groupby_aggregate.sql`:\n  - Single and multiple JSON field GROUP BY\n  - NULL handling and edge cases\n  - EXPLAIN plan verification showing \"ParadeDB Aggregate Scan\"\n- `json_aggregate.sql` for non-GROUP BY JSON aggregate queries\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-20T10:19:32-07:00",
+          "tree_id": "ea4c8ac793f458897fd8e6bf47ac570bc72e3210",
+          "url": "https://github.com/paradedb/paradedb/commit/c24754d20e6e698f4572ec42c4dfba29b4d6d57a"
+        },
+        "date": 1755712014760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.134898551163847, max cpu: 55.54484, count: 57430"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 237.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 236.23742620091852, max mem: 242.7265625, count: 57430"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.230538786262546, max cpu: 33.20158, count: 57430"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.4399565911762, max mem: 160.42578125, count: 57430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22580,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20913.25862789483, max block_count: 23765.0, count: 57430"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.83842939230368, max segment_count: 97.0, count: 57430"
           }
         ]
       }

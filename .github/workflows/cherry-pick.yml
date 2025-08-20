@@ -4,10 +4,7 @@ on:
   pull_request:
     branches:
       - main
-    types: ["closed"]
-
-env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    types: [closed]
 
 jobs:
   cherry-pick-to-0-17:

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755654558702,
+  "lastUpdate": 1755655187455,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19550,6 +19550,42 @@ window.BENCHMARK_DATA = {
             "value": 123.54981486381347,
             "unit": "median tps",
             "extra": "avg tps: 122.92976619844727, max tps: 125.15360036813692, count: 57803"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccb5dac7a93c1f752202997d2b075820920dc946",
+          "message": "fix: parallel vacuum process now runs correctly (#2987)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-08-19T21:22:11-04:00",
+          "tree_id": "3522d056ac1edafd6d2478a22b2e019d03595c59",
+          "url": "https://github.com/paradedb/paradedb/commit/ccb5dac7a93c1f752202997d2b075820920dc946"
+        },
+        "date": 1755655185951,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 26.285806498420122,
+            "unit": "median tps",
+            "extra": "avg tps: 26.20931119932355, max tps: 26.42170426931352, count: 56820"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 115.1606432115519,
+            "unit": "median tps",
+            "extra": "avg tps: 114.52573224443677, max tps: 117.49567789400216, count: 56820"
           }
         ]
       }

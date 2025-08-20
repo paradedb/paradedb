@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755655819982,
+  "lastUpdate": 1755655822673,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28494,6 +28494,114 @@ window.BENCHMARK_DATA = {
             "value": 156.92578125,
             "unit": "median mem",
             "extra": "avg mem: 154.71105950888685, max mem: 158.5, count: 55644"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ccb5dac7a93c1f752202997d2b075820920dc946",
+          "message": "fix: parallel vacuum process now runs correctly (#2987)\n\n# Ticket(s) Closed\n\n- Closes #2986\n\n## What\n\nThis fixes issue #2986. The primary problem here is that parallel vacuum\nprocesses can't create a transaction id via\n`pg_sys::GetCurrentTransactionId()` so we instead teach the FSM to use\n`pg_sys::GetCurrentTransactionIdIfAny()` and in the case of a parallel\nvacuum process we'll fall back to the\n`pg_sys::FirstNormalTransactionId`.\n\nA subtle difference is here that parallel vacuum processes won't be able\nto reuse blocks from the FSM in the case where `ambulkdelete()` adds a\n\".deletes\" file to a segment. This is better than not being able to\nvacuum at all.\n\nThanks to @rebasedming for getting a test case together.\n\nAdditionally, that test case uncovered a race condition with the\nbackground merge process because it turns out it didn't hold a relation\nlock on the index at all. Now it holds a `pg_sys::AccessShareLock`,\nwhich is sufficient for the work it's doing and to prevent concurrent\nDDL like `DROP TABLE` from changing things out from under it.\n\n## Why\n\nFixing bugs.\n\n## How\n\n## Tests\n\nA new regression test has been added and some local stressgres tests\nlook good.\n\n---------\n\nCo-authored-by: Eric B. Ridge <eebbrr@paradedb.com>",
+          "timestamp": "2025-08-19T21:22:11-04:00",
+          "tree_id": "3522d056ac1edafd6d2478a22b2e019d03595c59",
+          "url": "https://github.com/paradedb/paradedb/commit/ccb5dac7a93c1f752202997d2b075820920dc946"
+        },
+        "date": 1755655821167,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.936502227303947, max cpu: 38.133068, count: 55648"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.12906124209314, max mem: 155.109375, count: 55648"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.683413376035354, max cpu: 28.235296, count: 55648"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 146.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.22924523904723, max mem: 146.40234375, count: 55648"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.05693157538416, max cpu: 73.49282, count: 55648"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 156.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 131.54626443785043, max mem: 165.87890625, count: 55648"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 21215,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21478.178658711902, max block_count: 42723.0, count: 55648"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.367315431947214, max cpu: 4.669261, count: 55648"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 89.83839898221859, max mem: 130.11328125, count: 55648"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.50411515238643, max segment_count: 54.0, count: 55648"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.85279186772046, max cpu: 70.10711, count: 111296"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 164.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.26857367543533, max mem: 172.93359375, count: 111296"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.93998,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.286187116518269, max cpu: 32.36994, count: 55648"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.5322478317954, max mem: 157.20703125, count: 55648"
           }
         ]
       }

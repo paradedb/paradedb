@@ -61,10 +61,18 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ count 
+-------
+      
+(1 row)
+
 -- Test 2.2: COUNT(column) - should return 0
 SELECT COUNT(value) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ count 
+-------
+      
+(1 row)
+
 -- Test 2.3: SUM - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -78,7 +86,11 @@ SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT SUM(value) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ sum 
+-----
+    
+(1 row)
+
 -- Test 2.4: AVG - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -92,7 +104,11 @@ SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT AVG(value) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ avg 
+-----
+    
+(1 row)
+
 -- Test 2.5: MIN - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -106,7 +122,11 @@ SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT MIN(value) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ min 
+-----
+    
+(1 row)
+
 -- Test 2.6: MAX - should return NULL
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
@@ -120,7 +140,11 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 (5 rows)
 
 SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ max 
+-----
+    
+(1 row)
+
 -- Test 2.7: Multiple aggregates in single query
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
@@ -136,10 +160,18 @@ FROM empty_test WHERE id @@@ paradedb.all();
 
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
 FROM empty_test WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ count | count | sum | avg | min | max 
+-------+-------+-----+-----+-----+-----
+       |       |     |     |     |    
+(1 row)
+
 -- Test 2.8: From the original issue report
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ count 
+-------
+      
+(1 row)
+
 -- =====================================================================
 -- SECTION 3: GROUP BY SQL Aggregates on Empty Table
 -- =====================================================================
@@ -160,7 +192,10 @@ GROUP BY category;
 SELECT category, COUNT(*) FROM empty_test 
 WHERE id @@@ paradedb.all() 
 GROUP BY category;
-ERROR:  missing bucket results
+ category | count 
+----------+-------
+(0 rows)
+
 -- Test 3.2: GROUP BY with ORDER BY - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(value), AVG(value) 
@@ -182,13 +217,19 @@ FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category 
 ORDER BY category;
-ERROR:  missing bucket results
+ category | count | sum | avg 
+----------+-------+-----+-----
+(0 rows)
+
 -- Test 3.3: GROUP BY with LIMIT - should return empty result set
 SELECT category, COUNT(*) FROM empty_test 
 WHERE id @@@ paradedb.all() 
 GROUP BY category 
 LIMIT 10;
-ERROR:  missing bucket results
+ category | count 
+----------+-------
+(0 rows)
+
 -- Test 3.4: Multiple GROUP BY columns - should return empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, value, COUNT(*) FROM empty_test 
@@ -208,14 +249,20 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category, value 
 ORDER BY category, value;
-ERROR:  missing bucket results
+ category | value | count 
+----------+-------+-------
+(0 rows)
+
 -- Test 3.5: From the original issue report
 SELECT severity, COUNT(*) FROM empty_logs 
 WHERE id @@@ paradedb.all() 
 GROUP BY severity 
 ORDER BY severity DESC 
 LIMIT 10;
-ERROR:  missing bucket results
+ severity | count 
+----------+-------
+(0 rows)
+
 -- =====================================================================
 -- SECTION 4: JSON Aggregates on Empty Table
 -- =====================================================================
@@ -231,7 +278,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.2: SUM JSON aggregate
@@ -246,7 +293,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.3: AVG JSON aggregate
@@ -261,7 +308,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.4: MIN JSON aggregate
@@ -276,7 +323,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.5: MAX JSON aggregate
@@ -291,7 +338,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.6: STATS JSON aggregate (multiple stats at once)
@@ -306,7 +353,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 4.7: Multiple aggregates in single JSON
@@ -327,7 +374,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- =====================================================================
@@ -345,7 +392,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 5.2: Terms with sub-aggregations
@@ -364,7 +411,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 5.3: Histogram aggregation
@@ -379,7 +426,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 5.4: Range aggregation
@@ -401,7 +448,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- Test 5.5: Nested bucket aggregations
@@ -430,7 +477,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- null
+ {}
 (1 row)
 
 -- =====================================================================
@@ -466,12 +513,21 @@ SELECT
     SUM(value) FILTER (WHERE category = 'Electronics') as electronics_sum
 FROM empty_test 
 WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ high_count | electronics_sum 
+------------+-----------------
+            |                
+(1 row)
+
 -- Test 6.4: Multiple tables (though both empty)
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all()
 UNION ALL
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
-ERROR:  unexpected aggregate result collection type
+ count 
+-------
+      
+      
+(2 rows)
+
 -- =====================================================================
 -- SECTION 7: Disable aggregate custom scan - verify normal behavior
 -- =====================================================================

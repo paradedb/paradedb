@@ -2,6 +2,8 @@ name: Cherry Pick
 
 on:
   pull_request:
+    branches:
+      - main
     types: [closed]
 
 jobs:
@@ -9,7 +11,6 @@ jobs:
     name: Cherry Pick to 0.17.x
     if: |
       github.event.pull_request.merged == true &&
-      github.event.pull_request.base_branch == 'main' &&
       contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.17.x')
     runs-on: ubuntu-latest
     steps:
@@ -21,14 +22,12 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.17.x"
-          commit: ${{ github.event.pull_request.merge_commit_sha }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
     if: |
       github.event.pull_request.merged == true &&
-      github.event.pull_request.base_branch == 'main' &&
       contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.18.x')
     runs-on: ubuntu-latest
     steps:
@@ -40,5 +39,4 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.18.x"
-          commit: ${{ github.event.pull_request.merge_commit_sha }}
           github_token: ${{ secrets.GITHUB_TOKEN }}

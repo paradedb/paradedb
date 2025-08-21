@@ -18,6 +18,7 @@
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::{fieldname_typoid, FieldName, HashMap};
 use crate::nodecast;
+use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::opexpr::{
     initialize_equality_operator_lookup, OpExpr, OperatorAccepts, PostgresOperatorOid,
     TantivyOperator, TantivyOperatorExt,
@@ -85,16 +86,16 @@ impl PushdownField {
 
 macro_rules! pushdown {
     ($attname:expr, $opexpr:expr, $operator:expr, $rhs:ident) => {{
-        let funcexpr = make_opexpr($attname, $opexpr, $operator, $rhs);
-
-        if !is_complex(funcexpr.cast()) {
-            Qual::PushdownExpr { funcexpr }
-        } else {
-            Qual::Expr {
-                node: funcexpr.cast(),
-                expr_state: std::ptr::null_mut(),
+        make_opexpr($attname, $opexpr, $operator, $rhs).map(|funcexpr| {
+            if !is_complex(funcexpr.cast()) {
+                Qual::PushdownExpr { funcexpr }
+            } else {
+                Qual::Expr {
+                    node: funcexpr.cast(),
+                    expr_state: std::ptr::null_mut(),
+                }
             }
-        }
+        })
     }};
 }
 
@@ -135,7 +136,7 @@ pub unsafe fn try_pushdown_inner(
 
             // the `opexpr` is one we can pushdown
             if pushdown.varno() == rti {
-                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs);
+                let pushed_down_qual = pushdown!(&pushdown.attname(), opexpr, pgsearch_operator, rhs)?;
                 // and it's in this RTI, so we can use it directly
                 Some(pushed_down_qual)
             } else {
@@ -160,13 +161,17 @@ unsafe fn term_with_operator_procid() -> pg_sys::Oid {
             .expect("the `paradedb.term_with_operator(paradedb.fieldname, text, anyelement)` function should exist")
 }
 
-unsafe fn terms_with_operator_procid() -> pg_sys::Oid {
-    direct_function_call::<pg_sys::Oid>(
-            pg_sys::regprocedurein,
-            // NB:  the SQL signature here needs to match our Rust implementation
-            &[c"paradedb.terms_with_operator(paradedb.fieldname, text, anyelement, bool)".into_datum()],
-        )
-            .expect("the `paradedb.terms_with_operator(paradedb.fieldname, text, anyelement, bool)` function should exist")
+unsafe fn terms_with_operator_procid() -> Option<pg_sys::Oid> {
+    lookup_procoid(
+        c"paradedb",
+        c"terms_with_operator",
+        &[
+            lookup_typoid(c"paradedb", c"fieldname")?,
+            pg_sys::TEXTOID,
+            pg_sys::ANYELEMENTOID,
+            pg_sys::BOOLOID,
+        ],
+    )
 }
 
 unsafe fn make_opexpr(
@@ -174,12 +179,12 @@ unsafe fn make_opexpr(
     orig_opexor: OpExpr,
     operator: &str,
     value: *mut pg_sys::Node,
-) -> *mut pg_sys::FuncExpr {
+) -> Option<*mut pg_sys::FuncExpr> {
     let paradedb_funcexpr: *mut pg_sys::FuncExpr =
         pg_sys::palloc0(size_of::<pg_sys::FuncExpr>()).cast();
     (*paradedb_funcexpr).xpr.type_ = pg_sys::NodeTag::T_FuncExpr;
     (*paradedb_funcexpr).funcid = match orig_opexor {
-        OpExpr::Array(_) => terms_with_operator_procid(),
+        OpExpr::Array(_) => terms_with_operator_procid()?,
         OpExpr::Single(_) => term_with_operator_procid(),
     };
     (*paradedb_funcexpr).funcresulttype = searchqueryinput_typoid();
@@ -223,7 +228,7 @@ unsafe fn make_opexpr(
         args.into_pg()
     };
 
-    paradedb_funcexpr
+    Some(paradedb_funcexpr)
 }
 
 pub unsafe fn is_complex(root: *mut pg_sys::Node) -> bool {

@@ -22,7 +22,8 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.17.x"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # TODO: Ideally this would be a dedicated automation user.
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
@@ -39,4 +40,5 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.18.x"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # TODO: Ideally this would be a dedicated automation user.
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

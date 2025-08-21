@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755795336459,
+  "lastUpdate": 1755796353200,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -2334,6 +2334,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 89.9705,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7008e501092f0d14807ba6c7a99a221724fc6c4c",
+          "message": "fix: fixed empty table aggregate errors in aggregate custom scan (#3008)\n\n# Ticket(s) Closed\n\n- Closes #2996\n\n## What\n\nFix aggregate pushdown queries over empty tables that were throwing\nerrors instead of returning proper empty results.\n\n## Why\n\nWhen `paradedb.enable_aggregate_custom_scan` is enabled and aggregate\nqueries are executed on empty tables, two critical errors were\noccurring:\n\n1. **Simple aggregates** (COUNT, SUM, AVG, MIN, MAX): `ERROR: unexpected\naggregate result collection type`\n2. **GROUP BY aggregates**: `ERROR: missing bucket results`\n\nThis happened because the aggregate execution pipeline was returning\n`null` for empty tables, but the aggregate scan state expected proper\nJSON object structures.\n\n## How\n\nFixed `execute_aggregate` function**:\n- Changed return value from `serde_json::Value::Null` to\n`serde_json::json!({})` when no segments exist\n- This ensures a valid JSON object is always returned\n\nImproved `json_to_aggregate_results` function:\n- Added null-safety checks before calling `.as_object()`\n- Implemented proper empty result handling using\n`result_from_aggregate_with_doc_count` with `doc_count = 0`\n- This leverages existing logic that correctly handles COUNT (returns 0)\nvs other aggregates (returns NULL) for empty result sets\n\nUpdated `extract_bucket_results` function:\n- Added graceful handling for missing bucket structures in GROUP BY\nqueries\n- Returns empty result set instead of panicking when buckets are missing\n\n## Tests\n\nAdded regression test `empty_aggregate.sql` covering:\n- Simple SQL aggregates (COUNT, SUM, AVG, MIN, MAX) on empty tables\n- GROUP BY aggregates with single and multiple grouping columns  \n- JSON aggregates using `paradedb.aggregate()` function\n- JSON bucket aggregations (terms, histogram, range) with nested\nsub-aggregations\n- Edge cases with HAVING, FILTER clauses, and complex expressions\n\n**Expected behavior after fix:**\n- COUNT returns 0 for empty tables\n- SUM/AVG/MIN/MAX return NULL for empty tables  \n- GROUP BY queries return empty result sets (0 rows)\n- JSON aggregates return empty objects `{}` instead of `null`\n- No errors or panics when querying empty tables",
+          "timestamp": "2025-08-21T09:32:07-07:00",
+          "tree_id": "cc49836a78f32b14f927d373fd12024625747a67",
+          "url": "https://github.com/paradedb/paradedb/commit/7008e501092f0d14807ba6c7a99a221724fc6c4c"
+        },
+        "date": 1755796351493,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1206.004,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 661.8265,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1495.1599999999999,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 731.27,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 699.0625,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1616.1190000000001,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 23.376,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 66.97900000000001,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 91.67099999999999,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755812335196,
+  "lastUpdate": 1755812976941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1034,6 +1034,72 @@ window.BENCHMARK_DATA = {
             "value": 80.95394161452434,
             "unit": "median tps",
             "extra": "avg tps: 95.88107638509996, max tps: 785.1512201249961, count: 55131"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f2428be0ee6a082b53176d781e62ee2519ccccc",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015) (#3016)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ori Bernstein <ori@eigenstate.org>\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:33:35-04:00",
+          "tree_id": "b3df08f37cb0652f7b23674356d6a786d632a136",
+          "url": "https://github.com/paradedb/paradedb/commit/7f2428be0ee6a082b53176d781e62ee2519ccccc"
+        },
+        "date": 1755812975883,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1170.9928934435109,
+            "unit": "median tps",
+            "extra": "avg tps: 1160.3200944857344, max tps: 1175.466526131665, count: 55192"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2450.1156160482706,
+            "unit": "median tps",
+            "extra": "avg tps: 2429.8320910409184, max tps: 2454.0295179221016, count: 55192"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1165.8878541162426,
+            "unit": "median tps",
+            "extra": "avg tps: 1157.8632910271804, max tps: 1168.1224917944376, count: 55192"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 865.816848283649,
+            "unit": "median tps",
+            "extra": "avg tps: 863.5515038431444, max tps: 901.2381750792143, count: 55192"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 164.86013502103708,
+            "unit": "median tps",
+            "extra": "avg tps: 163.9953561541898, max tps: 166.11580007727028, count: 110384"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.07471588293174,
+            "unit": "median tps",
+            "extra": "avg tps: 157.84786194887968, max tps: 161.27305156271257, count: 55192"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 62.311205767898024,
+            "unit": "median tps",
+            "extra": "avg tps: 84.2950711365507, max tps: 852.9737650859073, count: 55192"
           }
         ]
       }

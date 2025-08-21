@@ -38,10 +38,12 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetch the entire history
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }} # Required with fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          # Fetch full history to allow diffing schemas across commits
+          fetch-depth: 0
+          # For forked PRs, use the pull_request head SHA with default GITHUB_TOKEN.
+          # This avoids requiring secrets (which are unavailable for fork workflows)
+          # and ensures we check out the exact code being proposed.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Extract pgrx Version
         id: pgrx

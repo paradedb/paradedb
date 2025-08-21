@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755813660093,
+  "lastUpdate": 1755813662314,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4192,6 +4192,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.73601085387278, max segment_count: 97.0, count: 57491"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f2428be0ee6a082b53176d781e62ee2519ccccc",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015) (#3016)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ori Bernstein <ori@eigenstate.org>\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:33:35-04:00",
+          "tree_id": "b3df08f37cb0652f7b23674356d6a786d632a136",
+          "url": "https://github.com/paradedb/paradedb/commit/7f2428be0ee6a082b53176d781e62ee2519ccccc"
+        },
+        "date": 1755813661238,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.405347098981984, max cpu: 65.30612, count: 57686"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 234.63195366130864, max mem: 240.37890625, count: 57686"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.333545503333497, max cpu: 33.136093, count: 57686"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.9890391245276, max mem: 161.6015625, count: 57686"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22440,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20832.477810907327, max block_count: 23624.0, count: 57686"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.58287972818361, max segment_count: 96.0, count: 57686"
           }
         ]
       }

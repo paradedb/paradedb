@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755728166623,
+  "lastUpdate": 1755794893802,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -770,6 +770,72 @@ window.BENCHMARK_DATA = {
             "value": 36.99047645740585,
             "unit": "median tps",
             "extra": "avg tps: 43.09746490935574, max tps: 750.9091632694284, count: 55251"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7008e501092f0d14807ba6c7a99a221724fc6c4c",
+          "message": "fix: fixed empty table aggregate errors in aggregate custom scan (#3008)\n\n# Ticket(s) Closed\n\n- Closes #2996\n\n## What\n\nFix aggregate pushdown queries over empty tables that were throwing\nerrors instead of returning proper empty results.\n\n## Why\n\nWhen `paradedb.enable_aggregate_custom_scan` is enabled and aggregate\nqueries are executed on empty tables, two critical errors were\noccurring:\n\n1. **Simple aggregates** (COUNT, SUM, AVG, MIN, MAX): `ERROR: unexpected\naggregate result collection type`\n2. **GROUP BY aggregates**: `ERROR: missing bucket results`\n\nThis happened because the aggregate execution pipeline was returning\n`null` for empty tables, but the aggregate scan state expected proper\nJSON object structures.\n\n## How\n\nFixed `execute_aggregate` function**:\n- Changed return value from `serde_json::Value::Null` to\n`serde_json::json!({})` when no segments exist\n- This ensures a valid JSON object is always returned\n\nImproved `json_to_aggregate_results` function:\n- Added null-safety checks before calling `.as_object()`\n- Implemented proper empty result handling using\n`result_from_aggregate_with_doc_count` with `doc_count = 0`\n- This leverages existing logic that correctly handles COUNT (returns 0)\nvs other aggregates (returns NULL) for empty result sets\n\nUpdated `extract_bucket_results` function:\n- Added graceful handling for missing bucket structures in GROUP BY\nqueries\n- Returns empty result set instead of panicking when buckets are missing\n\n## Tests\n\nAdded regression test `empty_aggregate.sql` covering:\n- Simple SQL aggregates (COUNT, SUM, AVG, MIN, MAX) on empty tables\n- GROUP BY aggregates with single and multiple grouping columns  \n- JSON aggregates using `paradedb.aggregate()` function\n- JSON bucket aggregations (terms, histogram, range) with nested\nsub-aggregations\n- Edge cases with HAVING, FILTER clauses, and complex expressions\n\n**Expected behavior after fix:**\n- COUNT returns 0 for empty tables\n- SUM/AVG/MIN/MAX return NULL for empty tables  \n- GROUP BY queries return empty result sets (0 rows)\n- JSON aggregates return empty objects `{}` instead of `null`\n- No errors or panics when querying empty tables",
+          "timestamp": "2025-08-21T09:32:07-07:00",
+          "tree_id": "cc49836a78f32b14f927d373fd12024625747a67",
+          "url": "https://github.com/paradedb/paradedb/commit/7008e501092f0d14807ba6c7a99a221724fc6c4c"
+        },
+        "date": 1755794892360,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1191.509182173793,
+            "unit": "median tps",
+            "extra": "avg tps: 1183.7197209703556, max tps: 1195.1304495601307, count: 55179"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2846.4374094285467,
+            "unit": "median tps",
+            "extra": "avg tps: 2817.3124697743765, max tps: 2852.896042300975, count: 55179"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1180.7091214787433,
+            "unit": "median tps",
+            "extra": "avg tps: 1171.6030953467268, max tps: 1185.9516892498154, count: 55179"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 875.4824198766612,
+            "unit": "median tps",
+            "extra": "avg tps: 874.0349639158709, max tps: 902.9528639368203, count: 55179"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 154.9039519571436,
+            "unit": "median tps",
+            "extra": "avg tps: 154.40797527133753, max tps: 159.77556250148783, count: 110358"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 140.5855423124256,
+            "unit": "median tps",
+            "extra": "avg tps: 140.46345315720993, max tps: 143.49211615301937, count: 55179"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 76.60163179715929,
+            "unit": "median tps",
+            "extra": "avg tps: 96.41325313442836, max tps: 834.8241901996648, count: 55179"
           }
         ]
       }

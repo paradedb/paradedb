@@ -98,6 +98,12 @@ impl FSMBlock {
             .iter()
             .all(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
     }
+    #[inline]
+    fn any_invalid(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
+    }
 }
 
 /// The [`FreeSpaceManager`] is our version of Postgres' "free space map".  We need to track free space
@@ -221,7 +227,7 @@ impl FreeSpaceManager {
 
             let page = buffer.page();
             let contents = page.contents_ref::<FSMBlock>();
-            let space_available = contents.header.empty || contents.all_invalid();
+            let space_available = contents.header.empty || contents.any_invalid();
 
             if space_available {
                 let mut page = buffer.page_mut();

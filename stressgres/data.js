@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755812979447,
+  "lastUpdate": 1755812994022,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4506,6 +4506,42 @@ window.BENCHMARK_DATA = {
             "value": 112.48527316617279,
             "unit": "median tps",
             "extra": "avg tps: 112.30971693449584, max tps: 116.56825229991374, count: 56374"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ori@eigenstate.org",
+            "name": "Ori Bernstein",
+            "username": "oridb"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97ad25718b14ab34440c0587cb8bb9968598bf7d",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:11:27-04:00",
+          "tree_id": "74eee4eb0e1503ed631c849c97ccf32653c4e203",
+          "url": "https://github.com/paradedb/paradedb/commit/97ad25718b14ab34440c0587cb8bb9968598bf7d"
+        },
+        "date": 1755812992961,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.9210612058077,
+            "unit": "median tps",
+            "extra": "avg tps: 27.803490539484862, max tps: 28.123781872539574, count: 57893"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 127.15367848468138,
+            "unit": "median tps",
+            "extra": "avg tps: 126.17567665894045, max tps: 129.08489386483387, count: 57893"
           }
         ]
       }

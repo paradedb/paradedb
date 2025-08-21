@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755805538543,
+  "lastUpdate": 1755806192563,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4002,6 +4002,42 @@ window.BENCHMARK_DATA = {
             "value": 125.36456912011604,
             "unit": "median tps",
             "extra": "avg tps: 124.60452251155385, max tps: 127.20675589559362, count: 57950"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bb7c02ed7b398872104e7879aed251dd18a6414",
+          "message": "fix: don't ERROR if `paradedb.terms_with_operator` is missing (#3013)\n\n\n## What\n\nIt's possible that when upgrading pg_search from `v0.15.26` to `v0.17.x`\nwe could generate an ERROR complaining that\n`paradedb.terms_with_operator(...)` doesn't exist if the user upgraded\nthe extension binary but has not yet run `ALTER EXTENSION pg_search\nUPDATE;`.\n\nThis fixes that by inspecting the catalogs directly when it's necessary\nto lookup that function and plumbing through an `Option<pg_sys::Oid>`\nreturn value.\n\n## Why\n\nTo help users/customers/partners better deal with upgrading from really\nold pg_search versions.\n\n## How\n\n## Tests\n\nExisting tests pass, especially the ones added in #2730, and a new\nregress test has been added that explicitly removes the function from\nthe schema and ensures the query still works (tho with a different plan,\nof course).",
+          "timestamp": "2025-08-21T15:17:35-04:00",
+          "tree_id": "4c5e053bc28da403546f6c1b9ad61b9b62a75bdf",
+          "url": "https://github.com/paradedb/paradedb/commit/2bb7c02ed7b398872104e7879aed251dd18a6414"
+        },
+        "date": 1755806191494,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 25.62718114148919,
+            "unit": "median tps",
+            "extra": "avg tps: 25.637460767297092, max tps: 26.10059515803176, count: 56374"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 112.48527316617279,
+            "unit": "median tps",
+            "extra": "avg tps: 112.30971693449584, max tps: 116.56825229991374, count: 56374"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755799103620,
+  "lastUpdate": 1755804854624,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -902,6 +902,72 @@ window.BENCHMARK_DATA = {
             "value": 125.92169104525382,
             "unit": "median tps",
             "extra": "avg tps: 138.2464736468193, max tps: 803.2741454167186, count: 55359"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bb7c02ed7b398872104e7879aed251dd18a6414",
+          "message": "fix: don't ERROR if `paradedb.terms_with_operator` is missing (#3013)\n\n\n## What\n\nIt's possible that when upgrading pg_search from `v0.15.26` to `v0.17.x`\nwe could generate an ERROR complaining that\n`paradedb.terms_with_operator(...)` doesn't exist if the user upgraded\nthe extension binary but has not yet run `ALTER EXTENSION pg_search\nUPDATE;`.\n\nThis fixes that by inspecting the catalogs directly when it's necessary\nto lookup that function and plumbing through an `Option<pg_sys::Oid>`\nreturn value.\n\n## Why\n\nTo help users/customers/partners better deal with upgrading from really\nold pg_search versions.\n\n## How\n\n## Tests\n\nExisting tests pass, especially the ones added in #2730, and a new\nregress test has been added that explicitly removes the function from\nthe schema and ensures the query still works (tho with a different plan,\nof course).",
+          "timestamp": "2025-08-21T15:17:35-04:00",
+          "tree_id": "4c5e053bc28da403546f6c1b9ad61b9b62a75bdf",
+          "url": "https://github.com/paradedb/paradedb/commit/2bb7c02ed7b398872104e7879aed251dd18a6414"
+        },
+        "date": 1755804853559,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1122.4053370915312,
+            "unit": "median tps",
+            "extra": "avg tps: 1114.596488678084, max tps: 1124.415768673027, count: 55214"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2609.304619880608,
+            "unit": "median tps",
+            "extra": "avg tps: 2597.3735812397463, max tps: 2615.4799198847845, count: 55214"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1154.053000262801,
+            "unit": "median tps",
+            "extra": "avg tps: 1144.5461267824182, max tps: 1158.6639591901478, count: 55214"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 942.2659595054064,
+            "unit": "median tps",
+            "extra": "avg tps: 935.7711658295667, max tps: 950.6558830837324, count: 55214"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 167.4811538985087,
+            "unit": "median tps",
+            "extra": "avg tps: 171.79959020753367, max tps: 180.50078681178323, count: 110428"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 144.60667074983422,
+            "unit": "median tps",
+            "extra": "avg tps: 144.16865508931446, max tps: 144.9121310410424, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 98.94970886983673,
+            "unit": "median tps",
+            "extra": "avg tps: 122.17077600678304, max tps: 792.9138871731113, count: 55214"
           }
         ]
       }

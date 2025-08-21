@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755794893802,
+  "lastUpdate": 1755794896802,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2256,6 +2256,126 @@ window.BENCHMARK_DATA = {
             "value": 59.9140625,
             "unit": "median mem",
             "extra": "avg mem: 58.93570718742647, max mem: 84.39453125, count: 55251"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7008e501092f0d14807ba6c7a99a221724fc6c4c",
+          "message": "fix: fixed empty table aggregate errors in aggregate custom scan (#3008)\n\n# Ticket(s) Closed\n\n- Closes #2996\n\n## What\n\nFix aggregate pushdown queries over empty tables that were throwing\nerrors instead of returning proper empty results.\n\n## Why\n\nWhen `paradedb.enable_aggregate_custom_scan` is enabled and aggregate\nqueries are executed on empty tables, two critical errors were\noccurring:\n\n1. **Simple aggregates** (COUNT, SUM, AVG, MIN, MAX): `ERROR: unexpected\naggregate result collection type`\n2. **GROUP BY aggregates**: `ERROR: missing bucket results`\n\nThis happened because the aggregate execution pipeline was returning\n`null` for empty tables, but the aggregate scan state expected proper\nJSON object structures.\n\n## How\n\nFixed `execute_aggregate` function**:\n- Changed return value from `serde_json::Value::Null` to\n`serde_json::json!({})` when no segments exist\n- This ensures a valid JSON object is always returned\n\nImproved `json_to_aggregate_results` function:\n- Added null-safety checks before calling `.as_object()`\n- Implemented proper empty result handling using\n`result_from_aggregate_with_doc_count` with `doc_count = 0`\n- This leverages existing logic that correctly handles COUNT (returns 0)\nvs other aggregates (returns NULL) for empty result sets\n\nUpdated `extract_bucket_results` function:\n- Added graceful handling for missing bucket structures in GROUP BY\nqueries\n- Returns empty result set instead of panicking when buckets are missing\n\n## Tests\n\nAdded regression test `empty_aggregate.sql` covering:\n- Simple SQL aggregates (COUNT, SUM, AVG, MIN, MAX) on empty tables\n- GROUP BY aggregates with single and multiple grouping columns  \n- JSON aggregates using `paradedb.aggregate()` function\n- JSON bucket aggregations (terms, histogram, range) with nested\nsub-aggregations\n- Edge cases with HAVING, FILTER clauses, and complex expressions\n\n**Expected behavior after fix:**\n- COUNT returns 0 for empty tables\n- SUM/AVG/MIN/MAX return NULL for empty tables  \n- GROUP BY queries return empty result sets (0 rows)\n- JSON aggregates return empty objects `{}` instead of `null`\n- No errors or panics when querying empty tables",
+          "timestamp": "2025-08-21T09:32:07-07:00",
+          "tree_id": "cc49836a78f32b14f927d373fd12024625747a67",
+          "url": "https://github.com/paradedb/paradedb/commit/7008e501092f0d14807ba6c7a99a221724fc6c4c"
+        },
+        "date": 1755794895362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.739570589979831, max cpu: 9.514371, count: 55179"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 98.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 98.19707551219668, max mem: 153.203125, count: 55179"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654705491408566, max cpu: 9.430255, count: 55179"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 91.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.51968840897352, max mem: 144.94921875, count: 55179"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77063254378312, max cpu: 9.514371, count: 55179"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 101.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 100.13572064893347, max mem: 155.546875, count: 55179"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.715072576530571, max cpu: 9.393347, count: 55179"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 100.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.44605065162925, max mem: 154.78515625, count: 55179"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.678696830113436, max cpu: 28.77123, count: 110358"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 112.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 111.36295171170191, max mem: 174.265625, count: 110358"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8908,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8773.44228782689, max block_count: 16553.0, count: 55179"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.704398412439515, max segment_count: 41.0, count: 55179"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.789611768530064, max cpu: 23.166023, count: 55179"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 117.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 116.12246025435401, max mem: 177.234375, count: 55179"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.567168652413453, max cpu: 9.302325, count: 55179"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 89.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 88.23257963570833, max mem: 144.03515625, count: 55179"
           }
         ]
       }

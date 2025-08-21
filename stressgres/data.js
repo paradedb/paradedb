@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755806192563,
+  "lastUpdate": 1755806195186,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4568,6 +4568,66 @@ window.BENCHMARK_DATA = {
             "value": 167.7421875,
             "unit": "median mem",
             "extra": "avg mem: 157.56318391393444, max mem: 177.12890625, count: 57950"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bb7c02ed7b398872104e7879aed251dd18a6414",
+          "message": "fix: don't ERROR if `paradedb.terms_with_operator` is missing (#3013)\n\n\n## What\n\nIt's possible that when upgrading pg_search from `v0.15.26` to `v0.17.x`\nwe could generate an ERROR complaining that\n`paradedb.terms_with_operator(...)` doesn't exist if the user upgraded\nthe extension binary but has not yet run `ALTER EXTENSION pg_search\nUPDATE;`.\n\nThis fixes that by inspecting the catalogs directly when it's necessary\nto lookup that function and plumbing through an `Option<pg_sys::Oid>`\nreturn value.\n\n## Why\n\nTo help users/customers/partners better deal with upgrading from really\nold pg_search versions.\n\n## How\n\n## Tests\n\nExisting tests pass, especially the ones added in #2730, and a new\nregress test has been added that explicitly removes the function from\nthe schema and ensures the query still works (tho with a different plan,\nof course).",
+          "timestamp": "2025-08-21T15:17:35-04:00",
+          "tree_id": "4c5e053bc28da403546f6c1b9ad61b9b62a75bdf",
+          "url": "https://github.com/paradedb/paradedb/commit/2bb7c02ed7b398872104e7879aed251dd18a6414"
+        },
+        "date": 1755806194114,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.277215141388183, max cpu: 106.87318, count: 56374"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.0025393327376, max mem: 176.53515625, count: 56374"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 17950,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16300.251144144464, max block_count: 21247.0, count: 56374"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 39,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 40.73335225458545, max segment_count: 110.0, count: 56374"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 22.966507,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.332558583916704, max cpu: 184.61539, count: 56374"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 168.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.25303421402154, max mem: 176.80859375, count: 56374"
           }
         ]
       }

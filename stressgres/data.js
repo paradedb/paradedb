@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755812976941,
+  "lastUpdate": 1755812979447,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3000,6 +3000,126 @@ window.BENCHMARK_DATA = {
             "value": 85.1640625,
             "unit": "median mem",
             "extra": "avg mem: 83.29071247630644, max mem: 134.11328125, count: 55131"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f2428be0ee6a082b53176d781e62ee2519ccccc",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015) (#3016)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ori Bernstein <ori@eigenstate.org>\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:33:35-04:00",
+          "tree_id": "b3df08f37cb0652f7b23674356d6a786d632a136",
+          "url": "https://github.com/paradedb/paradedb/commit/7f2428be0ee6a082b53176d781e62ee2519ccccc"
+        },
+        "date": 1755812978349,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714308591819078, max cpu: 9.648242, count: 55192"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 93.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.24792457466661, max mem: 146.34765625, count: 55192"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613434815405436, max cpu: 9.504951, count: 55192"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 86.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.64166179258316, max mem: 139.80859375, count: 55192"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.756074602058195, max cpu: 14.117648, count: 55192"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 94.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 93.33320810760617, max mem: 147.59375, count: 55192"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.498046325471212, max cpu: 4.701273, count: 55192"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 93.5,
+            "unit": "median mem",
+            "extra": "avg mem: 92.1681200683523, max mem: 146.734375, count: 55192"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.41762820982373, max cpu: 28.713858, count: 110384"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 103.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.15111306750752, max mem: 160.9140625, count: 110384"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8030,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7887.8976119727495, max block_count: 14839.0, count: 55192"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.613259167995361, max segment_count: 27.0, count: 55192"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.911610585427996, max cpu: 28.235296, count: 55192"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 107.466796875,
+            "unit": "median mem",
+            "extra": "avg mem: 106.16671226978094, max mem: 164.4140625, count: 55192"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.296022079424996, max cpu: 9.375, count: 55192"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 88.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 85.94240128494619, max mem: 140.4375, count: 55192"
           }
         ]
       }

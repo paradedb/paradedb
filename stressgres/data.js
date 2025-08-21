@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755812996086,
+  "lastUpdate": 1755813660093,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3506,6 +3506,42 @@ window.BENCHMARK_DATA = {
             "value": 5.742868989737723,
             "unit": "median tps",
             "extra": "avg tps: 5.143136354588341, max tps: 6.466997973109033, count: 57491"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f2428be0ee6a082b53176d781e62ee2519ccccc",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015) (#3016)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ori Bernstein <ori@eigenstate.org>\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:33:35-04:00",
+          "tree_id": "b3df08f37cb0652f7b23674356d6a786d632a136",
+          "url": "https://github.com/paradedb/paradedb/commit/7f2428be0ee6a082b53176d781e62ee2519ccccc"
+        },
+        "date": 1755813659041,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.798292948451294,
+            "unit": "median tps",
+            "extra": "avg tps: 5.819962986444398, max tps: 8.686044075894594, count: 57686"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.761309054827524,
+            "unit": "median tps",
+            "extra": "avg tps: 5.179435689178295, max tps: 6.495068239888188, count: 57686"
           }
         ]
       }

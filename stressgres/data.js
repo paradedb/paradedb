@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755804854624,
+  "lastUpdate": 1755804857307,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2628,6 +2628,126 @@ window.BENCHMARK_DATA = {
             "value": 88.73828125,
             "unit": "median mem",
             "extra": "avg mem: 89.21277014013079, max mem: 147.65625, count: 55359"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2bb7c02ed7b398872104e7879aed251dd18a6414",
+          "message": "fix: don't ERROR if `paradedb.terms_with_operator` is missing (#3013)\n\n\n## What\n\nIt's possible that when upgrading pg_search from `v0.15.26` to `v0.17.x`\nwe could generate an ERROR complaining that\n`paradedb.terms_with_operator(...)` doesn't exist if the user upgraded\nthe extension binary but has not yet run `ALTER EXTENSION pg_search\nUPDATE;`.\n\nThis fixes that by inspecting the catalogs directly when it's necessary\nto lookup that function and plumbing through an `Option<pg_sys::Oid>`\nreturn value.\n\n## Why\n\nTo help users/customers/partners better deal with upgrading from really\nold pg_search versions.\n\n## How\n\n## Tests\n\nExisting tests pass, especially the ones added in #2730, and a new\nregress test has been added that explicitly removes the function from\nthe schema and ensures the query still works (tho with a different plan,\nof course).",
+          "timestamp": "2025-08-21T15:17:35-04:00",
+          "tree_id": "4c5e053bc28da403546f6c1b9ad61b9b62a75bdf",
+          "url": "https://github.com/paradedb/paradedb/commit/2bb7c02ed7b398872104e7879aed251dd18a6414"
+        },
+        "date": 1755804856255,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.781164602908165, max cpu: 14.131501, count: 55214"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 98.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 97.91913219190332, max mem: 153.8359375, count: 55214"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.644842013136253, max cpu: 9.257474, count: 55214"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 91.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.83927267654038, max mem: 149.02734375, count: 55214"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.754549284340318, max cpu: 9.486166, count: 55214"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 98.5,
+            "unit": "median mem",
+            "extra": "avg mem: 98.54448394825135, max mem: 153.73828125, count: 55214"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3846503182917544, max cpu: 4.729064, count: 55214"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 97.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 98.02109646670229, max mem: 154.14453125, count: 55214"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.166536219731084, max cpu: 27.853, count: 110428"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 108.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 109.0450717888579, max mem: 172.66015625, count: 110428"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8567,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8644.472108523201, max block_count: 16349.0, count: 55214"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.69725069728692, max segment_count: 37.0, count: 55214"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.70931876931444, max cpu: 18.75, count: 55214"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 114.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.27378048366356, max mem: 173.33984375, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.617249665143023, max cpu: 9.320388, count: 55214"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 92.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 89.46111083126561, max mem: 148.05859375, count: 55214"
           }
         ]
       }

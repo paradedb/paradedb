@@ -1,0 +1,958 @@
+-- Test JSON field GROUP BY with aggregate custom scan
+-- Create extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Enable aggregate custom scan
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =========================================
+-- Test 1: Single JSON field GROUP BY
+-- =========================================
+-- Create test table
+CREATE TABLE json_test_single (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB,
+    data JSONB
+);
+-- Insert test data
+INSERT INTO json_test_single (metadata, data) VALUES
+    ('{"category": "electronics", "brand": "Apple", "price": 999}', '{"color": "silver", "stock": 10}'),
+    ('{"category": "electronics", "brand": "Samsung", "price": 799}', '{"color": "black", "stock": 15}'),
+    ('{"category": "electronics", "brand": "Apple", "price": 1299}', '{"color": "gold", "stock": 5}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 89}', '{"size": "M", "stock": 20}'),
+    ('{"category": "clothing", "brand": "Adidas", "price": 79}', '{"size": "L", "stock": 25}'),
+    ('{"category": "clothing", "brand": "Nike", "price": 99}', '{"size": "S", "stock": 30}');
+-- Create BM25 index
+CREATE INDEX idx_json_single ON json_test_single
+USING bm25 (id, metadata, data)
+WITH (
+    key_field = 'id',
+    json_fields = '{
+        "metadata": {"indexed": true, "fast": true, "expand_dots": true},
+        "data": {"indexed": true, "fast": true, "expand_dots": true}
+    }'
+);
+-- Test single JSON field GROUP BY with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY category;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((metadata ->> 'category'::text)), (now())
+   Sort Key: ((json_test_single.metadata ->> 'category'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
+         Output: (metadata ->> 'category'::text), now()
+         Index: idx_json_single
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_single
+WHERE id @@@ paradedb.exists('metadata.category')
+GROUP BY metadata->>'category'
+ORDER BY category;
+  category   | count 
+-------------+-------
+ clothing    |     3
+ electronics |     3
+(2 rows)
+
+-- =========================================
+-- Test 2: Multiple JSON field GROUP BY  
+-- =========================================
+-- Create test table for multiple fields
+CREATE TABLE json_test_multiple (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+-- Insert test data
+INSERT INTO json_test_multiple (metadata) VALUES
+    ('{"category": "electronics", "brand": "Apple"}'),
+    ('{"category": "electronics", "brand": "Samsung"}'),
+    ('{"category": "electronics", "brand": "Apple"}'),
+    ('{"category": "clothing", "brand": "Nike"}'),
+    ('{"category": "clothing", "brand": "Nike"}');
+-- Create BM25 index
+CREATE INDEX idx_json_multiple ON json_test_multiple
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test multiple JSON field GROUP BY with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category,
+       metadata->>'brand' AS brand,
+       COUNT(*) AS count
+FROM json_test_multiple
+WHERE id @@@ paradedb.exists('metadata.category') 
+  AND id @@@ paradedb.exists('metadata.brand')
+GROUP BY metadata->>'category', metadata->>'brand'
+ORDER BY category, brand;
+                                                                                   QUERY PLAN                                                                                   
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((metadata ->> 'category'::text)), ((metadata ->> 'brand'::text)), (now())
+   Sort Key: ((json_test_multiple.metadata ->> 'category'::text)), ((json_test_multiple.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_multiple
+         Output: (metadata ->> 'category'::text), (metadata ->> 'brand'::text), now()
+         Index: idx_json_multiple
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":10000},"aggs":{"group_1":{"terms":{"field":"metadata.brand","size":10000}}}}}
+(8 rows)
+
+-- Execute the query
+SELECT metadata->>'category' AS category,
+       metadata->>'brand' AS brand,
+       COUNT(*) AS count
+FROM json_test_multiple
+WHERE id @@@ paradedb.exists('metadata.category') 
+  AND id @@@ paradedb.exists('metadata.brand')
+GROUP BY metadata->>'category', metadata->>'brand'
+ORDER BY category, brand;
+  category   |  brand  | count 
+-------------+---------+-------
+ clothing    | Nike    |     2
+ electronics | Apple   |     2
+ electronics | Samsung |     1
+(3 rows)
+
+-- =========================================
+-- Test 3: JSON GROUP BY with various aggregate functions (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+-- =========================================
+-- Create test table for aggregates
+CREATE TABLE json_test_aggregates (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+-- Insert test data
+INSERT INTO json_test_aggregates (metadata) VALUES
+    ('{"brand": "Apple", "price": 999}'),
+    ('{"brand": "Samsung", "price": 799}'),
+    ('{"brand": "Apple", "price": 1299}'),
+    ('{"brand": "Nike", "price": 89}'),
+    ('{"brand": "Nike", "price": 99}');
+-- Create BM25 index
+CREATE INDEX idx_json_aggregates ON json_test_aggregates
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test JSON field GROUP BY with COUNT with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'brand' AS brand, 
+       COUNT(*) AS count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.brand')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Sort
+   Output: ((metadata ->> 'brand'::text)), (now())
+   Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_aggregates
+         Output: (metadata ->> 'brand'::text), now()
+         Index: idx_json_aggregates
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"metadata.brand","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT metadata->>'brand' AS brand, 
+       COUNT(*) AS count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.brand')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+  brand  | count 
+---------+-------
+ Apple   |     2
+ Nike    |     2
+ Samsung |     1
+(3 rows)
+
+-- Test JSON field GROUP BY with SUM with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, 
+       SUM((metadata->>'price')::numeric) AS total_price
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'category'
+ORDER BY category;
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: ((metadata ->> 'category'::text)), sum(((metadata ->> 'price'::text))::numeric)
+   Group Key: ((json_test_aggregates.metadata ->> 'category'::text))
+   ->  Sort
+         Output: ((metadata ->> 'category'::text)), metadata
+         Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+               Output: (metadata ->> 'category'::text), metadata
+               Table: json_test_aggregates
+               Index: idx_json_aggregates
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(13 rows)
+
+-- Execute the query
+SELECT metadata->>'category' AS category, 
+       SUM((metadata->>'price')::numeric) AS total_price
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'category'
+ORDER BY category;
+ category | total_price 
+----------+-------------
+          |        3285
+(1 row)
+
+-- Test JSON field GROUP BY with AVG with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'brand' AS brand, 
+       AVG((metadata->>'price')::numeric) AS avg_price,
+       COUNT(*) AS item_count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: ((metadata ->> 'brand'::text)), avg(((metadata ->> 'price'::text))::numeric), count(*)
+   Group Key: ((json_test_aggregates.metadata ->> 'brand'::text))
+   ->  Sort
+         Output: ((metadata ->> 'brand'::text)), metadata
+         Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+               Output: (metadata ->> 'brand'::text), metadata
+               Table: json_test_aggregates
+               Index: idx_json_aggregates
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(13 rows)
+
+-- Execute the query
+SELECT metadata->>'brand' AS brand, 
+       AVG((metadata->>'price')::numeric) AS avg_price,
+       COUNT(*) AS item_count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+  brand  |       avg_price       | item_count 
+---------+-----------------------+------------
+ Apple   | 1149.0000000000000000 |          2
+ Nike    |   94.0000000000000000 |          2
+ Samsung |  799.0000000000000000 |          1
+(3 rows)
+
+-- Test JSON field GROUP BY with MIN/MAX with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, 
+       MIN((metadata->>'price')::numeric) AS min_price,
+       MAX((metadata->>'price')::numeric) AS max_price,
+       COUNT(*) AS item_count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'category'
+ORDER BY category;
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: ((metadata ->> 'category'::text)), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric), count(*)
+   Group Key: ((json_test_aggregates.metadata ->> 'category'::text))
+   ->  Sort
+         Output: ((metadata ->> 'category'::text)), metadata
+         Sort Key: ((json_test_aggregates.metadata ->> 'category'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+               Output: (metadata ->> 'category'::text), metadata
+               Table: json_test_aggregates
+               Index: idx_json_aggregates
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(13 rows)
+
+-- Execute the query
+SELECT metadata->>'category' AS category, 
+       MIN((metadata->>'price')::numeric) AS min_price,
+       MAX((metadata->>'price')::numeric) AS max_price,
+       COUNT(*) AS item_count
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'category'
+ORDER BY category;
+ category | min_price | max_price | item_count 
+----------+-----------+-----------+------------
+          |        89 |      1299 |          5
+(1 row)
+
+-- Test JSON field GROUP BY with multiple aggregates with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'brand' AS brand, 
+       COUNT(*) AS item_count,
+       SUM((metadata->>'price')::numeric) AS total_value,
+       AVG((metadata->>'price')::numeric) AS avg_price,
+       MIN((metadata->>'price')::numeric) AS min_price,
+       MAX((metadata->>'price')::numeric) AS max_price
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+                                                                                                                 QUERY PLAN                                                                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: ((metadata ->> 'brand'::text)), count(*), sum(((metadata ->> 'price'::text))::numeric), avg(((metadata ->> 'price'::text))::numeric), min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
+   Group Key: ((json_test_aggregates.metadata ->> 'brand'::text))
+   ->  Sort
+         Output: ((metadata ->> 'brand'::text)), metadata
+         Sort Key: ((json_test_aggregates.metadata ->> 'brand'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_aggregates
+               Output: (metadata ->> 'brand'::text), metadata
+               Table: json_test_aggregates
+               Index: idx_json_aggregates
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+(13 rows)
+
+-- Execute the query
+SELECT metadata->>'brand' AS brand, 
+       COUNT(*) AS item_count,
+       SUM((metadata->>'price')::numeric) AS total_value,
+       AVG((metadata->>'price')::numeric) AS avg_price,
+       MIN((metadata->>'price')::numeric) AS min_price,
+       MAX((metadata->>'price')::numeric) AS max_price
+FROM json_test_aggregates
+WHERE id @@@ paradedb.exists('metadata.price')
+GROUP BY metadata->>'brand'
+ORDER BY brand;
+  brand  | item_count | total_value |       avg_price       | min_price | max_price 
+---------+------------+-------------+-----------------------+-----------+-----------
+ Apple   |          2 |        2298 | 1149.0000000000000000 |       999 |      1299
+ Nike    |          2 |         188 |   94.0000000000000000 |        89 |        99
+ Samsung |          1 |         799 |  799.0000000000000000 |       799 |       799
+(3 rows)
+
+-- =========================================
+-- Test 4: JSON GROUP BY with NULL handling
+-- =========================================
+-- Create test table for null handling
+CREATE TABLE json_test_nulls (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+-- Insert test data with nulls and missing fields
+INSERT INTO json_test_nulls (metadata) VALUES
+    ('{"brand": "Apple", "category": "electronics"}'),
+    ('{"brand": "Samsung"}'),     -- Missing category
+    ('{}'),                       -- Empty JSON
+    ('{"category": "clothing"}'); -- Missing brand
+-- Create BM25 index
+CREATE INDEX idx_json_nulls ON json_test_nulls
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test JSON GROUP BY with NULL handling
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_nulls
+WHERE id @@@ paradedb.all()
+GROUP BY metadata->>'category'
+ORDER BY category NULLS FIRST;
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((metadata ->> 'category'::text)), (now())
+   Sort Key: ((json_test_nulls.metadata ->> 'category'::text)) NULLS FIRST
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_nulls
+         Output: (metadata ->> 'category'::text), now()
+         Index: idx_json_nulls
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":10000}}}
+(8 rows)
+
+SELECT metadata->>'category' AS category, COUNT(*) AS count
+FROM json_test_nulls
+WHERE id @@@ paradedb.all()
+GROUP BY metadata->>'category'
+ORDER BY category NULLS FIRST;
+  category   | count 
+-------------+-------
+ clothing    |     1
+ electronics |     1
+(2 rows)
+
+-- =========================================
+-- Test 5: Original example from issue
+-- =========================================
+-- Create ledger transactions table similar to original request
+CREATE TABLE ledger_transactions (
+    id SERIAL PRIMARY KEY,
+    metadata_json JSONB,
+    amount DECIMAL
+);
+-- Insert test data
+INSERT INTO ledger_transactions (metadata_json, amount) VALUES
+    ('{"reservation_id": "res_001", "user_id": "user_123"}', 100.00),
+    ('{"reservation_id": "res_002", "user_id": "user_456"}', 250.00),
+    ('{"reservation_id": "res_001", "user_id": "user_123"}', 75.00),
+    ('{"reservation_id": "res_003", "user_id": "user_789"}', 180.00),
+    ('{"reservation_id": "res_002", "user_id": "user_456"}', 95.00);
+-- Create BM25 index
+CREATE INDEX idx_ledger_json ON ledger_transactions
+USING bm25 (id, metadata_json, amount)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata_json": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test the original example query with EXPLAIN
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT metadata_json->>'reservation_id' AS txn_key_value,
+       COUNT(*) AS count
+FROM ledger_transactions
+WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
+GROUP BY metadata_json->>'reservation_id'
+ORDER BY txn_key_value;
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((metadata_json ->> 'reservation_id'::text)), (now())
+   Sort Key: ((ledger_transactions.metadata_json ->> 'reservation_id'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.ledger_transactions
+         Output: (metadata_json ->> 'reservation_id'::text), now()
+         Index: idx_ledger_json
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.reservation_id"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"metadata_json.reservation_id","size":10000}}}
+(8 rows)
+
+-- Execute the original example query
+SELECT metadata_json->>'reservation_id' AS txn_key_value,
+       COUNT(*) AS count
+FROM ledger_transactions
+WHERE id @@@ paradedb.exists('metadata_json.reservation_id')
+GROUP BY metadata_json->>'reservation_id'
+ORDER BY txn_key_value;
+ txn_key_value | count 
+---------------+-------
+ res_001       |     2
+ res_002       |     2
+ res_003       |     1
+(3 rows)
+
+-- =========================================
+-- Test 6: Deep nested JSON fields
+-- =========================================
+-- Create test table with deeply nested JSON
+CREATE TABLE json_test_deep (
+    id SERIAL PRIMARY KEY,
+    config JSONB
+);
+-- Insert test data with varying nesting levels
+INSERT INTO json_test_deep (config) VALUES
+    ('{"user": {"profile": {"settings": {"theme": "dark", "region": "us-east"}}}}'),
+    ('{"user": {"profile": {"settings": {"theme": "light", "region": "us-west"}}}}'),
+    ('{"user": {"profile": {"settings": {"theme": "dark", "region": "eu-central"}}}}'),
+    ('{"user": {"profile": {"settings": {"theme": "auto", "region": "us-east"}}}}'),
+    ('{"user": {"profile": {"settings": {"theme": "light", "region": "us-east"}}}}');
+-- Create BM25 index with nested JSON fields
+CREATE INDEX idx_json_deep ON json_test_deep
+USING bm25 (id, config)
+WITH (
+    key_field = 'id',
+    json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test GROUP BY on deeply nested field (3 levels deep)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT config->'user'->'profile'->'settings'->>'theme' AS theme,
+       config->'user'->'profile'->'settings'->>'region' AS region,
+       COUNT(*) AS count
+FROM json_test_deep
+WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
+  AND id @@@ paradedb.exists('config.user.profile.settings.region')
+GROUP BY config->'user'->'profile'->'settings'->>'theme',
+         config->'user'->'profile'->'settings'->>'region'
+ORDER BY theme, region;
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text)), (((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text)), (now())
+   Sort Key: (((((json_test_deep.config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text)), (((((json_test_deep.config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_deep
+         Output: ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text), ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text), now()
+         Index: idx_json_deep
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.theme"}}}},{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.region"}}}}]}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"config.user.profile.settings.theme","size":10000},"aggs":{"group_1":{"terms":{"field":"config.user.profile.settings.region","size":10000}}}}}
+(8 rows)
+
+-- Execute the query
+SELECT config->'user'->'profile'->'settings'->>'theme' AS theme,
+       config->'user'->'profile'->'settings'->>'region' AS region,
+       COUNT(*) AS count
+FROM json_test_deep
+WHERE id @@@ paradedb.exists('config.user.profile.settings.theme')
+  AND id @@@ paradedb.exists('config.user.profile.settings.region')
+GROUP BY config->'user'->'profile'->'settings'->>'theme',
+         config->'user'->'profile'->'settings'->>'region'
+ORDER BY theme, region;
+ theme |   region   | count 
+-------+------------+-------
+ auto  | us-east    |     1
+ dark  | eu-central |     1
+ dark  | us-east    |     1
+ light | us-east    |     1
+ light | us-west    |     1
+(5 rows)
+
+-- =========================================
+-- Test 7: Heterogeneous JSON structures
+-- =========================================
+-- Create test table with varying JSON structures
+CREATE TABLE json_test_mixed (
+    id SERIAL PRIMARY KEY,
+    data JSONB
+);
+-- Insert data with completely different JSON structures
+INSERT INTO json_test_mixed (data) VALUES
+    -- E-commerce products
+    ('{"type": "product", "category": "electronics", "brand": "Apple", "price": 999, "specs": {"cpu": "M1", "ram": "8GB"}}'),
+    ('{"type": "product", "category": "electronics", "brand": "Samsung", "price": 799, "specs": {"screen": "OLED", "storage": "256GB"}}'),
+    ('{"type": "product", "category": "clothing", "brand": "Nike", "price": 89, "details": {"size": "L", "color": "blue"}}'),
+    
+    -- User profiles  
+    ('{"type": "user", "profile": {"name": "John", "location": {"country": "USA", "city": "NYC"}}, "preferences": {"theme": "dark"}}'),
+    ('{"type": "user", "profile": {"name": "Jane", "location": {"country": "USA", "city": "LA"}}, "preferences": {"theme": "light"}}'),
+    ('{"type": "user", "profile": {"name": "Bob", "location": {"country": "Canada", "city": "Toronto"}}, "preferences": {"theme": "dark"}}'),
+    
+    -- Event logs
+    ('{"type": "event", "event": {"name": "login", "timestamp": "2024-01-01", "source": {"app": "web", "version": "1.0"}}}'),
+    ('{"type": "event", "event": {"name": "logout", "timestamp": "2024-01-01", "source": {"app": "mobile", "version": "2.0"}}}'),
+    ('{"type": "event", "event": {"name": "login", "timestamp": "2024-01-02", "source": {"app": "web", "version": "1.1"}}}');
+-- Create BM25 index 
+CREATE INDEX idx_json_mixed ON json_test_mixed
+USING bm25 (id, data)
+WITH (
+    key_field = 'id',
+    json_fields = '{"data": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test GROUP BY on heterogeneous structures - group by type
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT data->>'type' AS object_type, COUNT(*) AS count
+FROM json_test_mixed
+WHERE id @@@ paradedb.exists('data.type')
+GROUP BY data->>'type'
+ORDER BY object_type;
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
+ Sort
+   Output: ((data ->> 'type'::text)), (now())
+   Sort Key: ((json_test_mixed.data ->> 'type'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
+         Output: (data ->> 'type'::text), now()
+         Index: idx_json_mixed
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.type"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"data.type","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT data->>'type' AS object_type, COUNT(*) AS count
+FROM json_test_mixed
+WHERE id @@@ paradedb.exists('data.type')
+GROUP BY data->>'type'
+ORDER BY object_type;
+ object_type | count 
+-------------+-------
+ event       |     3
+ product     |     3
+ user        |     3
+(3 rows)
+
+-- Test GROUP BY on products only (filtering by type)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT data->>'category' AS category, data->>'brand' AS brand, COUNT(*) AS count
+FROM json_test_mixed
+WHERE id @@@ paradedb.term('data.type', 'product')
+  AND id @@@ paradedb.exists('data.category')
+  AND id @@@ paradedb.exists('data.brand')
+GROUP BY data->>'category', data->>'brand'
+ORDER BY category, brand;
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((data ->> 'category'::text)), ((data ->> 'brand'::text)), (now())
+   Sort Key: ((json_test_mixed.data ->> 'category'::text)), ((json_test_mixed.data ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
+         Output: (data ->> 'category'::text), (data ->> 'brand'::text), now()
+         Index: idx_json_mixed
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"data.category","size":10000},"aggs":{"group_1":{"terms":{"field":"data.brand","size":10000}}}}}
+(8 rows)
+
+-- Execute the query
+SELECT data->>'category' AS category, data->>'brand' AS brand, COUNT(*) AS count
+FROM json_test_mixed
+WHERE id @@@ paradedb.term('data.type', 'product')
+  AND id @@@ paradedb.exists('data.category')
+  AND id @@@ paradedb.exists('data.brand')
+GROUP BY data->>'category', data->>'brand'
+ORDER BY category, brand;
+  category   |  brand  | count 
+-------------+---------+-------
+ clothing    | Nike    |     1
+ electronics | Apple   |     1
+ electronics | Samsung |     1
+(3 rows)
+
+-- Test GROUP BY on user locations (nested field access)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT data->'profile'->'location'->>'country' AS country, 
+       COUNT(*) AS user_count
+FROM json_test_mixed
+WHERE id @@@ paradedb.term('data.type', 'user')
+  AND id @@@ paradedb.exists('data.profile.location.country')
+GROUP BY data->'profile'->'location'->>'country'
+ORDER BY country;
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text)), (now())
+   Sort Key: ((((json_test_mixed.data -> 'profile'::text) -> 'location'::text) ->> 'country'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
+         Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), now()
+         Index: idx_json_mixed
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"data.profile.location.country","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT data->'profile'->'location'->>'country' AS country, 
+       COUNT(*) AS user_count
+FROM json_test_mixed
+WHERE id @@@ paradedb.term('data.type', 'user')
+  AND id @@@ paradedb.exists('data.profile.location.country')
+GROUP BY data->'profile'->'location'->>'country'
+ORDER BY country;
+ country | user_count 
+---------+------------
+ Canada  |          1
+ USA     |          2
+(2 rows)
+
+-- =========================================
+-- Test 8: Mixed JSON operators (-> vs ->>)
+-- =========================================
+-- Create test table for operator mixing
+CREATE TABLE json_test_operators (
+    id SERIAL PRIMARY KEY,
+    payload JSONB
+);
+-- Insert test data
+INSERT INTO json_test_operators (payload) VALUES
+    ('{"metadata": {"tags": ["urgent", "customer"], "priority": "high", "assignee": {"name": "Alice", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "backend"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["bug", "frontend"], "priority": "high", "assignee": {"name": "Alice", "team": "engineering"}}, "team": "engineering"}'),
+    ('{"metadata": {"tags": ["urgent", "billing"], "priority": "low", "assignee": {"name": "Carol", "team": "support"}}, "team": "support"}'),
+    ('{"metadata": {"tags": ["feature", "api"], "priority": "medium", "assignee": {"name": "Bob", "team": "engineering"}}, "team": "engineering"}');
+-- Create BM25 index
+CREATE INDEX idx_json_operators ON json_test_operators
+USING bm25 (id, payload)
+WITH (
+    key_field = 'id',
+    json_fields = '{"payload": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test mixing -> and ->> operators in GROUP BY
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
+                                               QUERY PLAN                                               
+--------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((payload -> 'metadata'::text) ->> 'priority'::text)), (now())
+   Sort Key: (((json_test_operators.payload -> 'metadata'::text) ->> 'priority'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
+         Output: ((payload -> 'metadata'::text) ->> 'priority'::text), now()
+         Index: idx_json_operators
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+GROUP BY payload->'metadata'->>'priority'
+ORDER BY priority_text;
+ priority_text | count 
+---------------+-------
+ high          |     2
+ low           |     1
+ medium        |     2
+(3 rows)
+
+-- Test with simpler assignee team field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
+ Sort
+   Output: ((payload ->> 'team'::text)), (now())
+   Sort Key: ((json_test_operators.payload ->> 'team'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
+         Output: (payload ->> 'team'::text), now()
+         Index: idx_json_operators
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.team"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"payload.team","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT payload->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.team')
+GROUP BY payload->>'team'
+ORDER BY team;
+    team     | count 
+-------------+-------
+ engineering |     3
+ support     |     2
+(2 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       payload->'metadata'->'assignee'->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
+ORDER BY priority_text, team;
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((payload -> 'metadata'::text) ->> 'priority'::text)), ((((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text)), (now())
+   Sort Key: (((json_test_operators.payload -> 'metadata'::text) ->> 'priority'::text)), ((((json_test_operators.payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_operators
+         Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), now()
+         Index: idx_json_operators
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}},{"with_index":{"query":{"exists":{"field":"payload.metadata.assignee.team"}}}}]}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","size":10000},"aggs":{"group_1":{"terms":{"field":"payload.metadata.assignee.team","size":10000}}}}}
+(8 rows)
+
+-- Execute the query
+SELECT payload->'metadata'->>'priority' AS priority_text,
+       payload->'metadata'->'assignee'->>'team' AS team,
+       COUNT(*) AS count
+FROM json_test_operators
+WHERE id @@@ paradedb.exists('payload.metadata.priority')
+  AND id @@@ paradedb.exists('payload.metadata.assignee.team')
+GROUP BY payload->'metadata'->>'priority', payload->'metadata'->'assignee'->>'team'
+ORDER BY priority_text, team;
+ priority_text |    team     | count 
+---------------+-------------+-------
+ high          | engineering |     1
+ high          | support     |     1
+ low           | support     |     1
+ medium        | engineering |     2
+(4 rows)
+
+-- =========================================
+-- Test 9: Array elements and complex nesting
+-- =========================================
+-- Create test table with arrays and complex structures
+CREATE TABLE json_test_complex (
+    id SERIAL PRIMARY KEY,
+    document JSONB
+);
+-- Insert complex nested data with arrays
+INSERT INTO json_test_complex (document) VALUES
+    ('{"source": {"system": "crm", "version": "2.1"}, "tags": ["customer", "vip"], "metrics": {"score": 85, "category": "A"}}'),
+    ('{"source": {"system": "crm", "version": "2.0"}, "tags": ["prospect"], "metrics": {"score": 70, "category": "B"}}'),
+    ('{"source": {"system": "billing", "version": "1.5"}, "tags": ["customer", "enterprise"], "metrics": {"score": 95, "category": "A"}}'),
+    ('{"source": {"system": "support", "version": "3.0"}, "tags": ["internal"], "metrics": {"score": 60, "category": "C"}}'),
+    ('{"source": {"system": "crm", "version": "2.1"}, "tags": ["customer"], "metrics": {"score": 80, "category": "B"}}');
+-- Create BM25 index
+CREATE INDEX idx_json_complex ON json_test_complex
+USING bm25 (id, document)
+WITH (
+    key_field = 'id',
+    json_fields = '{"document": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test GROUP BY on nested system and category
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT document->'source'->>'system' AS source_system,
+       document->'metrics'->>'category' AS metric_category,
+       COUNT(*) AS count,
+       AVG((document->'metrics'->>'score')::numeric) AS avg_score
+FROM json_test_complex
+WHERE id @@@ paradedb.exists('document.source.system')
+  AND id @@@ paradedb.exists('document.metrics.category')
+GROUP BY document->'source'->>'system', document->'metrics'->>'category'
+ORDER BY source_system, metric_category;
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), count(*), avg((((document -> 'metrics'::text) ->> 'score'::text))::numeric)
+   Group Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
+   ->  Sort
+         Output: (((document -> 'source'::text) ->> 'system'::text)), (((document -> 'metrics'::text) ->> 'category'::text)), document
+         Sort Key: (((json_test_complex.document -> 'source'::text) ->> 'system'::text)), (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+               Output: ((document -> 'source'::text) ->> 'system'::text), ((document -> 'metrics'::text) ->> 'category'::text), document
+               Table: json_test_complex
+               Index: idx_json_complex
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"document.source.system"}}}},{"with_index":{"query":{"exists":{"field":"document.metrics.category"}}}}]}}
+(13 rows)
+
+-- Execute the query
+SELECT document->'source'->>'system' AS source_system,
+       document->'metrics'->>'category' AS metric_category,
+       COUNT(*) AS count,
+       AVG((document->'metrics'->>'score')::numeric) AS avg_score
+FROM json_test_complex
+WHERE id @@@ paradedb.exists('document.source.system')
+  AND id @@@ paradedb.exists('document.metrics.category')
+GROUP BY document->'source'->>'system', document->'metrics'->>'category'
+ORDER BY source_system, metric_category;
+ source_system | metric_category | count |      avg_score      
+---------------+-----------------+-------+---------------------
+ billing       | A               |     1 | 95.0000000000000000
+ crm           | A               |     1 | 85.0000000000000000
+ crm           | B               |     2 | 75.0000000000000000
+ support       | C               |     1 | 60.0000000000000000
+(4 rows)
+
+-- Test GROUP BY with comprehensive aggregates on scores (IS NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT document->'metrics'->>'category' AS metric_category,
+       COUNT(*) AS total_records,
+       SUM((document->'metrics'->>'score')::numeric) AS total_score,
+       AVG((document->'metrics'->>'score')::numeric) AS avg_score,
+       MIN((document->'metrics'->>'score')::numeric) AS min_score,
+       MAX((document->'metrics'->>'score')::numeric) AS max_score
+FROM json_test_complex
+WHERE id @@@ paradedb.exists('document.metrics.score')
+GROUP BY document->'metrics'->>'category'
+ORDER BY metric_category;
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: (((document -> 'metrics'::text) ->> 'category'::text)), count(*), sum((((document -> 'metrics'::text) ->> 'score'::text))::numeric), avg((((document -> 'metrics'::text) ->> 'score'::text))::numeric), min((((document -> 'metrics'::text) ->> 'score'::text))::numeric), max((((document -> 'metrics'::text) ->> 'score'::text))::numeric)
+   Group Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
+   ->  Sort
+         Output: (((document -> 'metrics'::text) ->> 'category'::text)), document
+         Sort Key: (((json_test_complex.document -> 'metrics'::text) ->> 'category'::text))
+         ->  Custom Scan (ParadeDB Scan) on public.json_test_complex
+               Output: ((document -> 'metrics'::text) ->> 'category'::text), document
+               Table: json_test_complex
+               Index: idx_json_complex
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"exists":{"field":"document.metrics.score"}}}}
+(13 rows)
+
+-- Execute the query
+SELECT document->'metrics'->>'category' AS metric_category,
+       COUNT(*) AS total_records,
+       SUM((document->'metrics'->>'score')::numeric) AS total_score,
+       AVG((document->'metrics'->>'score')::numeric) AS avg_score,
+       MIN((document->'metrics'->>'score')::numeric) AS min_score,
+       MAX((document->'metrics'->>'score')::numeric) AS max_score
+FROM json_test_complex
+WHERE id @@@ paradedb.exists('document.metrics.score')
+GROUP BY document->'metrics'->>'category'
+ORDER BY metric_category;
+ metric_category | total_records | total_score |      avg_score      | min_score | max_score 
+-----------------+---------------+-------------+---------------------+-----------+-----------
+ A               |             2 |         180 | 90.0000000000000000 |        85 |        95
+ B               |             2 |         150 | 75.0000000000000000 |        70 |        80
+ C               |             1 |          60 | 60.0000000000000000 |        60 |        60
+(3 rows)
+
+-- =========================================
+-- Test 10: Edge cases with special characters
+-- =========================================
+-- Create test table with special JSON keys
+CREATE TABLE json_test_special (
+    id SERIAL PRIMARY KEY,
+    content JSONB
+);
+-- Insert data with special characters in keys
+INSERT INTO json_test_special (content) VALUES
+    ('{"user-info": {"first_name": "John", "last-name": "Doe", "email@domain": "work"}}'),
+    ('{"user-info": {"first_name": "Jane", "last-name": "Smith", "email@domain": "personal"}}'),
+    ('{"user-info": {"first_name": "Bob", "last-name": "Jones", "email@domain": "work"}}'),
+    ('{"user-info": {"first_name": "Alice", "last-name": "Brown", "email@domain": "work"}}');
+-- Create BM25 index
+CREATE INDEX idx_json_special ON json_test_special
+USING bm25 (id, content)
+WITH (
+    key_field = 'id',
+    json_fields = '{"content": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+-- Test GROUP BY with special characters in JSON keys
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT content->'user-info'->>'email@domain' AS email_type,
+       COUNT(*) AS count
+FROM json_test_special
+WHERE id @@@ paradedb.exists('content.user-info.email@domain')
+GROUP BY content->'user-info'->>'email@domain'
+ORDER BY email_type;
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (((content -> 'user-info'::text) ->> 'email@domain'::text)), (now())
+   Sort Key: (((json_test_special.content -> 'user-info'::text) ->> 'email@domain'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_special
+         Output: ((content -> 'user-info'::text) ->> 'email@domain'::text), now()
+         Index: idx_json_special
+         Tantivy Query: {"with_index":{"query":{"exists":{"field":"content.user-info.email@domain"}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"content.user-info.email@domain","size":10000}}}
+(8 rows)
+
+-- Execute the query
+SELECT content->'user-info'->>'email@domain' AS email_type,
+       COUNT(*) AS count
+FROM json_test_special
+WHERE id @@@ paradedb.exists('content.user-info.email@domain')
+GROUP BY content->'user-info'->>'email@domain'
+ORDER BY email_type;
+ email_type | count 
+------------+-------
+ personal   |     1
+ work       |     3
+(2 rows)
+
+-- Clean up
+DROP TABLE json_test_single;
+DROP TABLE json_test_multiple;
+DROP TABLE json_test_aggregates;
+DROP TABLE json_test_nulls;
+DROP TABLE ledger_transactions;
+DROP TABLE json_test_deep;
+DROP TABLE json_test_mixed;
+DROP TABLE json_test_operators;
+DROP TABLE json_test_complex;
+DROP TABLE json_test_special;

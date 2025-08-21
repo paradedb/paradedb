@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755812994022,
+  "lastUpdate": 1755812996086,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5132,6 +5132,66 @@ window.BENCHMARK_DATA = {
             "value": 168.84765625,
             "unit": "median mem",
             "extra": "avg mem: 158.25303421402154, max mem: 176.80859375, count: 56374"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ori@eigenstate.org",
+            "name": "Ori Bernstein",
+            "username": "oridb"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97ad25718b14ab34440c0587cb8bb9968598bf7d",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:11:27-04:00",
+          "tree_id": "74eee4eb0e1503ed631c849c97ccf32653c4e203",
+          "url": "https://github.com/paradedb/paradedb/commit/97ad25718b14ab34440c0587cb8bb9968598bf7d"
+        },
+        "date": 1755812995011,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.713451,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.916341767860903, max cpu: 97.391304, count: 57893"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 176.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 174.6017860400869, max mem: 180.69140625, count: 57893"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18833,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17060.453940890955, max block_count: 21347.0, count: 57893"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.087782633479, max segment_count: 115.0, count: 57893"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.35328746684494, max cpu: 161.53847, count: 57893"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 165.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.77951707514293, max mem: 174.23046875, count: 57893"
           }
         ]
       }

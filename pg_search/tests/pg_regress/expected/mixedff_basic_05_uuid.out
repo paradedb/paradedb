@@ -49,11 +49,10 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
-         Fast Fields: name, uuid_key
-         String Fast Fields: name, uuid_key
+         Fast Fields: uuid_key, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- And that non-key UUID fields do too.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
@@ -73,11 +72,10 @@ SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid;
          Table: products
          Index: idxproducts
          Exec Method: MixedFastFieldExecState
-         Fast Fields: name, uuid
-         String Fast Fields: name, uuid
+         Fast Fields: uuid, name
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 \i common/common_cleanup.sql
 -- Reset parallel workers setting to default

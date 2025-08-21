@@ -152,11 +152,10 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: empty_string, id
-         String Fast Fields: empty_string, id
+         Fast Fields: id, empty_string
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- Test handling of empty strings
 SELECT id, empty_string
@@ -222,10 +221,9 @@ ORDER BY id;
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, special_chars
-         String Fast Fields: id, special_chars
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 SELECT id, special_chars
 FROM corner_case_test
@@ -256,12 +254,10 @@ ORDER BY id;
          Table: corner_case_test
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, extreme_large, extreme_small
-         String Fast Fields: id
-         Numeric Fast Fields: extreme_large, extreme_small
+         Fast Fields: extreme_small, id, extreme_large
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(9 rows)
 
 -- Test handling of extreme numeric values
 SELECT id, extreme_large, extreme_small
@@ -294,11 +290,9 @@ ORDER BY id;
          Index: corner_case_search
          Exec Method: MixedFastFieldExecState
          Fast Fields: id, bool_field
-         String Fast Fields: id
-         Numeric Fast Fields: bool_field
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"test","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(9 rows)
 
 SELECT id, bool_field
 FROM corner_case_test

@@ -310,10 +310,15 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =
                 pgrx::datum::Time::from_str(date_string).expect("must be a valid postgres time");
-            let (hour, minute, second, micros) = t.to_hms_micro();
-            let naive_time =
-                NaiveTime::from_hms_micro_opt(hour.into(), minute.into(), second.into(), micros)
-                    .expect("must be able to parse time");
+            let (seconds, micros, _nanos) = convert_pgrx_seconds_to_chrono(t.second())
+                .expect("must not overflow converting pgrx seconds");
+            let naive_time = NaiveTime::from_hms_micro_opt(
+                t.hour().into(),
+                t.minute().into(),
+                seconds,
+                micros,
+            )
+            .expect("must be able to parse time");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
             tantivy::DateTime::from_timestamp_micros(micros)
@@ -322,10 +327,15 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres time with time zone")
                 .to_utc();
-            let (hour, minute, second, micros) = twtz.to_hms_micro();
-            let naive_time =
-                NaiveTime::from_hms_micro_opt(hour.into(), minute.into(), second.into(), micros)
-                    .expect("must be able to parse time with time zone");
+            let (seconds, micros, _nanos) = convert_pgrx_seconds_to_chrono(twtz.second())
+                .expect("must not overflow converting pgrx seconds");
+            let naive_time = NaiveTime::from_hms_micro_opt(
+                twtz.hour().into(),
+                twtz.minute().into(),
+                seconds,
+                micros,
+            )
+            .expect("must be able to parse time with time zone");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
             tantivy::DateTime::from_timestamp_micros(micros)

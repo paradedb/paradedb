@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755806195186,
+  "lastUpdate": 1755811648077,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -968,6 +968,72 @@ window.BENCHMARK_DATA = {
             "value": 98.94970886983673,
             "unit": "median tps",
             "extra": "avg tps: 122.17077600678304, max tps: 792.9138871731113, count: 55214"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ori@eigenstate.org",
+            "name": "Ori Bernstein",
+            "username": "oridb"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97ad25718b14ab34440c0587cb8bb9968598bf7d",
+          "message": "fix: fsm: we have space if any slots are invalid, no need for all (#3015)\n\n## What\n\nWhen walking the free space map looking for blocks with open slots, we\nwant to pick a block with any empty slots, not all open slots, so that\nwe don't end up with a long, low occupancy list.\n\n## Why\n\nPerformance.\n\n## How\n\nAdd a function to query whether any slots in the fsm block are empty,\nand then use it.\n\n## Tests\n\nRan unit tests.\n\nCo-authored-by: Ori Bernstein <ori@paradedb.com>",
+          "timestamp": "2025-08-21T17:11:27-04:00",
+          "tree_id": "74eee4eb0e1503ed631c849c97ccf32653c4e203",
+          "url": "https://github.com/paradedb/paradedb/commit/97ad25718b14ab34440c0587cb8bb9968598bf7d"
+        },
+        "date": 1755811647028,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1196.0781062246558,
+            "unit": "median tps",
+            "extra": "avg tps: 1187.7076502822272, max tps: 1200.272224982228, count: 55131"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2506.2998080089264,
+            "unit": "median tps",
+            "extra": "avg tps: 2491.7782688680427, max tps: 2510.083310933078, count: 55131"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1090.3183397789826,
+            "unit": "median tps",
+            "extra": "avg tps: 1089.1880610243293, max tps: 1123.7069397413104, count: 55131"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 951.9179431025949,
+            "unit": "median tps",
+            "extra": "avg tps: 947.6524125448246, max tps: 955.1780737385359, count: 55131"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 157.05660094587174,
+            "unit": "median tps",
+            "extra": "avg tps: 155.76735789543704, max tps: 173.57963774762783, count: 110262"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.9990205972526,
+            "unit": "median tps",
+            "extra": "avg tps: 165.7462351054542, max tps: 169.05685215675297, count: 55131"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 80.95394161452434,
+            "unit": "median tps",
+            "extra": "avg tps: 95.88107638509996, max tps: 785.1512201249961, count: 55131"
           }
         ]
       }

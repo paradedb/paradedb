@@ -401,8 +401,7 @@ pub fn execute_aggregate(
                 )?;
                 Ok(serde_json::to_value(result)?)
             } else {
-                // Return empty object for empty results
-                Ok(serde_json::json!({}))
+                Ok(serde_json::Value::Null)
             }
         }
     }

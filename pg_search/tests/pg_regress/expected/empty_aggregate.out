@@ -278,7 +278,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.2: SUM JSON aggregate
@@ -293,7 +293,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.3: AVG JSON aggregate
@@ -308,7 +308,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.4: MIN JSON aggregate
@@ -323,7 +323,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.5: MAX JSON aggregate
@@ -338,7 +338,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.6: STATS JSON aggregate (multiple stats at once)
@@ -353,7 +353,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 4.7: Multiple aggregates in single JSON
@@ -374,7 +374,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- =====================================================================
@@ -392,7 +392,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 5.2: Terms with sub-aggregations
@@ -411,7 +411,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 5.3: Histogram aggregation
@@ -426,7 +426,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 5.4: Range aggregation
@@ -448,7 +448,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- Test 5.5: Nested bucket aggregations
@@ -477,7 +477,7 @@ SELECT * FROM paradedb.aggregate(
 );
  aggregate 
 -----------
- {}
+ null
 (1 row)
 
 -- =====================================================================

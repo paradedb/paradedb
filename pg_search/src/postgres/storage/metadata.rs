@@ -153,11 +153,6 @@ impl MetaPage {
                     metadata.segment_meta_garbage =
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
-
-                if !block_number_is_valid(metadata.segment_meta_garbage) {
-                    metadata.segment_meta_garbage =
-                        LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
-                }
             }
 
             Self {

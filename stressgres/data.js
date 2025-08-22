@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755875149299,
+  "lastUpdate": 1755887391833,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1430,6 +1430,72 @@ window.BENCHMARK_DATA = {
             "value": 67.48704131548008,
             "unit": "median tps",
             "extra": "avg tps: 71.67057249823436, max tps: 676.8665950090565, count: 55289"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc4fe5965d5f99254c795da6f95353b72f8876b7",
+          "message": "feat: improved join performance when score and snippets are not used and `@@@` cannot be pushed down to custom scan (#2871)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\nImproved join performance when score and snippets are not used and `@@@`\ncannot be pushed down to custom scan\n\n## Why\n\nA source of our JOIN performance degradation is that we’re pushing\n`joininfo` (i.e., JOIN-level predicates in\n[here](https://github.com/paradedb/paradedb/blob/801e88e9a966b465dee73a381b3902c1a173c5bb/pg_search/src/postgres/customscan/builders/custom_path.rs#L274-L275)\nand\n[here](https://github.com/paradedb/paradedb/blob/6464dc167c77f043bc01a684f8282467ee464cbf/pg_search/src/postgres/customscan/pdbscan/mod.rs#L264))\ndown to tantivy, to be able to produce scores and snippets. However,\nthis almost always leads to a full index scan, which is expected to\nproduce poor performance. As a quick follow-up, we should either:\n1) at least limit this down to the cases that the query is using\nsnippets or scores, instead of always pushing down the JOIN quals that\nalmost certainly lead to a full index scan\n2) or we can even get stricter and give up on scores and snippets in\nthis case, too. Then, this will be fixed as soon as CustomScan Join API\nis implemented.\n\nIn this PR, we go for (1), as it won't have any impact on query results,\nand will only improve the performance.\n\n## How\n\nWe fallback to index scan (as opposed to custom scan) if the join quals\ncannot be pushed down to custom scan, and `score` and `snippet` are not\nused in the query.\n\n## Tests\n\nAll current tests pass.",
+          "timestamp": "2025-08-22T11:13:50-07:00",
+          "tree_id": "a374e10b164d326326720111fc92435c5b04ce37",
+          "url": "https://github.com/paradedb/paradedb/commit/cc4fe5965d5f99254c795da6f95353b72f8876b7"
+        },
+        "date": 1755887390723,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1152.2956927865407,
+            "unit": "median tps",
+            "extra": "avg tps: 1145.66805343343, max tps: 1156.1129459421595, count: 55283"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2465.0848724183675,
+            "unit": "median tps",
+            "extra": "avg tps: 2456.1116637740624, max tps: 2469.7208482565593, count: 55283"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1147.5779294223346,
+            "unit": "median tps",
+            "extra": "avg tps: 1140.4031310855164, max tps: 1150.4604271661526, count: 55283"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 959.0082412914289,
+            "unit": "median tps",
+            "extra": "avg tps: 950.4443121281776, max tps: 965.120709893603, count: 55283"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 168.02755047940235,
+            "unit": "median tps",
+            "extra": "avg tps: 166.55505849679955, max tps: 169.51474302460235, count: 110566"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.33640621183721,
+            "unit": "median tps",
+            "extra": "avg tps: 152.80459677447993, max tps: 153.69576249280323, count: 55283"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 181.8651147817977,
+            "unit": "median tps",
+            "extra": "avg tps: 176.2703405504529, max tps: 755.6522790472736, count: 55283"
           }
         ]
       }

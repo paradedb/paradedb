@@ -123,6 +123,15 @@ jobs:
             exit 1
           fi
 
+      # Useful for debugging discrepancies between local and remote ParadeDB Docker images
+      - name: Print the ParadeDB Docker Image History
+        run: docker history paradedb/paradedb:latest
+
+      - name: Print the ParadeDB Docker Image Permissions
+        run: |
+          docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
+          docker rm temp-inspect-paradedb
+
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
         if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
         uses: docker/scout-action@v1

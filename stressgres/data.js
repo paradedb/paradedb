@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755834680757,
+  "lastUpdate": 1755835052379,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4322,6 +4322,42 @@ window.BENCHMARK_DATA = {
             "value": 5.647523742408952,
             "unit": "median tps",
             "extra": "avg tps: 5.043956965423059, max tps: 6.4204229880084185, count: 57465"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a010144b9900b25aad51e82ec239c3eeaa3a3fac",
+          "message": "fix: restore the garbage list (#3020)\n\n## What\n\nThis brings back our segment meta entry garbage list. It's necessary to\nhelp avoid potential query cancel situations in parallel workers.\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-21T23:30:11-04:00",
+          "tree_id": "7aaa1f192dbf4add4a2c522a9f32de6bbaa0ff9b",
+          "url": "https://github.com/paradedb/paradedb/commit/a010144b9900b25aad51e82ec239c3eeaa3a3fac"
+        },
+        "date": 1755835051233,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.862472965209608,
+            "unit": "median tps",
+            "extra": "avg tps: 5.885013025631855, max tps: 8.805737297828076, count: 57754"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.758756648778571,
+            "unit": "median tps",
+            "extra": "avg tps: 5.156711148327658, max tps: 6.49844099663835, count: 57754"
           }
         ]
       }

@@ -59,6 +59,9 @@ pub struct MetaPageData {
 
     /// The block where our FSM starts
     fsm: pg_sys::BlockNumber,
+
+    /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
+    segment_meta_garbage: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -87,6 +90,8 @@ impl MetaPage {
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
             metadata.merge_lock = init_new_buffer(indexrel).number();
             metadata.fsm = FreeSpaceManager::create(indexrel);
+            metadata.segment_meta_garbage =
+                LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
 
             metadata.cleanup_lock = init_new_buffer(indexrel).number();
             metadata.schema_start = LinkedBytesList::create_without_fsm(indexrel);
@@ -115,7 +120,8 @@ impl MetaPage {
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
-            || !block_number_is_valid(metadata.fsm);
+            || !block_number_is_valid(metadata.fsm)
+            || !block_number_is_valid(metadata.segment_meta_garbage);
 
         drop(buffer);
 
@@ -141,6 +147,11 @@ impl MetaPage {
 
                 if !block_number_is_valid(metadata.fsm) {
                     metadata.fsm = FreeSpaceManager::create(indexrel);
+                }
+
+                if !block_number_is_valid(metadata.segment_meta_garbage) {
+                    metadata.segment_meta_garbage =
+                        LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
                 }
             }
 
@@ -180,6 +191,26 @@ impl MetaPage {
     pub fn fsm(&self) -> pg_sys::BlockNumber {
         assert!(block_number_is_valid(self.data.fsm));
         self.data.fsm
+    }
+
+    ///
+    /// A LinkedItemList<SegmentMetaEntry> containing segments which are no longer visible from the
+    /// live `SEGMENT_METAS_START` list, and which will be recyclable when no transactions might still
+    /// be reading them on physical replicas.
+    ///
+    /// Deferring recycling avoids readers needing to hold a lock all the way from when
+    /// `SEGMENT_METAS_START` is first opened for reading until when they finish consuming the files
+    /// for the segments it references.
+    ///
+    pub fn segment_metas_garbage(&self) -> Option<LinkedItemList<SegmentMetaEntry>> {
+        if !block_number_is_valid(self.data.segment_meta_garbage) {
+            return None;
+        }
+
+        Some(LinkedItemList::<SegmentMetaEntry>::open(
+            self.bman.buffer_access().rel(),
+            self.data.segment_meta_garbage,
+        ))
     }
 }
 

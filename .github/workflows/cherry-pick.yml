@@ -23,7 +23,7 @@ jobs:
         with:
           branch: "0.17.x"
           # TODO: Ideally this would be a dedicated automation user.
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
@@ -41,4 +41,4 @@ jobs:
         with:
           branch: "0.18.x"
           # TODO: Ideally this would be a dedicated automation user.
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

@@ -306,6 +306,7 @@ impl MergeList {
     pub unsafe fn add_segment_ids<'a>(
         &mut self,
         segment_ids: impl IntoIterator<Item = &'a SegmentId>,
+        current_xid: pg_sys::TransactionId,
     ) -> anyhow::Result<MergeEntry> {
         assert!(pg_sys::IsTransactionState());
 
@@ -319,10 +320,9 @@ impl MergeList {
         segment_ids_list.writer().write(&segment_id_bytes)?;
 
         // fabricate and write the [`MergeEntry`] itself
-        let xid = pg_sys::GetCurrentTransactionId();
         let merge_entry = MergeEntry {
             pid: pg_sys::MyProcPid,
-            xmin: xid,
+            xmin: current_xid,
             _unused: pg_sys::InvalidTransactionId,
             segment_ids_start_blockno,
         };

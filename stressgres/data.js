@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755835052379,
+  "lastUpdate": 1755835054567,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5128,6 +5128,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.94031149395285, max segment_count: 95.0, count: 57465"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a010144b9900b25aad51e82ec239c3eeaa3a3fac",
+          "message": "fix: restore the garbage list (#3020)\n\n## What\n\nThis brings back our segment meta entry garbage list. It's necessary to\nhelp avoid potential query cancel situations in parallel workers.\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-21T23:30:11-04:00",
+          "tree_id": "7aaa1f192dbf4add4a2c522a9f32de6bbaa0ff9b",
+          "url": "https://github.com/paradedb/paradedb/commit/a010144b9900b25aad51e82ec239c3eeaa3a3fac"
+        },
+        "date": 1755835053438,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.016054059759195, max cpu: 42.985077, count: 57754"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 237.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 236.18887422840842, max mem: 242.875, count: 57754"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.307242580239638, max cpu: 33.267326, count: 57754"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 160.3087786668456, max mem: 162.5625, count: 57754"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22472,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20842.14452678602, max block_count: 23736.0, count: 57754"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.84555182325033, max segment_count: 96.0, count: 57754"
           }
         ]
       }

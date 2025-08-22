@@ -183,6 +183,7 @@ impl PdbScan {
         restrict_info: PgList<pg_sys::RestrictInfo>,
         ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
+        uses_score_or_snippet: bool,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
@@ -224,8 +225,6 @@ impl PdbScan {
             // that match partially the Join quals will be scored and snippets generated. That is
             // why it only makes sense to use the Join quals if we have used our operator and
             // also used paradedb.score or paradedb.snippet functions in the query.
-            let target_list = (*(*root).parse).targetList;
-            let uses_score_or_snippet = maybe_needs_const_projections(target_list.cast());
             if state.uses_our_operator && uses_score_or_snippet {
                 (quals, RestrictInfoType::Join, joinri)
             } else {
@@ -392,6 +391,7 @@ impl CustomScan for PdbScan {
                 restrict_info,
                 ri_type,
                 &bm25_index,
+                maybe_needs_const_projections,
             );
 
             let Some(quals) = quals else {

@@ -337,95 +337,118 @@ pub unsafe fn load_metas(
     // Collect segments from each relevant list.
     let metapage = MetaPage::open(indexrel);
     let mut segment_metas = metapage.segment_metas();
+    let mut exhausted_metas_lists = false;
 
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
     let mut largest_doc_count = 0;
-    // Find all relevant segments in this list.
-    segment_metas.for_each(|bman, entry| {
-        // nobody sees recyclable segments
-        let accept = !entry.recyclable(bman) && (
-            // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
-            matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
-                // vacuum sees everything that hasn't been deleted by a merge
-                || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
+    loop {
+        // Find all relevant segments in this list.
+        segment_metas.for_each(|bman, entry| {
+            // nobody sees recyclable segments
+            let accept = !entry.recyclable(bman) && (
+                // parallel workers only see a specific set of segments.  This relies on the leader having kept a pin on them
+                matches!(solve_mvcc, MvccSatisfies::ParallelWorker(only_these) if only_these.contains(&entry.segment_id))
 
-                // a snapshot or ::LargestSegment can see any that are visible in its snapshot
-                || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
+                    // vacuum sees everything that hasn't been deleted by a merge
+                    || (matches!(solve_mvcc, MvccSatisfies::Vacuum) && entry.xmax == pg_sys::InvalidTransactionId)
 
-                // mergeable can see any that are known to be mergeable
-                || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
-        );
-        if !accept {
-            return;
-        };
+                    // a snapshot or ::LargestSegment can see any that are visible in its snapshot
+                    || (matches!(solve_mvcc, MvccSatisfies::Snapshot | MvccSatisfies::LargestSegment) && entry.visible())
 
-        total_segments += 1;
-
-        let mut need_entry = true;
-        if is_largest_only {
-            if entry.num_docs() > largest_doc_count {
-                largest_doc_count = entry.num_docs();
-
-                // the entry we're processing right now is known to be the largest so far
-                // and it's the only one we want
-                alive_segments.clear();
-                alive_entries.clear();
-                pin_cushion.clear();
-            } else {
-                // we already have the largest so we don't need this entry
-                need_entry = false;
-            }
-        }
-
-        if need_entry {
-            pin_cushion.push(bman, &entry);
-            let inner_segment_meta = InnerSegmentMeta {
-                max_doc: entry.max_doc,
-                segment_id: entry.segment_id,
-                deletes: entry.delete.map(|delete_entry| DeleteMeta {
-                    num_deleted_docs: delete_entry.num_deleted_docs,
-                    opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
-                }),
-                include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+                    // mergeable can see any that are known to be mergeable
+                    || (matches!(solve_mvcc, MvccSatisfies::Mergeable) && entry.mergeable())
+            );
+            if !accept {
+                return;
             };
 
-            alive_segments.push(inner_segment_meta.track(inventory));
-            alive_entries.push(entry);
+            total_segments += 1;
 
-            opstamp = opstamp.max(Some(entry.opstamp()));
-        }
-    });
+            let mut need_entry = true;
+            if is_largest_only {
+                if entry.num_docs() > largest_doc_count {
+                    largest_doc_count = entry.num_docs();
 
-    match solve_mvcc {
-        MvccSatisfies::ParallelWorker(only_these) if alive_entries.len() != only_these.len() => {
-            let missing = only_these
-                .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
-                .cloned()
-                .collect::<HashSet<SegmentId>>();
-            let found = only_these.difference(&missing).collect::<HashSet<_>>();
+                    // the entry we're processing right now is known to be the largest so far
+                    // and it's the only one we want
+                    alive_segments.clear();
+                    alive_entries.clear();
+                    pin_cushion.clear();
+                } else {
+                    // we already have the largest so we don't need this entry
+                    need_entry = false;
+                }
+            }
 
-            panic!(
-                "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
+            if need_entry {
+                pin_cushion.push(bman, &entry);
+                let inner_segment_meta = InnerSegmentMeta {
+                    max_doc: entry.max_doc,
+                    segment_id: entry.segment_id,
+                    deletes: entry.delete.map(|delete_entry| DeleteMeta {
+                        num_deleted_docs: delete_entry.num_deleted_docs,
+                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                    }),
+                    include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+                };
+
+                alive_segments.push(inner_segment_meta.track(inventory));
+                alive_entries.push(entry);
+
+                opstamp = opstamp.max(Some(entry.opstamp()));
+            }
+        });
+
+        match solve_mvcc {
+            MvccSatisfies::ParallelWorker(only_these)
+                if alive_entries.len() != only_these.len() =>
+            {
+                // If we haven't tried the `segment_metas_garbage` list, try that next.
+                if !exhausted_metas_lists {
+                    if let Some(garbage) = MetaPage::open(indexrel).segment_metas_garbage() {
+                        segment_metas = garbage;
+                        exhausted_metas_lists = true;
+                        continue;
+                    }
+                }
+
+                // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code
+                //        @Stu asked to keep this around for awhile.  If there's ever a situation where `alive_entries` has
+                //        fewer entries than `only_these` then we should cancel the query, but it'd be indicative of a bug
+                //
+                // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
+                //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
+                let missing = only_these
+                    .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
+                    .cloned()
+                    .collect::<HashSet<SegmentId>>();
+                let found = only_these.difference(&missing).collect::<HashSet<_>>();
+
+                panic!(
+                    "load_metas: MvccSatisfies::ParallelWorker didn't load the correct segments. \
                     found={found:?}, missing={missing:?}",
-            );
-        }
-        #[cfg(debug_assertions)]
-        MvccSatisfies::ParallelWorker(only_these) => {
-            // In debug mode only, actually do a set comparison to determine that we got the
-            // exact expected segments.
-            let actual = alive_entries
-                .iter()
-                .map(|s| s.segment_id)
-                .collect::<HashSet<_>>();
-            assert_eq!(
-                &actual, only_these,
-                "Got the wrong segments in parallel worker: \
+                );
+            }
+            #[cfg(debug_assertions)]
+            MvccSatisfies::ParallelWorker(only_these) => {
+                // In debug mode only, actually do a set comparison to determine that we got the
+                // exact expected segments.
+                let actual = alive_entries
+                    .iter()
+                    .map(|s| s.segment_id)
+                    .collect::<HashSet<_>>();
+                assert_eq!(
+                    &actual, only_these,
+                    "Got the wrong segments in parallel worker: \
                      actual: {actual:?}, expected: {only_these:?}"
-            );
-        }
-        _ => {
-            // We've successfully collected all of the relevant entries.
+                );
+                break;
+            }
+            _ => {
+                // We've successfully collected all of the relevant entries.
+                break;
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755889405085,
+  "lastUpdate": 1755889407396,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8920,6 +8920,114 @@ window.BENCHMARK_DATA = {
             "value": 153.99609375,
             "unit": "median mem",
             "extra": "avg mem: 151.98377730091678, max mem: 155.72265625, count: 55630"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc4fe5965d5f99254c795da6f95353b72f8876b7",
+          "message": "feat: improved join performance when score and snippets are not used and `@@@` cannot be pushed down to custom scan (#2871)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\nImproved join performance when score and snippets are not used and `@@@`\ncannot be pushed down to custom scan\n\n## Why\n\nA source of our JOIN performance degradation is that we’re pushing\n`joininfo` (i.e., JOIN-level predicates in\n[here](https://github.com/paradedb/paradedb/blob/801e88e9a966b465dee73a381b3902c1a173c5bb/pg_search/src/postgres/customscan/builders/custom_path.rs#L274-L275)\nand\n[here](https://github.com/paradedb/paradedb/blob/6464dc167c77f043bc01a684f8282467ee464cbf/pg_search/src/postgres/customscan/pdbscan/mod.rs#L264))\ndown to tantivy, to be able to produce scores and snippets. However,\nthis almost always leads to a full index scan, which is expected to\nproduce poor performance. As a quick follow-up, we should either:\n1) at least limit this down to the cases that the query is using\nsnippets or scores, instead of always pushing down the JOIN quals that\nalmost certainly lead to a full index scan\n2) or we can even get stricter and give up on scores and snippets in\nthis case, too. Then, this will be fixed as soon as CustomScan Join API\nis implemented.\n\nIn this PR, we go for (1), as it won't have any impact on query results,\nand will only improve the performance.\n\n## How\n\nWe fallback to index scan (as opposed to custom scan) if the join quals\ncannot be pushed down to custom scan, and `score` and `snippet` are not\nused in the query.\n\n## Tests\n\nAll current tests pass.",
+          "timestamp": "2025-08-22T11:13:50-07:00",
+          "tree_id": "a374e10b164d326326720111fc92435c5b04ce37",
+          "url": "https://github.com/paradedb/paradedb/commit/cc4fe5965d5f99254c795da6f95353b72f8876b7"
+        },
+        "date": 1755889406219,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.545834035308037, max cpu: 37.982197, count: 55496"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 154.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.14907908621794, max mem: 156.30859375, count: 55496"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.636139401951247, max cpu: 41.941746, count: 55496"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 146.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.86950467150785, max mem: 146.95703125, count: 55496"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.29707098463604, max cpu: 74.2029, count: 55496"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 129.63405336927437, max mem: 163.37890625, count: 55496"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20706,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20917.054706645526, max block_count: 41278.0, count: 55496"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.9723179983266417, max cpu: 4.6647234, count: 55496"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.21058534905669, max mem: 130.0859375, count: 55496"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.238251405506702, max segment_count: 47.0, count: 55496"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.21069940690526, max cpu: 78.537056, count: 110992"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 163.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 149.02772148696528, max mem: 172.83984375, count: 110992"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.116521282211561, max cpu: 28.042841, count: 55496"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 154.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 152.58480882912733, max mem: 156.26953125, count: 55496"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755889407396,
+  "lastUpdate": 1755890734436,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1496,6 +1496,72 @@ window.BENCHMARK_DATA = {
             "value": 181.8651147817977,
             "unit": "median tps",
             "extra": "avg tps: 176.2703405504529, max tps: 755.6522790472736, count: 55283"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f29250c078214cab1c7785740c86fd032bce69d0",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3031)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.",
+          "timestamp": "2025-08-22T15:09:29-04:00",
+          "tree_id": "16d37ec0ce591b380c00e4a5aa6b8ed53ac0fa8b",
+          "url": "https://github.com/paradedb/paradedb/commit/f29250c078214cab1c7785740c86fd032bce69d0"
+        },
+        "date": 1755890733316,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1155.0121223606893,
+            "unit": "median tps",
+            "extra": "avg tps: 1148.3681126264332, max tps: 1160.5271773194359, count: 55132"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2854.826476307806,
+            "unit": "median tps",
+            "extra": "avg tps: 2827.395062901955, max tps: 2869.511912589987, count: 55132"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1156.6165996831708,
+            "unit": "median tps",
+            "extra": "avg tps: 1151.9585460427425, max tps: 1159.9513358994466, count: 55132"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 841.3301938660834,
+            "unit": "median tps",
+            "extra": "avg tps: 840.3484076094701, max tps: 892.4298968011383, count: 55132"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 178.3425825321799,
+            "unit": "median tps",
+            "extra": "avg tps: 177.44667284455448, max tps: 179.90663128571325, count: 110264"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.32479946699448,
+            "unit": "median tps",
+            "extra": "avg tps: 166.07616870444835, max tps: 167.7146626936276, count: 55132"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 55.41639942779269,
+            "unit": "median tps",
+            "extra": "avg tps: 60.513654017218236, max tps: 793.9280383626028, count: 55132"
           }
         ]
       }

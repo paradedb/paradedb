@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755836368935,
+  "lastUpdate": 1755836678201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7128,6 +7128,60 @@ window.BENCHMARK_DATA = {
             "value": 16.181602865774448,
             "unit": "median tps",
             "extra": "avg tps: 16.285367139693385, max tps: 18.183681182608435, count: 55641"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1edf576f60871a1e6ef4ef8eaa7749994ac4a64",
+          "message": "fix: restore the garbage list (#3022)\n\n## What\n\nThis brings back our segment meta entry garbage list. It's necessary to\nhelp avoid potential query cancel situations in parallel workers.\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-21T23:35:10-04:00",
+          "tree_id": "561a6e7f3af192d0668156c2bc359a32eabf7664",
+          "url": "https://github.com/paradedb/paradedb/commit/a1edf576f60871a1e6ef4ef8eaa7749994ac4a64"
+        },
+        "date": 1755836677066,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.117277068142286,
+            "unit": "median tps",
+            "extra": "avg tps: 37.406807120393374, max tps: 38.71385873556994, count: 55630"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 255.0932948959213,
+            "unit": "median tps",
+            "extra": "avg tps: 291.05789517377514, max tps: 2485.6743493178215, count: 55630"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 119.30494973895983,
+            "unit": "median tps",
+            "extra": "avg tps: 119.0115045911294, max tps: 124.2307430715724, count: 55630"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 65.93934770014886,
+            "unit": "median tps",
+            "extra": "avg tps: 62.0549995227974, max tps: 106.43794845090592, count: 111260"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.86339663695926,
+            "unit": "median tps",
+            "extra": "avg tps: 16.94173624106889, max tps: 20.412088218269236, count: 55630"
           }
         ]
       }

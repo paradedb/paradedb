@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755835359271,
+  "lastUpdate": 1755835707978,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5742,6 +5742,42 @@ window.BENCHMARK_DATA = {
             "value": 124.25021067120949,
             "unit": "median tps",
             "extra": "avg tps: 123.56730289600678, max tps: 126.17359771359985, count: 57464"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a010144b9900b25aad51e82ec239c3eeaa3a3fac",
+          "message": "fix: restore the garbage list (#3020)\n\n## What\n\nThis brings back our segment meta entry garbage list. It's necessary to\nhelp avoid potential query cancel situations in parallel workers.\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-21T23:30:11-04:00",
+          "tree_id": "7aaa1f192dbf4add4a2c522a9f32de6bbaa0ff9b",
+          "url": "https://github.com/paradedb/paradedb/commit/a010144b9900b25aad51e82ec239c3eeaa3a3fac"
+        },
+        "date": 1755835706848,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 25.752467788216798,
+            "unit": "median tps",
+            "extra": "avg tps: 25.693557835615987, max tps: 25.960941905089875, count: 56401"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 114.32151162372178,
+            "unit": "median tps",
+            "extra": "avg tps: 113.86465307069838, max tps: 118.2122881486496, count: 56401"
           }
         ]
       }

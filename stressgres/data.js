@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755888742451,
+  "lastUpdate": 1755888744788,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7400,6 +7400,66 @@ window.BENCHMARK_DATA = {
             "value": 169.51953125,
             "unit": "median mem",
             "extra": "avg mem: 158.25033560993361, max mem: 177.59765625, count: 56334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc4fe5965d5f99254c795da6f95353b72f8876b7",
+          "message": "feat: improved join performance when score and snippets are not used and `@@@` cannot be pushed down to custom scan (#2871)\n\n# Ticket(s) Closed\n\n- Closes #2807\n\n## What\n\nImproved join performance when score and snippets are not used and `@@@`\ncannot be pushed down to custom scan\n\n## Why\n\nA source of our JOIN performance degradation is that we’re pushing\n`joininfo` (i.e., JOIN-level predicates in\n[here](https://github.com/paradedb/paradedb/blob/801e88e9a966b465dee73a381b3902c1a173c5bb/pg_search/src/postgres/customscan/builders/custom_path.rs#L274-L275)\nand\n[here](https://github.com/paradedb/paradedb/blob/6464dc167c77f043bc01a684f8282467ee464cbf/pg_search/src/postgres/customscan/pdbscan/mod.rs#L264))\ndown to tantivy, to be able to produce scores and snippets. However,\nthis almost always leads to a full index scan, which is expected to\nproduce poor performance. As a quick follow-up, we should either:\n1) at least limit this down to the cases that the query is using\nsnippets or scores, instead of always pushing down the JOIN quals that\nalmost certainly lead to a full index scan\n2) or we can even get stricter and give up on scores and snippets in\nthis case, too. Then, this will be fixed as soon as CustomScan Join API\nis implemented.\n\nIn this PR, we go for (1), as it won't have any impact on query results,\nand will only improve the performance.\n\n## How\n\nWe fallback to index scan (as opposed to custom scan) if the join quals\ncannot be pushed down to custom scan, and `score` and `snippet` are not\nused in the query.\n\n## Tests\n\nAll current tests pass.",
+          "timestamp": "2025-08-22T11:13:50-07:00",
+          "tree_id": "a374e10b164d326326720111fc92435c5b04ce37",
+          "url": "https://github.com/paradedb/paradedb/commit/cc4fe5965d5f99254c795da6f95353b72f8876b7"
+        },
+        "date": 1755888743631,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.731707,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.578128790380923, max cpu: 107.91789, count: 57710"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.9033572360726, max mem: 182.8046875, count: 57710"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18792,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17030.820516374977, max block_count: 21511.0, count: 57710"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 40,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.08840755501646, max segment_count: 113.0, count: 57710"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.9401921439003, max cpu: 157.68115, count: 57710"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.3265480148588, max mem: 175.328125, count: 57710"
           }
         ]
       }

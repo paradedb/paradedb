@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755892532547,
+  "lastUpdate": 1755892754994,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9024,6 +9024,60 @@ window.BENCHMARK_DATA = {
             "value": 17.164112466054192,
             "unit": "median tps",
             "extra": "avg tps: 17.08633202100464, max tps: 19.468746009211266, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f29250c078214cab1c7785740c86fd032bce69d0",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3031)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.",
+          "timestamp": "2025-08-22T15:09:29-04:00",
+          "tree_id": "16d37ec0ce591b380c00e4a5aa6b8ed53ac0fa8b",
+          "url": "https://github.com/paradedb/paradedb/commit/f29250c078214cab1c7785740c86fd032bce69d0"
+        },
+        "date": 1755892753849,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.20140430843666,
+            "unit": "median tps",
+            "extra": "avg tps: 36.48588432577562, max tps: 37.96322219005072, count: 55532"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 255.89317790380696,
+            "unit": "median tps",
+            "extra": "avg tps: 288.0784993260113, max tps: 2428.5374990698033, count: 55532"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 151.75246157904013,
+            "unit": "median tps",
+            "extra": "avg tps: 151.62958733783327, max tps: 154.0939488131042, count: 55532"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 68.56893719435283,
+            "unit": "median tps",
+            "extra": "avg tps: 71.9208443035584, max tps: 129.40768076621055, count: 111064"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.921470310186516,
+            "unit": "median tps",
+            "extra": "avg tps: 16.221796138576032, max tps: 35.00996707505151, count: 55532"
           }
         ]
       }

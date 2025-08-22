@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755891424754,
+  "lastUpdate": 1755891426987,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6070,6 +6070,66 @@ window.BENCHMARK_DATA = {
             "value": 67,
             "unit": "median segment_count",
             "extra": "avg segment_count: 68.48201761962342, max segment_count: 97.0, count: 57890"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f29250c078214cab1c7785740c86fd032bce69d0",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3031)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.",
+          "timestamp": "2025-08-22T15:09:29-04:00",
+          "tree_id": "16d37ec0ce591b380c00e4a5aa6b8ed53ac0fa8b",
+          "url": "https://github.com/paradedb/paradedb/commit/f29250c078214cab1c7785740c86fd032bce69d0"
+        },
+        "date": 1755891425837,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.879055,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.661939170610555, max cpu: 42.899704, count: 57524"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 232.68117186685123, max mem: 237.8203125, count: 57524"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.498464217601754, max cpu: 33.103447, count: 57524"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.062798041361, max mem: 163.328125, count: 57524"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24416,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22492.318041165425, max block_count: 26405.0, count: 57524"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 38,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 38.09437799874835, max segment_count: 53.0, count: 57524"
           }
         ]
       }

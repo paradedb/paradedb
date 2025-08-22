@@ -104,6 +104,10 @@ jobs:
           echo "Container status: $CONTAINER_STATUS"
 
           echo ""
+          echo "Sleeping 30 seconds to give Postgres the time to fully initialize and run initdb..."
+          sleep 30
+
+          echo ""
           echo "Printing logs for the ParadeDB Docker container..."
           docker logs $CONTAINER_ID
 

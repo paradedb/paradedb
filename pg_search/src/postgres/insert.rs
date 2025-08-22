@@ -205,7 +205,12 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
             }
 
             unsafe {
-                do_merge(&indexrel, MergeStyle::Insert).expect("should be able to merge");
+                do_merge(
+                    &indexrel,
+                    MergeStyle::Insert,
+                    Some(pg_sys::GetCurrentTransactionId()),
+                )
+                .expect("should be able to merge");
             }
         }
     }

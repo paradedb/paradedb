@@ -179,9 +179,27 @@ impl AggregateScanState {
     pub fn json_to_aggregate_results(&self, result: serde_json::Value) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
             // No GROUP BY - single result row
-            let result_map = result
-                .as_object()
-                .expect("unexpected aggregate result collection type");
+            let result_map = match result.as_object() {
+                Some(obj) => obj,
+                None => {
+                    // Handle null or empty results for empty tables
+                    // Create empty aggregate results with proper default values
+                    let row = self
+                        .aggregate_types
+                        .iter()
+                        .map(|aggregate| {
+                            // For empty tables, return appropriate empty values
+                            let empty_result = AggregateResult::Null;
+                            aggregate.result_from_aggregate_with_doc_count(empty_result, Some(0))
+                        })
+                        .collect::<AggregateRow>();
+
+                    return vec![GroupedAggregateRow {
+                        group_keys: vec![],
+                        aggregate_values: row,
+                    }];
+                }
+            };
 
             // Check document count for SUM empty result set detection
             let doc_count = result_map
@@ -198,12 +216,20 @@ impl AggregateScanState {
                 .iter()
                 .enumerate()
                 .map(|(idx, aggregate)| {
-                    self.process_aggregate_result(
-                        aggregate,
-                        idx,
-                        AggregateResultSource::ResultMap(result_map),
-                        doc_count,
-                    )
+                    // Check if the aggregate result exists in the map
+                    if let Some(agg_value) = result_map.get(&idx.to_string()) {
+                        self.process_aggregate_result(
+                            aggregate,
+                            idx,
+                            AggregateResultSource::ResultMap(result_map),
+                            doc_count,
+                        )
+                    } else {
+                        // Handle missing aggregate result (empty table case)
+                        use crate::postgres::customscan::aggregatescan::privdat::AggregateResult;
+                        let empty_result = AggregateResult::Null;
+                        aggregate.result_from_aggregate_with_doc_count(empty_result, Some(0))
+                    }
                 })
                 .collect::<AggregateRow>();
 
@@ -215,6 +241,12 @@ impl AggregateScanState {
         }
         // GROUP BY - extract nested bucket results recursively
         let mut rows = Vec::new();
+
+        // Handle empty results for GROUP BY queries
+        if result.is_null() || (result.is_object() && result.as_object().unwrap().is_empty()) {
+            // Return empty result set for GROUP BY on empty tables
+            return rows;
+        }
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
 
@@ -286,8 +318,17 @@ impl AggregateScanState {
         let buckets = json
             .get(&bucket_name)
             .and_then(|v| v.get("buckets"))
-            .and_then(|v| v.as_array())
-            .expect("missing bucket results");
+            .and_then(|v| v.as_array());
+
+        // Handle missing bucket results (empty table case)
+        let buckets = match buckets {
+            Some(b) => b,
+            None => {
+                // No buckets found, which is expected for empty tables
+                // Return early as there are no results to process
+                return;
+            }
+        };
 
         for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");

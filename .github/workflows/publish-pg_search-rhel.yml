@@ -36,7 +36,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
-    if: ${{ !contains(github.ref, '-rc') }}
+    if: ${{ !contains(github.ref, '-') }}
     strategy:
       matrix:
         include:

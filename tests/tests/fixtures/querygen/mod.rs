@@ -80,8 +80,21 @@ pub struct PgGucs {
     parallel_workers: bool,
 }
 
+impl Default for PgGucs {
+    fn default() -> Self {
+        Self {
+            aggregate_custom_scan: false,
+            custom_scan: false,
+            custom_scan_without_operator: false,
+            seqscan: true,
+            indexscan: true,
+            parallel_workers: true,
+        }
+    }
+}
+
 impl PgGucs {
-    fn set(&self) -> String {
+    pub fn set(&self) -> String {
         let PgGucs {
             aggregate_custom_scan,
             custom_scan,
@@ -109,9 +122,29 @@ impl PgGucs {
 /// Run the given pg and bm25 queries on the given connection, and compare their results when run
 /// with the given GUCs.
 pub fn compare<R, F>(
-    pg_query: String,
-    bm25_query: String,
-    gucs: PgGucs,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    conn: &mut PgConnection,
+    setup_sql: &str,
+    run_query: F,
+) -> Result<(), TestCaseError>
+where
+    R: Eq + Debug,
+    F: Fn(&str, &mut PgConnection) -> R,
+{
+    match inner_compare(pg_query, bm25_query, gucs, conn, run_query) {
+        Ok(()) => Ok(()),
+        Err(e) => Err(handle_compare_error(
+            e, pg_query, bm25_query, gucs, setup_sql,
+        )),
+    }
+}
+
+fn inner_compare<R, F>(
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
     conn: &mut PgConnection,
     run_query: F,
 ) -> Result<(), TestCaseError>
@@ -122,25 +155,18 @@ where
     // the postgres query is always run with the paradedb custom scan turned off
     // this ensures we get the actual, known-to-be-correct result from Postgres'
     // plan, and not from ours where we did some kind of pushdown
-    r#"
-        SET max_parallel_workers TO 8;
-        SET enable_seqscan TO ON;
-        SET enable_indexscan TO ON;
-        SET paradedb.enable_custom_scan TO OFF;
-        SET paradedb.enable_aggregate_custom_scan TO OFF;
-    "#
-    .execute(conn);
+    PgGucs::default().set().execute(conn);
 
     conn.deallocate_all()?;
 
-    let pg_result = run_query(&pg_query, conn);
+    let pg_result = run_query(pg_query, conn);
 
     // and for the "bm25" query, we run it with the given GUCs set.
     gucs.set().execute(conn);
 
     conn.deallocate_all()?;
 
-    let bm25_result = run_query(&bm25_query, conn);
+    let bm25_result = run_query(bm25_query, conn);
 
     prop_assert_eq!(
         &pg_result,
@@ -158,4 +184,73 @@ where
     );
 
     Ok(())
+}
+
+/// Helper function to handle comparison errors and generate reproduction scripts
+pub fn handle_compare_error(
+    error: TestCaseError,
+    pg_query: &str,
+    bm25_query: &str,
+    gucs: &PgGucs,
+    setup_sql: &str,
+) -> TestCaseError {
+    let error_msg = error.to_string();
+    let failure_type = if error_msg.contains("error returned from database")
+        || error_msg.contains("SQL execution error")
+        || error_msg.contains("syntax error")
+    {
+        "QUERY EXECUTION FAILURE"
+    } else {
+        "RESULT MISMATCH"
+    };
+
+    let repro_script = format!(
+        r#"
+-- ==== {failure_type} REPRODUCTION SCRIPT ====
+-- Copy and paste this entire block to reproduce the issue
+
+-- Prerequisites: Ensure pg_search extension is available
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+-- Table and index setup
+{setup_sql}
+
+-- Default GUCs:
+{default_gucs}
+
+-- PostgreSQL query:
+{pg_query}
+
+-- Set GUCs to match the failing test case
+{gucs_sql}
+
+-- BM25 query:
+{bm25_query}
+
+-- Original error:
+-- {error_msg}
+
+-- To debug further, you can also try:
+SET paradedb.enable_aggregate_custom_scan = off;
+{bm25_query}
+
+-- ==== END REPRODUCTION SCRIPT ====
+"#,
+        failure_type = failure_type,
+        setup_sql = setup_sql,
+        default_gucs = PgGucs::default().set(),
+        gucs_sql = gucs.set(),
+        pg_query = pg_query,
+        bm25_query = bm25_query,
+        error_msg = error_msg
+    );
+
+    TestCaseError::fail(format!(
+        "{}\n{repro_script}",
+        if failure_type == "QUERY EXECUTION FAILURE" {
+            "Query execution failed"
+        } else {
+            "Results differ between PostgreSQL and BM25"
+        }
+    ))
 }

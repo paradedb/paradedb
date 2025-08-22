@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755893196416,
+  "lastUpdate": 1755893198591,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8528,6 +8528,66 @@ window.BENCHMARK_DATA = {
             "value": 169.890625,
             "unit": "median mem",
             "extra": "avg mem: 159.34976515687865, max mem: 179.546875, count: 57911"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8386fa71d8c2979fb63993f4045d140aff8768fe",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3032)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-22T12:27:56-07:00",
+          "tree_id": "fa86b284fe7c52c4cf1226cd910b7b9f1c0507d2",
+          "url": "https://github.com/paradedb/paradedb/commit/8386fa71d8c2979fb63993f4045d140aff8768fe"
+        },
+        "date": 1755893197449,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.24578380371751, max cpu: 46.60194, count: 57785"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.37683871246864, max mem: 176.0859375, count: 57785"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18831,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17897.816388336072, max block_count: 24866.0, count: 57785"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 38,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 37.70466384009691, max segment_count: 78.0, count: 57785"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.211352317045256, max cpu: 37.907207, count: 57785"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 167.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 158.7233802430345, max mem: 180.42578125, count: 57785"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755892087290,
+  "lastUpdate": 1755892090046,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8150,6 +8150,66 @@ window.BENCHMARK_DATA = {
             "value": 166.6953125,
             "unit": "median mem",
             "extra": "avg mem: 157.3265480148588, max mem: 175.328125, count: 57710"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f29250c078214cab1c7785740c86fd032bce69d0",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3031)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.",
+          "timestamp": "2025-08-22T15:09:29-04:00",
+          "tree_id": "16d37ec0ce591b380c00e4a5aa6b8ed53ac0fa8b",
+          "url": "https://github.com/paradedb/paradedb/commit/f29250c078214cab1c7785740c86fd032bce69d0"
+        },
+        "date": 1755892088890,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.369457964669223, max cpu: 47.151276, count: 57911"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.45196238624786, max mem: 174.93359375, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19435,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17908.333321821414, max block_count: 24595.0, count: 57911"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 38,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 37.660686225414864, max segment_count: 83.0, count: 57911"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.777405502542925, max cpu: 33.005894, count: 57911"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 169.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.34976515687865, max mem: 179.546875, count: 57911"
           }
         ]
       }

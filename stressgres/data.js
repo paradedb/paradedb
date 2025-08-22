@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755891841788,
+  "lastUpdate": 1755891844971,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4674,6 +4674,126 @@ window.BENCHMARK_DATA = {
             "value": 93.11328125,
             "unit": "median mem",
             "extra": "avg mem: 90.68922544488794, max mem: 149.41015625, count: 55056"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de951c94cea485c109ffc396ae394d036babb97d",
+          "message": "perf: optimize merging heuristics to prefer background merging (#3033)\n\nWe change the decisions around when/how/what to merge such that we\nprefer to merge in the background if we can. That is defined as all of\nthese being true:\n\n- the user has either a default or non-zero configuration for\n`background_layer_sizes`\n- no other merge (foreground or background) is currently happening\n- the layer policy simulation indicates there is merging work to do \n \n or\n\n- the request to merge came from a VACUUM\n\nOtherwise we'll merge in the foreground if:\n\n- the request to merge came from `aminsert`\n- the user has either a default or non-zero configuration for\n`layer_sizes`\n\nAdditionally, when merging in the background we now consider the\ncombined/unique set of layer sizes from both `layer_sizes` and\n`background_layer_sizes`, and ensure the maximum layer size is clamped\nto our estimate of what an ideal segment size would be based on the\ncurrent index size and the `target_segment_count`.\n\nThis still allows concurrent backends to merge into layers defined in\n`layer_sizes` in the foreground, but they'll prefer to launch that work\nin the background if it looks possible.\n\nIt does not necessarily ensure there'll only ever be one background\nmerger per index at any given time, but in practice it's pretty close.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-22T12:27:53-07:00",
+          "tree_id": "f489cbf34a77726e0c2bc0f7f879b77d8c93cb47",
+          "url": "https://github.com/paradedb/paradedb/commit/de951c94cea485c109ffc396ae394d036babb97d"
+        },
+        "date": 1755891843855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.741331160840106, max cpu: 9.458128, count: 55154"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 89.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.26574476409236, max mem: 148.52734375, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622634783050837, max cpu: 9.275363, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 83.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.23625560079505, max mem: 141.078125, count: 55154"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7572175733144135, max cpu: 9.619239, count: 55154"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 90.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 91.84202351314048, max mem: 150.2265625, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.132112059787043, max cpu: 4.7058825, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 90.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.99880441298455, max mem: 148.4921875, count: 55154"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.341693977257425, max cpu: 24.048098, count: 110308"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 94.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 95.8965424156113, max mem: 159.14453125, count: 110308"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7493,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7739.373680966022, max block_count: 14995.0, count: 55154"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.637052616310694, max segment_count: 28.0, count: 55154"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.942285532386458, max cpu: 14.131501, count: 55154"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 100.39817042111633, max mem: 158.87890625, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.557278435288905, max cpu: 9.302325, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 83.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 84.47690911470609, max mem: 140.0078125, count: 55154"
           }
         ]
       }

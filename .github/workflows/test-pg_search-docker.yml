@@ -1,7 +1,7 @@
 # workflows/test-pg_search-docker.yml
 #
 # Test pg_search Docker
-# Test building the ParadeDB Docker Image using Docker Compose.
+# Test building and running the ParadeDB Docker Image using Docker Compose.
 
 name: Test pg_search Docker
 
@@ -104,6 +104,10 @@ jobs:
           echo "Container status: $CONTAINER_STATUS"
 
           echo ""
+          echo "Sleeping 30 seconds to give Postgres the time to fully initialize and run initdb..."
+          sleep 30
+
+          echo ""
           echo "Printing logs for the ParadeDB Docker container..."
           docker logs $CONTAINER_ID
 
@@ -118,6 +122,15 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
+
+      # Useful for debugging discrepancies between local and remote ParadeDB Docker images
+      - name: Print the ParadeDB Docker Image History
+        run: docker history paradedb/paradedb:latest
+
+      - name: Print the ParadeDB Docker Image Permissions
+        run: |
+          docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
+          docker rm temp-inspect-paradedb
 
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
         if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'

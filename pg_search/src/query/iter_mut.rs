@@ -46,8 +46,21 @@ impl<'a> Iterator for SearchQueryInputIter<'a> {
                     self.stack.push(query);
                     continue;
                 }
+                SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                    // TODO: The effect of this is that we won't actually visit this node. Should
+                    // probably switch to the visitor pattern?
+                    self.stack.push(indexed_query);
+                    continue;
+                }
 
-                _ => {}
+                SearchQueryInput::Uninitialized
+                | SearchQueryInput::All
+                | SearchQueryInput::Empty
+                | SearchQueryInput::MoreLikeThis { .. }
+                | SearchQueryInput::Parse { .. }
+                | SearchQueryInput::TermSet { .. }
+                | SearchQueryInput::PostgresExpression { .. }
+                | SearchQueryInput::FieldedQuery { .. } => {}
             }
 
             return Some(node);

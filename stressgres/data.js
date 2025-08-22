@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1755835710167,
+  "lastUpdate": 1755836016559,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5778,6 +5778,42 @@ window.BENCHMARK_DATA = {
             "value": 114.32151162372178,
             "unit": "median tps",
             "extra": "avg tps: 113.86465307069838, max tps: 118.2122881486496, count: 56401"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a1edf576f60871a1e6ef4ef8eaa7749994ac4a64",
+          "message": "fix: restore the garbage list (#3022)\n\n## What\n\nThis brings back our segment meta entry garbage list. It's necessary to\nhelp avoid potential query cancel situations in parallel workers.\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-21T23:35:10-04:00",
+          "tree_id": "561a6e7f3af192d0668156c2bc359a32eabf7664",
+          "url": "https://github.com/paradedb/paradedb/commit/a1edf576f60871a1e6ef4ef8eaa7749994ac4a64"
+        },
+        "date": 1755836015446,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 27.823085509435614,
+            "unit": "median tps",
+            "extra": "avg tps: 27.707246536370008, max tps: 28.021036390280727, count: 57478"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 124.02018036986799,
+            "unit": "median tps",
+            "extra": "avg tps: 123.3486993263159, max tps: 126.15408212910008, count: 57478"
           }
         ]
       }

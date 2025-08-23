@@ -44,6 +44,7 @@ pub struct SearchTokenizerFilters {
     pub stemmer: Option<Language>,
     pub stopwords_language: Option<Language>,
     pub stopwords: Option<Vec<String>>,
+    pub synonyms: Option<Vec<String>>,
 }
 
 impl SearchTokenizerFilters {
@@ -59,6 +60,7 @@ impl SearchTokenizerFilters {
             stemmer: None,
             stopwords_language: None,
             stopwords: None,
+            synonyms: None,
         }
     }
 
@@ -100,6 +102,11 @@ impl SearchTokenizerFilters {
                 anyhow::anyhow!("stopwords tokenizer requires a valid 'stopwords' field")
             })?);
         }
+        if let Some(synonyms) = value.get("synonyms") {
+            filters.synonyms = Some(serde_json::from_value(synonyms.clone()).map_err(|_| {
+                anyhow::anyhow!("synonyms tokenizer requires a valid 'synonyms' field")
+            })?);
+        }
 
         Ok(filters)
     }
@@ -123,6 +130,16 @@ impl SearchTokenizerFilters {
                     .collect(),
             );
             enclosing.insert("stopwords".to_string(), v);
+        }
+
+        if let Some(synonyms) = self.synonyms.as_ref() {
+            let v = serde_json::Value::Array(
+                synonyms
+                    .iter()
+                    .map(|s| serde_json::Value::String(s.clone()))
+                    .collect(),
+            );
+            enclosing.insert("synonyms".to_string(), v);
         }
     }
 
@@ -160,6 +177,10 @@ impl SearchTokenizerFilters {
         if let Some(value) = self.stopwords.as_ref() {
             write!(buffer, "{}stopwords={value:?}", sep(is_empty)).unwrap();
             is_empty = false;
+        }
+
+        if let Some(value) = self.synonyms.as_ref() {
+            write!(buffer, "{}synonyms={value:?}", sep(is_empty)).unwrap();
         }
 
         if is_empty {

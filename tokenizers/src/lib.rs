@@ -21,6 +21,7 @@ pub mod code;
 pub mod icu;
 pub mod lindera;
 pub mod manager;
+pub mod synonyms;
 
 use tantivy::tokenizer::{
     LowerCaser, RawTokenizer, RemoveLongFilter, TextAnalyzer, TokenizerManager,

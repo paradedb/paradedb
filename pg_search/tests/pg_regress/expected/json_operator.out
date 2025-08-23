@@ -186,8 +186,9 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopN Order By: id asc
             TopN Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 98 :opfuncid 67 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 100 :args ({OPEXPR :opno 3477 :opfuncid 3214 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 3802 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 9 [ 36 0 0 0 99 111 108 111 114 ]}) :location -1} {CONST :consttype 1009 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 48 [ -64 0 0 0 1 0 0 0 0 0 0 0 25 0 0 0 2 0 0 0 1 0 0 0 36 0 0 0 119 104 105 116 101 0 0 0 36 0 0 0 98 108 97 99 107 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
-(9 rows)
+(10 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items

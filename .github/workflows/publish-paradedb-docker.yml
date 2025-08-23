@@ -86,6 +86,30 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Determine if Release Should be Marked as Latest
+        id: release_latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          current_tag_version="${{ steps.version.outputs.version }}"
+          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
+          echo "Current latest release is $latest_tag_version"
+          echo "Current version to be released is $current_tag_version"
+
+          echo ""
+          echo "Install semver CLI via npm to compare versions..."
+          npm install semver
+
+          echo ""
+          echo "Comparing versions to determine if the current version is the latest..."
+          if npx semver -r ">$latest_tag_version" "$current_tag_version"; then
+            echo "is_latest=true"
+            echo "is_latest=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest=false"
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+          fi
+
       # Cross-compilation is incredibly slow, so we use an external service called Depot to
       # speed up container builds for universal images. We could eventually replace this with
       # Docker Build Cloud once they add support for multiple concurrent builders.
@@ -108,8 +132,8 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
             type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ !contains(github.ref, '-')}}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && !contains(github.ref, '-') }}
+            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ steps.release_latest.outputs.is_latest && !contains(github.ref, '-')}}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && steps.release_latest.outputs.is_latest && !contains(github.ref, '-') }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3

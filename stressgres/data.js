@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756059554222,
+  "lastUpdate": 1756059902793,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8526,6 +8526,42 @@ window.BENCHMARK_DATA = {
             "value": 152.8361356970769,
             "unit": "median tps",
             "extra": "avg tps: 152.06425933162836, max tps: 155.35744728717785, count: 58006"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b08446356edfe8faed3798c0521304b8789d3e5",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3040)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-24T13:46:13-04:00",
+          "tree_id": "1335b21c3132607da548eff65e5a684aa86ebecf",
+          "url": "https://github.com/paradedb/paradedb/commit/4b08446356edfe8faed3798c0521304b8789d3e5"
+        },
+        "date": 1756059901635,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 29.831186207259034,
+            "unit": "median tps",
+            "extra": "avg tps: 29.74027749499618, max tps: 30.110756622711456, count: 57815"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 151.10806278493897,
+            "unit": "median tps",
+            "extra": "avg tps: 150.17614688167515, max tps: 153.1682632865189, count: 57815"
           }
         ]
       }

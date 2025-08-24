@@ -19,7 +19,7 @@ use crate::index::merge_policy::LayeredMergePolicy;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{Mergeable, SearchIndexMerger};
 use crate::postgres::ps_status::{set_ps_display_suffix, MERGING};
-use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::postgres::storage::block::{MVCCEntry, SegmentMetaEntry};
 use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
@@ -103,13 +103,23 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
 
         let mut index_byte_size = 0;
         unsafe {
-            MetaPage::open(index)
-                .segment_metas()
-                .for_each(|_, entry| index_byte_size += entry.byte_size());
+            MetaPage::open(index).segment_metas().for_each(|_, entry| {
+                if entry.visible() {
+                    index_byte_size += entry.byte_size()
+                }
+            });
         }
 
         let target_segment_count = index_options.target_segment_count();
-        let target_segment_byte_size = index_byte_size / target_segment_count as u64;
+        let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
+
+        // reduce by a third, which is what the LayeredMergePolicy does
+        //
+        // this is probably a terrible place to sneak in this adjustment but it's super important
+        // as we inject this into the background layer sizes as a final layer and we don't want it to
+        // be big enough that segments merge into it unnecessarily.  LayeredMergePolicy assumes that
+        // a merged segment will be a third smaller, and that's what we account for here
+        target_segment_byte_size -= target_segment_byte_size / 3;
 
         // clamp the highest layer size to be less than `target_segment_byte_size`:
         //

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756058885973,
+  "lastUpdate": 1756058888140,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7660,6 +7660,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.691309381858396, max segment_count: 71.0, count: 57867"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6832efa7662fee49675d88dd2ceecb31dfffdd45",
+          "message": "chore: Upgrade to `0.17.9` (#3041)",
+          "timestamp": "2025-08-24T13:40:28-04:00",
+          "tree_id": "4b3ff40f76aaaa9a2242a4bee88214604e92587a",
+          "url": "https://github.com/paradedb/paradedb/commit/6832efa7662fee49675d88dd2ceecb31dfffdd45"
+        },
+        "date": 1756058886982,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.10252118135072, max cpu: 42.899704, count: 57807"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 229.70637409288668, max mem: 239.65234375, count: 57807"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.300623684158435, max cpu: 33.3996, count: 57807"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.82079551892505, max mem: 163.39453125, count: 57807"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23332,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21726.916013631566, max block_count: 25126.0, count: 57807"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 48.67221962738077, max segment_count: 71.0, count: 57807"
           }
         ]
       }

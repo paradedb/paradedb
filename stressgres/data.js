@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756058193462,
+  "lastUpdate": 1756058202681,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6026,6 +6026,42 @@ window.BENCHMARK_DATA = {
             "value": 5.486706902046442,
             "unit": "median tps",
             "extra": "avg tps: 4.967084571373688, max tps: 6.095110410943558, count: 57757"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0cad75ef84c3942edd137497c4b6864b384a3655",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3037)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-24T13:29:07-04:00",
+          "tree_id": "d76d1a8d15e8ca4d61db683033627e7bf4ec476d",
+          "url": "https://github.com/paradedb/paradedb/commit/0cad75ef84c3942edd137497c4b6864b384a3655"
+        },
+        "date": 1756058201519,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.602084478520775,
+            "unit": "median tps",
+            "extra": "avg tps: 6.538961881894259, max tps: 10.199816839344647, count: 57867"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.688525123104231,
+            "unit": "median tps",
+            "extra": "avg tps: 5.11452501591372, max tps: 6.313834313207874, count: 57867"
           }
         ]
       }

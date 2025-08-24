@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756058544228,
+  "lastUpdate": 1756058546437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5604,6 +5604,126 @@ window.BENCHMARK_DATA = {
             "value": 85.20703125,
             "unit": "median mem",
             "extra": "avg mem: 85.14559727872762, max mem: 141.6015625, count: 55243"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "30a6611e0400569e914fd4b6a05437add41330c9",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3039)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-24T13:46:19-04:00",
+          "tree_id": "d9cb66392591c4d960645870ca1a913b68494028",
+          "url": "https://github.com/paradedb/paradedb/commit/30a6611e0400569e914fd4b6a05437add41330c9"
+        },
+        "date": 1756058543225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794044124560664, max cpu: 9.648242, count: 55344"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 92.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.57276449344103, max mem: 148.05078125, count: 55344"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639222762581806, max cpu: 9.302325, count: 55344"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 86.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 86.63564880847517, max mem: 141.62109375, count: 55344"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.777098650453381, max cpu: 9.657948, count: 55344"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 92.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 93.2278635951955, max mem: 148.5625, count: 55344"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2256222000828165, max cpu: 4.729064, count: 55344"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 92.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 92.91090201173569, max mem: 149.0234375, count: 55344"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.582250156025421, max cpu: 28.973843, count: 110688"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 97.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.41823117117484, max mem: 158.421875, count: 110688"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7930,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7977.274826539462, max block_count: 15068.0, count: 55344"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.592205117085863, max segment_count: 33.0, count: 55344"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.135394748395965, max cpu: 18.550726, count: 55344"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 100.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 100.41188485596903, max mem: 158.01171875, count: 55344"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.478666493585596, max cpu: 4.7105007, count: 55344"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 86.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.58143561463302, max mem: 140.91015625, count: 55344"
           }
         ]
       }

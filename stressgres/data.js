@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756059232877,
+  "lastUpdate": 1756059235113,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7756,6 +7756,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.67221962738077, max segment_count: 71.0, count: 57807"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b08446356edfe8faed3798c0521304b8789d3e5",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3040)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-24T13:46:13-04:00",
+          "tree_id": "1335b21c3132607da548eff65e5a684aa86ebecf",
+          "url": "https://github.com/paradedb/paradedb/commit/4b08446356edfe8faed3798c0521304b8789d3e5"
+        },
+        "date": 1756059233960,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.054754,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.52370158410105, max cpu: 42.72997, count: 57917"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 230.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 228.31202234987137, max mem: 233.51953125, count: 57917"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.18117471693188, max cpu: 33.23442, count: 57917"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.83655773024327, max mem: 161.7890625, count: 57917"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23688,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22034.631196367216, max block_count: 25324.0, count: 57917"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 49.155394789094736, max segment_count: 71.0, count: 57917"
           }
         ]
       }

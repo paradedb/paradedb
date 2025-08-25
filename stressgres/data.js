@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756148134704,
+  "lastUpdate": 1756148137538,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5976,6 +5976,126 @@ window.BENCHMARK_DATA = {
             "value": 88.2578125,
             "unit": "median mem",
             "extra": "avg mem: 87.81873271458228, max mem: 145.671875, count: 55276"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d05f85a38d70d440f3f070d38cbcd0ba42c3132",
+          "message": "fix: Remove the string/numeric classification from fast fields explain (#3044)\n\n## What\n\nRemove the string/numeric classification from MixedFastFields explain.\n\n## Why\n\nThe distinction is no longer actually used in the scan implementation,\nand it can be confusing when the field being projected from is actually\ne.g. a JSON field with nested/dynamic columns for the subtypes.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T11:37:54-07:00",
+          "tree_id": "0446523b383d001cc4ea4496af1b532654eaa621",
+          "url": "https://github.com/paradedb/paradedb/commit/4d05f85a38d70d440f3f070d38cbcd0ba42c3132"
+        },
+        "date": 1756148136364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.735052311850981, max cpu: 9.476802, count: 55234"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 96.50390625,
+            "unit": "median mem",
+            "extra": "avg mem: 94.93916486278832, max mem: 153.3203125, count: 55234"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581316491037932, max cpu: 9.221902, count: 55234"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 88.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.74952489069233, max mem: 146.5234375, count: 55234"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.771478574953435, max cpu: 9.476802, count: 55234"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 96.0234375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.7746003791822, max mem: 153.484375, count: 55234"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.49409131855475, max cpu: 4.729064, count: 55234"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 96.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 95.8784024276261, max mem: 153.0078125, count: 55234"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.195402,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.376624091108206, max cpu: 23.210833, count: 110468"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 100.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 99.47637957796601, max mem: 162.78125, count: 110468"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8355,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8243.074265850744, max block_count: 15636.0, count: 55234"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.718235145019372, max segment_count: 31.0, count: 55234"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.056070571872951, max cpu: 18.532818, count: 55234"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 104.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 103.72410314808361, max mem: 162.45703125, count: 55234"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.86939362687215, max cpu: 9.257474, count: 55234"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 92.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 88.63579363763715, max mem: 145.10546875, count: 55234"
           }
         ]
       }

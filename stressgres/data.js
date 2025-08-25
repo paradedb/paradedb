@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756148809467,
+  "lastUpdate": 1756149455332,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9162,6 +9162,42 @@ window.BENCHMARK_DATA = {
             "value": 149.9365585010159,
             "unit": "median tps",
             "extra": "avg tps: 149.0892912135121, max tps: 152.5838309727801, count: 57906"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d05f85a38d70d440f3f070d38cbcd0ba42c3132",
+          "message": "fix: Remove the string/numeric classification from fast fields explain (#3044)\n\n## What\n\nRemove the string/numeric classification from MixedFastFields explain.\n\n## Why\n\nThe distinction is no longer actually used in the scan implementation,\nand it can be confusing when the field being projected from is actually\ne.g. a JSON field with nested/dynamic columns for the subtypes.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T11:37:54-07:00",
+          "tree_id": "0446523b383d001cc4ea4496af1b532654eaa621",
+          "url": "https://github.com/paradedb/paradedb/commit/4d05f85a38d70d440f3f070d38cbcd0ba42c3132"
+        },
+        "date": 1756149454154,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.81906062809507,
+            "unit": "median tps",
+            "extra": "avg tps: 28.771283807911804, max tps: 29.119043906369136, count: 57334"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 151.79217835884788,
+            "unit": "median tps",
+            "extra": "avg tps: 150.67613334757166, max tps: 154.06458094256394, count: 57334"
           }
         ]
       }

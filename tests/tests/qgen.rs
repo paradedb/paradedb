@@ -34,7 +34,7 @@ use rstest::*;
 use sqlx::{PgConnection, Row};
 
 const COLUMNS: &[Column] = &[
-    Column::new("id", "SERIAL8", "4")
+    Column::new("id", "SERIAL8", "'4'")
         .primary_key()
         .groupable({
             // TODO: Grouping on id/uuid causes:
@@ -63,10 +63,10 @@ const COLUMNS: &[Column] = &[
         .random_generator_sql(
             "(ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int]"
         ),
-    Column::new("age", "INTEGER", "20")
+    Column::new("age", "INTEGER", "'20'")
         .bm25_numeric_field(r#""age": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 100) + 1)::int"),
-    Column::new("price", "NUMERIC(10,2)", "99.99")
+    Column::new("price", "NUMERIC(10,2)", "'99.99'")
         .groupable({
             // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
             // ```
@@ -76,10 +76,18 @@ const COLUMNS: &[Column] = &[
         })
         .bm25_numeric_field(r#""price": { "fast": true }"#)
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
-    Column::new("rating", "INTEGER", "4")
+    Column::new("rating", "INTEGER", "'4'")
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
 ];
+
+fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
+    COLUMNS
+        .iter()
+        .filter(|c| names.contains(&c.name))
+        .cloned()
+        .collect()
+}
 
 ///
 /// Tests all JoinTypes against small tables (which are particularly important for joins which
@@ -111,7 +119,7 @@ async fn generated_joins_small(database: Db) {
         (join, where_expr) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
-            vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["id", "name", "color", "age"]),
         ),
         gucs in any::<PgGucs>(),
     )| {
@@ -163,7 +171,7 @@ async fn generated_joins_large_limit(database: Db) {
         (join, where_expr) in arb_joins_and_wheres(
             Just(JoinType::Inner),
             tables,
-            vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["id", "name", "color", "age"]),
         ),
         target_list in proptest::sample::subsequence(vec!["id", "name", "color", "age"], 1..=4),
         gucs in any::<PgGucs>(),
@@ -209,15 +217,10 @@ async fn generated_single_relation(database: Db) {
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)], COLUMNS);
     eprintln!("{setup_sql}");
 
-    let where_columns: Vec<_> = COLUMNS
-        .iter()
-        .map(|c| (c.name, c.raw_sample_value()))
-        .collect();
-
     proptest!(|(
         where_expr in arb_wheres(
             vec![table_name],
-            where_columns,
+            COLUMNS,
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
@@ -268,17 +271,17 @@ async fn generated_group_by_aggregates(database: Db) {
     let where_columns: Vec<_> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable)
-        .map(|col| (col.name, col.raw_sample_value()))
+        .cloned()
         .collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            where_columns,
+            &where_columns,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],
-            vec![("age", "20"), ("price", "99.99"), ("rating", "4")]
+            &columns_named(vec!["age", "price", "rating"]),
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
         gucs in any::<PgGucs>(),
@@ -367,7 +370,7 @@ async fn generated_paging_small(database: Db) {
     eprintln!("{setup_sql}");
 
     proptest!(|(
-        where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
+        where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
@@ -446,11 +449,11 @@ async fn generated_subquery(database: Db) {
     proptest!(|(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["name", "color", "age"]),
         ),
         inner_where_expr in arb_wheres(
             vec![inner_table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["name", "color", "age"]),
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),

@@ -32,7 +32,7 @@ use crate::fixtures::db::Query;
 use crate::fixtures::ConnExt;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
-use wheregen::{Expr, SqlValue};
+use wheregen::Expr;
 
 #[derive(Debug, Clone)]
 pub struct BM25Options {
@@ -106,10 +106,6 @@ impl Column {
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
         self
-    }
-
-    pub fn raw_sample_value(&self) -> &str {
-        self.sample_value.trim_matches('\'')
     }
 }
 
@@ -230,19 +226,17 @@ ANALYZE;
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
-pub fn arb_joins_and_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
+pub fn arb_joins_and_wheres(
     join_types: impl Strategy<Value = JoinType> + Clone,
     tables: Vec<impl AsRef<str>>,
-    columns: Vec<(impl AsRef<str>, V)>,
-) -> impl Strategy<Value = (JoinExpr, Expr<V>)> {
+    columns: &[Column],
+) -> impl Strategy<Value = (JoinExpr, Expr)> {
     let table_names = tables
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
         .collect::<Vec<_>>();
-    let columns = columns
-        .into_iter()
-        .map(|(cn, v)| (cn.as_ref().to_string(), v))
-        .collect::<Vec<_>>();
+
+    let columns = columns.to_vec();
 
     // Choose how many tables will be joined.
     (2..=table_names.len())
@@ -256,9 +250,9 @@ pub fn arb_joins_and_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
                 joingen::arb_joins(
                     join_types.clone(),
                     tables.clone(),
-                    columns.iter().map(|(cn, _)| cn.clone()).collect(),
+                    columns.iter().map(|c| c.name.to_owned()).collect(),
                 ),
-                wheregen::arb_wheres(tables.clone(), columns.clone()),
+                wheregen::arb_wheres(tables.clone(), &columns.to_vec()),
             )
         })
 }

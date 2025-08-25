@@ -19,29 +19,21 @@ use std::fmt::{Debug, Display};
 
 use proptest::prelude::*;
 
-pub trait SqlValue {
-    fn to_sql_literal(&self) -> String;
-}
-
-impl<D: Display> SqlValue for D {
-    fn to_sql_literal(&self) -> String {
-        format!("'{}'", self.to_string().replace('\'', "''"))
-    }
-}
+use crate::fixtures::querygen::Column;
 
 #[derive(Clone, Debug)]
-pub enum Expr<V: Clone + Debug + Eq> {
-    Atom(String, V), // column name, literal
-    Not(Box<Expr<V>>),
-    And(Box<Expr<V>>, Box<Expr<V>>),
-    Or(Box<Expr<V>>, Box<Expr<V>>),
+pub enum Expr {
+    Atom(String, String), // column name, literal
+    Not(Box<Expr>),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
 }
 
-impl<V: Clone + Debug + Eq + SqlValue> Expr<V> {
+impl Expr {
     pub fn to_sql(&self, op: &str) -> String {
         match self {
             Expr::Atom(col, v) => {
-                format!("{} {op} {}", col, v.to_sql_literal())
+                format!("{col} {op} {v}")
             }
             Expr::Not(e) => {
                 format!("NOT ({})", e.to_sql(op))
@@ -56,22 +48,19 @@ impl<V: Clone + Debug + Eq + SqlValue> Expr<V> {
     }
 }
 
-pub fn arb_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
-    tables: Vec<impl AsRef<str>>,
-    columns: Vec<(impl AsRef<str>, V)>,
-) -> impl Strategy<Value = Expr<V>> {
+pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Strategy<Value = Expr> {
     let tables = tables
         .into_iter()
         .map(|t| t.as_ref().to_owned())
         .collect::<Vec<_>>();
     let columns = columns
-        .into_iter()
-        .map(|(c, value)| (c.as_ref().to_owned(), value))
+        .iter()
+        .map(|c| (c.name.to_owned(), c.sample_value.to_owned()))
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.
     let atom = proptest::sample::select(tables).prop_flat_map(move |table| {
-        proptest::sample::select::<Expr<V>>(
+        proptest::sample::select::<Expr>(
             columns
                 .iter()
                 .map(|(col, val)| Expr::Atom(format!("{table}.{col}"), val.clone()))

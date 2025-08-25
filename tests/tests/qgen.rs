@@ -32,88 +32,133 @@ use rstest::*;
 use sqlx::{PgConnection, Row};
 
 #[derive(Debug, Clone)]
-enum ColumnDef {
-    Id(i64),
-    Uuid(&'static str),
-    Name(&'static str),
-    Color(&'static str),
-    Age(i64),
-    Price(f64),
-    Rating(i8),
+struct BM25Options {
+    /// "text_fields" or "numeric_fields"
+    field_type: &'static str,
+    /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
+    config_json: &'static str,
 }
 
-impl ColumnDef {
-    fn column_name(&self) -> &'static str {
-        match self {
-            ColumnDef::Id(_) => "id",
-            ColumnDef::Uuid(_) => "uuid",
-            ColumnDef::Name(_) => "name",
-            ColumnDef::Color(_) => "color",
-            ColumnDef::Age(_) => "age",
-            ColumnDef::Price(_) => "price",
-            ColumnDef::Rating(_) => "rating",
+#[derive(Debug, Clone)]
+struct Column {
+    name: &'static str,
+    sql_type: &'static str,
+    sample_value: &'static str,
+    is_primary_key: bool,
+    is_groupable: bool,
+    is_indexed: bool,
+    bm25_options: Option<BM25Options>,
+    random_generator_sql: &'static str,
+}
+
+impl Column {
+    const fn new(name: &'static str, sql_type: &'static str, sample_value: &'static str) -> Self {
+        Self {
+            name,
+            sql_type,
+            sample_value,
+            is_primary_key: false,
+            is_groupable: true,
+            is_indexed: true,
+            bm25_options: None,
+            random_generator_sql: "NULL",
         }
     }
 
-    fn sql_type(&self) -> &'static str {
-        match self {
-            ColumnDef::Id(_) => "SERIAL8",
-            ColumnDef::Uuid(_) => "UUID",
-            ColumnDef::Name(_) => "TEXT",
-            ColumnDef::Color(_) => "VARCHAR",
-            ColumnDef::Age(_) => "INTEGER",
-            ColumnDef::Price(_) => "NUMERIC(10,2)",
-            ColumnDef::Rating(_) => "INTEGER",
-        }
+    const fn primary_key(mut self) -> Self {
+        self.is_primary_key = true;
+        self
     }
 
-    fn is_groupable(&self) -> bool {
-        match self {
-            ColumnDef::Id(_) | ColumnDef::Uuid(_) => {
-                // TODO: Grouping on these columns causes a
-                // `Var in target list not found in grouping columns`.
-                false
-            }
-            ColumnDef::Price(_) => {
-                // TODO: Grouping on f64 fails to ORDER BY (even in cases without an ORDER BY):
-                // ```
-                // Cannot ORDER BY OrderByInfo
-                // ```
-                false
-            }
-            ColumnDef::Name(_) | ColumnDef::Color(_) | ColumnDef::Age(_) | ColumnDef::Rating(_) => {
-                true
-            }
-        }
+    const fn groupable(mut self, is_groupable: bool) -> Self {
+        self.is_groupable = is_groupable;
+        self
     }
 
-    fn value_as_string(&self) -> String {
-        match self {
-            ColumnDef::Id(val) => val.to_string(),
-            ColumnDef::Uuid(val) => val.to_string(),
-            ColumnDef::Name(val) => val.to_string(),
-            ColumnDef::Color(val) => val.to_string(),
-            ColumnDef::Age(val) => val.to_string(),
-            ColumnDef::Price(val) => val.to_string(),
-            ColumnDef::Rating(val) => val.to_string(),
-        }
+    #[allow(dead_code)]
+    const fn indexed(mut self, is_indexed: bool) -> Self {
+        self.is_indexed = is_indexed;
+        self
+    }
+
+    const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "text_fields",
+            config_json,
+        });
+        self
+    }
+
+    const fn bm25_numeric_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "numeric_fields",
+            config_json,
+        });
+        self
+    }
+
+    const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
+        self.random_generator_sql = random_generator_sql;
+        self
+    }
+
+    fn raw_sample_value(&self) -> &str {
+        self.sample_value.trim_matches('\'')
     }
 }
 
-const COLUMNS: &[ColumnDef] = &[
-    ColumnDef::Id(3),
-    ColumnDef::Uuid("550e8400-e29b-41d4-a716-446655440000"),
-    ColumnDef::Name("bob"),
-    ColumnDef::Color("blue"),
-    ColumnDef::Age(20),
-    ColumnDef::Price(99.99),
-    ColumnDef::Rating(4),
+const COLUMNS: &[Column] = &[
+    Column::new("id", "SERIAL8", "4")
+        .primary_key()
+        .groupable({
+            // TODO: Grouping on id/uuid causes:
+            // ```
+            // Var in target list not found in grouping columns
+            // ```
+            false
+        }),
+    Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
+        .groupable({
+            // TODO: Grouping on id/uuid causes:
+            // ```
+            // Var in target list not found in grouping columns
+            // ```
+            false
+        })
+        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
+        .random_generator_sql("gen_random_uuid()"),
+    Column::new("name", "TEXT", "'bob'")
+        .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .random_generator_sql(
+            "(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
+    Column::new("color", "VARCHAR", "'blue'")
+        .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .random_generator_sql(
+            "(ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
+    Column::new("age", "INTEGER", "20")
+        .bm25_numeric_field(r#""age": { "fast": true }"#)
+        .random_generator_sql("(floor(random() * 100) + 1)::int"),
+    Column::new("price", "NUMERIC(10,2)", "99.99")
+        .groupable({
+            // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
+            // ```
+            // Cannot ORDER BY OrderByInfo
+            // ```
+            false
+        })
+        .bm25_numeric_field(r#""price": { "fast": true }"#)
+        .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
+    Column::new("rating", "INTEGER", "4")
+        .bm25_numeric_field(r#""rating": { "fast": true }"#)
+        .random_generator_sql("(floor(random() * 5) + 1)::int"),
 ];
 
 fn generated_queries_setup(
     conn: &mut PgConnection,
     tables: &[(&str, usize)],
-    columns_def: &[ColumnDef],
+    columns_def: &[Column],
 ) -> String {
     "CREATE EXTENSION pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
@@ -123,65 +168,95 @@ fn generated_queries_setup(
     let column_definitions = columns_def
         .iter()
         .map(|col| {
-            if col.column_name() == "id" {
-                return format!(
-                    "{} {} NOT NULL PRIMARY KEY",
-                    col.column_name(),
-                    col.sql_type()
-                );
+            if col.is_primary_key {
+                format!("{} {} NOT NULL PRIMARY KEY", col.name, col.sql_type)
+            } else {
+                format!("{} {}", col.name, col.sql_type)
             }
-            format!("{} {}", col.column_name(), col.sql_type())
         })
         .collect::<Vec<_>>()
         .join(", \n");
 
+    // For bm25 index
+    let bm25_columns = columns_def
+        .iter()
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let key_field = columns_def
+        .iter()
+        .find(|c| c.is_primary_key)
+        .map(|c| c.name)
+        .expect("At least one column must be a primary key");
+
+    let text_fields = columns_def
+        .iter()
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "text_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
+    let numeric_fields = columns_def
+        .iter()
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "numeric_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
+    // For INSERT statements
+    let insert_columns = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sample_values = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.sample_value)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let random_generators = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.random_generator_sql)
+        .collect::<Vec<_>>()
+        .join(",\n      ");
+
     for (tname, row_count) in tables {
         let sql = format!(
             r#"
-CREATE TABLE {tname}
-(
-        {column_definitions}
+CREATE TABLE {tname} (
+    {column_definitions}
 );
-
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age, price, rating)
-WITH (
-key_field = 'id',
-text_fields = '
-            {{
-                "uuid": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
-            }}',
-numeric_fields = '
-            {{
-                "age": {{ "fast": true }},
-                "price": {{ "fast": true }},
-                "rating": {{ "fast": true }}
-            }}'
+CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
+    key_field = '{key_field}',
+    text_fields = '{{ {text_fields} }}',
+    numeric_fields = '{{ {numeric_fields} }}'
 );
 
-INSERT into {tname} (uuid, name, color, age, price, rating)
-VALUES (gen_random_uuid(), 'bob', 'blue', 20, 99.99, 4);
+INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
-INSERT into {tname} (uuid, name, color, age, price, rating)
-SELECT
-      gen_random_uuid(),
-      (ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
-      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int,
-      (random() * 1000 + 10)::numeric(10,2),
-      (floor(random() * 5) + 1)::int
-FROM generate_series(1, {row_count});
+INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {row_count});
 
-CREATE INDEX idx{tname}_uuid ON {tname} (uuid);
-CREATE INDEX idx{tname}_name ON {tname} (name);
-CREATE INDEX idx{tname}_color ON {tname} (color);
-CREATE INDEX idx{tname}_age ON {tname} (age);
-CREATE INDEX idx{tname}_price ON {tname} (price);
-CREATE INDEX idx{tname}_rating ON {tname} (rating);
+{b_tree_indexes}
+
 ANALYZE;
-"#
+"#,
+            b_tree_indexes = columns_def
+                .iter()
+                .filter(|c| c.is_indexed)
+                .map(|c| format!(
+                    "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
+                    name = c.name
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
 
         (&sql).execute(conn);
@@ -199,7 +274,13 @@ ANALYZE;
 #[tokio::test]
 async fn generated_joins_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -245,7 +326,13 @@ async fn generated_joins_small(database: Db) {
 #[tokio::test]
 async fn generated_joins_large_limit(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -293,7 +380,13 @@ async fn generated_joins_large_limit(database: Db) {
 #[tokio::test]
 async fn generated_single_relation(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -301,10 +394,15 @@ async fn generated_single_relation(database: Db) {
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)], COLUMNS);
     eprintln!("{setup_sql}");
 
+    let where_columns: Vec<_> = COLUMNS
+        .iter()
+        .map(|c| (c.name, c.raw_sample_value()))
+        .collect();
+
     proptest!(|(
         where_expr in arb_wheres(
             vec![table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            where_columns,
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
@@ -331,7 +429,13 @@ async fn generated_single_relation(database: Db) {
 #[tokio::test]
 async fn generated_group_by_aggregates(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -342,19 +446,20 @@ async fn generated_group_by_aggregates(database: Db) {
     // Columns that can be used for grouping (must have fast: true in index)
     let grouping_columns: Vec<_> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable())
-        .map(|col| col.column_name())
+        .filter(|col| col.is_groupable)
+        .map(|col| col.name)
         .collect();
 
-    let column_data: Vec<(&str, String)> = COLUMNS
+    let where_columns: Vec<_> = COLUMNS
         .iter()
-        .map(|col| (col.column_name(), col.value_as_string()))
+        .filter(|col| col.is_groupable)
+        .map(|col| (col.name, col.raw_sample_value()))
         .collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            column_data,
+            where_columns,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],
@@ -432,7 +537,13 @@ async fn generated_group_by_aggregates(database: Db) {
 #[tokio::test]
 async fn generated_paging_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -465,7 +576,13 @@ async fn generated_paging_small(database: Db) {
 #[tokio::test]
 async fn generated_paging_large(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -492,7 +609,13 @@ async fn generated_paging_large(database: Db) {
 #[tokio::test]
 async fn generated_subquery(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 

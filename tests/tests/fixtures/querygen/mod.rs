@@ -262,6 +262,7 @@ pub struct PgGucs {
     aggregate_custom_scan: bool,
     custom_scan: bool,
     custom_scan_without_operator: bool,
+    filter_pushdown: bool,
     seqscan: bool,
     indexscan: bool,
     parallel_workers: bool,
@@ -273,6 +274,7 @@ impl Default for PgGucs {
             aggregate_custom_scan: false,
             custom_scan: false,
             custom_scan_without_operator: false,
+            filter_pushdown: false,
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
@@ -286,6 +288,7 @@ impl PgGucs {
             aggregate_custom_scan,
             custom_scan,
             custom_scan_without_operator,
+            filter_pushdown,
             seqscan,
             indexscan,
             parallel_workers,
@@ -298,6 +301,7 @@ impl PgGucs {
             SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};
             SET paradedb.enable_custom_scan TO {custom_scan};
             SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};
+            SET paradedb.enable_filter_pushdown TO {filter_pushdown};
             SET enable_seqscan TO {seqscan};
             SET enable_indexscan TO {indexscan};
             SET max_parallel_workers TO {max_parallel_workers};

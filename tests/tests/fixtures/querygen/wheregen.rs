@@ -23,26 +23,35 @@ use crate::fixtures::querygen::Column;
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Atom(String, String), // column name, literal
+    Atom {
+        name: String,
+        value: String,
+        is_indexed: bool,
+    },
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
     Or(Box<Expr>, Box<Expr>),
 }
 
 impl Expr {
-    pub fn to_sql(&self, op: &str) -> String {
+    pub fn to_sql(&self, indexed_op: &str) -> String {
         match self {
-            Expr::Atom(col, v) => {
-                format!("{col} {op} {v}")
+            Expr::Atom {
+                name,
+                value,
+                is_indexed,
+            } => {
+                let op = if *is_indexed { indexed_op } else { " = " };
+                format!("{name} {op} {value}")
             }
             Expr::Not(e) => {
-                format!("NOT ({})", e.to_sql(op))
+                format!("NOT ({})", e.to_sql(indexed_op))
             }
             Expr::And(l, r) => {
-                format!("({}) AND ({})", l.to_sql(op), r.to_sql(op))
+                format!("({}) AND ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
             }
             Expr::Or(l, r) => {
-                format!("({}) OR ({})", l.to_sql(op), r.to_sql(op))
+                format!("({}) OR ({})", l.to_sql(indexed_op), r.to_sql(indexed_op))
             }
         }
     }
@@ -55,7 +64,7 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         .collect::<Vec<_>>();
     let columns = columns
         .iter()
-        .map(|c| (c.name.to_owned(), c.sample_value.to_owned()))
+        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.
@@ -63,7 +72,11 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         proptest::sample::select::<Expr>(
             columns
                 .iter()
-                .map(|(col, val)| Expr::Atom(format!("{table}.{col}"), val.clone()))
+                .map(|(col, val, is_indexed)| Expr::Atom {
+                    name: format!("{table}.{col}"),
+                    value: val.clone(),
+                    is_indexed: *is_indexed,
+                })
                 .collect::<Vec<_>>(),
         )
     });

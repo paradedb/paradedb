@@ -37,18 +37,14 @@ const COLUMNS: &[Column] = &[
     Column::new("id", "SERIAL8", "'4'")
         .primary_key()
         .groupable({
-            // TODO: Grouping on id/uuid causes:
-            // ```
-            // Var in target list not found in grouping columns
-            // ```
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
             false
         }),
     Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
         .groupable({
-            // TODO: Grouping on id/uuid causes:
-            // ```
-            // Var in target list not found in grouping columns
-            // ```
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
             false
         })
         .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
@@ -77,6 +73,15 @@ const COLUMNS: &[Column] = &[
         .bm25_numeric_field(r#""price": { "fast": true }"#)
         .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
     Column::new("rating", "INTEGER", "'4'")
+        .indexed({
+            // Marked un-indexed in order to test heap-filter pushdown.
+            false
+        })
+        .groupable({
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
+            false
+        })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
 ];
@@ -449,11 +454,11 @@ async fn generated_subquery(database: Db) {
     proptest!(|(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
-            &columns_named(vec!["name", "color", "age"]),
+            COLUMNS,
         ),
         inner_where_expr in arb_wheres(
             vec![inner_table_name],
-            &columns_named(vec!["name", "color", "age"]),
+            COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),

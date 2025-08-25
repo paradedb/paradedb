@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756146502740,
+  "lastUpdate": 1756147146705,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8844,6 +8844,42 @@ window.BENCHMARK_DATA = {
             "value": 151.10806278493897,
             "unit": "median tps",
             "extra": "avg tps: 150.17614688167515, max tps: 153.1682632865189, count: 57815"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63f8cdc8a048cd896087e9de9ae429c1934fbb5d",
+          "message": "fix: Remove the string/numeric classification from fast fields explain (#3019)\n\n## What\n\nRemove the string/numeric classification from MixedFastFields explain.\n\n## Why\n\nThe distinction is no longer actually used in the scan implementation,\nand it can be confusing when the field being projected from is actually\ne.g. a JSON field with nested/dynamic columns for the subtypes.",
+          "timestamp": "2025-08-25T10:59:27-07:00",
+          "tree_id": "b67ebb1850debf3ad52031247220f30f60dfd572",
+          "url": "https://github.com/paradedb/paradedb/commit/63f8cdc8a048cd896087e9de9ae429c1934fbb5d"
+        },
+        "date": 1756147145526,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 30.18451957156361,
+            "unit": "median tps",
+            "extra": "avg tps: 30.053264710500407, max tps: 30.493574030293964, count: 57906"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 149.9365585010159,
+            "unit": "median tps",
+            "extra": "avg tps: 149.0892912135121, max tps: 152.5838309727801, count: 57906"
           }
         ]
       }

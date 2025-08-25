@@ -989,13 +989,16 @@ SELECT
 FROM products
 WHERE
   (products.id @@@ paradedb.all())
-  AND (products.name ILIKE ANY (array['%Socks%']))
-  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 1978) OR products.id < 1978 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 1978))
+  AND (products.name ILIKE ANY (array['%Nike%', '%Adidas%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
  id 
 ----
-(0 rows)
+  6
+  5
+  3
+(3 rows)
 
 -- Test Case 19.2: Test that nested heap filters are solved.
 SELECT
@@ -1003,12 +1006,15 @@ SELECT
 FROM products
 WHERE
   (products.id @@@ paradedb.all())
-  AND (products.name ILIKE ANY (array['%Socks%']))
-  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
+  AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
  id 
 ----
-(0 rows)
+  7
+  4
+  1
+(3 rows)
 
 RESET paradedb.enable_filter_pushdown;

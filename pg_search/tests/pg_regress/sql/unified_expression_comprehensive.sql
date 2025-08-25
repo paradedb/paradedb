@@ -623,8 +623,8 @@ SELECT
 FROM products
 WHERE
   (products.id @@@ paradedb.all())
-  AND (products.name ILIKE ANY (array['%Socks%']))
-  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 1978) OR products.id < 1978 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 1978))
+  AND (products.name ILIKE ANY (array['%Nike%', '%Adidas%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
 
@@ -634,8 +634,8 @@ SELECT
 FROM products
 WHERE
   (products.id @@@ paradedb.all())
-  AND (products.name ILIKE ANY (array['%Socks%']))
-  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
+  AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
 

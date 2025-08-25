@@ -426,12 +426,10 @@ WHERE description @@@ 'laptop';
                Table: products
                Index: products_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: category, price
-               String Fast Fields: category
-               Numeric Fast Fields: price
+               Fast Fields: price, category
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(13 rows)
 
 SELECT COUNT(DISTINCT category), SUM(price)
 FROM products 

@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 pub mod heap_field_filter;
-pub mod iter_mut;
 mod more_like_this;
 pub mod pdb_query;
 pub(crate) mod proximity;
@@ -351,6 +350,61 @@ impl SearchQueryInput {
             // For other query types, we can't easily extract field names
             // This is a conservative approach - if we can't determine, we allow it
             _ => {}
+        }
+    }
+
+    pub fn visit(&mut self, visitor: &mut impl FnMut(&mut SearchQueryInput)) {
+        // Visit this node.
+        visitor(self);
+        // Then recurse on its children.
+        match self {
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                for q in must_not {
+                    q.visit(visitor);
+                }
+                for q in should {
+                    q.visit(visitor);
+                }
+                for q in must {
+                    q.visit(visitor);
+                }
+            }
+            SearchQueryInput::Boost { query, .. } => {
+                query.visit(visitor);
+            }
+            SearchQueryInput::ConstScore { query, .. } => {
+                query.visit(visitor);
+            }
+            SearchQueryInput::ScoreFilter { query, .. } => {
+                query
+                    .as_mut()
+                    .expect("ScoreFilter's query should have been set")
+                    .visit(visitor);
+            }
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                for q in disjuncts {
+                    q.visit(visitor);
+                }
+            }
+            SearchQueryInput::WithIndex { query, .. } => {
+                query.visit(visitor);
+            }
+            SearchQueryInput::HeapFilter { indexed_query, .. } => {
+                indexed_query.visit(visitor);
+            }
+
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::MoreLikeThis { .. }
+            | SearchQueryInput::Parse { .. }
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. }
+            | SearchQueryInput::FieldedQuery { .. } => {}
         }
     }
 }

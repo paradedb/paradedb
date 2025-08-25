@@ -4,22 +4,23 @@ use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
 
 impl SearchQueryInput {
     pub fn has_postgres_expressions(&mut self) -> bool {
-        for sqi in self {
+        let mut found = false;
+        self.visit(&mut |sqi| {
             if matches!(sqi, SearchQueryInput::PostgresExpression { .. }) {
-                return true;
+                found = true;
             }
-        }
-        false
+        });
+        found
     }
 
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
-        for sqi in self {
+        self.visit(&mut |sqi| {
             if let SearchQueryInput::PostgresExpression { expr } = sqi {
                 expr.init(planstate);
                 cnt += 1;
             }
-        }
+        });
         cnt
     }
 
@@ -33,13 +34,13 @@ impl SearchQueryInput {
 
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
-                for sqi in self {
+                self.visit(&mut |sqi| {
                     if let SearchQueryInput::PostgresExpression { expr } = sqi {
                         *sqi = expr
                             .solve(expr_context, sqi_typoid)
                             .expect("PostgresExpression should not evaluate to NULL");
                     }
-                }
+                });
             })
         }
     }

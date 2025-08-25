@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756149455332,
+  "lastUpdate": 1756149457523,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10508,6 +10508,66 @@ window.BENCHMARK_DATA = {
             "value": 165.57421875,
             "unit": "median mem",
             "extra": "avg mem: 154.93311803288952, max mem: 174.375, count: 57906"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d05f85a38d70d440f3f070d38cbcd0ba42c3132",
+          "message": "fix: Remove the string/numeric classification from fast fields explain (#3044)\n\n## What\n\nRemove the string/numeric classification from MixedFastFields explain.\n\n## Why\n\nThe distinction is no longer actually used in the scan implementation,\nand it can be confusing when the field being projected from is actually\ne.g. a JSON field with nested/dynamic columns for the subtypes.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T11:37:54-07:00",
+          "tree_id": "0446523b383d001cc4ea4496af1b532654eaa621",
+          "url": "https://github.com/paradedb/paradedb/commit/4d05f85a38d70d440f3f070d38cbcd0ba42c3132"
+        },
+        "date": 1756149456357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.713451,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.636474656758732, max cpu: 47.33728, count: 57334"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 174.32382024900147, max mem: 179.18359375, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18874,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17433.21153242404, max block_count: 23485.0, count: 57334"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 35,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 37.92568109673143, max segment_count: 102.0, count: 57334"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.338522,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.163330677018171, max cpu: 37.137333, count: 57334"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.37830648862368, max mem: 179.2578125, count: 57334"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756163541373,
+  "lastUpdate": 1756163543612,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8788,6 +8788,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.741862080944934, max segment_count: 71.0, count: 57570"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "japhethobalak@gmail.com",
+            "name": "Japheth Obala",
+            "username": "jobala"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6636277e6c81e239569461c8cf4a0a65ff954dc1",
+          "message": "chore(groupby): add more column types (#2935)\n\n# Ticket(s) Closed\n\n-  Fixes the `groupby` component of  #2903 \n\n## What\n\nAdds `FLOAT8` and `BOOLEAN` column types to generated sql in `qgen.rs` \n\n## Why\n\nTo Increase test coverage for\nhttps://github.com/paradedb/paradedb/pull/2893\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-08-25T14:41:23-07:00",
+          "tree_id": "fde5c1236cde19c68b4ed4e977571490d7d6ad3f",
+          "url": "https://github.com/paradedb/paradedb/commit/6636277e6c81e239569461c8cf4a0a65ff954dc1"
+        },
+        "date": 1756163542441,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.010548,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.1422663202287, max cpu: 42.942345, count: 57941"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 231.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 228.83333241195785, max mem: 235.14453125, count: 57941"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.26162629576086, max cpu: 33.267326, count: 57941"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 159.99272407761774, max mem: 162.2890625, count: 57941"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23651,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21992.822888800678, max block_count: 24967.0, count: 57941"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 48.86748589081997, max segment_count: 71.0, count: 57941"
           }
         ]
       }

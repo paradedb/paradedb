@@ -346,10 +346,9 @@ WHERE content @@@ 'Socienty';
          Index: pages_search
          Exec Method: MixedFastFieldExecState
          Fast Fields: page_number
-         Numeric Fast Fields: page_number
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(8 rows)
 
 -- Test other aggregations
 SELECT 

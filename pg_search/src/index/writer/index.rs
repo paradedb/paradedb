@@ -19,7 +19,7 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
-use tantivy::indexer::{AddOperation, SegmentWriter};
+use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
     Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
@@ -351,7 +351,13 @@ impl Mergeable for SearchIndexMerger {
             "segment was already merged by this merger instance"
         );
 
-        let mut writer: IndexWriter = self.index.writer(15 * 1024 * 1024)?;
+        let mut writer: IndexWriter = self.index.writer_with_options(
+            IndexWriterOptions::builder()
+                .memory_budget_per_thread(15 * 1024 * 1024)
+                .num_merge_threads(0)
+                .num_worker_threads(0)
+                .build(),
+        )?;
         let new_segment = writer.merge_foreground(segment_ids, true)?;
         unsafe {
             // SAFETY:  The important thing here is that these segments are not used in any way

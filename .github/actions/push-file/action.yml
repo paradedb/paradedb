@@ -1,5 +1,4 @@
-name: "Commit and Push File"
-
+name: Commit and Push File
 description: Checks out the specified remote repository, stages the provided file, commits it if there are changes, and pushes to the given branch.
 
 inputs:
@@ -40,7 +39,7 @@ runs:
       shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
-        git config user.name "ParadeDB push file action"
+        git config user.name "ParadeDB GitHub Actions"
         git config user.email "developers@paradedb.com"
 
     - name: Stage changes

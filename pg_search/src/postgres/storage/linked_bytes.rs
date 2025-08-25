@@ -144,7 +144,6 @@ impl LinkedBytesListWriter {
         let mut header_page = header_buffer.page_mut();
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.last_blockno = self.last_blockno;
-        metadata.npages += 1;
 
         if let Some(blockno) = self.blocklist_builder.finish(&mut self.list.bman) {
             metadata.blocklist_start = blockno;
@@ -256,7 +255,6 @@ impl LinkedBytesList {
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 1;
         metadata.blocklist_start = pg_sys::InvalidBlockNumber;
 
         header_blockno
@@ -279,7 +277,6 @@ impl LinkedBytesList {
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 1;
         metadata.blocklist_start = pg_sys::InvalidBlockNumber;
 
         Self {

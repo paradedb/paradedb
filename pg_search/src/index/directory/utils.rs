@@ -66,6 +66,12 @@ pub unsafe fn save_new_metas(
         .map(|s| s.id())
         .collect::<HashSet<_>>();
 
+    pgrx::debug1!(
+        "entered save_new_metas with {} new ids and {} previous ids",
+        new_ids.len(),
+        previous_ids.len()
+    );
+
     // first, reorganize the directory_entries by segment id
     let mut new_files =
         HashMap::<SegmentId, HashMap<SegmentComponent, (FileEntry, PathBuf)>>::default();
@@ -278,10 +284,12 @@ pub unsafe fn save_new_metas(
             // ... and add it to somewhere in the list, starting on this page
             linked_list.add_items(&[entry], Some(buffer));
         }
+        pgrx::debug1!("MODIFY: {entry:?}");
     }
 
     // add the new entries -- happens via an index commit or the result of a merge
     if !created_entries.is_empty() {
+        pgrx::debug1!("CREATE: {created_entries:?}");
         linked_list.add_items(&created_entries, None);
     }
 
@@ -333,6 +341,7 @@ pub unsafe fn load_metas(
 
     let is_largest_only = &MvccSatisfies::LargestSegment == solve_mvcc;
     let mut largest_doc_count = 0;
+
     loop {
         // Find all relevant segments in this list.
         segment_metas.for_each(|bman, entry| {
@@ -404,6 +413,12 @@ pub unsafe fn load_metas(
                     }
                 }
 
+                // TODO:  I believe this situation, where if the alive_entries.len() != only_these.len() is now dead code
+                //        @Stu asked to keep this around for awhile.  If there's ever a situation where `alive_entries` has
+                //        fewer entries than `only_these` then we should cancel the query, but it'd be indicative of a bug
+                //
+                // TODO (after some testing):  This situation does indeed happen and I believe that points to a bug, but
+                //        I don't know where it's coming from.  As such, cancelling the query is the expedient decision.
                 let missing = only_these
                     .difference(&alive_entries.iter().map(|s| s.segment_id).collect())
                     .cloned()

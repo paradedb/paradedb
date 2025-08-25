@@ -344,8 +344,8 @@ WHERE content @@@ 'Socienty';
    ->  Custom Scan (ParadeDB Scan) on pages
          Table: pages
          Index: pages_search
-         Exec Method: NumericFastFieldExecState
-         Fast Fields: junk(avg_page), junk(count), junk(max_page), junk(min_page), page_number
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: page_number
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
 (8 rows)

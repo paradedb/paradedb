@@ -1,7 +1,7 @@
 # workflows/test-pg_search-docker.yml
 #
 # Test pg_search Docker
-# Test building the ParadeDB Docker Image using Docker Compose.
+# Test building and running the ParadeDB Docker Image using Docker Compose.
 
 name: Test pg_search Docker
 
@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - 0.*.x
+      - 0.*.x # Release branches
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
@@ -91,7 +91,7 @@ jobs:
             -e POSTGRES_PASSWORD=mypassword \
             -e POSTGRES_DB=mydatabase \
             -p 5432:5432 \
-            --tmpfs /tmp \
+            --tmpfs /var/lib/postgresql/data:size=1G \
             paradedb/paradedb:latest
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
@@ -102,6 +102,10 @@ jobs:
           CONTAINER_STATUS=$(docker inspect -f '{{.State.Status}}' $CONTAINER_ID)
           echo "paradedb container ID: $CONTAINER_ID"
           echo "Container status: $CONTAINER_STATUS"
+
+          echo ""
+          echo "Sleeping 30 seconds to give Postgres the time to fully initialize and run initdb..."
+          sleep 30
 
           echo ""
           echo "Printing logs for the ParadeDB Docker container..."
@@ -118,6 +122,15 @@ jobs:
             echo "Error: ParadeDB Docker container logs contain an error"
             exit 1
           fi
+
+      # Useful for debugging discrepancies between local and remote ParadeDB Docker images
+      - name: Print the ParadeDB Docker Image History
+        run: docker history paradedb/paradedb:latest
+
+      - name: Print the ParadeDB Docker Image Permissions
+        run: |
+          docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
+          docker rm temp-inspect-paradedb
 
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
         if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'

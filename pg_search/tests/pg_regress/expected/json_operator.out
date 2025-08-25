@@ -44,11 +44,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
@@ -71,11 +70,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
@@ -100,11 +98,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"exists":{"field":"metadata.price"}}]}}
-(10 rows)
+(9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'price' as price FROM mock_items
@@ -129,11 +126,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"metadata.price"}}]}}]}}
-(10 rows)
+(9 rows)
 
 -- should be pushed down
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
@@ -158,11 +154,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"metadata.in_stock","value":true,"is_datetime":false}}]}}
-(10 rows)
+(9 rows)
 
 -- without keyword, we can't push down to term set
 SELECT description, metadata->>'color', metadata->>'in_stock' as in_stock FROM mock_items
@@ -189,9 +184,9 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
+         Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 98 :opfuncid 67 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 100 :args ({OPEXPR :opno 3477 :opfuncid 3214 :opresulttype 25 :opretset false :opcollid 100 :inputcollid 100 :args ({VAR :varno 1 :varattno 6 :vartype 3802 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 6 :location -1} {CONST :consttype 25 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 9 [ 36 0 0 0 99 111 108 111 114 ]}) :location -1} {CONST :consttype 1009 :consttypmod -1 :constcollid 100 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 48 [ -64 0 0 0 1 0 0 0 0 0 0 0 25 0 0 0 2 0 0 0 1 0 0 0 36 0 0 0 119 104 105 116 101 0 0 0 36 0 0 0 98 108 97 99 107 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 98"}]}}]}}
 (10 rows)
 
@@ -218,11 +213,10 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"metadata.price","value":80,"is_datetime":false},{"field":"metadata.price","value":100,"is_datetime":false},{"field":"metadata.price","value":120,"is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
-(10 rows)
+(9 rows)
 
 -- CASE 2: fast, keyword tokenizer
 ALTER INDEX search_idx SET (json_fields='{"metadata": {"fast": true, "tokenizer": {"type": "keyword"}}}');
@@ -240,10 +234,9 @@ ORDER BY id LIMIT 5;
          Index: search_idx
          Exec Method: TopNScanExecState
          Scores: false
-            Sort Field: id
-            Sort Direction: asc
-            Top N Limit: 5
+            TopN Order By: id asc
+            TopN Limit: 5
          Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"metadata.color","value":"white","is_datetime":false},{"field":"metadata.color","value":"black","is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
-(10 rows)
+(9 rows)
 
 DROP TABLE mock_items;

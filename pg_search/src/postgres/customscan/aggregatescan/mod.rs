@@ -26,20 +26,22 @@ use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::privdat::{
-    AggregateType, GroupingColumn, PrivateData, TargetListEntry,
+    AggregateType, AggregateValue, GroupingColumn, PrivateData, TargetListEntry,
 };
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, GroupedAggregateRow,
 };
 use crate::postgres::customscan::builders::custom_path::{
-    restrict_info, CustomPathBuilder, OrderByInfo, OrderByStyle, RestrictInfoType,
+    restrict_info, CustomPathBuilder, OrderByStyle, RestrictInfoType,
 };
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::pdbscan::extract_pathkey_styles_with_sortability_check;
+use crate::postgres::customscan::pdbscan::{
+    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
+};
 use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState};
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
@@ -47,11 +49,11 @@ use crate::postgres::customscan::{
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-
 use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
 #[derive(Default)]
@@ -66,7 +68,7 @@ impl CustomScan for AggregateScan {
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
 
-        // We can only handle single relations.
+        // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
             return None;
         }
@@ -86,15 +88,20 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
+        // Check for DISTINCT - we can't handle DISTINCT queries
+        unsafe {
+            let parse = args.root().parse;
+            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
+                return None;
+            }
+        }
+
         // Extract grouping columns if present
         let group_pathkeys = if args.root().group_pathkeys.is_null() {
             None
         } else {
             Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
         };
-
-        // Is the target list entirely aggregates?
-        let aggregate_types = extract_aggregates(args)?;
 
         // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
@@ -124,9 +131,12 @@ impl CustomScan for AggregateScan {
             vec![]
         };
 
+        // Extract and validate aggregates - must have schema for field validation
+        let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
+
         // Extract ORDER BY pathkeys if present
-        let order_pathkeys = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let order_by_info = OrderByInfo::extract_order_by_info(args.root, &order_pathkeys);
+        let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
+        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -143,9 +153,16 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
+        // Check if any GROUP BY field is also being searched (conflicts with Tantivy aggregation)
+        // Tantivy cannot handle having aggregate function columns in the GROUP BY clause (e.g.,
+        // 'SELECT AVG(rating) FROM products GROUP BY rating').
+        if has_search_field_conflicts(&grouping_columns, &query) {
+            return None;
+        }
+
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
-        if let Some(ref pathkeys) = order_pathkeys {
+        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
             for pathkey_style in pathkeys {
                 builder = builder.add_path_key(pathkey_style);
             }
@@ -157,7 +174,7 @@ impl CustomScan for AggregateScan {
             heap_rti,
             query,
             grouping_columns,
-            order_by_info,
+            orderby_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
         }))
     }
@@ -199,11 +216,35 @@ impl CustomScan for AggregateScan {
                     let te = pg_sys::flatCopyTargetEntry(input_te);
                     (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
                     te
+                } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
+                    // This might be a JSON operator expression - verify and find matching grouping column
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    let (var, field_name) = find_one_var_and_fieldname(
+                        var_context,
+                        (*input_te).expr as *mut pg_sys::Node,
+                    )
+                    .expect("OpExpr in target list is not a recognized JSON operator expression");
+
+                    // Find which grouping column this expression matches
+                    let mut found_idx = None;
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        if (*var).varattno == gc.attno && gc.field_name == field_name.to_string() {
+                            found_idx = Some(i);
+                            break;
+                        }
+                    }
+
+                    let idx = found_idx.expect(
+                        "OpExpr in target list does not match any detected grouping column",
+                    );
+                    target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
+                    // Keep it as-is
+                    pg_sys::flatCopyTargetEntry(input_te)
                 } else {
-                    // For now, we only support Vars (grouping cols) and Aggrefs
-                    todo!(
-                        "Support other target list entry types: {:?}",
-                        (*input_te).expr
+                    // Other expression types we don't support yet
+                    panic!(
+                        "Unsupported target list entry type: node tag {:?}",
+                        (*(*input_te).expr).type_
                     );
                 }
             };
@@ -225,7 +266,7 @@ impl CustomScan for AggregateScan {
     ) -> *mut CustomScanStateWrapper<Self> {
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
-        builder.custom_state().order_by_info = builder.custom_private().order_by_info.clone();
+        builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
         builder.custom_state().target_list_mapping =
             builder.custom_private().target_list_mapping.clone();
         builder.custom_state().indexrelid = builder.custom_private().indexrelid;
@@ -305,9 +346,8 @@ impl CustomScan for AggregateScan {
                 "Target list mapping length mismatch"
             );
 
-            (*slot).tts_flags &= !pg_sys::TTS_FLAG_EMPTY as u16;
-            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
-            (*slot).tts_nvalid = natts as _;
+            // Simple slot setup
+            pg_sys::ExecClearTuple(slot);
 
             let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
             let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
@@ -316,37 +356,31 @@ impl CustomScan for AggregateScan {
             for (i, entry) in target_list_mapping.iter().enumerate() {
                 match entry {
                     &TargetListEntry::GroupingColumn(gc_idx) => {
-                        let group_val = &row.group_keys[gc_idx];
-
-                        // Get the type of this column from the tuple descriptor
+                        let group_val = row.group_keys[gc_idx].clone();
                         let attr = tupdesc.get(i).expect("missing attribute");
                         let typoid = attr.type_oid().value();
 
-                        // Convert the OwnedValue to TantivyValue and then to datum
-                        let oid = pgrx::PgOid::from(typoid);
-                        let tantivy_value = TantivyValue(group_val.clone());
-                        match tantivy_value.try_into_datum(oid) {
-                            Ok(Some(datum)) => {
-                                datums[i] = datum;
-                            }
-                            Ok(None) => {
-                                // NULL value
-                                datums[i] = pg_sys::Datum::from(0);
-                                isnull[i] = true;
-                                continue;
-                            }
-                            Err(e) => {
-                                panic!("Failed to convert TantivyValue to datum: {e:?}");
-                            }
-                        }
-                        isnull[i] = false;
+                        let (datum, is_null) = convert_group_value_to_datum(group_val, typoid);
+                        datums[i] = datum;
+                        isnull[i] = is_null;
                     }
                     TargetListEntry::Aggregate(agg_idx) => {
-                        datums[i] = row.aggregate_values[*agg_idx].into_datum().unwrap();
-                        isnull[i] = false;
+                        let agg_value = &row.aggregate_values[*agg_idx];
+                        let attr = tupdesc.get(i).expect("missing attribute");
+                        let expected_typoid = attr.type_oid().value();
+
+                        let (datum, is_null) =
+                            convert_aggregate_value_to_datum(agg_value, expected_typoid);
+                        datums[i] = datum;
+                        isnull[i] = is_null;
                     }
                 }
             }
+
+            // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
+            (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+            (*slot).tts_flags |= pg_sys::TTS_FLAG_SHOULDFREE as u16;
+            (*slot).tts_nvalid = natts as i16;
 
             slot
         }
@@ -355,6 +389,62 @@ impl CustomScan for AggregateScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+}
+
+/// Convert a group value (OwnedValue) to a PostgreSQL Datum
+unsafe fn convert_group_value_to_datum(
+    group_val: OwnedValue,
+    typoid: pg_sys::Oid,
+) -> (pg_sys::Datum, bool) {
+    let oid = pgrx::PgOid::from(typoid);
+    let tantivy_value = TantivyValue(group_val);
+    match tantivy_value.try_into_datum(oid) {
+        Ok(Some(datum)) => (datum, false),
+        Ok(None) => (pg_sys::Datum::from(0), true),
+        Err(e) => {
+            panic!("Failed to convert TantivyValue to datum: {e:?}");
+        }
+    }
+}
+
+/// Convert an AggregateValue to a PostgreSQL Datum using TantivyValue's conversion infrastructure
+fn convert_aggregate_value_to_datum(
+    agg_value: &AggregateValue,
+    expected_typoid: pg_sys::Oid,
+) -> (pg_sys::Datum, bool) {
+    // Convert AggregateValue to OwnedValue
+    let owned_value = match agg_value {
+        AggregateValue::Null => OwnedValue::Null,
+        AggregateValue::Int(val) => OwnedValue::I64(*val),
+        AggregateValue::Float(val) => OwnedValue::F64(*val),
+    };
+
+    // Determine the best target type for conversion
+    // For numeric compatibility, prefer wider types when converting floats to integer types
+    let target_oid = match (&owned_value, expected_typoid) {
+        // For null values, use the expected type
+        (OwnedValue::Null, _) => expected_typoid,
+
+        // For integer values, use the expected type directly
+        (OwnedValue::I64(_), _) => expected_typoid,
+
+        // For float values, be more lenient with integer target types
+        (OwnedValue::F64(_), pg_sys::INT2OID) => pg_sys::INT8OID, // Use BIGINT instead of SMALLINT
+        (OwnedValue::F64(_), pg_sys::INT4OID) => pg_sys::INT8OID, // Use BIGINT instead of INTEGER
+        (OwnedValue::F64(_), _) => expected_typoid,               // Keep other types as-is
+
+        // Default case
+        _ => expected_typoid,
+    };
+
+    let tantivy_value = TantivyValue(owned_value);
+    unsafe {
+        match tantivy_value.try_into_datum(pgrx::PgOid::from(target_oid)) {
+            Ok(Some(datum)) => (datum, false),
+            Ok(None) => (pg_sys::Datum::null(), true),
+            Err(e) => (pg_sys::Datum::null(), true),
+        }
+    }
 }
 
 /// Extract grouping columns from pathkeys and validate they are fast fields
@@ -375,31 +465,44 @@ fn extract_grouping_columns(
             for member in members.iter_ptr() {
                 let expr = (*member).em_expr;
 
-                // We only support simple Var expressions for now
-                let Some(var) = nodecast!(Var, T_Var, expr) else {
+                // Create VarContext for field extraction
+                let var_context = VarContext::from_planner(root);
+
+                // Try to extract field name and variable info
+                let (field_name, attno) = if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    // JSON operator expression or complex field access
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
+                    (field_name.to_string(), attno)
+                } else if let Some(var) = nodecast!(Var, T_Var, expr) {
+                    // Simple Var - extract field name from attribute
+                    let (heaprelid, attno, _) = find_var_relation(var, root);
+                    if heaprelid == pg_sys::Oid::INVALID {
+                        continue;
+                    }
+
+                    let heaprel =
+                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
+                    let tupdesc = heaprel.tuple_desc();
+                    if let Some(att) = tupdesc.get(attno as usize - 1) {
+                        (att.name().to_string(), attno)
+                    } else {
+                        continue;
+                    }
+                } else {
                     continue;
                 };
-                let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid == pg_sys::Oid::INVALID {
-                    continue;
-                }
 
-                let heaprel = PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                let tupdesc = heaprel.tuple_desc();
-                if let Some(att) = tupdesc.get(attno as usize - 1) {
-                    let field_name = att.name();
-
-                    // Check if this field exists in the index schema as a fast field
-                    if let Some(search_field) = schema.search_field(field_name) {
-                        let is_fast = search_field.is_fast();
-                        if is_fast {
-                            grouping_columns.push(GroupingColumn {
-                                field_name: field_name.to_string(),
-                                attno,
-                            });
-                            found_valid_column = true;
-                            break; // Found a valid grouping column for this pathkey
-                        }
+                // Check if this field exists in the index schema as a fast field
+                if let Some(search_field) = schema.search_field(&field_name) {
+                    if search_field.is_fast() {
+                        grouping_columns.push(GroupingColumn { field_name, attno });
+                        found_valid_column = true;
+                        break; // Found a valid grouping column for this pathkey
                     }
                 }
             }
@@ -413,6 +516,44 @@ fn extract_grouping_columns(
     Some(grouping_columns)
 }
 
+/// Extract and validate aggregates, ensuring all aggregate fields are compatible fast fields
+/// and don't conflict with GROUP BY columns
+fn extract_and_validate_aggregates(
+    args: &CreateUpperPathsHookArgs,
+    schema: &SearchIndexSchema,
+    grouping_columns: &[GroupingColumn],
+) -> Option<Vec<AggregateType>> {
+    let aggregate_types = extract_aggregates(args)?;
+
+    // Create a set of grouping column field names for quick lookup
+    let grouping_field_names: crate::api::HashSet<&String> =
+        grouping_columns.iter().map(|gc| &gc.field_name).collect();
+
+    // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
+    for aggregate in &aggregate_types {
+        if let Some(field_name) = aggregate.field_name() {
+            // Check for conflict with GROUP BY columns
+            if grouping_field_names.contains(&field_name) {
+                // Aggregate field conflicts with GROUP BY column - causes incompatible fruit types in Tantivy
+                return None;
+            }
+
+            // Check if field exists in schema and is a fast field
+            if let Some(search_field) = schema.search_field(&field_name) {
+                if !search_field.is_fast() {
+                    // Aggregate field is not a fast field
+                    return None;
+                }
+            } else {
+                // Aggregate field not found in schema
+                return None;
+            }
+        }
+    }
+
+    Some(aggregate_types)
+}
+
 /// If the given args consist only of AggregateTypes that we can handle, return them.
 fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateType>> {
     // The PathTarget `exprs` are the closest that we have to a target list at this point.
@@ -422,19 +563,50 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
         return None;
     }
 
+    // Get the relation OID for field name lookup
+    let parent_relids = args.input_rel().relids;
+    let heap_rti = unsafe { range_table::bms_exactly_one_member(parent_relids)? };
+    let heap_rte = unsafe {
+        let rt = PgList::<pg_sys::RangeTblEntry>::from_pg((*args.root().parse).rtable);
+        rt.get_ptr((heap_rti - 1) as usize)?
+    };
+    let relation_oid = unsafe { (*heap_rte).relid };
+
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
     for expr in target_list.iter_ptr() {
         unsafe {
+            let node_tag = (*expr).type_;
+
             if let Some(_var) = nodecast!(Var, T_Var, expr) {
                 // This is a Var - it should be a grouping column, skip it
                 continue;
+            } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
+                // This might be a JSON operator expression - verify it's recognized
+                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+                if let Some((_var, _field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    // This is a recognized JSON operator expression used in GROUP BY - skip it
+                    continue;
+                } else {
+                    // This is an unrecognized OpExpr, we can't support it
+                    return None;
+                }
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
+                // Check for DISTINCT in aggregate functions
+                if !(*aggref).aggdistinct.is_null() {
+                    // TODO: Support DISTINCT in aggregate custom scans if Tantivy supports it.
+                    return None;
+                }
+
                 if (*aggref).aggstar {
-                    // Only `count(*)` (aggstar) is supported.
+                    // COUNT(*) (aggstar)
                     aggregate_types.push(AggregateType::Count);
                 } else {
-                    return None;
+                    // Check for other aggregate functions with arguments
+                    let agg_type = identify_aggregate_function(aggref, relation_oid)?;
+                    aggregate_types.push(agg_type);
                 }
             } else {
                 // Unsupported expression type
@@ -449,6 +621,99 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
     // an empty vector instead of rejecting the plan.
 
     Some(aggregate_types)
+}
+
+/// Identify an aggregate function by its OID and extract field name from its arguments
+unsafe fn identify_aggregate_function(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<AggregateType> {
+    let aggfnoid = (*aggref).aggfnoid;
+
+    // Get the function name to identify the aggregate
+    let func_name = get_aggregate_function_name(aggfnoid)?;
+
+    // Extract the field name from the first argument
+    let field_name = extract_field_name_from_aggref(aggref, relation_oid);
+
+    match func_name {
+        "count" => Some(AggregateType::Count),
+        "sum" => Some(AggregateType::Sum { field: field_name? }),
+        "avg" => Some(AggregateType::Avg { field: field_name? }),
+        "min" => Some(AggregateType::Min { field: field_name? }),
+        "max" => Some(AggregateType::Max { field: field_name? }),
+        _ => {
+            pgrx::debug1!("Unsupported aggregate function: {func_name}");
+            None
+        }
+    }
+}
+
+/// Get the name of an aggregate function from its OID
+unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<&'static str> {
+    use pgrx::pg_sys::{
+        F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
+        F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
+        F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
+        F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
+        F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
+        F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+    };
+    // Use well-known PostgreSQL function OIDs for standard aggregates
+    // These are consistent across PostgreSQL versions
+    match aggfnoid.to_u32() {
+        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+            Some("avg")
+        }
+        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+            Some("sum")
+        }
+        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+            Some("max")
+        }
+        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+        | F_MIN_NUMERIC => Some("min"),
+        F_COUNT_ANY => Some("count"),
+        _ => {
+            // For unknown function OIDs, we'll reject them for now
+            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
+            None
+        }
+    }
+}
+
+/// Extract field name from the first argument of an aggregate function
+unsafe fn extract_field_name_from_aggref(
+    aggref: *mut pg_sys::Aggref,
+    relation_oid: pg_sys::Oid,
+) -> Option<String> {
+    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+    if args.is_empty() {
+        return None;
+    }
+
+    let first_arg = args.get_ptr(0)?;
+    if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+        return get_var_field_name(var, relation_oid);
+    }
+
+    None
+}
+
+/// Get the field name from a Var node
+unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -> Option<String> {
+    let varattno = (*var).varattno;
+
+    // Get the actual column name from the relation
+    let attname = pg_sys::get_attname(relation_oid, varattno, false);
+    if !attname.is_null() {
+        let name = std::ffi::CStr::from_ptr(attname).to_str().ok()?;
+        return Some(name.to_string());
+    }
+
+    None
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {
@@ -502,26 +767,41 @@ impl ExecMethod for AggregateScan {
 
 impl PlainExecCapable for AggregateScan {}
 
+/// Check if any GROUP BY field is also being searched in the WHERE clause
+/// This causes "incompatible fruit types" errors in Tantivy aggregation
+fn has_search_field_conflicts(
+    grouping_columns: &[GroupingColumn],
+    query: &SearchQueryInput,
+) -> bool {
+    if grouping_columns.is_empty() {
+        return false;
+    }
+
+    let grouping_field_names: crate::api::HashSet<String> = grouping_columns
+        .iter()
+        .map(|gc| gc.field_name.clone())
+        .collect();
+
+    let mut search_field_names = crate::api::HashSet::default();
+    query.extract_field_names(&mut search_field_names);
+
+    // Check for conflicts
+    !search_field_names.is_disjoint(&grouping_field_names)
+}
+
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
     schema: &SearchIndexSchema,
-) -> Option<Vec<OrderByStyle>> {
+) -> PathKeyInfo {
     unsafe {
-        let pathkey_styles = extract_pathkey_styles_with_sortability_check(
+        extract_pathkey_styles_with_sortability_check(
             root,
             heap_rti,
             schema,
-            None,                                  // No limit on pathkeys for aggregatescan
             |search_field| search_field.is_fast(), // Use is_fast() for regular vars
             |_search_field| false,                 // Don't accept lower functions in aggregatescan
-        );
-
-        if pathkey_styles.is_empty() {
-            None
-        } else {
-            Some(pathkey_styles)
-        }
+        )
     }
 }

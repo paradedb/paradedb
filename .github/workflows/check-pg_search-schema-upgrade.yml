@@ -10,7 +10,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
-      - 0.*.x
+      - 0.*.x # Release branches
     paths:
       - ".github/workflows/check-pg_search-schema-upgrade.yml"
       - "pg_search/**"
@@ -39,6 +39,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Fetch the entire history
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }} # Required with fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Extract pgrx Version
         id: pgrx
@@ -68,7 +71,7 @@ jobs:
       - name: Install pg-schema-diff and its Required Dependencies
         run: |
           sudo apt install clang llvm diffutils
-          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug
+          cargo install --git https://github.com/zombodb/pg-schema-diff.git --debug --force
 
       - name: Install cargo-pgrx
         run: |

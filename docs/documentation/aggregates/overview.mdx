@@ -94,28 +94,26 @@ GROUP BY rating LIMIT 5;
 You can verify if a query will be accelerated by running `EXPLAIN`. Accelerated queries will show either a `Custom Scan` or `Parallel Index Only Scan` in the query plan.
 
 ```sql
-EXPLAIN SELECT rating, COUNT(*) FROM mock_items
-WHERE description @@@ 'shoes'
-GROUP BY rating LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
 ```csv
-                                                                                      QUERY PLAN
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.01..10.05 rows=2 width=12)
-   ->  GroupAggregate  (cost=10.01..10.05 rows=2 width=12)
+                                                                               QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=10.04..10.09 rows=3 width=12)
+   ->  GroupAggregate  (cost=10.04..10.09 rows=3 width=12)
          Group Key: rating
-         ->  Sort  (cost=10.01..10.02 rows=2 width=4)
+         ->  Sort  (cost=10.04..10.05 rows=3 width=4)
                Sort Key: rating
-               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.00 rows=2 width=4)
+               ->  Custom Scan (ParadeDB Scan) on mock_items  (cost=10.00..10.02 rows=3 width=4)
                      Table: mock_items
                      Index: search_idx
+                     Segment Count: 1
+                     Exec Method: MixedFastFieldExecState
                      Fast Fields: rating
-                     Exec Method: NumericFastFieldExecState
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(14 rows)
 ```
 </Accordion>
 

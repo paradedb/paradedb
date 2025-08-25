@@ -51,11 +51,10 @@ SELECT id, paradedb.score(id) AS score FROM mock_items WHERE description @@@ 'sh
          Index: mock_items_id_description_rating_idx
          Exec Method: TopNScanExecState
          Scores: true
-            Sort Field: paradedb.score()
-            Sort Direction: desc
-            Top N Limit: 3
+            TopN Order By: paradedb.score() desc
+            TopN Limit: 3
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(10 rows)
+(9 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@ 'shoes' ORDER BY score DESC LIMIT 3;
@@ -67,11 +66,10 @@ SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@
          ->  Custom Scan (ParadeDB Scan) on mock_items
                Table: mock_items
                Index: mock_items_id_description_rating_idx
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: id, paradedb.score()
+               Exec Method: MixedFastFieldExecState
+               Fast Fields: id
                Scores: true
-                  Top N Limit: 3
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 DROP TABLE mock_items;

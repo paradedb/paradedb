@@ -109,7 +109,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 0;
 
         header_blockno
     }
@@ -127,7 +126,6 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         let metadata = header_page.contents_mut::<LinkedListData>();
         metadata.start_blockno = start_blockno;
         metadata.last_blockno = start_blockno;
-        metadata.npages = 0;
 
         _self
     }
@@ -489,29 +487,29 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
 
         // Update our header page to point to the new start block, and return the old one.
         let mut blockno = {
-            // Open both header pages.
-            let mut original_header_page = original_header_lock.page_mut();
-            let mut cloned_header_buffer =
-                self.cloned.bman.get_buffer_mut(self.cloned.header_blockno);
-            let mut cloned_header_page = cloned_header_buffer.page_mut();
+            // The metadata from the cloned header is the one we want to become the new header for everyone
+            let cloned_header_metadata = self
+                .cloned
+                .bman
+                .get_buffer(self.cloned.header_blockno)
+                .page()
+                .contents::<LinkedListData>();
 
             // Capture our old start page, then overwrite our metadata.
+            let mut original_header_page = original_header_lock.page_mut();
             let original_metadata = original_header_page.contents_mut::<LinkedListData>();
-            let old_start_blockno = original_metadata.start_blockno;
-            *original_metadata = *cloned_header_page.contents_mut::<LinkedListData>();
+            let original_start_blockno = original_metadata.start_blockno;
 
-            // Finally, garbage collect the cloned header block.
-            cloned_header_buffer.return_to_fsm(&mut self.cloned.bman);
+            // Here we replace the original header with the cloned header and drop the original header lock
+            // ensuring it is written to disk, which includes the WAL.
+            *original_metadata = cloned_header_metadata;
+            std::mem::drop(original_header_lock);
 
-            old_start_blockno
+            original_start_blockno
         };
 
-        // Drop the header, to ensure that the new header content is written to the WAL before
-        // we begin cleaning up its old pages.
-        std::mem::drop(original_header_lock);
-
         // And then collect our old contents, which are no longer reachable.
-        let recyclable_block = std::iter::from_fn(move || {
+        let recyclable_blocks = std::iter::from_fn(move || {
             if blockno == pg_sys::InvalidBlockNumber {
                 return None;
             }
@@ -519,8 +517,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
             let buffer = original.bman.get_buffer(blockno);
             blockno = buffer.page().next_blockno();
             Some(recyclable_blockno)
-        });
-        self.bman.fsm().extend(&mut self.bman, recyclable_block);
+        })
+        .chain(std::iter::once(self.cloned.header_blockno));
+        self.bman.fsm().extend(&mut self.bman, recyclable_blocks);
     }
 }
 
@@ -532,35 +531,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for Atomic
         };
 
         unsafe {
-            if !pg_sys::IsTransactionState() {
+            if !pg_sys::IsTransactionState() || std::thread::panicking() {
                 // we are not in a transaction, so we can't release buffers
                 return;
             }
         }
 
-        // The guard was dropped without a call to commit: return its pages.
-        let header_blockno = self.cloned.header_blockno;
-        let bman = self.cloned.bman().clone();
-        let header_buffer = bman.get_buffer(header_blockno);
-        let mut blockno = header_buffer
-            .page()
-            .contents::<LinkedListData>()
-            .start_blockno;
-        drop(header_buffer);
-
-        let recyclable_blocks =
-            std::iter::once(header_blockno).chain(std::iter::from_fn(move || {
-                if blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-
-                let recyable_blockno = blockno;
-                let buffer = bman.get_buffer(blockno);
-                blockno = buffer.page().next_blockno();
-                Some(recyable_blockno)
-            }));
-        let fsm = self.bman.fsm();
-        fsm.extend(&mut self.bman, recyclable_blocks);
+        panic!("internal error: failed to call `AtomicGuard::commit()`");
     }
 }
 
@@ -659,7 +636,9 @@ mod tests {
                 if entry.xmax == not_deleted_xid {
                     assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
                 } else {
-                    assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_err());
+                    assert!(list
+                        .lookup_ex(|el| el.segment_id == entry.segment_id)
+                        .is_err());
                 }
             }
         }
@@ -703,9 +682,13 @@ mod tests {
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
                     if entry.xmax == not_deleted_xid {
-                        assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
+                        assert!(list
+                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .is_ok());
                     } else {
-                        assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_err());
+                        assert!(list
+                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .is_err());
                     }
                 }
             }

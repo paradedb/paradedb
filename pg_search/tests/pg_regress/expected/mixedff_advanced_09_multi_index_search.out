@@ -452,12 +452,10 @@ LIMIT 10;
                            Table: products
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, id, price
-                           String Fast Fields: name
-                           Numeric Fast Fields: id, price
+                           Fast Fields: name, price, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(19 rows)
 
 SELECT p.name, p.price, c.name as category
 FROM products p
@@ -503,11 +501,9 @@ LIMIT 5;
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
                            Fast Fields: name, id
-                           String Fast Fields: name
-                           Numeric Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(15 rows)
 
 SELECT p.name, r.rating, r.content
 FROM products p
@@ -600,11 +596,10 @@ ORDER BY pr.avg_rating DESC, paradedb.score(tp.id), tp.price DESC;
                                  Index: products_idx
                                  Exec Method: TopNScanExecState
                                  Scores: false
-                                    Sort Field: price
-                                    Sort Direction: desc
-                                    Top N Limit: 50
+                                    TopN Order By: price desc
+                                    TopN Limit: 50
                                  Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
-(31 rows)
+(30 rows)
 
 WITH top_products AS (
     SELECT p.id, p.name, p.price, p.stock_count
@@ -765,7 +760,7 @@ ORDER BY p.price;
                      ->  Custom Scan (ParadeDB Scan) on categories c
                            Table: categories
                            Index: categories_idx
-                           Exec Method: NumericFastFieldExecState
+                           Exec Method: MixedFastFieldExecState
                            Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
@@ -932,12 +927,10 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Table: products
                                  Index: products_idx
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, id, price
-                                 String Fast Fields: name
-                                 Numeric Fast Fields: id, price
+                                 Fast Fields: name, price, id
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
-(26 rows)
+(24 rows)
 
 SELECT p.name, p.price, r.content, r.rating
 FROM products p

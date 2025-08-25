@@ -95,17 +95,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          # Get the upcoming and current latest release tag (without the "v")
-          current="${{ github.event.inputs.version }}"
+          current_tag_version="${{ github.event.inputs.version }}"
           latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag"
-          echo "Current version to be released is $current"
+          echo "Current latest release is $latest_tag_version"
+          echo "Current version to be released is $current_tag_version"
 
-          # Install semver CLI and compare versions according to semVer rules
+          echo ""
+          echo "Install semver CLI via npm to compare versions..."
           npm install semver
+
+          echo ""
+          echo "Comparing versions to determine if the current version is the latest..."
           if npx semver -r ">$latest_tag" "$current"; then
+            echo "is_latest=true"
             echo "is_latest=true" >> $GITHUB_OUTPUT
           else
+            echo "is_latest=false"
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 

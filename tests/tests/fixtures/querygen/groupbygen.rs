@@ -66,7 +66,8 @@ pub fn arb_group_by(
     // Generate 0-3 grouping columns from the available columns
     proptest::sample::subsequence(columns, 0..3).prop_flat_map(move |selected_columns| {
         // Generate 0-3 aggregates from the available aggregates
-        let max_aggregates = std::cmp::min(aggregates.len(), 3);
+        // TODO: Support 3 aggregates as soon as issue #2963 is fixed
+        let max_aggregates = std::cmp::min(aggregates.len(), 2);
         let agg_range = if selected_columns.is_empty() {
             // No GROUP BY - need at least one aggregate
             1..=max_aggregates

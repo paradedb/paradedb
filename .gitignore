@@ -34,3 +34,10 @@ pgvector/
 
 # samply
 profile.json*
+
+# patch/diff
+*.orig
+*.rej
+
+# Node
+node_modules/

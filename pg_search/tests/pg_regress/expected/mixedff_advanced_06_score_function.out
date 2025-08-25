@@ -365,13 +365,10 @@ LIMIT 10;
                Table: score_test
                Index: score_test_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, id, rating
-               String Fast Fields: title
-               Numeric Fast Fields: id, rating
+               Fast Fields: id, rating, title
                Scores: true
-                  Top N Limit: 10
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(10 rows)
 
 SELECT title, paradedb.score(id), rating
 FROM score_test
@@ -408,13 +405,10 @@ LIMIT 5;
                Table: score_test
                Index: score_test_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, id, rating, views
-               String Fast Fields: author, title
-               Numeric Fast Fields: id, rating, views
+               Fast Fields: author, id, views, rating, title
                Scores: true
-                  Top N Limit: 5
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research","lenient":null,"conjunction_mode":null}}}}
-(13 rows)
+(10 rows)
 
 SELECT title, author, rating, views, paradedb.score(id)
 FROM score_test
@@ -444,12 +438,10 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Table: score_test
          Index: score_test_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: author, title, id
-         String Fast Fields: author, title
-         Numeric Fast Fields: id
+         Fast Fields: author, id, title
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
-(11 rows)
+(9 rows)
 
 SELECT title, author, paradedb.score(id)
 FROM score_test
@@ -488,13 +480,10 @@ LIMIT 10;
                Table: score_test
                Index: score_test_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: author, title, id, rating
-               String Fast Fields: author, title
-               Numeric Fast Fields: id, rating
+               Fast Fields: author, id, rating, title
                Scores: true
-                  Top N Limit: 10
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
-(13 rows)
+(10 rows)
 
 WITH scored_posts AS (
     SELECT title, author, rating, paradedb.score(id) as relevance
@@ -538,12 +527,10 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
          Table: score_test
          Index: score_test_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: author, title, id
-         String Fast Fields: author, title
-         Numeric Fast Fields: id
+         Fast Fields: author, id, title
          Scores: true
          Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}}}
-(11 rows)
+(9 rows)
 
 SELECT sp.title, sp.author, sp.relevance
 FROM (
@@ -620,21 +607,17 @@ LIMIT 10;
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, id
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: id
+                     Fast Fields: author, id, title
                      Scores: true
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
                      Table: score_test
                      Index: score_test_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, id
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: id
+                     Fast Fields: author, id, title
                      Scores: true
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science","lenient":null,"conjunction_mode":null}}}},{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"technology","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(22 rows)
+(18 rows)
 
 SELECT title, author, paradedb.score(id) as relevance
 FROM score_test
@@ -692,9 +675,8 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                                  Index: score_test_idx
                                  Exec Method: TopNScanExecState
                                  Scores: true
-                                    Sort Field: paradedb.score()
-                                    Sort Direction: desc
-                                    Top N Limit: 5
+                                    TopN Order By: paradedb.score() desc
+                                    TopN Limit: 5
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
          ->  Hash
                ->  Custom Scan (ParadeDB Scan) on score_test score_test_1
@@ -702,10 +684,9 @@ ORDER BY a.title, a.author, a.rating, a.score, b.title;
                      Index: score_test_idx
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
-(28 rows)
+(26 rows)
 
 SELECT a.title, a.author, a.rating, a.score, b.title as related_title
 FROM (
@@ -808,12 +789,10 @@ ORDER BY title, author, paradedb.score(id) DESC;
          Table: score_test
          Index: score_test_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: author, title, id, rating
-         String Fast Fields: author, title
-         Numeric Fast Fields: id, rating
+         Fast Fields: author, id, rating, title
          Scores: true
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
-(11 rows)
+(9 rows)
 
 SELECT
     title,

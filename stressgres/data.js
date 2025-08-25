@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756165931887,
+  "lastUpdate": 1756165935349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6534,6 +6534,126 @@ window.BENCHMARK_DATA = {
             "value": 90.18359375,
             "unit": "median mem",
             "extra": "avg mem: 89.91097002852219, max mem: 149.48828125, count: 55264"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9dff960a8a7741a4d7f8cb5ca537a7765a36afb3",
+          "message": "fix: excluded sub-queries from filter-pushdown (on non-indexed fields). (#3045)\n\n# Ticket(s) Closed\n\n- Closes #3043 \n\n## What\n\nPrevents system crashes when `paradedb.enable_filter_pushdown` is\nenabled and heap filter expressions contain subqueries.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. However, `HeapFieldFilter` uses\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries are present.\n\n## How\n\nAdded subquery detection in `try_pushdown()` using the existing\n`contains_exec_param()` function to identify expressions containing EXEC\nparameters (subqueries). When subqueries are detected, the function\nreturns `None` instead of creating a `Qual::HeapExpr`, causing\nPostgreSQL's regular executor to handle the expression safely.\n\n## Tests\n\n- Added test cases in `unified_expression_comprehensive.sql` with\nsubqueries in heap filter expressions\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T16:36:12-07:00",
+          "tree_id": "0a678547f62504cd9bd542b71bb6e30d3d6fbdf3",
+          "url": "https://github.com/paradedb/paradedb/commit/9dff960a8a7741a4d7f8cb5ca537a7765a36afb3"
+        },
+        "date": 1756165934181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.729680064889953, max cpu: 9.60961, count: 55267"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 94.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.91892631735485, max mem: 154.7265625, count: 55267"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.667847521217657, max cpu: 9.29332, count: 55267"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 89.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 89.0451225697523, max mem: 149.40234375, count: 55267"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.752962461766735, max cpu: 9.458128, count: 55267"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 94.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 94.32375593991442, max mem: 153.921875, count: 55267"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.425167547548682, max cpu: 4.7244096, count: 55267"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 95.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 95.35067073536197, max mem: 155.77734375, count: 55267"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.204219,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.518380707752704, max cpu: 23.622047, count: 110534"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 108.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 107.14686643363127, max mem: 168.46484375, count: 110534"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8056,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8112.254998462012, max block_count: 15866.0, count: 55267"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.59275878915085, max segment_count: 31.0, count: 55267"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.96322033977027, max cpu: 18.568666, count: 55267"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 115.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 114.77715468204353, max mem: 175.25390625, count: 55267"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.692082,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.249623931341896, max cpu: 9.221902, count: 55267"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 87.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 87.84823963950006, max mem: 147.421875, count: 55267"
           }
         ]
       }

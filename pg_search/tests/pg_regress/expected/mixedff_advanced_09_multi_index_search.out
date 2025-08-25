@@ -452,12 +452,10 @@ LIMIT 10;
                            Table: products
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: name, id, price
-                           String Fast Fields: name
-                           Numeric Fast Fields: id, price
+                           Fast Fields: name, price, id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+(19 rows)
 
 SELECT p.name, p.price, c.name as category
 FROM products p
@@ -503,11 +501,9 @@ LIMIT 5;
                            Index: products_idx
                            Exec Method: MixedFastFieldExecState
                            Fast Fields: name, id
-                           String Fast Fields: name
-                           Numeric Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"product","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(15 rows)
 
 SELECT p.name, r.rating, r.content
 FROM products p
@@ -766,10 +762,9 @@ ORDER BY p.price;
                            Index: categories_idx
                            Exec Method: MixedFastFieldExecState
                            Fast Fields: id
-                           Numeric Fast Fields: id
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"electronics OR clothing","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+(19 rows)
 
 SELECT p.name, p.price, p.stock_count
 FROM products p
@@ -932,12 +927,10 @@ ORDER BY r.rating DESC, p.price DESC;
                                  Table: products
                                  Index: products_idx
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: name, id, price
-                                 String Fast Fields: name
-                                 Numeric Fast Fields: id, price
+                                 Fast Fields: name, price, id
                                  Scores: false
                                  Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"is_available","value":true,"is_datetime":false}}]}}
-(26 rows)
+(24 rows)
 
 SELECT p.name, p.price, r.content, r.rating
 FROM products p

@@ -325,21 +325,17 @@ ORDER BY rating DESC, title;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, price, rating
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: price, rating
+                     Fast Fields: author, price, rating, title
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
                ->  Custom Scan (ParadeDB Scan) on union_test_b
                      Table: union_test_b
                      Index: union_test_b_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, price, rating
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: price, rating
+                     Fast Fields: author, price, rating, title
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
-(23 rows)
+(19 rows)
 
 SELECT title, author, rating, price
 FROM union_test_a
@@ -409,21 +405,17 @@ ORDER BY price;
                Table: union_test_a
                Index: union_test_a_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, price, year
-               String Fast Fields: title
-               Numeric Fast Fields: price, year
+               Fast Fields: price, year, title
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Custom Scan (ParadeDB Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: MixedFastFieldExecState
-               Fast Fields: title, price, year
-               String Fast Fields: title
-               Numeric Fast Fields: price, year
+               Fast Fields: price, year, title
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":45.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":1982},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}]}}
-(21 rows)
+(17 rows)
 
 SELECT title, price, year
 FROM union_test_a
@@ -465,12 +457,10 @@ ORDER BY title, author, author_rank;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, price, rating
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: price, rating
+                     Fast Fields: author, price, title, rating
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(12 rows)
 
 SELECT title, author, price, rating,
        ROW_NUMBER() OVER (PARTITION BY author, price ORDER BY rating DESC) as author_rank
@@ -549,12 +539,10 @@ ORDER BY title, author, price;
                      Table: union_test_a
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
-                     Fast Fields: author, title, price
-                     String Fast Fields: author, title
-                     Numeric Fast Fields: price
+                     Fast Fields: author, price, title
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
-(14 rows)
+(12 rows)
 
 SELECT title, author, price,
        AVG(price) OVER (PARTITION BY author ORDER BY price) as running_avg_price
@@ -759,9 +747,7 @@ ORDER BY author, title;
                            Table: union_test_a
                            Index: union_test_a_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: author, title, is_published
-                           String Fast Fields: author, title
-                           Numeric Fast Fields: is_published
+                           Fast Fields: author, is_published, title
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
                ->  Sort
@@ -770,12 +756,10 @@ ORDER BY author, title;
                            Table: union_test_b
                            Index: union_test_b_idx
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: author, title, is_published
-                           String Fast Fields: author, title
-                           Numeric Fast Fields: is_published
+                           Fast Fields: author, is_published, title
                            Scores: false
                            Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
-(27 rows)
+(23 rows)
 
 SELECT title, author, is_published
 FROM union_test_a
@@ -888,11 +872,9 @@ ORDER BY avg_rating DESC;
                                  Index: union_test_a_idx
                                  Exec Method: MixedFastFieldExecState
                                  Fast Fields: author, price, rating
-                                 String Fast Fields: author
-                                 Numeric Fast Fields: price, rating
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author","lenient":null,"conjunction_mode":null}}}}
-(17 rows)
+(15 rows)
 
 SELECT author, 
        AVG(rating) as avg_rating,
@@ -933,7 +915,6 @@ INTERSECT
                      Index: union_test_b_idx
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Subquery Scan on "*SELECT* 1"
@@ -942,10 +923,9 @@ INTERSECT
                      Index: union_test_a_idx
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: author
-                     String Fast Fields: author
                      Scores: false
                      Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
-(20 rows)
+(18 rows)
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')
 INTERSECT

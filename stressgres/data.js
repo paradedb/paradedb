@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756164192597,
+  "lastUpdate": 1756164842573,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11826,6 +11826,60 @@ window.BENCHMARK_DATA = {
             "value": 14.018232771001315,
             "unit": "median tps",
             "extra": "avg tps: 14.059003579871403, max tps: 20.695413278659363, count: 55648"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "japhethobalak@gmail.com",
+            "name": "Japheth Obala",
+            "username": "jobala"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6636277e6c81e239569461c8cf4a0a65ff954dc1",
+          "message": "chore(groupby): add more column types (#2935)\n\n# Ticket(s) Closed\n\n-  Fixes the `groupby` component of  #2903 \n\n## What\n\nAdds `FLOAT8` and `BOOLEAN` column types to generated sql in `qgen.rs` \n\n## Why\n\nTo Increase test coverage for\nhttps://github.com/paradedb/paradedb/pull/2893\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-08-25T14:41:23-07:00",
+          "tree_id": "fde5c1236cde19c68b4ed4e977571490d7d6ad3f",
+          "url": "https://github.com/paradedb/paradedb/commit/6636277e6c81e239569461c8cf4a0a65ff954dc1"
+        },
+        "date": 1756164841387,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.271392402666876,
+            "unit": "median tps",
+            "extra": "avg tps: 35.4739489596003, max tps: 37.313509220011795, count: 55590"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 254.701771480846,
+            "unit": "median tps",
+            "extra": "avg tps: 285.55907024625947, max tps: 2374.7859674256397, count: 55590"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 143.05494764118595,
+            "unit": "median tps",
+            "extra": "avg tps: 143.92115986796307, max tps: 151.65313883051755, count: 55590"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 71.82227442750016,
+            "unit": "median tps",
+            "extra": "avg tps: 71.14355732771591, max tps: 134.14997218333252, count: 111180"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.20516211726283,
+            "unit": "median tps",
+            "extra": "avg tps: 14.159903794252097, max tps: 20.682347884950715, count: 55590"
           }
         ]
       }

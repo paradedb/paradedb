@@ -69,7 +69,18 @@ impl ColumnDef {
 
     fn is_groupable(&self) -> bool {
         match self {
-            ColumnDef::Id(_) | ColumnDef::Uuid(_) | ColumnDef::Price(_) => false,
+            ColumnDef::Id(_) | ColumnDef::Uuid(_) => {
+                // TODO: Grouping on these columns causes a
+                // `Var in target list not found in grouping columns`.
+                false
+            }
+            ColumnDef::Price(_) => {
+                // TODO: Grouping on f64 fails to ORDER BY (even in cases without an ORDER BY):
+                // ```
+                // Cannot ORDER BY OrderByInfo
+                // ```
+                false
+            }
             ColumnDef::Name(_) | ColumnDef::Color(_) | ColumnDef::Age(_) | ColumnDef::Rating(_) => {
                 true
             }
@@ -89,7 +100,6 @@ impl ColumnDef {
     }
 }
 
-// Usage:
 const COLUMNS: &[ColumnDef] = &[
     ColumnDef::Id(3),
     ColumnDef::Uuid("550e8400-e29b-41d4-a716-446655440000"),
@@ -338,14 +348,13 @@ async fn generated_group_by_aggregates(database: Db) {
 
     let column_data: Vec<(&str, String)> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable())
         .map(|col| (col.column_name(), col.value_as_string()))
         .collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            column_data
+            column_data,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],

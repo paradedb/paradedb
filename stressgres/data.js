@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756147797546,
+  "lastUpdate": 1756148134704,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2090,6 +2090,72 @@ window.BENCHMARK_DATA = {
             "value": 153.52967245702723,
             "unit": "median tps",
             "extra": "avg tps: 142.46722028036191, max tps: 789.5582500546769, count: 55276"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4d05f85a38d70d440f3f070d38cbcd0ba42c3132",
+          "message": "fix: Remove the string/numeric classification from fast fields explain (#3044)\n\n## What\n\nRemove the string/numeric classification from MixedFastFields explain.\n\n## Why\n\nThe distinction is no longer actually used in the scan implementation,\nand it can be confusing when the field being projected from is actually\ne.g. a JSON field with nested/dynamic columns for the subtypes.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T11:37:54-07:00",
+          "tree_id": "0446523b383d001cc4ea4496af1b532654eaa621",
+          "url": "https://github.com/paradedb/paradedb/commit/4d05f85a38d70d440f3f070d38cbcd0ba42c3132"
+        },
+        "date": 1756148133517,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1168.1977169059387,
+            "unit": "median tps",
+            "extra": "avg tps: 1159.787588015988, max tps: 1171.9235926043305, count: 55234"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2669.1488202321766,
+            "unit": "median tps",
+            "extra": "avg tps: 2634.708751840871, max tps: 2687.1557491795907, count: 55234"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1116.9388213559314,
+            "unit": "median tps",
+            "extra": "avg tps: 1111.219490848629, max tps: 1121.9980619790483, count: 55234"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 940.9289743280827,
+            "unit": "median tps",
+            "extra": "avg tps: 929.9882520278275, max tps: 947.7285962739277, count: 55234"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 174.656408765075,
+            "unit": "median tps",
+            "extra": "avg tps: 177.51291229276023, max tps: 185.75982503366737, count: 110468"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 154.140667098449,
+            "unit": "median tps",
+            "extra": "avg tps: 153.28458527138744, max tps: 154.62039399530994, count: 55234"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 70.77236006449408,
+            "unit": "median tps",
+            "extra": "avg tps: 93.41148935087607, max tps: 754.0329452074419, count: 55234"
           }
         ]
       }

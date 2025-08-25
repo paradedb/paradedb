@@ -21,7 +21,9 @@ use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
-use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
+use crate::fixtures::querygen::{
+    arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
+};
 
 use fixtures::*;
 
@@ -30,82 +32,6 @@ use lockfree_object_pool::MutexObjectPool;
 use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
-
-#[derive(Debug, Clone)]
-struct BM25Options {
-    /// "text_fields" or "numeric_fields"
-    field_type: &'static str,
-    /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
-    config_json: &'static str,
-}
-
-#[derive(Debug, Clone)]
-struct Column {
-    name: &'static str,
-    sql_type: &'static str,
-    sample_value: &'static str,
-    is_primary_key: bool,
-    is_groupable: bool,
-    is_indexed: bool,
-    bm25_options: Option<BM25Options>,
-    random_generator_sql: &'static str,
-}
-
-impl Column {
-    const fn new(name: &'static str, sql_type: &'static str, sample_value: &'static str) -> Self {
-        Self {
-            name,
-            sql_type,
-            sample_value,
-            is_primary_key: false,
-            is_groupable: true,
-            is_indexed: true,
-            bm25_options: None,
-            random_generator_sql: "NULL",
-        }
-    }
-
-    const fn primary_key(mut self) -> Self {
-        self.is_primary_key = true;
-        self
-    }
-
-    const fn groupable(mut self, is_groupable: bool) -> Self {
-        self.is_groupable = is_groupable;
-        self
-    }
-
-    #[allow(dead_code)]
-    const fn indexed(mut self, is_indexed: bool) -> Self {
-        self.is_indexed = is_indexed;
-        self
-    }
-
-    const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "text_fields",
-            config_json,
-        });
-        self
-    }
-
-    const fn bm25_numeric_field(mut self, config_json: &'static str) -> Self {
-        self.bm25_options = Some(BM25Options {
-            field_type: "numeric_fields",
-            config_json,
-        });
-        self
-    }
-
-    const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
-        self.random_generator_sql = random_generator_sql;
-        self
-    }
-
-    fn raw_sample_value(&self) -> &str {
-        self.sample_value.trim_matches('\'')
-    }
-}
 
 const COLUMNS: &[Column] = &[
     Column::new("id", "SERIAL8", "4")
@@ -154,117 +80,6 @@ const COLUMNS: &[Column] = &[
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
 ];
-
-fn generated_queries_setup(
-    conn: &mut PgConnection,
-    tables: &[(&str, usize)],
-    columns_def: &[Column],
-) -> String {
-    "CREATE EXTENSION pg_search;".execute(conn);
-    "SET log_error_verbosity TO VERBOSE;".execute(conn);
-    "SET log_min_duration_statement TO 1000;".execute(conn);
-
-    let mut setup_sql = String::new();
-    let column_definitions = columns_def
-        .iter()
-        .map(|col| {
-            if col.is_primary_key {
-                format!("{} {} NOT NULL PRIMARY KEY", col.name, col.sql_type)
-            } else {
-                format!("{} {}", col.name, col.sql_type)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", \n");
-
-    // For bm25 index
-    let bm25_columns = columns_def
-        .iter()
-        .map(|c| c.name)
-        .collect::<Vec<_>>()
-        .join(", ");
-    let key_field = columns_def
-        .iter()
-        .find(|c| c.is_primary_key)
-        .map(|c| c.name)
-        .expect("At least one column must be a primary key");
-
-    let text_fields = columns_def
-        .iter()
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "text_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    let numeric_fields = columns_def
-        .iter()
-        .filter_map(|c| c.bm25_options.as_ref())
-        .filter(|o| o.field_type == "numeric_fields")
-        .map(|o| o.config_json)
-        .collect::<Vec<_>>()
-        .join(",\n");
-
-    // For INSERT statements
-    let insert_columns = columns_def
-        .iter()
-        .filter(|c| !c.is_primary_key)
-        .map(|c| c.name)
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let sample_values = columns_def
-        .iter()
-        .filter(|c| !c.is_primary_key)
-        .map(|c| c.sample_value)
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let random_generators = columns_def
-        .iter()
-        .filter(|c| !c.is_primary_key)
-        .map(|c| c.random_generator_sql)
-        .collect::<Vec<_>>()
-        .join(",\n      ");
-
-    for (tname, row_count) in tables {
-        let sql = format!(
-            r#"
-CREATE TABLE {tname} (
-    {column_definitions}
-);
--- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
-    key_field = '{key_field}',
-    text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'
-);
-
-INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
-
-INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {row_count});
-
-{b_tree_indexes}
-
-ANALYZE;
-"#,
-            b_tree_indexes = columns_def
-                .iter()
-                .filter(|c| c.is_indexed)
-                .map(|c| format!(
-                    "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
-                    name = c.name
-                ))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        (&sql).execute(conn);
-        setup_sql.push_str(&sql);
-    }
-
-    setup_sql
-}
 
 ///
 /// Tests all JoinTypes against small tables (which are particularly important for joins which

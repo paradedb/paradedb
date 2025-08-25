@@ -244,15 +244,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT users.color FROM users JOIN 
                Index: idxusers
                Exec Method: MixedFastFieldExecState
                Fast Fields: color, id
-               String Fast Fields: color
-               Numeric Fast Fields: id
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"color","query_string":"blue","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Bitmap Heap Scan on orders
                Recheck Cond: (users.id = id)
                ->  Bitmap Index Scan on orders_pkey
                      Index Cond: (id = users.id)
-(15 rows)
+(13 rows)
 
 SELECT users.color FROM users JOIN orders ON users.id = orders.id  WHERE (users.color @@@ 'blue') AND (users.name @@@ 'bob') LIMIT 10;
  color 

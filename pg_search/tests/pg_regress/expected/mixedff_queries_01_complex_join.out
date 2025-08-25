@@ -133,7 +133,6 @@ ORDER BY d.id, f.id, p.id;
                            Index: documents_search
                            Exec Method: MixedFastFieldExecState
                            Fast Fields: id, parents
-                           String Fast Fields: id, parents
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
                ->  Sort
@@ -142,20 +141,17 @@ ORDER BY d.id, f.id, p.id;
                            Table: files
                            Index: files_search
                            Exec Method: MixedFastFieldExecState
-                           Fast Fields: documentid, file_path, id, title
-                           String Fast Fields: documentid, file_path, id, title
+                           Fast Fields: file_path, id, documentid, title
                            Scores: false
                            Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
          ->  Custom Scan (ParadeDB Scan) on pages p
                Table: pages
                Index: pages_search
                Exec Method: MixedFastFieldExecState
-               Fast Fields: fileid, id, page_number
-               String Fast Fields: fileid, id
-               Numeric Fast Fields: page_number
+               Fast Fields: page_number, id, fileid
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-(36 rows)
+(32 rows)
 
 -- Test complex join
 SELECT d.id, d.parents, f.title, f.file_path, p.fileId, p.page_number
@@ -206,8 +202,7 @@ LIMIT 10;
                                  Table: files
                                  Index: files_search
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: documentid, id
-                                 String Fast Fields: documentid, id
+                                 Fast Fields: id, documentid
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
                      ->  Sort
@@ -216,9 +211,7 @@ LIMIT 10;
                                  Table: pages
                                  Index: pages_search
                                  Exec Method: MixedFastFieldExecState
-                                 Fast Fields: content, fileid, page_number
-                                 String Fast Fields: content, fileid
-                                 Numeric Fast Fields: page_number
+                                 Fast Fields: page_number, fileid, content
                                  Scores: false
                                  Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
                ->  Custom Scan (ParadeDB Scan) on documents
@@ -226,10 +219,9 @@ LIMIT 10;
                      Index: documents_search
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: id
-                     String Fast Fields: id
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(37 rows)
+(33 rows)
 
 \i common/mixedff_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

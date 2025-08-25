@@ -150,12 +150,10 @@ ORDER BY id;
          Table: nullable_test
          Index: nullable_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, string_field, numeric_field
-         String Fast Fields: id, string_field
-         Numeric Fast Fields: numeric_field
+         Fast Fields: numeric_field, id, string_field
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"null","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(9 rows)
 
 -- Test retrieval of NULL values
 SELECT id, string_field, numeric_field

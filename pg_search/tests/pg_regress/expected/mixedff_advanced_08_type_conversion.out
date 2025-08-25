@@ -315,12 +315,10 @@ WHERE content @@@ 'conversion test';
    Table: conversion_test
    Index: conversion_search
    Exec Method: MixedFastFieldExecState
-   Fast Fields: id, bigint_field, integer_field, smallint_field
-   String Fast Fields: id
-   Numeric Fast Fields: bigint_field, integer_field, smallint_field
+   Fast Fields: bigint_field, id, smallint_field, integer_field
    Scores: false
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"conversion test","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+(7 rows)
 
 -- Check values for different integer types
 SELECT id, smallint_field, integer_field, bigint_field

@@ -147,7 +147,7 @@ WITH (
     let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT category, count(*) FROM paradedb.bm25_search WHERE id @@@ 'description:keyboard' GROUP BY category".fetch_one::<(Value,)>(&mut conn);
     assert_eq!(
         Some(&Value::String("category".into())),
-        plan.pointer("/0/Plan/Plans/0/Plans/0/String Fast Fields")
+        plan.pointer("/0/Plan/Plans/0/Plans/0/Fast Fields")
     )
 }
 

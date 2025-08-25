@@ -51,10 +51,9 @@ select assert(count(*), 8), count(*) from (select id from test where message @@@
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: severity
-                     Numeric Fast Fields: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 select assert(count(*), 8), count(*) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count 
@@ -75,10 +74,9 @@ select assert(count(*), 8), count(*), max(id) from (select id from test where me
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: id, severity
-                     Numeric Fast Fields: id, severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 select assert(count(*), 8), count(*), max(id) from (select id from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count | max 
@@ -99,10 +97,9 @@ select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from tes
                      Index: idxtest
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: severity
-                     Numeric Fast Fields: severity
                      Scores: false
                      Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"message","query_string":"beer","lenient":null,"conjunction_mode":null}}}}
-(12 rows)
+(11 rows)
 
 select assert(count(*), 8), count(*), max(myid) from (select 12 as myid from test where message @@@ 'beer' order by severity) x limit 8;
  assert | count | max 

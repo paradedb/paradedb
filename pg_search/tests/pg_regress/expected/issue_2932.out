@@ -68,9 +68,8 @@ SELECT id, paradedb.score(id) * 2 AS score FROM mock_items WHERE description @@@
                Index: mock_items_id_description_rating_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: id
-               Numeric Fast Fields: id
                Scores: true
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(10 rows)
 
 DROP TABLE mock_items;

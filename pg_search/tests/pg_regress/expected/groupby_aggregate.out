@@ -507,10 +507,9 @@ GROUP BY rating;
                Index: products_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: price, rating
-               Numeric Fast Fields: price, rating
                Scores: false
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
-(15 rows)
+(14 rows)
 
 SELECT rating, SUM(price), MAX(rating) 
 FROM products 
@@ -640,10 +639,9 @@ ORDER BY rating;
                Index: products_idx
                Exec Method: MixedFastFieldExecState
                Fast Fields: price, rating
-               Numeric Fast Fields: price, rating
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Electronics","lenient":null,"conjunction_mode":null}}}}]}}]}}
-(15 rows)
+(14 rows)
 
 SELECT rating, SUM(price), COUNT(*)
 FROM products 

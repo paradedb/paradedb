@@ -930,6 +930,12 @@ unsafe fn try_pushdown(
                 return None;
             }
 
+            // Check if the expression contains subqueries (EXEC params)
+            // Subqueries require proper executor context which we don't have in HeapFieldFilter
+            if contains_exec_param(opexpr_node) {
+                return None;
+            }
+
             // We do use search (with heap filtering)
             state.uses_heap_expr = true;
             state.uses_tantivy_to_query = true;

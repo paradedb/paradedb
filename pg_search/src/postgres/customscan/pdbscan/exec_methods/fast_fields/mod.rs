@@ -35,7 +35,6 @@ use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, VarContext}
 
 use arrow_array::builder::StringViewBuilder;
 use arrow_array::ArrayRef;
-use itertools::Itertools;
 use pgrx::pg_sys::CustomScanState;
 use pgrx::{pg_sys, IntoDatum, PgList, PgOid, PgTupleDesc};
 use tantivy::columnar::StrColumn;
@@ -435,31 +434,13 @@ pub fn explain(state: &CustomScanStateWrapper<PdbScan>, explainer: &mut Explaine
     } = &state.custom_state().exec_method_type
     {
         // Get all fast fields used
-        let string_fields: Vec<_> = which_fast_fields
+        let fields: Vec<_> = which_fast_fields
             .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::String)))
+            .filter(|ff| matches!(ff, WhichFastField::Named(_, _)))
             .map(|ff| ff.name())
-            .sorted()
             .collect();
 
-        let numeric_fields: Vec<_> = which_fast_fields
-            .iter()
-            .filter(|ff| matches!(ff, WhichFastField::Named(_, FastFieldType::Numeric)))
-            .map(|ff| ff.name())
-            .sorted()
-            .collect();
-
-        let all_fields = [string_fields.clone(), numeric_fields.clone()].concat();
-
-        explainer.add_text("Fast Fields", all_fields.join(", "));
-
-        if !string_fields.is_empty() {
-            explainer.add_text("String Fast Fields", string_fields.join(", "));
-        }
-
-        if !numeric_fields.is_empty() {
-            explainer.add_text("Numeric Fast Fields", numeric_fields.join(", "));
-        }
+        explainer.add_text("Fast Fields", fields.join(", "));
     }
 }
 

@@ -58,12 +58,10 @@ ORDER BY id;
          Table: mixed_numeric_string_test
          Index: mixed_test_search
          Exec Method: MixedFastFieldExecState
-         Fast Fields: id, string_field1, string_field2, numeric_field1, numeric_field2
-         String Fast Fields: id, string_field1, string_field2
-         Numeric Fast Fields: numeric_field1, numeric_field2
+         Fast Fields: numeric_field1, string_field1, id, numeric_field2, string_field2
          Scores: false
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"red","lenient":null,"conjunction_mode":null}}}}
-(11 rows)
+(9 rows)
 
 -- Execute query and check results
 SELECT numeric_field1, string_field1, numeric_field2, string_field2

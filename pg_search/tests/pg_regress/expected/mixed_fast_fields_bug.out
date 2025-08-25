@@ -115,11 +115,10 @@ ORDER BY numeric_field1;
          Table: benchmark_data
          Index: benchmark_data_idx
          Exec Method: MixedFastFieldExecState
-         Fast Fields: numeric_field1, numeric_field2, numeric_field3
-         Numeric Fast Fields: numeric_field1, numeric_field2, numeric_field3
+         Fast Fields: numeric_field3, numeric_field2, numeric_field1
          Scores: false
          Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"string_field1","query_string":"IN [alpha beta gamma delta epsilon]","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"string_field2","query_string":"IN [red blue green]","lenient":null,"conjunction_mode":null}}}}]}}
-(10 rows)
+(9 rows)
 
 -- Run the query with MixedFastFieldExec (should return same data)
 SELECT

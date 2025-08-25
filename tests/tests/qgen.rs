@@ -31,25 +31,116 @@ use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
 
-fn generated_queries_setup(conn: &mut PgConnection, tables: &[(&str, usize)]) -> String {
+#[derive(Debug, Clone)]
+enum ColumnDef {
+    Id(i64),
+    Uuid(&'static str),
+    Name(&'static str),
+    Color(&'static str),
+    Age(i64),
+    Price(f64),
+    Rating(i8),
+}
+
+impl ColumnDef {
+    fn column_name(&self) -> &'static str {
+        match self {
+            ColumnDef::Id(_) => "id",
+            ColumnDef::Uuid(_) => "uuid",
+            ColumnDef::Name(_) => "name",
+            ColumnDef::Color(_) => "color",
+            ColumnDef::Age(_) => "age",
+            ColumnDef::Price(_) => "price",
+            ColumnDef::Rating(_) => "rating",
+        }
+    }
+
+    fn sql_type(&self) -> &'static str {
+        match self {
+            ColumnDef::Id(_) => "SERIAL8",
+            ColumnDef::Uuid(_) => "UUID",
+            ColumnDef::Name(_) => "TEXT",
+            ColumnDef::Color(_) => "VARCHAR",
+            ColumnDef::Age(_) => "INTEGER",
+            ColumnDef::Price(_) => "NUMERIC(10,2)",
+            ColumnDef::Rating(_) => "INTEGER",
+        }
+    }
+
+    fn is_groupable(&self) -> bool {
+        match self {
+            ColumnDef::Id(_) | ColumnDef::Uuid(_) => {
+                // TODO: Grouping on these columns causes a
+                // `Var in target list not found in grouping columns`.
+                false
+            }
+            ColumnDef::Price(_) => {
+                // TODO: Grouping on f64 fails to ORDER BY (even in cases without an ORDER BY):
+                // ```
+                // Cannot ORDER BY OrderByInfo
+                // ```
+                false
+            }
+            ColumnDef::Name(_) | ColumnDef::Color(_) | ColumnDef::Age(_) | ColumnDef::Rating(_) => {
+                true
+            }
+        }
+    }
+
+    fn value_as_string(&self) -> String {
+        match self {
+            ColumnDef::Id(val) => val.to_string(),
+            ColumnDef::Uuid(val) => val.to_string(),
+            ColumnDef::Name(val) => val.to_string(),
+            ColumnDef::Color(val) => val.to_string(),
+            ColumnDef::Age(val) => val.to_string(),
+            ColumnDef::Price(val) => val.to_string(),
+            ColumnDef::Rating(val) => val.to_string(),
+        }
+    }
+}
+
+const COLUMNS: &[ColumnDef] = &[
+    ColumnDef::Id(3),
+    ColumnDef::Uuid("550e8400-e29b-41d4-a716-446655440000"),
+    ColumnDef::Name("bob"),
+    ColumnDef::Color("blue"),
+    ColumnDef::Age(20),
+    ColumnDef::Price(99.99),
+    ColumnDef::Rating(4),
+];
+
+fn generated_queries_setup(
+    conn: &mut PgConnection,
+    tables: &[(&str, usize)],
+    columns_def: &[ColumnDef],
+) -> String {
     "CREATE EXTENSION pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
     let mut setup_sql = String::new();
+    let column_definitions = columns_def
+        .iter()
+        .map(|col| {
+            if col.column_name() == "id" {
+                return format!(
+                    "{} {} NOT NULL PRIMARY KEY",
+                    col.column_name(),
+                    col.sql_type()
+                );
+            }
+            format!("{} {}", col.column_name(), col.sql_type())
+        })
+        .collect::<Vec<_>>()
+        .join(", \n");
 
     for (tname, row_count) in tables {
         let sql = format!(
             r#"
 CREATE TABLE {tname}
 (
-    id    SERIAL8 NOT NULL PRIMARY KEY,
-    uuid  UUID NOT NULL,
-    name  TEXT,
-    color VARCHAR,
-    age   INTEGER,
-    price NUMERIC(10,2),
-    rating INTEGER
+        {column_definitions}
 );
 
 -- Note: Create the index before inserting rows to encourage multiple segments being created.
@@ -117,7 +208,7 @@ async fn generated_joins_small(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
     eprintln!("{setup_sql}");
 
     proptest!(|(
@@ -163,7 +254,7 @@ async fn generated_joins_large_limit(database: Db) {
         .iter()
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
     eprintln!("{setup_sql}");
 
     proptest!(|(
@@ -184,6 +275,7 @@ async fn generated_joins_large_limit(database: Db) {
                 .map(|column| format!("{}.{column}", used_tables[0]))
                 .collect::<Vec<_>>()
                 .join(", ");
+
         let from = format!("SELECT {target_list} {join_clause} ");
 
         compare(
@@ -206,7 +298,7 @@ async fn generated_single_relation(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)], COLUMNS);
     eprintln!("{setup_sql}");
 
     proptest!(|(
@@ -244,16 +336,25 @@ async fn generated_group_by_aggregates(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
     eprintln!("{setup_sql}");
 
     // Columns that can be used for grouping (must have fast: true in index)
-    let grouping_columns = ["name", "color", "age", "rating"];
+    let grouping_columns: Vec<_> = COLUMNS
+        .iter()
+        .filter(|col| col.is_groupable())
+        .map(|col| col.column_name())
+        .collect();
+
+    let column_data: Vec<(&str, String)> = COLUMNS
+        .iter()
+        .map(|col| (col.column_name(), col.value_as_string()))
+        .collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            vec![("name", "bob"), ("color", "blue")]
+            column_data,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],
@@ -336,7 +437,7 @@ async fn generated_paging_small(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 1000)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 1000)], COLUMNS);
     eprintln!("{setup_sql}");
 
     proptest!(|(
@@ -369,7 +470,7 @@ async fn generated_paging_large(database: Db) {
     );
 
     let table_name = "users";
-    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100000)]);
+    let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100000)], COLUMNS);
     eprintln!("{setup_sql}");
 
     proptest!(|(
@@ -400,6 +501,7 @@ async fn generated_subquery(database: Db) {
     let setup_sql = generated_queries_setup(
         &mut pool.pull(),
         &[(outer_table_name, 10), (inner_table_name, 10)],
+        COLUMNS,
     );
     eprintln!("{setup_sql}");
 

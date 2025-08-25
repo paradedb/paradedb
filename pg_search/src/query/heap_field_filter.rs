@@ -3,10 +3,47 @@ use crate::query::PostgresPointer;
 use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
     DocId, DocSet, Score, SegmentReader, TERMINATED,
 };
+
+thread_local! {
+    /// Thread-local storage for the runtime expression context
+    /// This allows heap filters to access the proper context for subquery evaluation
+    static RUNTIME_EXPR_CONTEXT: RefCell<*mut pg_sys::ExprContext> = const { RefCell::new(std::ptr::null_mut()) };
+
+    /// Thread-local storage for the planstate
+    /// This allows expressions to be properly initialized with subplan support
+    static RUNTIME_PLANSTATE: RefCell<*mut pg_sys::PlanState> = const { RefCell::new(std::ptr::null_mut()) };
+}
+
+/// Set the runtime expression context and planstate for the current thread
+/// This should be called before executing queries that may use heap filters
+pub fn set_runtime_context(context: *mut pg_sys::ExprContext, planstate: *mut pg_sys::PlanState) {
+    RUNTIME_EXPR_CONTEXT.with(|ctx| {
+        *ctx.borrow_mut() = context;
+    });
+    RUNTIME_PLANSTATE.with(|ps| {
+        *ps.borrow_mut() = planstate;
+    });
+}
+
+/// Clear the runtime context for the current thread
+pub fn clear_runtime_context() {
+    set_runtime_context(std::ptr::null_mut(), std::ptr::null_mut());
+}
+
+/// Get the current runtime expression context
+fn get_runtime_expr_context() -> *mut pg_sys::ExprContext {
+    RUNTIME_EXPR_CONTEXT.with(|ctx| *ctx.borrow())
+}
+
+/// Get the current runtime planstate
+fn get_runtime_planstate() -> *mut pg_sys::PlanState {
+    RUNTIME_PLANSTATE.with(|ps| *ps.borrow())
+}
 
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
@@ -20,6 +57,8 @@ pub struct HeapFieldFilter {
 
     #[serde(skip)]
     initialized_expression: Option<*mut pg_sys::ExprState>,
+    #[serde(skip)]
+    initialized_with_planstate: bool,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -33,6 +72,7 @@ impl HeapFieldFilter {
             expr_node: PostgresPointer(expr_node.cast()),
             description: expr_desc,
             initialized_expression: None,
+            initialized_with_planstate: false,
         }
     }
 
@@ -43,13 +83,25 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         heaprel: &PgSearchRelation,
     ) -> bool {
+        // Use the runtime expression context if available
+        let runtime_context = get_runtime_expr_context();
+        self.evaluate_with_context(ctid, heaprel, runtime_context)
+    }
+
+    /// Evaluate this filter with a specific expression context (supports subqueries)
+    pub unsafe fn evaluate_with_context(
+        &mut self,
+        ctid: pg_sys::ItemPointer,
+        heaprel: &PgSearchRelation,
+        expr_context: *mut pg_sys::ExprContext,
+    ) -> bool {
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
         if expr_node.is_null() {
             return true;
         }
 
-        self.evaluate_expression_inner(ctid, heaprel, expr_node)
+        self.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context)
     }
 
     /// Inner expression evaluation method that can be wrapped in panic handling
@@ -58,6 +110,7 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
+        provided_expr_context: *mut pg_sys::ExprContext,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
@@ -114,27 +167,72 @@ impl HeapFieldFilter {
             return false;
         }
 
-        // Create an expression context for evaluation
-        let econtext = pg_sys::CreateStandaloneExprContext();
-        if econtext.is_null() {
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
+        // Use provided expression context if available, otherwise create a standalone one
+        let (econtext, should_free_context) = if !provided_expr_context.is_null() {
+            // Use the provided context (supports subqueries)
+            (provided_expr_context, false)
+        } else {
+            // Create a standalone context (fallback for simple expressions)
+            let standalone_context = pg_sys::CreateStandaloneExprContext();
+            if standalone_context.is_null() {
+                pg_sys::ExecDropSingleTupleTableSlot(slot);
+                if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                    pg_sys::ReleaseBuffer(buffer);
+                }
+                return false;
             }
-            return false;
-        }
+            (standalone_context, true)
+        };
+
+        // Store the original scan tuple to restore later if we're using a provided context
+        let original_scan_tuple = if !provided_expr_context.is_null() {
+            (*econtext).ecxt_scantuple
+        } else {
+            std::ptr::null_mut()
+        };
 
         // Set the tuple slot in the expression context
         (*econtext).ecxt_scantuple = slot;
 
-        // Initialize the expression for execution
-        let expr_state = *self.initialized_expression.get_or_insert_with(|| {
-            PgMemoryContexts::TopTransactionContext
-                .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut()))
-        });
+        // Initialize the expression for execution with proper planstate for subquery support
+        let planstate = get_runtime_planstate();
+        let has_planstate = !planstate.is_null();
+
+        // Check if we need to reinitialize with a better planstate
+        let expr_state = if let Some(existing_state) = self.initialized_expression {
+            if has_planstate && !self.initialized_with_planstate {
+                // We now have a planstate but were initialized without one, reinitialize
+                let new_state = PgMemoryContexts::TopTransactionContext
+                    .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate));
+                self.initialized_expression = Some(new_state);
+                self.initialized_with_planstate = true;
+                new_state
+            } else {
+                existing_state
+            }
+        } else {
+            // First initialization
+            let new_state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                if has_planstate {
+                    pg_sys::ExecInitExpr(expr_node.cast(), planstate)
+                } else {
+                    pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut())
+                }
+            });
+            self.initialized_expression = Some(new_state);
+            self.initialized_with_planstate = has_planstate;
+            new_state
+        };
         if expr_state.is_null() {
             self.initialized_expression = None;
-            pg_sys::FreeExprContext(econtext, false);
+            // Restore original scan tuple if we're using a provided context
+            if !provided_expr_context.is_null() {
+                (*econtext).ecxt_scantuple = original_scan_tuple;
+            }
+            // Only free the context if we created it ourselves
+            if should_free_context {
+                pg_sys::FreeExprContext(econtext, false);
+            }
             pg_sys::ExecDropSingleTupleTableSlot(slot);
             if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
                 pg_sys::ReleaseBuffer(buffer);
@@ -150,7 +248,16 @@ impl HeapFieldFilter {
         let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
-        pg_sys::FreeExprContext(econtext, false);
+        // Restore original scan tuple if we're using a provided context
+        if !provided_expr_context.is_null() {
+            (*econtext).ecxt_scantuple = original_scan_tuple;
+        }
+
+        // Only free the context if we created it ourselves
+        if should_free_context {
+            pg_sys::FreeExprContext(econtext, false);
+        }
+
         pg_sys::ExecDropSingleTupleTableSlot(slot);
         if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
             pg_sys::ReleaseBuffer(buffer);

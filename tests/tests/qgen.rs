@@ -21,7 +21,9 @@ use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::JoinType;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
 use crate::fixtures::querygen::wheregen::arb_wheres;
-use crate::fixtures::querygen::{arb_joins_and_wheres, compare, PgGucs};
+use crate::fixtures::querygen::{
+    arb_joins_and_wheres, compare, generated_queries_setup, Column, PgGucs,
+};
 
 use fixtures::*;
 
@@ -31,164 +33,65 @@ use proptest::prelude::*;
 use rstest::*;
 use sqlx::{PgConnection, Row};
 
-#[derive(Debug, Clone)]
-enum ColumnDef {
-    Id(i64),
-    Uuid(&'static str),
-    Name(&'static str),
-    Color(&'static str),
-    Age(i64),
-    Price(f64),
-    Rating(i8),
-}
-
-impl ColumnDef {
-    fn column_name(&self) -> &'static str {
-        match self {
-            ColumnDef::Id(_) => "id",
-            ColumnDef::Uuid(_) => "uuid",
-            ColumnDef::Name(_) => "name",
-            ColumnDef::Color(_) => "color",
-            ColumnDef::Age(_) => "age",
-            ColumnDef::Price(_) => "price",
-            ColumnDef::Rating(_) => "rating",
-        }
-    }
-
-    fn sql_type(&self) -> &'static str {
-        match self {
-            ColumnDef::Id(_) => "SERIAL8",
-            ColumnDef::Uuid(_) => "UUID",
-            ColumnDef::Name(_) => "TEXT",
-            ColumnDef::Color(_) => "VARCHAR",
-            ColumnDef::Age(_) => "INTEGER",
-            ColumnDef::Price(_) => "NUMERIC(10,2)",
-            ColumnDef::Rating(_) => "INTEGER",
-        }
-    }
-
-    fn is_groupable(&self) -> bool {
-        match self {
-            ColumnDef::Id(_) | ColumnDef::Uuid(_) => {
-                // TODO: Grouping on these columns causes a
-                // `Var in target list not found in grouping columns`.
-                false
-            }
-            ColumnDef::Price(_) => {
-                // TODO: Grouping on f64 fails to ORDER BY (even in cases without an ORDER BY):
-                // ```
-                // Cannot ORDER BY OrderByInfo
-                // ```
-                false
-            }
-            ColumnDef::Name(_) | ColumnDef::Color(_) | ColumnDef::Age(_) | ColumnDef::Rating(_) => {
-                true
-            }
-        }
-    }
-
-    fn value_as_string(&self) -> String {
-        match self {
-            ColumnDef::Id(val) => val.to_string(),
-            ColumnDef::Uuid(val) => val.to_string(),
-            ColumnDef::Name(val) => val.to_string(),
-            ColumnDef::Color(val) => val.to_string(),
-            ColumnDef::Age(val) => val.to_string(),
-            ColumnDef::Price(val) => val.to_string(),
-            ColumnDef::Rating(val) => val.to_string(),
-        }
-    }
-}
-
-const COLUMNS: &[ColumnDef] = &[
-    ColumnDef::Id(3),
-    ColumnDef::Uuid("550e8400-e29b-41d4-a716-446655440000"),
-    ColumnDef::Name("bob"),
-    ColumnDef::Color("blue"),
-    ColumnDef::Age(20),
-    ColumnDef::Price(99.99),
-    ColumnDef::Rating(4),
+const COLUMNS: &[Column] = &[
+    Column::new("id", "SERIAL8", "'4'")
+        .primary_key()
+        .groupable({
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
+            false
+        }),
+    Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
+        .groupable({
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
+            false
+        })
+        .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
+        .random_generator_sql("gen_random_uuid()"),
+    Column::new("name", "TEXT", "'bob'")
+        .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .random_generator_sql(
+            "(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
+    Column::new("color", "VARCHAR", "'blue'")
+        .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
+        .random_generator_sql(
+            "(ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int]"
+        ),
+    Column::new("age", "INTEGER", "'20'")
+        .bm25_numeric_field(r#""age": { "fast": true }"#)
+        .random_generator_sql("(floor(random() * 100) + 1)::int"),
+    Column::new("price", "NUMERIC(10,2)", "'99.99'")
+        .groupable({
+            // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
+            // ```
+            // Cannot ORDER BY OrderByInfo
+            // ```
+            false
+        })
+        .bm25_numeric_field(r#""price": { "fast": true }"#)
+        .random_generator_sql("(random() * 1000 + 10)::numeric(10,2)"),
+    Column::new("rating", "INTEGER", "'4'")
+        .indexed({
+            // Marked un-indexed in order to test heap-filter pushdown.
+            false
+        })
+        .groupable({
+            // TODO: Grouping on id/uuid/rating causes an error:
+            // https://github.com/paradedb/paradedb/issues/3050
+            false
+        })
+        .bm25_numeric_field(r#""rating": { "fast": true }"#)
+        .random_generator_sql("(floor(random() * 5) + 1)::int"),
 ];
 
-fn generated_queries_setup(
-    conn: &mut PgConnection,
-    tables: &[(&str, usize)],
-    columns_def: &[ColumnDef],
-) -> String {
-    "CREATE EXTENSION pg_search;".execute(conn);
-    "SET log_error_verbosity TO VERBOSE;".execute(conn);
-    "SET log_min_duration_statement TO 1000;".execute(conn);
-
-    let mut setup_sql = String::new();
-    let column_definitions = columns_def
+fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
+    COLUMNS
         .iter()
-        .map(|col| {
-            if col.column_name() == "id" {
-                return format!(
-                    "{} {} NOT NULL PRIMARY KEY",
-                    col.column_name(),
-                    col.sql_type()
-                );
-            }
-            format!("{} {}", col.column_name(), col.sql_type())
-        })
-        .collect::<Vec<_>>()
-        .join(", \n");
-
-    for (tname, row_count) in tables {
-        let sql = format!(
-            r#"
-CREATE TABLE {tname}
-(
-        {column_definitions}
-);
-
--- Note: Create the index before inserting rows to encourage multiple segments being created.
-CREATE INDEX idx{tname} ON {tname} USING bm25 (id, uuid, name, color, age, price, rating)
-WITH (
-key_field = 'id',
-text_fields = '
-            {{
-                "uuid": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "name": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }},
-                "color": {{ "tokenizer": {{ "type": "keyword" }}, "fast": true }}
-            }}',
-numeric_fields = '
-            {{
-                "age": {{ "fast": true }},
-                "price": {{ "fast": true }},
-                "rating": {{ "fast": true }}
-            }}'
-);
-
-INSERT into {tname} (uuid, name, color, age, price, rating)
-VALUES (gen_random_uuid(), 'bob', 'blue', 20, 99.99, 4);
-
-INSERT into {tname} (uuid, name, color, age, price, rating)
-SELECT
-      gen_random_uuid(),
-      (ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int],
-      (ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int],
-      (floor(random() * 100) + 1)::int,
-      (random() * 1000 + 10)::numeric(10,2),
-      (floor(random() * 5) + 1)::int
-FROM generate_series(1, {row_count});
-
-CREATE INDEX idx{tname}_uuid ON {tname} (uuid);
-CREATE INDEX idx{tname}_name ON {tname} (name);
-CREATE INDEX idx{tname}_color ON {tname} (color);
-CREATE INDEX idx{tname}_age ON {tname} (age);
-CREATE INDEX idx{tname}_price ON {tname} (price);
-CREATE INDEX idx{tname}_rating ON {tname} (rating);
-ANALYZE;
-"#
-        );
-
-        (&sql).execute(conn);
-        setup_sql.push_str(&sql);
-    }
-
-    setup_sql
+        .filter(|c| names.contains(&c.name))
+        .cloned()
+        .collect()
 }
 
 ///
@@ -199,7 +102,13 @@ ANALYZE;
 #[tokio::test]
 async fn generated_joins_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -215,7 +124,7 @@ async fn generated_joins_small(database: Db) {
         (join, where_expr) in arb_joins_and_wheres(
             any::<JoinType>(),
             tables,
-            vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["id", "name", "color", "age"]),
         ),
         gucs in any::<PgGucs>(),
     )| {
@@ -245,7 +154,13 @@ async fn generated_joins_small(database: Db) {
 #[tokio::test]
 async fn generated_joins_large_limit(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -261,7 +176,7 @@ async fn generated_joins_large_limit(database: Db) {
         (join, where_expr) in arb_joins_and_wheres(
             Just(JoinType::Inner),
             tables,
-            vec![("id", "3"), ("name", "bob"), ("color", "blue"), ("age", "20")]
+            &columns_named(vec!["id", "name", "color", "age"]),
         ),
         target_list in proptest::sample::subsequence(vec!["id", "name", "color", "age"], 1..=4),
         gucs in any::<PgGucs>(),
@@ -293,7 +208,13 @@ async fn generated_joins_large_limit(database: Db) {
 #[tokio::test]
 async fn generated_single_relation(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -304,7 +225,7 @@ async fn generated_single_relation(database: Db) {
     proptest!(|(
         where_expr in arb_wheres(
             vec![table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            COLUMNS,
         ),
         gucs in any::<PgGucs>(),
         target in prop_oneof![Just("COUNT(*)"), Just("id")],
@@ -331,7 +252,13 @@ async fn generated_single_relation(database: Db) {
 #[tokio::test]
 async fn generated_group_by_aggregates(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -342,23 +269,24 @@ async fn generated_group_by_aggregates(database: Db) {
     // Columns that can be used for grouping (must have fast: true in index)
     let grouping_columns: Vec<_> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable())
-        .map(|col| col.column_name())
+        .filter(|col| col.is_groupable)
+        .map(|col| col.name)
         .collect();
 
-    let column_data: Vec<(&str, String)> = COLUMNS
+    let where_columns: Vec<_> = COLUMNS
         .iter()
-        .map(|col| (col.column_name(), col.value_as_string()))
+        .filter(|col| col.is_groupable)
+        .cloned()
         .collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            column_data,
+            &where_columns,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],
-            vec![("age", "20"), ("price", "99.99"), ("rating", "4")]
+            &columns_named(vec!["age", "price", "rating"]),
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
         gucs in any::<PgGucs>(),
@@ -432,7 +360,13 @@ async fn generated_group_by_aggregates(database: Db) {
 #[tokio::test]
 async fn generated_paging_small(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -441,7 +375,7 @@ async fn generated_paging_small(database: Db) {
     eprintln!("{setup_sql}");
 
     proptest!(|(
-        where_expr in arb_wheres(vec![table_name], vec![("name", "bob")]),
+        where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
         paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
@@ -465,7 +399,13 @@ async fn generated_paging_small(database: Db) {
 #[tokio::test]
 async fn generated_paging_large(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -492,7 +432,13 @@ async fn generated_paging_large(database: Db) {
 #[tokio::test]
 async fn generated_subquery(database: Db) {
     let pool = MutexObjectPool::<PgConnection>::new(
-        move || block_on(async { database.connection().await }),
+        move || {
+            block_on(async {
+                {
+                    database.connection().await
+                }
+            })
+        },
         |_| {},
     );
 
@@ -508,11 +454,11 @@ async fn generated_subquery(database: Db) {
     proptest!(|(
         outer_where_expr in arb_wheres(
             vec![outer_table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            COLUMNS,
         ),
         inner_where_expr in arb_wheres(
             vec![inner_table_name],
-            vec![("name", "bob"), ("color", "blue"), ("age", "20")]
+            COLUMNS,
         ),
         subquery_column in proptest::sample::select(&["name", "color", "age"]),
         paging_exprs in arb_paging_exprs(inner_table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),

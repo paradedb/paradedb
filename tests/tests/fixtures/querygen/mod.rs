@@ -32,24 +32,211 @@ use crate::fixtures::db::Query;
 use crate::fixtures::ConnExt;
 use joingen::{JoinExpr, JoinType};
 use opexprgen::{ArrayQuantifier, Operator};
-use wheregen::{Expr, SqlValue};
+use wheregen::Expr;
+
+#[derive(Debug, Clone)]
+pub struct BM25Options {
+    /// "text_fields" or "numeric_fields"
+    pub field_type: &'static str,
+    /// The JSON config for this field, e.g. `{ "tokenizer": { "type": "keyword" } }`
+    pub config_json: &'static str,
+}
+
+#[derive(Debug, Clone)]
+pub struct Column {
+    pub name: &'static str,
+    pub sql_type: &'static str,
+    pub sample_value: &'static str,
+    pub is_primary_key: bool,
+    pub is_groupable: bool,
+    pub is_indexed: bool,
+    pub bm25_options: Option<BM25Options>,
+    pub random_generator_sql: &'static str,
+}
+
+impl Column {
+    pub const fn new(
+        name: &'static str,
+        sql_type: &'static str,
+        sample_value: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            sql_type,
+            sample_value,
+            is_primary_key: false,
+            is_groupable: true,
+            is_indexed: true,
+            bm25_options: None,
+            random_generator_sql: "NULL",
+        }
+    }
+
+    pub const fn primary_key(mut self) -> Self {
+        self.is_primary_key = true;
+        self
+    }
+
+    pub const fn groupable(mut self, is_groupable: bool) -> Self {
+        self.is_groupable = is_groupable;
+        self
+    }
+
+    pub const fn indexed(mut self, is_indexed: bool) -> Self {
+        self.is_indexed = is_indexed;
+        self
+    }
+
+    pub const fn bm25_text_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "text_fields",
+            config_json,
+        });
+        self
+    }
+
+    pub const fn bm25_numeric_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "numeric_fields",
+            config_json,
+        });
+        self
+    }
+
+    pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
+        self.random_generator_sql = random_generator_sql;
+        self
+    }
+}
+
+pub fn generated_queries_setup(
+    conn: &mut PgConnection,
+    tables: &[(&str, usize)],
+    columns_def: &[Column],
+) -> String {
+    "CREATE EXTENSION pg_search;".execute(conn);
+    "SET log_error_verbosity TO VERBOSE;".execute(conn);
+    "SET log_min_duration_statement TO 1000;".execute(conn);
+
+    let mut setup_sql = String::new();
+    let column_definitions = columns_def
+        .iter()
+        .map(|col| {
+            if col.is_primary_key {
+                format!("{} {} NOT NULL PRIMARY KEY", col.name, col.sql_type)
+            } else {
+                format!("{} {}", col.name, col.sql_type)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", \n");
+
+    // For bm25 index
+    let bm25_columns = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let key_field = columns_def
+        .iter()
+        .find(|c| c.is_primary_key)
+        .map(|c| c.name)
+        .expect("At least one column must be a primary key");
+
+    let text_fields = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "text_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
+    let numeric_fields = columns_def
+        .iter()
+        .filter(|c| c.is_indexed)
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "numeric_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
+    // For INSERT statements
+    let insert_columns = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let sample_values = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.sample_value)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let random_generators = columns_def
+        .iter()
+        .filter(|c| !c.is_primary_key)
+        .map(|c| c.random_generator_sql)
+        .collect::<Vec<_>>()
+        .join(",\n      ");
+
+    for (tname, row_count) in tables {
+        let sql = format!(
+            r#"
+CREATE TABLE {tname} (
+    {column_definitions}
+);
+-- Note: Create the index before inserting rows to encourage multiple segments being created.
+CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
+    key_field = '{key_field}',
+    text_fields = '{{ {text_fields} }}',
+    numeric_fields = '{{ {numeric_fields} }}'
+);
+
+INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
+
+INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {row_count});
+
+{b_tree_indexes}
+
+ANALYZE;
+"#,
+            b_tree_indexes = columns_def
+                .iter()
+                .filter(|c| c.is_indexed)
+                .map(|c| format!(
+                    "CREATE INDEX idx{tname}_{name} ON {tname} ({name});",
+                    name = c.name
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        (&sql).execute(conn);
+        setup_sql.push_str(&sql);
+    }
+
+    setup_sql
+}
 
 ///
 /// Generates arbitrary joins and where clauses for the given tables and columns.
 ///
-pub fn arb_joins_and_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
+pub fn arb_joins_and_wheres(
     join_types: impl Strategy<Value = JoinType> + Clone,
     tables: Vec<impl AsRef<str>>,
-    columns: Vec<(impl AsRef<str>, V)>,
-) -> impl Strategy<Value = (JoinExpr, Expr<V>)> {
+    columns: &[Column],
+) -> impl Strategy<Value = (JoinExpr, Expr)> {
     let table_names = tables
         .into_iter()
         .map(|tn| tn.as_ref().to_string())
         .collect::<Vec<_>>();
-    let columns = columns
-        .into_iter()
-        .map(|(cn, v)| (cn.as_ref().to_string(), v))
-        .collect::<Vec<_>>();
+
+    let columns = columns.to_vec();
 
     // Choose how many tables will be joined.
     (2..=table_names.len())
@@ -63,9 +250,9 @@ pub fn arb_joins_and_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
                 joingen::arb_joins(
                     join_types.clone(),
                     tables.clone(),
-                    columns.iter().map(|(cn, _)| cn.clone()).collect(),
+                    columns.iter().map(|c| c.name.to_owned()).collect(),
                 ),
-                wheregen::arb_wheres(tables.clone(), columns.clone()),
+                wheregen::arb_wheres(tables.clone(), &columns.to_vec()),
             )
         })
 }
@@ -75,6 +262,7 @@ pub struct PgGucs {
     aggregate_custom_scan: bool,
     custom_scan: bool,
     custom_scan_without_operator: bool,
+    filter_pushdown: bool,
     seqscan: bool,
     indexscan: bool,
     parallel_workers: bool,
@@ -86,6 +274,7 @@ impl Default for PgGucs {
             aggregate_custom_scan: false,
             custom_scan: false,
             custom_scan_without_operator: false,
+            filter_pushdown: false,
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
@@ -99,6 +288,7 @@ impl PgGucs {
             aggregate_custom_scan,
             custom_scan,
             custom_scan_without_operator,
+            filter_pushdown,
             seqscan,
             indexscan,
             parallel_workers,
@@ -111,6 +301,7 @@ impl PgGucs {
             SET paradedb.enable_aggregate_custom_scan TO {aggregate_custom_scan};
             SET paradedb.enable_custom_scan TO {custom_scan};
             SET paradedb.enable_custom_scan_without_operator TO {custom_scan_without_operator};
+            SET paradedb.enable_filter_pushdown TO {filter_pushdown};
             SET enable_seqscan TO {seqscan};
             SET enable_indexscan TO {indexscan};
             SET max_parallel_workers TO {max_parallel_workers};

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756232655937,
+  "lastUpdate": 1756233310768,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10302,6 +10302,42 @@ window.BENCHMARK_DATA = {
             "value": 152.5310024004432,
             "unit": "median tps",
             "extra": "avg tps: 152.1340784688833, max tps: 155.12580948942104, count: 57884"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27eb82ae49479b36488ba8fad67ca1b3c3635fc9",
+          "message": "test: Add prop testing of unindexed columns (#3049)\n\n## What\n\nThis change adds property testing for heap-filter pushdown, by:\n\n* Bulking up the `Column` definitions that we use, to make it easier to\ntrack the configuration of the column all the way from creation time to\nuse time (i.e. when generating `WHERE` clauses, in this case).\n* Although we currently always create a static table per proptest, this\nwould also make it easier to proptest the table shape: i.e. create\ndynamically shaped indexes.\n* Converting one of our existing columns to unindexed.\n\n## Why\n\n#3043 highlighted the fact that we don't have property testing for\nheap-filter pushdown.\n\n## Tests\n\nThese changes did not uncover #3043: I think because #3043 involved even\nmore deeply nested subqueries, and those don't seem worth adding here\nquite yet. But they did expose #3050.",
+          "timestamp": "2025-08-26T10:56:47-07:00",
+          "tree_id": "e0e1b0b3af0ab2fe9fe2aa018bf8577ad4c8867f",
+          "url": "https://github.com/paradedb/paradedb/commit/27eb82ae49479b36488ba8fad67ca1b3c3635fc9"
+        },
+        "date": 1756233309547,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.6076701507502,
+            "unit": "median tps",
+            "extra": "avg tps: 28.49083587549011, max tps: 28.869413234049716, count: 57321"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 150.0900467130065,
+            "unit": "median tps",
+            "extra": "avg tps: 149.4609506348113, max tps: 151.62421694828174, count: 57321"
           }
         ]
       }

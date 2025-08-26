@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756167259147,
+  "lastUpdate": 1756167908063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12258,6 +12258,60 @@ window.BENCHMARK_DATA = {
             "value": 14.20516211726283,
             "unit": "median tps",
             "extra": "avg tps: 14.159903794252097, max tps: 20.682347884950715, count: 55590"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9dff960a8a7741a4d7f8cb5ca537a7765a36afb3",
+          "message": "fix: excluded sub-queries from filter-pushdown (on non-indexed fields). (#3045)\n\n# Ticket(s) Closed\n\n- Closes #3043 \n\n## What\n\nPrevents system crashes when `paradedb.enable_filter_pushdown` is\nenabled and heap filter expressions contain subqueries.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. However, `HeapFieldFilter` uses\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries are present.\n\n## How\n\nAdded subquery detection in `try_pushdown()` using the existing\n`contains_exec_param()` function to identify expressions containing EXEC\nparameters (subqueries). When subqueries are detected, the function\nreturns `None` instead of creating a `Qual::HeapExpr`, causing\nPostgreSQL's regular executor to handle the expression safely.\n\n## Tests\n\n- Added test cases in `unified_expression_comprehensive.sql` with\nsubqueries in heap filter expressions\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T16:36:12-07:00",
+          "tree_id": "0a678547f62504cd9bd542b71bb6e30d3d6fbdf3",
+          "url": "https://github.com/paradedb/paradedb/commit/9dff960a8a7741a4d7f8cb5ca537a7765a36afb3"
+        },
+        "date": 1756167906862,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.249480661415994,
+            "unit": "median tps",
+            "extra": "avg tps: 35.60087282423209, max tps: 37.2802486040005, count: 55674"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.9418166464826,
+            "unit": "median tps",
+            "extra": "avg tps: 280.0800926044848, max tps: 2297.835048555906, count: 55674"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 141.51474741122036,
+            "unit": "median tps",
+            "extra": "avg tps: 141.53530411605186, max tps: 144.7759606324335, count: 55674"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 69.01723925386557,
+            "unit": "median tps",
+            "extra": "avg tps: 69.62643682327277, max tps: 133.60567684158724, count: 111348"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.89323217855071,
+            "unit": "median tps",
+            "extra": "avg tps: 15.188944196124709, max tps: 21.368449844930762, count: 55674"
           }
         ]
       }

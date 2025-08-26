@@ -66,6 +66,12 @@ jobs:
           REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
           echo "ref=$REF" >> $GITHUB_OUTPUT
 
+      - name: Derive Short Commit
+        id: commit_info
+        run: |
+          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
         uses: actions/checkout@v4
         with:
@@ -80,14 +86,13 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
           ref: main
+
       - name: Copy latest actions into place
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        shell: bash
-        run: |
-          cp -rv actions-temp/.github/actions .github/
+        run: cp -rv actions-temp/.github/actions .github/
+
       - name: Cleanup temporary checkout
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        shell: bash
         run: rm -rf actions-temp
 
       # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
@@ -154,9 +159,7 @@ jobs:
               : ref;
 
       - name: Running for ${{ steps.pr_label.outputs.result }}"
-        shell: bash
-        run: |
-          echo ${{ steps.pr_label.outputs.result }}
+        run: echo ${{ steps.pr_label.outputs.result }}
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -214,12 +217,6 @@ jobs:
         working-directory: pg_search/
         run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
-      - name: Derive Short Commit
-        id: commit_info
-        run: |
-          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
-
       - name: Benchmark "logs" Dataset
         uses: ./.github/actions/benchmark-benchmarks
         with:
@@ -228,7 +225,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Benchmark "docs" Dataset
@@ -239,5 +235,11 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          slack_webhook_url: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Notify Slack on Failure (push only)
+        if: failure() && github.event_name == 'push'
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> `benchmark-pg_search-benchmarks` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

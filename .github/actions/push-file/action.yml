@@ -21,7 +21,7 @@ inputs:
     required: true
   push-token:
     description: "GitHub token (PAT or GITHUB_TOKEN) with permission to push to the target repository."
-    required: false
+    required: true
 
 runs:
   using: "composite"

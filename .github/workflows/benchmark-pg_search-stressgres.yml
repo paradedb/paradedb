@@ -219,44 +219,40 @@ jobs:
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark bulk-updates.toml
         uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark wide-table.toml
         uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Benchmark background-merge.toml
         uses: ./.github/actions/benchmark-stressgres
         with:
           test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
-          benchmark-deploy-secret: ${{ secrets.PARADEDB_BENCHMARK_DATA_DEPLOY_SSH_KEY }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

@@ -30,14 +30,9 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.repository }}
-        # Use the provided token if supplied; otherwise fall back to the caller's GITHUB_TOKEN
         token: ${{ inputs.push-token || github.token }}
         ref: ${{ inputs.branch }}
         path: ${{ inputs.repo-path }}
-        # persist-credentials defaults to true; keep it so 'git push' works with the token
-        persist-credentials: true
-        # fetch-depth can be 0 if you might commit on non-default branches or need tags
-        fetch-depth: 0
 
     - name: Configure Git user
       shell: bash
@@ -50,30 +45,26 @@ runs:
       shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
-        # If the file is generated outside of the repo, copy it in; otherwise remove this cp.
-        cp "../${{ inputs.file-name }}" "./${{ inputs.file-name }}" 2>/dev/null || true
-        mkdir -p "$(dirname "${{ inputs.file-name }}")"
+        cp ../${{ inputs.file-name }} ./
         git add "${{ inputs.file-name }}"
 
     - name: Commit changes if needed
-      shell: bash
       id: commit
+      shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
         if git diff --cached --quiet; then
-          echo "no_changes=true" >> "$GITHUB_OUTPUT"
+          echo "no_changes=true" >> $GITHUB_OUTPUT
         else
           git commit -m "${{ inputs.commit-message }}"
-          echo "no_changes=false" >> "$GITHUB_OUTPUT"
+          echo "no_changes=false" >> $GITHUB_OUTPUT
         fi
 
     - name: Push changes
       if: steps.commit.outputs.no_changes == 'false'
       shell: bash
       working-directory: "${{ inputs.repo-path }}"
-      run: |
-        # Using the persisted HTTPS token credentials set by actions/checkout
-        git push origin HEAD:${{ inputs.branch }}
+      run: git push origin HEAD:${{ inputs.branch }}
 
     - name: Cleanup
       shell: bash

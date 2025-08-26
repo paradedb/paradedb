@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756166606696,
+  "lastUpdate": 1756166608999,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9070,6 +9070,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.86748589081997, max segment_count: 71.0, count: 57941"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9dff960a8a7741a4d7f8cb5ca537a7765a36afb3",
+          "message": "fix: excluded sub-queries from filter-pushdown (on non-indexed fields). (#3045)\n\n# Ticket(s) Closed\n\n- Closes #3043 \n\n## What\n\nPrevents system crashes when `paradedb.enable_filter_pushdown` is\nenabled and heap filter expressions contain subqueries.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. However, `HeapFieldFilter` uses\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries are present.\n\n## How\n\nAdded subquery detection in `try_pushdown()` using the existing\n`contains_exec_param()` function to identify expressions containing EXEC\nparameters (subqueries). When subqueries are detected, the function\nreturns `None` instead of creating a `Qual::HeapExpr`, causing\nPostgreSQL's regular executor to handle the expression safely.\n\n## Tests\n\n- Added test cases in `unified_expression_comprehensive.sql` with\nsubqueries in heap filter expressions\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-25T16:36:12-07:00",
+          "tree_id": "0a678547f62504cd9bd542b71bb6e30d3d6fbdf3",
+          "url": "https://github.com/paradedb/paradedb/commit/9dff960a8a7741a4d7f8cb5ca537a7765a36afb3"
+        },
+        "date": 1756166607804,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.341190691051054, max cpu: 43.32999, count: 57606"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 230.31246880750268, max mem: 239.4375, count: 57606"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.32025644339088, max cpu: 33.333336, count: 57606"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.12701951077145, max mem: 163.76171875, count: 57606"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24848,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22774.003628094295, max block_count: 25725.0, count: 57606"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 48.665347359650035, max segment_count: 71.0, count: 57606"
           }
         ]
       }

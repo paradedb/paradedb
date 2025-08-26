@@ -19,8 +19,8 @@ inputs:
   commit-message:
     description: "Commit message to use."
     required: true
-  deploy-secret:
-    description: "The secret to be able to deploy to the specified repository"
+  push-token:
+    description: "GitHub token (PAT or GITHUB_TOKEN) with permission to push to the target repository."
     required: true
 
 runs:
@@ -30,8 +30,7 @@ runs:
       uses: actions/checkout@v4
       with:
         repository: ${{ inputs.repository }}
-        ssh-key: ${{ inputs.deploy-secret }}
-        ssh-known-hosts: github.com
+        token: ${{ inputs.push-token || github.token }}
         ref: ${{ inputs.branch }}
         path: ${{ inputs.repo-path }}
 
@@ -50,8 +49,8 @@ runs:
         git add "${{ inputs.file-name }}"
 
     - name: Commit changes if needed
-      shell: bash
       id: commit
+      shell: bash
       working-directory: "${{ inputs.repo-path }}"
       run: |
         if git diff --cached --quiet; then
@@ -62,11 +61,10 @@ runs:
         fi
 
     - name: Push changes
-      shell: bash
       if: steps.commit.outputs.no_changes == 'false'
+      shell: bash
       working-directory: "${{ inputs.repo-path }}"
-      run: |
-        git push origin HEAD:${{ inputs.branch }}
+      run: git push origin HEAD:${{ inputs.branch }}
 
     - name: Cleanup
       shell: bash

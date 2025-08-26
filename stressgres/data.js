@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756233310768,
+  "lastUpdate": 1756233313171,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11828,6 +11828,66 @@ window.BENCHMARK_DATA = {
             "value": 166.99609375,
             "unit": "median mem",
             "extra": "avg mem: 155.28390624190192, max mem: 176.37109375, count: 57884"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27eb82ae49479b36488ba8fad67ca1b3c3635fc9",
+          "message": "test: Add prop testing of unindexed columns (#3049)\n\n## What\n\nThis change adds property testing for heap-filter pushdown, by:\n\n* Bulking up the `Column` definitions that we use, to make it easier to\ntrack the configuration of the column all the way from creation time to\nuse time (i.e. when generating `WHERE` clauses, in this case).\n* Although we currently always create a static table per proptest, this\nwould also make it easier to proptest the table shape: i.e. create\ndynamically shaped indexes.\n* Converting one of our existing columns to unindexed.\n\n## Why\n\n#3043 highlighted the fact that we don't have property testing for\nheap-filter pushdown.\n\n## Tests\n\nThese changes did not uncover #3043: I think because #3043 involved even\nmore deeply nested subqueries, and those don't seem worth adding here\nquite yet. But they did expose #3050.",
+          "timestamp": "2025-08-26T10:56:47-07:00",
+          "tree_id": "e0e1b0b3af0ab2fe9fe2aa018bf8577ad4c8867f",
+          "url": "https://github.com/paradedb/paradedb/commit/27eb82ae49479b36488ba8fad67ca1b3c3635fc9"
+        },
+        "date": 1756233311942,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.45555692455101, max cpu: 47.33728, count: 57321"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 175.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 173.78551259028106, max mem: 181.0546875, count: 57321"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 18884,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17445.29055668952, max block_count: 23665.0, count: 57321"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 35,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 37.766228781772824, max segment_count: 103.0, count: 57321"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.025844792126806, max cpu: 37.029896, count: 57321"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 167.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 155.08982637253362, max mem: 178.22265625, count: 57321"
           }
         ]
       }

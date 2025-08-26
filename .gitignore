@@ -20,6 +20,9 @@ docker/.docker_cache_dev/
 # Code coverage
 *.profraw
 
+# Property test regression state
+*.proptest-regressions
+
 # Binaries
 *.deb
 

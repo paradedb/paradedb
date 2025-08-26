@@ -21,9 +21,6 @@ inputs:
   slack_channel:
     description: "Slack channel to post results to"
     required: true
-  slack_webhook_url:
-    description: "Slack webhook URL to post results to"
-    required: true
   pr_label:
     description: "The human readable version of the commit being tested"
     required: true
@@ -213,12 +210,3 @@ runs:
           echo $f
           cat $f
         done
-
-    - name: Notify Slack on Failure (push only)
-      if: failure() && github.event_name == 'push'
-      shell: bash
-      run: |
-        GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        ARTIFACT_URL="${{ steps.artifact-logs.outputs.artifact-url }}"
-        MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow (${{ inputs.test_file }}) failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL} | Stressgres Log: ${ARTIFACT_URL}"
-        curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ inputs.slack_webhook_url }}

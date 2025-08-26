@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756233969356,
+  "lastUpdate": 1756233971711,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14320,6 +14320,114 @@ window.BENCHMARK_DATA = {
             "value": 154.5390625,
             "unit": "median mem",
             "extra": "avg mem: 152.1899942213825, max mem: 158.54296875, count: 55674"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27eb82ae49479b36488ba8fad67ca1b3c3635fc9",
+          "message": "test: Add prop testing of unindexed columns (#3049)\n\n## What\n\nThis change adds property testing for heap-filter pushdown, by:\n\n* Bulking up the `Column` definitions that we use, to make it easier to\ntrack the configuration of the column all the way from creation time to\nuse time (i.e. when generating `WHERE` clauses, in this case).\n* Although we currently always create a static table per proptest, this\nwould also make it easier to proptest the table shape: i.e. create\ndynamically shaped indexes.\n* Converting one of our existing columns to unindexed.\n\n## Why\n\n#3043 highlighted the fact that we don't have property testing for\nheap-filter pushdown.\n\n## Tests\n\nThese changes did not uncover #3043: I think because #3043 involved even\nmore deeply nested subqueries, and those don't seem worth adding here\nquite yet. But they did expose #3050.",
+          "timestamp": "2025-08-26T10:56:47-07:00",
+          "tree_id": "e0e1b0b3af0ab2fe9fe2aa018bf8577ad4c8867f",
+          "url": "https://github.com/paradedb/paradedb/commit/27eb82ae49479b36488ba8fad67ca1b3c3635fc9"
+        },
+        "date": 1756233970478,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.070408568192327, max cpu: 41.982506, count: 55637"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 157.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 142.81758366453528, max mem: 159.1171875, count: 55637"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.61077415271052, max cpu: 28.070175, count: 55637"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 150.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 144.71691296652858, max mem: 150.03515625, count: 55637"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.311348,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.589625951541544, max cpu: 33.618675, count: 55637"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 126.83644658961212, max mem: 162.2421875, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20330,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20479.294390423638, max block_count: 40591.0, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582288452984495, max cpu: 4.6511626, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 88.65516912362726, max mem: 129.25, count: 55637"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.152452504628215, max segment_count: 55.0, count: 55637"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.93998,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.214920109262962, max cpu: 36.923077, count: 111274"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 162.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 146.19409629467575, max mem: 171.8203125, count: 111274"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.819577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.888936931588788, max cpu: 27.826086, count: 55637"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 152.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 151.07428594056114, max mem: 155.5546875, count: 55637"
           }
         ]
       }

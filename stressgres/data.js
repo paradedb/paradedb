@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756167910359,
+  "lastUpdate": 1756231973271,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2354,6 +2354,72 @@ window.BENCHMARK_DATA = {
             "value": 73.22310282447394,
             "unit": "median tps",
             "extra": "avg tps: 74.87545256599688, max tps: 795.7190316099385, count: 55267"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27eb82ae49479b36488ba8fad67ca1b3c3635fc9",
+          "message": "test: Add prop testing of unindexed columns (#3049)\n\n## What\n\nThis change adds property testing for heap-filter pushdown, by:\n\n* Bulking up the `Column` definitions that we use, to make it easier to\ntrack the configuration of the column all the way from creation time to\nuse time (i.e. when generating `WHERE` clauses, in this case).\n* Although we currently always create a static table per proptest, this\nwould also make it easier to proptest the table shape: i.e. create\ndynamically shaped indexes.\n* Converting one of our existing columns to unindexed.\n\n## Why\n\n#3043 highlighted the fact that we don't have property testing for\nheap-filter pushdown.\n\n## Tests\n\nThese changes did not uncover #3043: I think because #3043 involved even\nmore deeply nested subqueries, and those don't seem worth adding here\nquite yet. But they did expose #3050.",
+          "timestamp": "2025-08-26T10:56:47-07:00",
+          "tree_id": "e0e1b0b3af0ab2fe9fe2aa018bf8577ad4c8867f",
+          "url": "https://github.com/paradedb/paradedb/commit/27eb82ae49479b36488ba8fad67ca1b3c3635fc9"
+        },
+        "date": 1756231972065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1143.3310257879411,
+            "unit": "median tps",
+            "extra": "avg tps: 1139.5487831185958, max tps: 1146.80008196794, count: 55172"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2728.528229922935,
+            "unit": "median tps",
+            "extra": "avg tps: 2703.314140210478, max tps: 2739.546687954599, count: 55172"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1177.4368749306855,
+            "unit": "median tps",
+            "extra": "avg tps: 1171.8063265639723, max tps: 1180.2580254200504, count: 55172"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 970.9247259472664,
+            "unit": "median tps",
+            "extra": "avg tps: 967.0110946397077, max tps: 973.1490150028368, count: 55172"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 174.2927974590004,
+            "unit": "median tps",
+            "extra": "avg tps: 178.33792681494606, max tps: 185.98659671803517, count: 110344"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 150.95699397703356,
+            "unit": "median tps",
+            "extra": "avg tps: 149.38971440410916, max tps: 151.62631808240343, count: 55172"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.61121735575934,
+            "unit": "median tps",
+            "extra": "avg tps: 46.82267395322641, max tps: 737.9169784365901, count: 55172"
           }
         ]
       }

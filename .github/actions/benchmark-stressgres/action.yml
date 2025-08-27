@@ -24,9 +24,6 @@ inputs:
   pr_label:
     description: "The human readable version of the commit being tested"
     required: true
-  benchmark-deploy-secret:
-    description: "The secret to deploy benchmarks to our benchmark repo"
-    required: true
 
 runs:
   using: "composite"
@@ -180,7 +177,7 @@ runs:
         commit-message: "automatic publish for ${{ steps.resolve_ref.outputs.sha }} by @${{ github.actor }}"
         file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
         repository: "paradedb/benchmark-data"
-        deploy-secret: ${{ inputs.benchmark-deploy-secret }}
+        push-token: ${{ inputs.github_token }}
 
     - name: Comment benchmark image on PR
       if: github.event_name == 'pull_request'

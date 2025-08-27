@@ -616,7 +616,31 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
 ORDER BY score DESC; 
 
 SET paradedb.enable_filter_pushdown = true;
--- Test Case 19.1: Test that subqueries on the RHS of a heap filter which don't match anything don't
+
+-- Test Case 19.1: Test that subqueries on the RHS of a heap filter which don't match anything
+-- result in an error.
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.name ILIKE ANY (array['%Socks%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 1978) OR products.id < 1978 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 1978))
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.2: Test that nested heap filters are solved.
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.name ILIKE ANY (array['%Socks%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.3: Test that subqueries on the RHS of a heap filter which match somethin
 -- result in an error.
 SELECT
   products.id
@@ -628,7 +652,7 @@ WHERE
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
 
--- Test Case 19.2: Test that nested heap filters are solved.
+-- Test Case 19.4: Test that nested heap filters are solved (with non-empty result).
 SELECT
   products.id
 FROM products

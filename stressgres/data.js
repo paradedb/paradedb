@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756418484684,
+  "lastUpdate": 1756419163673,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15320,6 +15320,60 @@ window.BENCHMARK_DATA = {
             "value": 14.822481282114127,
             "unit": "median tps",
             "extra": "avg tps: 14.854891783461971, max tps: 19.322100713474363, count: 55668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b98d839a9c36c3c87946083ffb296ae8a234942",
+          "message": "fix: conversion error from non-string JSON group-by columns (#2999)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes `UnsupportedIntoConversion(\"String\")` error when grouping by\nnon-string JSON fields in aggregate custom scan.\n\n## Why\n\nWhen grouping by JSON fields that contain non-string values (integers,\nbooleans, etc.), Tantivy returns `OwnedValue` types like `I64`, `U64`,\n`Bool`, etc., but PostgreSQL expects string output for JSON extraction\noperators (`->>` always returns text). The generic\n`TryFrom<TantivyValue> for String` implementation only handles\n`OwnedValue::Str`, causing conversion failures.\n\n## How\n\nAdded targeted error handling in `convert_group_value_to_datum()` to\ncatch `UnsupportedIntoConversion(\"String\")` errors and route them\nthrough `TantivyValue(group_val).to_string()` for JSON GROUP BY\naggregates.\n\n## Tests\n\n- Added deep nested JSON path tests in `json_groupby_aggregate.sql`\n- Nested query now returns proper results instead of conversion errors\n\n```sql\n-- Example: GROUP BY JSON field containing integers\nSELECT config->'database'->>'port' AS db_port, COUNT(*) \nFROM table \nGROUP BY config->'database'->>'port';\n\n-- Before: ERROR: Failed to convert TantivyValue to datum: UnsupportedIntoConversion(\"String\")  \n-- After:  \n db_port | count \n---------+-------\n 3306    |     1\n 5432    |     4\n```",
+          "timestamp": "2025-08-28T14:22:15-07:00",
+          "tree_id": "debdd2fb280f11b731712b43d21706d7c911ed6a",
+          "url": "https://github.com/paradedb/paradedb/commit/8b98d839a9c36c3c87946083ffb296ae8a234942"
+        },
+        "date": 1756419162396,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 33.91082898621385,
+            "unit": "median tps",
+            "extra": "avg tps: 34.32114688816652, max tps: 36.37316366641826, count: 55676"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 249.56764586743384,
+            "unit": "median tps",
+            "extra": "avg tps: 279.11594592120116, max tps: 2384.150240502827, count: 55676"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 143.59840798353179,
+            "unit": "median tps",
+            "extra": "avg tps: 143.20369044604433, max tps: 143.95962833628116, count: 55676"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 69.03372697557677,
+            "unit": "median tps",
+            "extra": "avg tps: 74.0247139813092, max tps: 138.98262026545174, count: 111352"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.643420097985917,
+            "unit": "median tps",
+            "extra": "avg tps: 14.77658214096058, max tps: 20.258210749043087, count: 55676"
           }
         ]
       }

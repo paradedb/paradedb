@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756405210822,
+  "lastUpdate": 1756405213156,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13496,6 +13496,66 @@ window.BENCHMARK_DATA = {
             "value": 166.06640625,
             "unit": "median mem",
             "extra": "avg mem: 154.15843345183146, max mem: 177.6953125, count: 57086"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b22de0bdee25950b89ad8356f8dac38d06f5f9b",
+          "message": "fix: cleanup fsm overhead and fix `content.header.empty` bug (#3061)\n\n## What\n\nFixes a bug where pages weren't properly being marked as empty.\n\nAlso optimizes the `pop()/drain()` codepaths so that they're not holding\na lock as long.\n\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-28T13:40:46-04:00",
+          "tree_id": "2ba678ad022bf0f3bb1222be35535135d3ea6a44",
+          "url": "https://github.com/paradedb/paradedb/commit/3b22de0bdee25950b89ad8356f8dac38d06f5f9b"
+        },
+        "date": 1756405211909,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.24492742013469, max cpu: 46.421665, count: 57964"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.431640625,
+            "unit": "median mem",
+            "extra": "avg mem: 170.74912075005608, max mem: 177.21875, count: 57964"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19181,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17626.97300048306, max block_count: 23639.0, count: 57964"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 36,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 38.417379752950104, max segment_count: 102.0, count: 57964"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.020973432529638, max cpu: 32.973503, count: 57964"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 155.704036597608, max mem: 177.5703125, count: 57964"
           }
         ]
       }

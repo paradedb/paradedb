@@ -93,10 +93,10 @@ impl Default for FSMBlock {
 
 impl FSMBlock {
     #[inline]
-    fn all_invalid(&self) -> bool {
+    fn any_invalid(&self) -> bool {
         self.entries
             .iter()
-            .all(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
+            .any(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
     }
 }
 
@@ -165,7 +165,67 @@ impl FreeSpaceManager {
     /// responsibility to ensure the block is properly used, or else it will be lost forever as
     /// dead space in the underlying relation.
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-        self.drain(bman, 1).next()
+        let xid_horizon =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
+        let mut blockno = self.start_blockno;
+        loop {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+
+            blockno = page.special::<BM25PageSpecialData>().next_blockno;
+
+            if matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v0) {
+                // skip v0 blocks
+                continue;
+            }
+
+            let contents = page.contents_ref::<FSMBlock>();
+            if contents.header.empty {
+                continue;
+            }
+
+            let mut buffer = buffer.upgrade(bman);
+            let mut page = buffer.page_mut();
+            let contents = page.contents_mut::<FSMBlock>();
+
+            if !contents.header.empty {
+                let mut found_blockno = None;
+                let mut all_invalid = true;
+
+                for FSMEntry(blockno, fsm_xid) in &mut contents.entries {
+                    if found_blockno.is_none()
+                        && *blockno != pg_sys::InvalidBlockNumber
+                        && passses_visibility_horizon(*fsm_xid, xid_horizon)
+                    {
+                        found_blockno = Some(*blockno);
+                        *blockno = pg_sys::InvalidBlockNumber;
+                    }
+
+                    all_invalid &= *blockno == pg_sys::InvalidBlockNumber;
+                }
+
+                if all_invalid {
+                    // the page is now all invalid so mark it as empty
+                    contents.header.empty = true;
+                } else if found_blockno.is_none() {
+                    // we didn't actually change the page and
+                    buffer.set_dirty(false);
+                    continue;
+                }
+
+                if found_blockno.is_some() {
+                    // return the block we found
+                    return found_blockno;
+                }
+            } else {
+                // page was empty by the time we got the exclusive lock -- we didn't change it
+                buffer.set_dirty(false);
+            }
+        }
     }
 
     /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
@@ -181,9 +241,68 @@ impl FreeSpaceManager {
         bman: &mut BufferManager,
         n: usize,
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
-        FSMDrainIter::new(self, bman)
-            .take(n)
-            .map(|FSMEntry(blockno, _)| blockno)
+        let xid_horizon =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
+        let mut blocks = Vec::with_capacity(n);
+        let mut blockno = self.start_blockno;
+        loop {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return blocks.into_iter();
+            }
+
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+
+            blockno = page.special::<BM25PageSpecialData>().next_blockno;
+
+            if matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v0) {
+                // skip v0 blocks
+                continue;
+            }
+
+            let contents = page.contents_ref::<FSMBlock>();
+            if contents.header.empty {
+                continue;
+            }
+
+            let mut buffer = buffer.upgrade(bman);
+            let mut page = buffer.page_mut();
+            let contents = page.contents_mut::<FSMBlock>();
+
+            if !contents.header.empty {
+                let current_block_count = blocks.len();
+                let mut all_invalid = true;
+
+                for FSMEntry(blockno, fsm_xid) in &mut contents.entries {
+                    if blocks.len() < n
+                        && *blockno != pg_sys::InvalidBlockNumber
+                        && passses_visibility_horizon(*fsm_xid, xid_horizon)
+                    {
+                        blocks.push(*blockno);
+                        *blockno = pg_sys::InvalidBlockNumber;
+                    }
+
+                    all_invalid &= *blockno == pg_sys::InvalidBlockNumber;
+                }
+
+                if all_invalid {
+                    // the page is now all invalid so mark it as empty
+                    contents.header.empty = true;
+                } else if current_block_count == blocks.len() {
+                    // we didn't actually change the page
+                    buffer.set_dirty(false);
+                    continue;
+                }
+
+                if blocks.len() == n {
+                    // we have all the requested blocks so return them
+                    return blocks.into_iter();
+                }
+            } else {
+                // page was empty by the time we got the exclusive lock -- we didn't change it
+                buffer.set_dirty(false);
+            }
+        }
     }
 
     /// Add the specified `extend_with` iterator of [`pg_sys::BlockNumber`]s to this [`FreeSpaceManager`].
@@ -413,16 +532,16 @@ unsafe fn fsm_info(
     'static,
     (
         name!(fsm_blockno, AnyNumeric),
-        name!(free_blockno, AnyNumeric),
+        name!(free_blockno, Option<AnyNumeric>),
     ),
 > {
     let index = PgSearchRelation::from_pg(index.as_ptr());
 
     let meta = MetaPage::open(&index);
-    let fsm_start = meta.fsm();
     let bman = BufferManager::new(&index);
-    let mut mapping = Vec::<(pg_sys::BlockNumber, Vec<FSMEntry>)>::default();
+    let mut mapping = Vec::<(pg_sys::BlockNumber, Vec<Option<FSMEntry>>)>::default();
 
+    let fsm_start = meta.fsm();
     let mut blockno = fsm_start;
 
     while blockno != pg_sys::InvalidBlockNumber {
@@ -430,8 +549,20 @@ unsafe fn fsm_info(
         let page = buffer.page();
         let block = page.contents::<FSMBlock>();
         if !block.header.empty {
-            let free_blocks = block.entries.to_vec();
+            let free_blocks = block
+                .entries
+                .into_iter()
+                .filter_map(|entry| {
+                    if entry.0 == pg_sys::InvalidBlockNumber {
+                        None
+                    } else {
+                        Some(Some(entry))
+                    }
+                })
+                .collect();
             mapping.push((blockno, free_blocks));
+        } else {
+            mapping.push((blockno, vec![None]));
         }
         blockno = page.special::<BM25PageSpecialData>().next_blockno;
     }
@@ -439,7 +570,6 @@ unsafe fn fsm_info(
     TableIterator::new(mapping.into_iter().flat_map(|(fsm_blockno, blocks)| {
         blocks
             .into_iter()
-            .filter(|FSMEntry(blockno, _)| *blockno != pg_sys::InvalidBlockNumber)
-            .map(move |blockno| (fsm_blockno.into(), blockno.0.into()))
+            .map(move |blockno| (fsm_blockno.into(), blockno.map(|entry| entry.0.into())))
     }))
 }

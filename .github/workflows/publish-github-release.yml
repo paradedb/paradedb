@@ -93,7 +93,7 @@ jobs:
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
@@ -125,4 +125,4 @@ jobs:
           make_latest: ${{ steps.release_latest.outputs.is_latest }}
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756386049258,
+  "lastUpdate": 1756390540254,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2484,6 +2484,72 @@ window.BENCHMARK_DATA = {
             "value": 65.80196195257116,
             "unit": "median tps",
             "extra": "avg tps: 74.09595575990276, max tps: 750.8358680300845, count: 55272"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d07151262ede5e5ecc0e93262c1ecba5980e324d",
+          "message": "perf: reduce FSM locking overhead (#3057)\n\n## What\n\nThis reduces locking overhead in the FSM by holding exclusive locks for\nmuch less time\n\n## Why\n\nTo reduce contention between concurrent writers, which includes the\nbackground merger.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-28T09:59:34-04:00",
+          "tree_id": "2099e3e181b1c97c09a02cab28e7d4f2b880946a",
+          "url": "https://github.com/paradedb/paradedb/commit/d07151262ede5e5ecc0e93262c1ecba5980e324d"
+        },
+        "date": 1756390539034,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1098.9006426141966,
+            "unit": "median tps",
+            "extra": "avg tps: 1101.1812246728796, max tps: 1117.9937269005427, count: 55305"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2506.8331553326607,
+            "unit": "median tps",
+            "extra": "avg tps: 2509.492979710388, max tps: 2604.276588841021, count: 55305"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1107.4183689470058,
+            "unit": "median tps",
+            "extra": "avg tps: 1104.0911374585246, max tps: 1134.4869726520308, count: 55305"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 936.9034048238085,
+            "unit": "median tps",
+            "extra": "avg tps: 933.1147805203178, max tps: 948.6337687289864, count: 55305"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 174.33358483037972,
+            "unit": "median tps",
+            "extra": "avg tps: 184.42505100752703, max tps: 205.52966657928994, count: 110610"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 153.09504725173878,
+            "unit": "median tps",
+            "extra": "avg tps: 153.54533823808805, max tps: 156.59407708479878, count: 55305"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 156.94797225189393,
+            "unit": "median tps",
+            "extra": "avg tps: 144.6725222140362, max tps: 780.282571530454, count: 55305"
           }
         ]
       }

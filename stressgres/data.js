@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756417799606,
+  "lastUpdate": 1756417801755,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11394,6 +11394,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.88377681805517, max segment_count: 70.0, count: 57424"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b98d839a9c36c3c87946083ffb296ae8a234942",
+          "message": "fix: conversion error from non-string JSON group-by columns (#2999)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes `UnsupportedIntoConversion(\"String\")` error when grouping by\nnon-string JSON fields in aggregate custom scan.\n\n## Why\n\nWhen grouping by JSON fields that contain non-string values (integers,\nbooleans, etc.), Tantivy returns `OwnedValue` types like `I64`, `U64`,\n`Bool`, etc., but PostgreSQL expects string output for JSON extraction\noperators (`->>` always returns text). The generic\n`TryFrom<TantivyValue> for String` implementation only handles\n`OwnedValue::Str`, causing conversion failures.\n\n## How\n\nAdded targeted error handling in `convert_group_value_to_datum()` to\ncatch `UnsupportedIntoConversion(\"String\")` errors and route them\nthrough `TantivyValue(group_val).to_string()` for JSON GROUP BY\naggregates.\n\n## Tests\n\n- Added deep nested JSON path tests in `json_groupby_aggregate.sql`\n- Nested query now returns proper results instead of conversion errors\n\n```sql\n-- Example: GROUP BY JSON field containing integers\nSELECT config->'database'->>'port' AS db_port, COUNT(*) \nFROM table \nGROUP BY config->'database'->>'port';\n\n-- Before: ERROR: Failed to convert TantivyValue to datum: UnsupportedIntoConversion(\"String\")  \n-- After:  \n db_port | count \n---------+-------\n 3306    |     1\n 5432    |     4\n```",
+          "timestamp": "2025-08-28T14:22:15-07:00",
+          "tree_id": "debdd2fb280f11b731712b43d21706d7c911ed6a",
+          "url": "https://github.com/paradedb/paradedb/commit/8b98d839a9c36c3c87946083ffb296ae8a234942"
+        },
+        "date": 1756417800487,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.445542703154082, max cpu: 42.857143, count: 57432"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 232.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 229.6700205650813, max mem: 242.0390625, count: 57432"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.302633176346074, max cpu: 33.333336, count: 57432"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.55844513674867, max mem: 163.07421875, count: 57432"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23573,
+            "unit": "median block_count",
+            "extra": "avg block_count: 21834.73264033988, max block_count: 24796.0, count: 57432"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 48.67171611645076, max segment_count: 71.0, count: 57432"
           }
         ]
       }

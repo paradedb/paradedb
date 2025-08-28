@@ -60,6 +60,70 @@ jobs:
             benchmark
             benchmark-benchmarks
 
+      - name: Prepare local NVMe (RAID0 if multiple) and move workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mdadm xfsprogs util-linux
+
+          # Find unmounted NVMe disks that aren't the root device
+          ROOT_DEV="$(lsblk -no pkname /)"
+          mapfile -t NVME_DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk" && $1 ~ /^nvme/ {print $1}' \
+            | grep -v "${ROOT_DEV:-^$}" \
+            | while read -r d; do
+                # skip if any partitions already mounted
+                if ! findmnt -rn -S "/dev/${d}"* >/dev/null 2>&1; then
+                  echo "$d"
+                fi
+              done)
+
+          if [[ "${#NVME_DISKS[@]}" -eq 0 ]]; then
+            echo "No free NVMe disks found; continuing on root volume." >&2
+            exit 0
+          fi
+
+          sudo mkdir -p /mnt/nvme
+
+          if [[ "${#NVME_DISKS[@]}" -eq 1 ]]; then
+            DEV="/dev/${NVME_DISKS[0]}"
+          else
+            # Create RAID0 across all NVMe disks for max throughput
+            DEV="/dev/md0"
+            sudo mdadm --create "$DEV" --level=0 --raid-devices="${#NVME_DISKS[@]}" $(printf "/dev/%s " "${NVME_DISKS[@]}")
+            # Persist mdadm config (harmless on ephemeral runner)
+            sudo bash -c 'mdadm --detail --scan >> /etc/mdadm/mdadm.conf' || true
+          fi
+
+          # Wipe any old signatures and make XFS
+          sudo wipefs -af "$DEV"
+          sudo mkfs.xfs -f "$DEV"
+
+          # Mount and give current user ownership
+          sudo mount "$DEV" /mnt/nvme
+          sudo chown -R "$USER:$USER" /mnt/nvme
+
+          # Create a workspace on NVMe and bind-mount it over the default
+          mkdir -p /mnt/nvme/workspace
+          # Ensure the target exists
+          mkdir -p "$GITHUB_WORKSPACE"
+          # If anything already there (rare), move it
+          shopt -s dotglob nullglob
+          if compgen -G "$GITHUB_WORKSPACE/*" > /dev/null; then
+            rsync -a "$GITHUB_WORKSPACE"/ /mnt/nvme/workspace/
+          fi
+          sudo mount --bind /mnt/nvme/workspace "$GITHUB_WORKSPACE"
+
+          # Optional: fast caches on NVMe
+          mkdir -p /mnt/nvme/{tmp,cargo-cache,pip-cache}
+          echo "TMPDIR=/mnt/nvme/tmp" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=/mnt/nvme/cargo-cache/target" >> "$GITHUB_ENV"
+          echo "PIP_CACHE_DIR=/mnt/nvme/pip-cache" >> "$GITHUB_ENV"
+
+          df -hT /mnt/nvme || true
+          lsblk
+
       - name: Detect storage backing the workspace (EBS vs local NVMe)
         shell: bash
         run: |

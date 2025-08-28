@@ -2,7 +2,7 @@ use crate::postgres::customscan::qual_inspect::contains_exec_param;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::FromDatum;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{pg_sys, PgBox, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use std::ptr::NonNull;
 use tantivy::{
@@ -121,9 +121,9 @@ impl HeapFieldFilter {
         }
 
         // Use provided expression context if available, otherwise create a standalone one
-        let (econtext, allocated_context) = if let Some(ctx) = expr_context {
+        let (econtext, standalone_context) = if let Some(ctx) = expr_context {
             // Use the provided context (supports subqueries)
-            (ctx.as_ptr(), false)
+            (ctx.as_ptr(), None)
         } else {
             // Create a standalone context (fallback for simple expressions)
             let standalone_context = pg_sys::CreateStandaloneExprContext();
@@ -134,14 +134,16 @@ impl HeapFieldFilter {
                 }
                 return false;
             }
-            (standalone_context, true)
+            // SAFETY: We just checked that standalone_context is not null
+            let pgbox_context = unsafe { PgBox::from_pg(standalone_context) };
+            (pgbox_context.as_ptr(), Some(pgbox_context))
         };
 
         // Store the original scan tuple to restore later if we're using a provided context
-        let original_scan_tuple = if allocated_context {
-            std::ptr::null_mut()
-        } else {
+        let original_scan_tuple = if standalone_context.is_none() {
             (*econtext).ecxt_scantuple
+        } else {
+            std::ptr::null_mut()
         };
 
         // Set the tuple slot in the expression context
@@ -177,10 +179,7 @@ impl HeapFieldFilter {
         if expr_state.is_null() {
             self.initialized_expression = None;
             // Restore original scan tuple if we're using a provided context
-            if allocated_context {
-                // Only free the context if we created it ourselves
-                pg_sys::FreeExprContext(econtext, false);
-            } else {
+            if standalone_context.is_none() {
                 (*econtext).ecxt_scantuple = original_scan_tuple;
             }
             pg_sys::ExecDropSingleTupleTableSlot(slot);
@@ -198,11 +197,8 @@ impl HeapFieldFilter {
         let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
-        // Only free the context if we created it ourselves
-        if allocated_context {
-            pg_sys::FreeExprContext(econtext, false);
-        } else {
-            // Restore original scan tuple if we're using a provided context
+        // Restore original scan tuple if we're using a provided context
+        if standalone_context.is_none() {
             (*econtext).ecxt_scantuple = original_scan_tuple;
         }
 

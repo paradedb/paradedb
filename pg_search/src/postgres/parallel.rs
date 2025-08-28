@@ -83,17 +83,7 @@ pub unsafe fn maybe_init_parallel_scan(
 }
 
 pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    let state = get_bm25_scan_state(&mut scan)?;
-
-    let _mutex = state.acquire_mutex();
-    if state.remaining_segments() == 0 {
-        // no more to claim
-        None
-    } else {
-        // claim the next one
-        let remaining_segments = state.decrement_remaining_segments();
-        Some(state.segment_id(remaining_segments))
-    }
+    get_bm25_scan_state(&mut scan)?.checkout_segment()
 }
 
 pub unsafe fn list_segment_ids(mut scan: pg_sys::IndexScanDesc) -> Option<HashSet<SegmentId>> {

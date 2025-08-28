@@ -258,21 +258,49 @@ impl ParallelScanState {
         self.mutex.init();
     }
 
-    pub fn acquire_mutex(&mut self) -> impl Drop {
+    fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
     }
 
-    pub fn nsegments(&self) -> usize {
-        self.nsegments
-    }
-
-    pub fn remaining_segments(&self) -> usize {
-        self.remaining_segments
-    }
-
-    pub fn decrement_remaining_segments(&mut self) -> usize {
+    fn decrement_remaining_segments(&mut self) -> usize {
         self.remaining_segments -= 1;
         self.remaining_segments
+    }
+
+    /// Claim a segment to work on.
+    pub fn checkout_segment(&mut self) -> Option<SegmentId> {
+        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+
+        loop {
+            let _mutex = self.acquire_mutex();
+            if self.remaining_segments == 0 {
+                break None;
+            }
+
+            // If debug_parallel_query is enabled and we're the leader, then do not take the first
+            // segment (unless a deadline has passed, since in some cases we may not have any workers:
+            // e.g. UNIONS under a Gather node, etc).
+            //
+            // This significantly improves the reproducibility of parallel worker issues with small
+            // datasets, since it means that unlike in the non-parallel case, the leader will be
+            // unlikely to emit all of the segments before the workers have had a chance to start up.
+            #[cfg(not(any(feature = "pg14", feature = "pg15")))]
+            if unsafe { pg_sys::debug_parallel_query } != 0
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+                && self.remaining_segments == self.nsegments
+                && std::time::Instant::now() < deadline
+            {
+                continue;
+            }
+
+            // segments are claimed back-to-front and they were already organized smallest-to-largest
+            // by num_docs over in [`ParallelScanPayload::init()`].
+            //
+            // this means we're purposely checking out documents from largest-to-smallest.
+            let claimed_segment = self.decrement_remaining_segments();
+            break Some(self.segment_id(claimed_segment));
+        }
     }
 
     pub fn segments(&self) -> HashMap<SegmentId, u32> {

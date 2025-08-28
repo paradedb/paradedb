@@ -22,8 +22,7 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.17.x"
-          # TODO: Ideally this would be a dedicated automation user.
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
@@ -40,5 +39,4 @@ jobs:
         uses: carloscastrojumo/github-cherry-pick-action@v1
         with:
           branch: "0.18.x"
-          # TODO: Ideally this would be a dedicated automation user.
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}

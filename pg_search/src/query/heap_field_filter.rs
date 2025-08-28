@@ -90,7 +90,7 @@ impl HeapFieldFilter {
     }
 
     /// Evaluate this filter with a specific expression context (supports subqueries)
-    pub unsafe fn evaluate_with_context(
+    unsafe fn evaluate_with_context(
         &mut self,
         ctid: pg_sys::ItemPointer,
         heaprel: &PgSearchRelation,

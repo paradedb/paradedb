@@ -21,9 +21,7 @@ pub struct HeapFieldFilter {
     pub description: String,
 
     #[serde(skip)]
-    initialized_expression: Option<*mut pg_sys::ExprState>,
-    #[serde(skip)]
-    initialized_with_planstate: bool,
+    initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -37,7 +35,6 @@ impl HeapFieldFilter {
             expr_node: PostgresPointer(expr_node.cast()),
             description: expr_desc,
             initialized_expression: None,
-            initialized_with_planstate: false,
         }
     }
 
@@ -151,37 +148,31 @@ impl HeapFieldFilter {
         (*econtext).ecxt_scantuple = slot;
 
         // Initialize the expression for execution with proper planstate for subquery support
-        // Check if we need to reinitialize with a better planstate
-        let expr_state = if let Some(existing_state) = self.initialized_expression {
-            if let Some(planstate_nonnull) = planstate {
-                if !self.initialized_with_planstate {
-                    // We now have a planstate but were initialized without one, reinitialize
-                    let new_state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                        pg_sys::ExecInitExpr(expr_node.cast(), planstate_nonnull.as_ptr())
-                    });
-                    self.initialized_expression = Some(new_state);
-                    self.initialized_with_planstate = true;
-                    new_state
-                } else {
-                    existing_state
+        let expr_state = match (&self.initialized_expression, planstate) {
+            // We have an existing expression state
+            (Some((existing_state, existing_planstate)), current_planstate) => {
+                // Check if we need to reinitialize with a better planstate
+                match (existing_planstate, current_planstate) {
+                    // We were initialized without planstate but now have one - reinitialize
+                    (None, Some(new_planstate)) => {
+                        let new_state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                            pg_sys::ExecInitExpr(expr_node.cast(), new_planstate.as_ptr())
+                        });
+                        self.initialized_expression = Some((new_state, Some(new_planstate)));
+                        new_state
+                    }
+                    // Use existing state
+                    _ => *existing_state,
                 }
-            } else {
-                existing_state
             }
-        } else {
             // First initialization
-            let planstate_ptr = if let Some(ps) = planstate {
-                self.initialized_with_planstate = true;
-                ps.as_ptr()
-            } else {
-                self.initialized_with_planstate = false;
-                std::ptr::null_mut()
-            };
-
-            let new_state = PgMemoryContexts::TopTransactionContext
-                .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
-            self.initialized_expression = Some(new_state);
-            new_state
+            (None, planstate) => {
+                let planstate_ptr = planstate.map_or(std::ptr::null_mut(), |ps| ps.as_ptr());
+                let new_state = PgMemoryContexts::TopTransactionContext
+                    .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
+                self.initialized_expression = Some((new_state, planstate));
+                new_state
+            }
         };
         if expr_state.is_null() {
             self.initialized_expression = None;

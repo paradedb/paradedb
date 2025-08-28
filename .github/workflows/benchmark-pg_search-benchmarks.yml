@@ -48,6 +48,8 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark') || (github.event_name == 'pull_request' && github.event.label.name == 'benchmark-benchmarks')
     env:
       pg_version: 17
+      TMPDIR: /mnt/ephemeral/tmp
+      CARGO_TARGET_DIR: /mnt/ephemeral/cargo
 
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
@@ -60,170 +62,156 @@ jobs:
             benchmark
             benchmark-benchmarks
 
+      - name: fio sanity on /mnt/ephemeral (10s)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y && sudo apt-get install -y fio
+          fio --name=randread --directory=/mnt/ephemeral --iodepth=32 --rw=randread --bs=4k \
+              --direct=1 --numjobs=1 --size=1G --runtime=10 --time_based --group_reporting
+
       - name: BEFORE | Detect actual backing device (handles overlayfs → upperdir)
         shell: bash
         run: |
           set -euo pipefail
           TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/_work}"
-
-          echo "Target: $TARGET_DIR"
-
-          # If overlay, extract upperdir; else just use TARGET_DIR
-          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS)
-          src=$(awk '{print $1}' <<<"${info[0]}")
-          fstype=$(awk '{print $2}' <<<"${info[0]}")
-          opts=$(awk '{print $3}' <<<"${info[0]}")
+          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS,TARGET)
+          src=$(awk '{print $1}' <<<"${info[0]}"); fstype=$(awk '{print $2}' <<<"${info[0]}"); opts=$(awk '{print $3}' <<<"${info[0]}")
 
           probe_path="$TARGET_DIR"
           if [[ "$fstype" == "overlay" ]]; then
             upperdir=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
-            workdir=$(sed -n 's/.*workdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
-            echo "overlayfs detected."
-            echo "  upperdir: $upperdir"
-            echo "  workdir:  $workdir"
-            probe_path="${upperdir:-$TARGET_DIR}"
+            [[ -n "$upperdir" ]] && probe_path="$upperdir"
+            echo "overlayfs upperdir: $upperdir"
           fi
 
-          echo "Probing underlying FS for: $probe_path"
           dev=$(df -P "$probe_path" | tail -1 | awk '{print $1}')
           real=$(readlink -f "$dev" || echo "$dev")
-          # resolve mapper/root indirections → parent block device
           base=$(basename "$real")
-          parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
-          [[ -n "$parent" ]] && base="$parent"
 
-          model="UNKNOWN"; vendor="UNKNOWN"
-          [[ -r "/sys/block/$base/device/model"  ]] && model=$(<"/sys/block/$base/device/model")
-          [[ -r "/sys/block/$base/device/vendor" ]] && vendor=$(<"/sys/block/$base/device/vendor")
+          get_model() { # $1 = block dev basename (e.g. nvme0n1)
+            [[ -r "/sys/block/$1/device/model" ]] && cat "/sys/block/$1/device/model" || echo UNKNOWN
+          }
+
+          verdict="UNKNOWN"
+          details=()
+
+          if [[ "$base" == md* ]]; then
+            # mdraid: inspect slaves
+            echo "Detected MD RAID device: /dev/$base"
+            for s in /sys/block/"$base"/slaves/*; do
+              b=$(basename "$s")
+              m=$(get_model "$b")
+              details+=("$b:$m")
+              [[ "$m" == *"EC2 NVMe Instance Storage"* ]] && verdict="LOCAL_NVME (mdraid)"
+            done
+          else
+            # not md: try to peel partitions (PKNAME) to the parent disk
+            parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
+            [[ -n "$parent" ]] && base="$parent"
+            m=$(get_model "$base")
+            details+=("$base:$m")
+            case "$m" in
+              *"EC2 NVMe Instance Storage"*) verdict="LOCAL_NVME";;
+              *"Elastic Block Store"*)       verdict="EBS";;
+            esac
+          fi
 
           echo "Mount source: $src"
-          echo "FSType:       $fstype"
-          echo "df device:    $dev (real: $real, base: /dev/$base)"
-          echo "Vendor:       $vendor"
-          echo "Model:        $model"
+          echo "Resolved dev: $real (base: /dev/$base)"
+          echo "Components:   ${details[*]}"
+          echo "Verdict:      $verdict"
 
-          case "$model" in
-            *"EC2 NVMe Instance Storage"*)
-              echo "Verdict: LOCAL NVMe (instance-store)";;
-            *"Elastic Block Store"*)
-              echo "Verdict: EBS (NVMe-backed)";;
-            *)
-              echo "Verdict: UNKNOWN";;
-          esac
+          echo; echo "/proc/mdstat:"
+          cat /proc/mdstat || true
 
-          echo
-          echo "Available NVMe devices:"
-          if ! command -v nvme >/dev/null; then
-            sudo apt-get update -y && sudo apt-get install -y nvme-cli
-          fi
+          echo; echo "nvme list:"
+          if ! command -v nvme >/dev/null; then sudo apt-get update -y && sudo apt-get install -y nvme-cli; fi
           nvme list || true
 
-      - name: Mount local NVMe and move workspace to it (safe, idempotent)
+      - name: Place heavy I/O on local NVMe (no partitioning)
         shell: bash
         run: |
           set -euo pipefail
+          NVME_ROOT=/mnt/ephemeral
+          sudo mkdir -p "$NVME_ROOT/_work" "$NVME_ROOT/tmp" "$NVME_ROOT/cargo" "$NVME_ROOT/pgrx"
+          sudo chown -R "$USER:$USER" "$NVME_ROOT"
 
-          # Pick the first *instance-store* NVMe that is not mounted
-          cand=$(nvme list | awk '/EC2 NVMe Instance Storage/{print $1}' | head -n1)
-          if [[ -z "$cand" ]]; then
-            echo "No EC2 NVMe Instance Storage device found."; exit 0
-          fi
-          dev="$cand"
-          part="${dev}p1"
-
-          # Partition if needed
-          if ! lsblk -no TYPE "$part" >/dev/null 2>&1; then
-            echo -e "g\nn\n1\n\n\nw" | sudo fdisk "$dev"
-            sudo partprobe "$dev"
+          # Bind the runner work root (optional; overlay already uses upperdir under /mnt/ephemeral)
+          if ! mountpoint -q /home/runner/_work; then
+            rsync -aHAX --delete /home/runner/_work/ "$NVME_ROOT/_work/"
+            sudo mount --bind "$NVME_ROOT/_work" /home/runner/_work
           fi
 
-          # Make filesystem if missing (XFS preferred for large-file workloads)
-          fstype=$(lsblk -no FSTYPE "$part")
-          if [[ -z "${fstype:-}" ]]; then
-            sudo mkfs.xfs -f "$part" || sudo mkfs.ext4 -F "$part"
+          # Fast temp + cargo target
+          rm -rf /tmp && mkdir -p "$NVME_ROOT/tmp" && ln -s "$NVME_ROOT/tmp" /tmp
+          echo "TMPDIR=$NVME_ROOT/tmp" >> $GITHUB_ENV
+          echo "CARGO_TARGET_DIR=$NVME_ROOT/cargo" >> $GITHUB_ENV
+
+          # Put pgrx data on NVMe before init/install
+          if [[ ! -e "$HOME/.pgrx" ]]; then
+            ln -s "$NVME_ROOT/pgrx" "$HOME/.pgrx"
           fi
 
-          # Mount it
-          sudo mkdir -p /mnt/nvme
-          if ! mountpoint -q /mnt/nvme; then
-            sudo mount "$part" /mnt/nvme
-          fi
-          sudo chown -R "$USER:$USER" /mnt/nvme
-
-          # Move the *runner workspace root* (one level above your repo) onto NVMe
-          runner_root="/home/runner/_work"
-          mkdir -p /mnt/nvme/_work
-
-          # If not already bind-mounted, populate once and bind
-          if ! mountpoint -q "$runner_root"; then
-            rsync -aHAX --delete "$runner_root"/ /mnt/nvme/_work/
-            sudo mount --bind /mnt/nvme/_work "$runner_root"
-            echo "Bound $runner_root to NVMe."
-          else
-            echo "$runner_root is already a mountpoint; skipping bind."
-          fi
-
-          # Speed up temp files too
-          sudo rm -rf /tmp && sudo mkdir -p /mnt/nvme/tmp && sudo ln -s /mnt/nvme/tmp /tmp
-
-          df -hT "$runner_root" /tmp
+          df -hT /home/runner/_work /tmp "$HOME/.pgrx" 2>/dev/null || true
 
       - name: AFTER | Detect actual backing device (handles overlayfs → upperdir)
         shell: bash
         run: |
           set -euo pipefail
           TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/_work}"
-
-          echo "Target: $TARGET_DIR"
-
-          # If overlay, extract upperdir; else just use TARGET_DIR
-          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS)
-          src=$(awk '{print $1}' <<<"${info[0]}")
-          fstype=$(awk '{print $2}' <<<"${info[0]}")
-          opts=$(awk '{print $3}' <<<"${info[0]}")
+          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS,TARGET)
+          src=$(awk '{print $1}' <<<"${info[0]}"); fstype=$(awk '{print $2}' <<<"${info[0]}"); opts=$(awk '{print $3}' <<<"${info[0]}")
 
           probe_path="$TARGET_DIR"
           if [[ "$fstype" == "overlay" ]]; then
             upperdir=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
-            workdir=$(sed -n 's/.*workdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
-            echo "overlayfs detected."
-            echo "  upperdir: $upperdir"
-            echo "  workdir:  $workdir"
-            probe_path="${upperdir:-$TARGET_DIR}"
+            [[ -n "$upperdir" ]] && probe_path="$upperdir"
+            echo "overlayfs upperdir: $upperdir"
           fi
 
-          echo "Probing underlying FS for: $probe_path"
           dev=$(df -P "$probe_path" | tail -1 | awk '{print $1}')
           real=$(readlink -f "$dev" || echo "$dev")
-          # resolve mapper/root indirections → parent block device
           base=$(basename "$real")
-          parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
-          [[ -n "$parent" ]] && base="$parent"
 
-          model="UNKNOWN"; vendor="UNKNOWN"
-          [[ -r "/sys/block/$base/device/model"  ]] && model=$(<"/sys/block/$base/device/model")
-          [[ -r "/sys/block/$base/device/vendor" ]] && vendor=$(<"/sys/block/$base/device/vendor")
+          get_model() { # $1 = block dev basename (e.g. nvme0n1)
+            [[ -r "/sys/block/$1/device/model" ]] && cat "/sys/block/$1/device/model" || echo UNKNOWN
+          }
+
+          verdict="UNKNOWN"
+          details=()
+
+          if [[ "$base" == md* ]]; then
+            # mdraid: inspect slaves
+            echo "Detected MD RAID device: /dev/$base"
+            for s in /sys/block/"$base"/slaves/*; do
+              b=$(basename "$s")
+              m=$(get_model "$b")
+              details+=("$b:$m")
+              [[ "$m" == *"EC2 NVMe Instance Storage"* ]] && verdict="LOCAL_NVME (mdraid)"
+            done
+          else
+            # not md: try to peel partitions (PKNAME) to the parent disk
+            parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
+            [[ -n "$parent" ]] && base="$parent"
+            m=$(get_model "$base")
+            details+=("$base:$m")
+            case "$m" in
+              *"EC2 NVMe Instance Storage"*) verdict="LOCAL_NVME";;
+              *"Elastic Block Store"*)       verdict="EBS";;
+            esac
+          fi
 
           echo "Mount source: $src"
-          echo "FSType:       $fstype"
-          echo "df device:    $dev (real: $real, base: /dev/$base)"
-          echo "Vendor:       $vendor"
-          echo "Model:        $model"
+          echo "Resolved dev: $real (base: /dev/$base)"
+          echo "Components:   ${details[*]}"
+          echo "Verdict:      $verdict"
 
-          case "$model" in
-            *"EC2 NVMe Instance Storage"*)
-              echo "Verdict: LOCAL NVMe (instance-store)";;
-            *"Elastic Block Store"*)
-              echo "Verdict: EBS (NVMe-backed)";;
-            *)
-              echo "Verdict: UNKNOWN";;
-          esac
+          echo; echo "/proc/mdstat:"
+          cat /proc/mdstat || true
 
-          echo
-          echo "Available NVMe devices:"
-          if ! command -v nvme >/dev/null; then
-            sudo apt-get update -y && sudo apt-get install -y nvme-cli
-          fi
+          echo; echo "nvme list:"
+          if ! command -v nvme >/dev/null; then sudo apt-get update -y && sudo apt-get install -y nvme-cli; fi
           nvme list || true
 
       # - name: Determine Ref to Benchmark

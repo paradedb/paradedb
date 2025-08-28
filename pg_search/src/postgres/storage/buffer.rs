@@ -4,6 +4,7 @@ use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
 use pgrx::pg_sys;
+use std::ops::Deref;
 
 /// A module to help with tracking when/where blocks are acquired and released.
 ///
@@ -192,12 +193,25 @@ impl Buffer {
     pub fn page_size(&self) -> pg_sys::Size {
         unsafe { pg_sys::BufferGetPageSize(self.pg_buffer) }
     }
+
+    pub fn upgrade(self, bman: &mut BufferManager) -> BufferMut {
+        let blockno = self.number();
+        drop(self);
+        bman.get_buffer_mut(blockno)
+    }
 }
 
 #[derive(Debug)]
 pub struct BufferMut {
     dirty: bool,
     inner: Buffer,
+}
+
+impl Deref for BufferMut {
+    type Target = Buffer;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl Drop for BufferMut {
@@ -241,6 +255,10 @@ impl BufferMut {
             buffer: self,
             pg_page,
         }
+    }
+
+    pub fn set_dirty(&mut self, is_dirty: bool) {
+        self.dirty = is_dirty
     }
 
     pub fn number(&self) -> pg_sys::BlockNumber {

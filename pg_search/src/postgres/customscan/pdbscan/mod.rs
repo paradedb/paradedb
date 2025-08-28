@@ -96,48 +96,30 @@ impl PdbScan {
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
-        let mvcc_style = unsafe {
-            if pg_sys::ParallelWorkerNumber == -1 {
-                // the leader only sees snapshot-visible segments
-                MvccSatisfies::Snapshot
-            } else {
-                // the workers have their own rules, which is literally every segment
-                // this is because the workers pick a specific segment to query that
-                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                // visibility test due to concurrent merges/garbage collects
-                MvccSatisfies::ParallelWorker(list_segment_ids(
-                    state.custom_state().parallel_state.expect(
-                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                    ),
-                ))
-            }
-        };
 
-        let search_reader = match (
+        let search_reader = SearchIndexReader::open_with_context(
+            indexrel,
+            search_query_input.clone(),
+            need_scores,
+            unsafe {
+                if pg_sys::ParallelWorkerNumber == -1 {
+                    // the leader only sees snapshot-visible segments
+                    MvccSatisfies::Snapshot
+                } else {
+                    // the workers have their own rules, which is literally every segment
+                    // this is because the workers pick a specific segment to query that
+                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                    // visibility test due to concurrent merges/garbage collects
+                    MvccSatisfies::ParallelWorker(list_segment_ids(
+                        state.custom_state().parallel_state.expect(
+                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                        ),
+                    ))
+                }
+            },
             std::ptr::NonNull::new(expr_context),
             std::ptr::NonNull::new(planstate),
-        ) {
-            (Some(expr_ctx), Some(plan_state)) => {
-                // Use context-aware method for proper postgres expression evaluation
-                SearchIndexReader::open_with_context(
-                    indexrel,
-                    search_query_input.clone(),
-                    need_scores,
-                    mvcc_style,
-                    Some(expr_ctx),
-                    Some(plan_state),
-                )
-            }
-            _ => {
-                // Use regular method without context (one or both contexts are null)
-                SearchIndexReader::open(
-                    indexrel,
-                    search_query_input.clone(),
-                    need_scores,
-                    mvcc_style,
-                )
-            }
-        }
+        )
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 

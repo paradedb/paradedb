@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cell::UnsafeCell;
+use std::collections::BTreeMap;
+
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
@@ -25,17 +28,18 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::postgres::ParallelScanState;
+use crate::postgres::{ParallelExplainData, ParallelScanState};
 use crate::query::SearchQueryInput;
+
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
-use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
+    pub parallel_explain_data: Option<BTreeMap<i32, ParallelExplainData>>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.

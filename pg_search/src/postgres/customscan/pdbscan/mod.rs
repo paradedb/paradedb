@@ -174,6 +174,10 @@ impl PdbScan {
         unsafe {
             inject_score_and_snippet_placeholders(state);
         }
+
+        // Set the runtime context for heap filters with subquery support
+        let planstate = state.planstate();
+        crate::query::heap_field_filter::set_runtime_context(state.runtime_context, planstate);
     }
 
     unsafe fn extract_all_possible_quals(
@@ -901,10 +905,6 @@ impl CustomScan for PdbScan {
         if state.custom_state().search_reader.is_none() {
             Self::init_search_reader(state);
         }
-
-        // Set the runtime context for heap filters with subquery support
-        let planstate = state.planstate();
-        crate::query::heap_field_filter::set_runtime_context(state.runtime_context, planstate);
 
         loop {
             let exec_method = state.custom_state_mut().exec_method_mut();

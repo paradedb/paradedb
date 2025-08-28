@@ -17,7 +17,7 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
-use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, BufferMut};
+use crate::postgres::storage::buffer::{init_new_buffer, Buffer, BufferManager};
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::iter::TableIterator;
 use pgrx::{name, pg_extern, pg_sys, AnyNumeric, PgRelation};
@@ -98,11 +98,19 @@ impl FSMBlock {
             .iter()
             .all(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
     }
+
     #[inline]
     fn any_invalid(&self) -> bool {
         self.entries
             .iter()
             .any(|FSMEntry(blockno, _)| *blockno == pg_sys::InvalidBlockNumber)
+    }
+
+    #[inline]
+    fn any_valid(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|FSMEntry(blockno, _)| *blockno != pg_sys::InvalidBlockNumber)
     }
 }
 
@@ -171,7 +179,43 @@ impl FreeSpaceManager {
     /// responsibility to ensure the block is properly used, or else it will be lost forever as
     /// dead space in the underlying relation.
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
-        self.drain(bman, 1).next()
+        let xid_horizon =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
+        let mut blockno = self.start_blockno;
+        loop {
+            if blockno == pg_sys::InvalidBlockNumber {
+                return None;
+            }
+
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+            blockno = page.special::<BM25PageSpecialData>().next_blockno;
+
+            let contents = page.contents_ref::<FSMBlock>();
+            if contents.any_valid() {
+                let mut buffer = buffer.upgrade(bman);
+                let mut page = buffer.page_mut();
+                let contents = page.contents_mut::<FSMBlock>();
+
+                let mut found_blockno = None;
+                for FSMEntry(blockno, fsm_xid) in &mut contents.entries {
+                    if *blockno != pg_sys::InvalidBlockNumber
+                        && passses_visibility_horizon(*fsm_xid, xid_horizon)
+                    {
+                        found_blockno = Some(*blockno);
+                        *blockno = pg_sys::InvalidBlockNumber;
+                        break;
+                    }
+                }
+
+                if found_blockno.is_none() {
+                    buffer.set_dirty(false);
+                } else {
+                    contents.header.empty = contents.all_invalid();
+                    return found_blockno;
+                }
+            }
+        }
     }
 
     /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
@@ -187,9 +231,44 @@ impl FreeSpaceManager {
         bman: &mut BufferManager,
         n: usize,
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
-        FSMDrainIter::new(self, bman)
-            .take(n)
-            .map(|FSMEntry(blockno, _)| blockno)
+        let xid_horizon =
+            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
+        let mut blocks = Vec::with_capacity(n);
+        let mut blockno = self.start_blockno;
+        loop {
+            if blockno == pg_sys::InvalidBlockNumber || blocks.len() == n {
+                return blocks.into_iter();
+            }
+
+            let buffer = bman.get_buffer(blockno);
+            let page = buffer.page();
+            blockno = page.special::<BM25PageSpecialData>().next_blockno;
+
+            let contents = page.contents_ref::<FSMBlock>();
+            if contents.any_valid() {
+                let mut buffer = buffer.upgrade(bman);
+                let mut page = buffer.page_mut();
+                let contents = page.contents_mut::<FSMBlock>();
+                let current_block_count = blocks.len();
+                for FSMEntry(blockno, fsm_xid) in &mut contents.entries {
+                    if *blockno != pg_sys::InvalidBlockNumber
+                        && passses_visibility_horizon(*fsm_xid, xid_horizon)
+                    {
+                        blocks.push(*blockno);
+                        *blockno = pg_sys::InvalidBlockNumber;
+                        if blocks.len() == n {
+                            break;
+                        }
+                    }
+                }
+
+                if blocks.len() == current_block_count {
+                    buffer.set_dirty(false);
+                } else {
+                    contents.header.empty = contents.all_invalid();
+                }
+            }
+        }
     }
 
     /// Add the specified `extend_with` iterator of [`pg_sys::BlockNumber`]s to this [`FreeSpaceManager`].
@@ -217,19 +296,29 @@ impl FreeSpaceManager {
         let mut extend_with = extend_with.peekable();
         let mut blockno = self.start_blockno;
         loop {
-            let mut buffer = bman.get_buffer_mut(blockno);
-            let header = buffer.page().contents::<FSMBlockHeader>();
+            let buffer = bman.get_buffer(blockno);
 
-            if matches!(header.kind, FSMBlockKind::v0) {
-                // convert the block to the new format and we'll just overwrite it
-                *buffer.page_mut().contents_mut::<FSMBlock>() = FSMBlock::default();
-            }
+            let need_v0_upgrade = |buffer: &Buffer| {
+                matches!(
+                    buffer.page().contents::<FSMBlockHeader>().kind,
+                    FSMBlockKind::v0
+                )
+            };
+            let space_available = |buffer: &Buffer| {
+                need_v0_upgrade(buffer) || {
+                    let page = buffer.page();
+                    let block = page.contents_ref::<FSMBlock>();
+                    block.header.empty || block.any_invalid()
+                }
+            };
 
-            let page = buffer.page();
-            let contents = page.contents_ref::<FSMBlock>();
-            let space_available = contents.header.empty || contents.any_invalid();
+            let mut buffer = if space_available(&buffer) {
+                let mut buffer = buffer.upgrade(bman);
 
-            if space_available {
+                if need_v0_upgrade(&buffer) {
+                    *buffer.page_mut().contents_mut::<FSMBlock>() = FSMBlock::default();
+                }
+
                 let mut page = buffer.page_mut();
                 let contents = page.contents_mut::<FSMBlock>();
                 let mut cnt = 0;
@@ -243,36 +332,51 @@ impl FreeSpaceManager {
                         cnt += 1;
                     });
 
-                if cnt > 0 {
+                if cnt == 0 {
+                    // we didn't make any modifications so the page is not dirty -- no need to WAL log it
+                    buffer.set_dirty(false);
+                } else {
                     // we added at least one block to this page so it's no longer empty
                     contents.header.empty = false;
                 }
+
                 if extend_with.peek().is_none() {
                     // no more blocks to add to the FSM
                     return;
                 }
-            }
 
-            // we still have blocks to apply
-            // move to the next block and apply them there
-            blockno = buffer.page().special::<BM25PageSpecialData>().next_blockno;
-
-            // however, if there is no next block we need to make one and link it in
-            if blockno == pg_sys::InvalidBlockNumber {
-                let mut new_buffer = init_new_buffer(bman.buffer_access().rel());
-                let mut new_page = new_buffer.page_mut();
-
-                // initialize the new page with a default FSMBlock
-                *new_page.contents_mut::<FSMBlock>() = FSMBlock::default();
-
-                // move to this new block
-                let new_blockno = new_buffer.number();
+                blockno = buffer.page().special::<BM25PageSpecialData>().next_blockno;
+                if blockno != pg_sys::InvalidBlockNumber {
+                    // move to next block
+                    continue;
+                }
                 buffer
-                    .page_mut()
-                    .special_mut::<BM25PageSpecialData>()
-                    .next_blockno = new_blockno;
-                blockno = new_blockno;
-            }
+            } else {
+                blockno = buffer.page().special::<BM25PageSpecialData>().next_blockno;
+                if blockno != pg_sys::InvalidBlockNumber {
+                    // move to next block
+                    continue;
+                }
+                buffer.upgrade(bman)
+            };
+
+            // we still have blocks to apply but have no more space on this page
+            // so allocate a new page
+            let mut new_buffer = init_new_buffer(bman.buffer_access().rel());
+            let mut new_page = new_buffer.page_mut();
+
+            // initialize the new page with a default FSMBlock
+            *new_page.contents_mut::<FSMBlock>() = FSMBlock::default();
+
+            // move to this new page
+            let new_blockno = new_buffer.number();
+            buffer
+                .page_mut()
+                .special_mut::<BM25PageSpecialData>()
+                .next_blockno = new_blockno;
+
+            // loop back around to try extending this new page
+            blockno = new_blockno;
         }
     }
 }
@@ -288,128 +392,6 @@ fn passses_visibility_horizon(
     xid_horizon: pg_sys::TransactionId,
 ) -> bool {
     crate::postgres::utils::TransactionIdPrecedesOrEquals(fsm_xid, xid_horizon)
-}
-
-/// Draining iterator over FSM entries. As entries are yielded, they are
-/// removed from the FSM (on-disk) and the page's `empty` flag is updated
-/// if it becomes fully invalid.
-struct FSMDrainIter {
-    bman: BufferManager,
-    current_blockno: pg_sys::BlockNumber,
-    // hold the current page buffer locked until we finish scanning it
-    current_buffer: Option<(BufferMut, Option<FSMBlock>)>,
-    entry_idx: usize,
-    xid_horizon: pg_sys::TransactionId,
-}
-
-impl FSMDrainIter {
-    #[inline]
-    fn new(fsm: &FreeSpaceManager, bman: &BufferManager) -> Self {
-        let xid_horizon =
-            unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId) };
-        Self {
-            bman: bman.clone(),
-            current_blockno: fsm.start_blockno,
-            current_buffer: None,
-            entry_idx: 0,
-            xid_horizon,
-        }
-    }
-
-    #[inline]
-    fn next_block(&mut self) {
-        debug_assert!(self.current_buffer.is_some());
-
-        let (buffer, _) = self.current_buffer.take().unwrap();
-        let next_blockno = buffer.page().special::<BM25PageSpecialData>().next_blockno;
-        self.current_buffer = None;
-        self.current_blockno = next_blockno;
-        self.entry_idx = 0;
-    }
-}
-
-impl Iterator for FSMDrainIter {
-    type Item = FSMEntry;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.current_buffer.is_none() {
-                if self.current_blockno == pg_sys::InvalidBlockNumber {
-                    return None;
-                }
-                let buffer = self.bman.get_buffer_mut(self.current_blockno);
-                self.current_buffer = Some((buffer, None));
-            }
-
-            // SAFETY:  the above ensures that self.current_buffer is Some(T)
-            let (buffer, block) = unsafe { self.current_buffer.as_mut().unwrap_unchecked() };
-
-            // if we haven't read the block contents for this page yet, we need to inspect the header...
-            if block.is_none() {
-                // ... legacy v0 pages are converted to the new format
-                let header = buffer.page().contents::<FSMBlockHeader>();
-                if matches!(header.kind, FSMBlockKind::v0) {
-                    // convert old v0 pages into the new format.  this overwrites the old page, purposely
-                    // losing any data in the v0 block -- unclear how it could be correctly preserved/migrated
-                    *buffer.page_mut().contents_mut::<FSMBlock>() = FSMBlock::default();
-
-                    // and we know it's empty so we can skip it
-                    self.next_block();
-                    continue;
-                }
-
-                // ... and we can skip pages we know are empty
-                let v1_header = buffer.page().contents::<V1Header>();
-                if v1_header.empty {
-                    self.next_block();
-                    continue;
-                }
-            }
-
-            // make a (or get the current) copy of the block contents so we can elide going to disk
-            // unless we find a recyclable block to use.
-            //
-            // We still keep the backing `buffer` locked with a BufferMut
-            let block = block.get_or_insert_with(|| buffer.page().contents::<FSMBlock>());
-
-            // find the next recyclable entry in the page.  a recyclable entry is one that doesn't reference
-            // the invalid block number and also has a transaction id that precedes or equals the visibility horizon
-            let recyclable = block.entries[self.entry_idx..MAX_ENTRIES_PER_PAGE]
-                .iter_mut()
-                .enumerate()
-                .find(|(_, FSMEntry(blockno, xid))| {
-                    *blockno != pg_sys::InvalidBlockNumber
-                        && passses_visibility_horizon(*xid, self.xid_horizon)
-                });
-
-            let Some((idx, entry)) = recyclable else {
-                // done with this page -- move to the next one
-                self.next_block();
-                continue;
-            };
-
-            // we'll return this entry -- copy it before we mark it as used in our local view
-            let recyclable = *entry;
-
-            // mark as used in our local view
-            entry.0 = pg_sys::InvalidBlockNumber;
-
-            // and as used on disk
-            let mut page = buffer.page_mut();
-            let contents = page.contents_mut::<FSMBlock>();
-
-            contents.entries[idx + self.entry_idx].0 = pg_sys::InvalidBlockNumber;
-            contents.header.empty = block.all_invalid();
-
-            if contents.header.empty {
-                // the page is now empty -- move to the next page for the next iteration
-                self.next_block();
-            }
-
-            self.entry_idx += 1;
-            return Some(recyclable);
-        }
-    }
 }
 
 #[pg_extern]

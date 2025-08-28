@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756405213156,
+  "lastUpdate": 1756405888199,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14516,6 +14516,60 @@ window.BENCHMARK_DATA = {
             "value": 14.874888925203951,
             "unit": "median tps",
             "extra": "avg tps: 14.956421830622215, max tps: 20.770837057948295, count: 55624"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b22de0bdee25950b89ad8356f8dac38d06f5f9b",
+          "message": "fix: cleanup fsm overhead and fix `content.header.empty` bug (#3061)\n\n## What\n\nFixes a bug where pages weren't properly being marked as empty.\n\nAlso optimizes the `pop()/drain()` codepaths so that they're not holding\na lock as long.\n\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-28T13:40:46-04:00",
+          "tree_id": "2ba678ad022bf0f3bb1222be35535135d3ea6a44",
+          "url": "https://github.com/paradedb/paradedb/commit/3b22de0bdee25950b89ad8356f8dac38d06f5f9b"
+        },
+        "date": 1756405886930,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 34.1071598762716,
+            "unit": "median tps",
+            "extra": "avg tps: 34.5531562520023, max tps: 37.90703133503381, count: 55668"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.4581987924131,
+            "unit": "median tps",
+            "extra": "avg tps: 277.3028434705341, max tps: 2247.433795054771, count: 55668"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 138.59838076005107,
+            "unit": "median tps",
+            "extra": "avg tps: 138.54767109192696, max tps: 139.7264197537244, count: 55668"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 68.21836525228974,
+            "unit": "median tps",
+            "extra": "avg tps: 69.75494784105305, max tps: 131.18616363637688, count: 111336"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.822481282114127,
+            "unit": "median tps",
+            "extra": "avg tps: 14.854891783461971, max tps: 19.322100713474363, count: 55668"
           }
         ]
       }

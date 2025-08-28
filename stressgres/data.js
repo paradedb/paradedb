@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756417801755,
+  "lastUpdate": 1756418482537,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12484,6 +12484,42 @@ window.BENCHMARK_DATA = {
             "value": 147.52819150784268,
             "unit": "median tps",
             "extra": "avg tps: 146.95757975185643, max tps: 149.76073688493364, count: 57964"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b98d839a9c36c3c87946083ffb296ae8a234942",
+          "message": "fix: conversion error from non-string JSON group-by columns (#2999)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes `UnsupportedIntoConversion(\"String\")` error when grouping by\nnon-string JSON fields in aggregate custom scan.\n\n## Why\n\nWhen grouping by JSON fields that contain non-string values (integers,\nbooleans, etc.), Tantivy returns `OwnedValue` types like `I64`, `U64`,\n`Bool`, etc., but PostgreSQL expects string output for JSON extraction\noperators (`->>` always returns text). The generic\n`TryFrom<TantivyValue> for String` implementation only handles\n`OwnedValue::Str`, causing conversion failures.\n\n## How\n\nAdded targeted error handling in `convert_group_value_to_datum()` to\ncatch `UnsupportedIntoConversion(\"String\")` errors and route them\nthrough `TantivyValue(group_val).to_string()` for JSON GROUP BY\naggregates.\n\n## Tests\n\n- Added deep nested JSON path tests in `json_groupby_aggregate.sql`\n- Nested query now returns proper results instead of conversion errors\n\n```sql\n-- Example: GROUP BY JSON field containing integers\nSELECT config->'database'->>'port' AS db_port, COUNT(*) \nFROM table \nGROUP BY config->'database'->>'port';\n\n-- Before: ERROR: Failed to convert TantivyValue to datum: UnsupportedIntoConversion(\"String\")  \n-- After:  \n db_port | count \n---------+-------\n 3306    |     1\n 5432    |     4\n```",
+          "timestamp": "2025-08-28T14:22:15-07:00",
+          "tree_id": "debdd2fb280f11b731712b43d21706d7c911ed6a",
+          "url": "https://github.com/paradedb/paradedb/commit/8b98d839a9c36c3c87946083ffb296ae8a234942"
+        },
+        "date": 1756418481285,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 28.82990362732267,
+            "unit": "median tps",
+            "extra": "avg tps: 28.56149841959153, max tps: 29.006897133850295, count: 57352"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 148.51094505204927,
+            "unit": "median tps",
+            "extra": "avg tps: 147.79835798027096, max tps: 150.19044655104582, count: 57352"
           }
         ]
       }

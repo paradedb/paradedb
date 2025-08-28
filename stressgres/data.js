@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756419163673,
+  "lastUpdate": 1756419165879,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17378,6 +17378,114 @@ window.BENCHMARK_DATA = {
             "value": 155.81640625,
             "unit": "median mem",
             "extra": "avg mem: 153.1105639685277, max mem: 155.96875, count: 55668"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b98d839a9c36c3c87946083ffb296ae8a234942",
+          "message": "fix: conversion error from non-string JSON group-by columns (#2999)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes `UnsupportedIntoConversion(\"String\")` error when grouping by\nnon-string JSON fields in aggregate custom scan.\n\n## Why\n\nWhen grouping by JSON fields that contain non-string values (integers,\nbooleans, etc.), Tantivy returns `OwnedValue` types like `I64`, `U64`,\n`Bool`, etc., but PostgreSQL expects string output for JSON extraction\noperators (`->>` always returns text). The generic\n`TryFrom<TantivyValue> for String` implementation only handles\n`OwnedValue::Str`, causing conversion failures.\n\n## How\n\nAdded targeted error handling in `convert_group_value_to_datum()` to\ncatch `UnsupportedIntoConversion(\"String\")` errors and route them\nthrough `TantivyValue(group_val).to_string()` for JSON GROUP BY\naggregates.\n\n## Tests\n\n- Added deep nested JSON path tests in `json_groupby_aggregate.sql`\n- Nested query now returns proper results instead of conversion errors\n\n```sql\n-- Example: GROUP BY JSON field containing integers\nSELECT config->'database'->>'port' AS db_port, COUNT(*) \nFROM table \nGROUP BY config->'database'->>'port';\n\n-- Before: ERROR: Failed to convert TantivyValue to datum: UnsupportedIntoConversion(\"String\")  \n-- After:  \n db_port | count \n---------+-------\n 3306    |     1\n 5432    |     4\n```",
+          "timestamp": "2025-08-28T14:22:15-07:00",
+          "tree_id": "debdd2fb280f11b731712b43d21706d7c911ed6a",
+          "url": "https://github.com/paradedb/paradedb/commit/8b98d839a9c36c3c87946083ffb296ae8a234942"
+        },
+        "date": 1756419164615,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.366754782037507, max cpu: 37.982197, count: 55676"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 158.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 156.78195904092428, max mem: 160.1640625, count: 55676"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.65505612043154, max cpu: 28.070175, count: 55676"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 147.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 142.44896048959606, max mem: 147.37890625, count: 55676"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 13.714285,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.483684835701096, max cpu: 41.73913, count: 55676"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 128.59999644988415, max mem: 163.58984375, count: 55676"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 20760,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20919.358861987213, max block_count: 41646.0, count: 55676"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.550829298533396, max cpu: 4.6829267, count: 55676"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 89.61211967454558, max mem: 130.03125, count: 55676"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.29405848121273, max segment_count: 52.0, count: 55676"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.50213751068881, max cpu: 32.71665, count: 111352"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 163.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 153.96100313504698, max mem: 183.03125, count: 111352"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.76183471397968, max cpu: 32.495163, count: 55676"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 156.01594703620052, max mem: 164.125, count: 55676"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756385367969,
+  "lastUpdate": 1756385370434,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12196,6 +12196,64 @@ window.BENCHMARK_DATA = {
             "value": 167.71484375,
             "unit": "median mem",
             "extra": "avg mem: 155.08982637253362, max mem: 178.22265625, count: 57321"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "committer": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "id": "78bf7aa445454fd8239f6932a37be33be616ab6e",
+          "message": "perf: reduce FSM locking overhead",
+          "timestamp": "2025-08-28T12:05:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/78bf7aa445454fd8239f6932a37be33be616ab6e"
+        },
+        "date": 1756385369129,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.20509817840281, max cpu: 57.947685, count: 57883"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 172.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.8593289750445, max mem: 176.82421875, count: 57883"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19250,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17757.61912824145, max block_count: 23753.0, count: 57883"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 36,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 38.52657947929444, max segment_count: 99.0, count: 57883"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.347614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.983377099086974, max cpu: 38.63179, count: 57883"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.19921875,
+            "unit": "median mem",
+            "extra": "avg mem: 155.35678882940587, max mem: 175.578125, count: 57883"
           }
         ]
       }

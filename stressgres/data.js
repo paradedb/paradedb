@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756403837093,
+  "lastUpdate": 1756404534397,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8606,6 +8606,42 @@ window.BENCHMARK_DATA = {
             "value": 5.585009943878876,
             "unit": "median tps",
             "extra": "avg tps: 5.050647529758301, max tps: 6.2131627456435465, count: 57541"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b22de0bdee25950b89ad8356f8dac38d06f5f9b",
+          "message": "fix: cleanup fsm overhead and fix `content.header.empty` bug (#3061)\n\n## What\n\nFixes a bug where pages weren't properly being marked as empty.\n\nAlso optimizes the `pop()/drain()` codepaths so that they're not holding\na lock as long.\n\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-28T13:40:46-04:00",
+          "tree_id": "2ba678ad022bf0f3bb1222be35535135d3ea6a44",
+          "url": "https://github.com/paradedb/paradedb/commit/3b22de0bdee25950b89ad8356f8dac38d06f5f9b"
+        },
+        "date": 1756404533163,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.956142979332439,
+            "unit": "median tps",
+            "extra": "avg tps: 6.813064417173998, max tps: 10.615846819297587, count: 57424"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.564925443247558,
+            "unit": "median tps",
+            "extra": "avg tps: 5.02319577954508, max tps: 6.164263589105752, count: 57424"
           }
         ]
       }

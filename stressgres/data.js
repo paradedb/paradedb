@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756401662589,
+  "lastUpdate": 1756402362426,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8386,6 +8386,40 @@ window.BENCHMARK_DATA = {
             "value": 5.5737965128658375,
             "unit": "median tps",
             "extra": "avg tps: 5.020055929729917, max tps: 6.187942292130942, count: 57817"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "committer": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "id": "5cab4aa559a5cd11b90ceb4fb346d42f43b8db07",
+          "message": "bugfixes and cleanup work",
+          "timestamp": "2025-08-28T16:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/5cab4aa559a5cd11b90ceb4fb346d42f43b8db07"
+        },
+        "date": 1756402361169,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.945901296718623,
+            "unit": "median tps",
+            "extra": "avg tps: 6.802391317016395, max tps: 10.467272870022425, count: 57541"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.585009943878876,
+            "unit": "median tps",
+            "extra": "avg tps: 5.050647529758301, max tps: 6.2131627456435465, count: 57541"
           }
         ]
       }

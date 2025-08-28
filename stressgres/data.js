@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756419165879,
+  "lastUpdate": 1756421430319,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3010,6 +3010,72 @@ window.BENCHMARK_DATA = {
             "value": 142.28660372361355,
             "unit": "median tps",
             "extra": "avg tps: 138.44588057703595, max tps: 715.0278110067092, count: 55232"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d70001434e70a168f4f15f2cfb94fe9b0ed7f795",
+          "message": "fix: conversion error from non-string JSON group-by columns (#3068)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes `UnsupportedIntoConversion(\"String\")` error when grouping by\nnon-string JSON fields in aggregate custom scan.\n\n## Why\n\nWhen grouping by JSON fields that contain non-string values (integers,\nbooleans, etc.), Tantivy returns `OwnedValue` types like `I64`, `U64`,\n`Bool`, etc., but PostgreSQL expects string output for JSON extraction\noperators (`->>` always returns text). The generic\n`TryFrom<TantivyValue> for String` implementation only handles\n`OwnedValue::Str`, causing conversion failures.\n\n## How\n\nAdded targeted error handling in `convert_group_value_to_datum()` to\ncatch `UnsupportedIntoConversion(\"String\")` errors and route them\nthrough `TantivyValue(group_val).to_string()` for JSON GROUP BY\naggregates.\n\n## Tests\n\n- Added deep nested JSON path tests in `json_groupby_aggregate.sql`\n- Nested query now returns proper results instead of conversion errors\n\n```sql\n-- Example: GROUP BY JSON field containing integers\nSELECT config->'database'->>'port' AS db_port, COUNT(*) \nFROM table \nGROUP BY config->'database'->>'port';\n\n-- Before: ERROR: Failed to convert TantivyValue to datum: UnsupportedIntoConversion(\"String\")  \n-- After:  \n db_port | count \n---------+-------\n 3306    |     1\n 5432    |     4\n```\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-08-28T15:34:32-07:00",
+          "tree_id": "4abbfc76f80876cfcf0ab2d87f9a1d991a7e8d8b",
+          "url": "https://github.com/paradedb/paradedb/commit/d70001434e70a168f4f15f2cfb94fe9b0ed7f795"
+        },
+        "date": 1756421429037,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1171.3391803468278,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.608912220063, max tps: 1173.72654396861, count: 55154"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2642.8542727848208,
+            "unit": "median tps",
+            "extra": "avg tps: 2617.057160674794, max tps: 2647.9588088296214, count: 55154"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1137.5082340544627,
+            "unit": "median tps",
+            "extra": "avg tps: 1131.3422013924983, max tps: 1139.7263755804875, count: 55154"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 948.3556157686039,
+            "unit": "median tps",
+            "extra": "avg tps: 941.4489116289533, max tps: 953.8172649383163, count: 55154"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 172.5944335587742,
+            "unit": "median tps",
+            "extra": "avg tps: 176.57499100076384, max tps: 184.11032608275423, count: 110308"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 148.60500637198163,
+            "unit": "median tps",
+            "extra": "avg tps: 147.2584065535011, max tps: 149.9951179116056, count: 55154"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 67.42452723396414,
+            "unit": "median tps",
+            "extra": "avg tps: 67.20993151726047, max tps: 786.9702902976007, count: 55154"
           }
         ]
       }

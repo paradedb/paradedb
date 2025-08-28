@@ -113,10 +113,7 @@ impl HeapFieldFilter {
         // Store the heap tuple in the slot
         let stored_slot = pg_sys::ExecStoreHeapTuple(&mut heap_tuple, slot, false);
         if stored_slot.is_null() {
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
+            Self::cleanup_resources(slot, buffer);
             return false;
         }
 
@@ -128,10 +125,7 @@ impl HeapFieldFilter {
             // Create a standalone context (fallback for simple expressions)
             let standalone_context = pg_sys::CreateStandaloneExprContext();
             if standalone_context.is_null() {
-                pg_sys::ExecDropSingleTupleTableSlot(slot);
-                if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                    pg_sys::ReleaseBuffer(buffer);
-                }
+                Self::cleanup_resources(slot, buffer);
                 return false;
             }
             // SAFETY: We just checked that standalone_context is not null
@@ -151,41 +145,26 @@ impl HeapFieldFilter {
 
         // Initialize the expression for execution with proper planstate for subquery support
         let expr_state = match (&self.initialized_expression, planstate) {
-            // We have an existing expression state
-            (Some((existing_state, existing_planstate)), current_planstate) => {
+            // We have an existing expression state, which WAS NOT initialized without a planstate
+            (Some((_existing_state, None)), Some(new_planstate)) => {
                 // Check if we need to reinitialize with a better planstate
-                match (existing_planstate, current_planstate) {
-                    // We were initialized without planstate but now have one - reinitialize
-                    (None, Some(new_planstate)) => {
-                        let new_state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-                            pg_sys::ExecInitExpr(expr_node.cast(), new_planstate.as_ptr())
-                        });
-                        self.initialized_expression = Some((new_state, Some(new_planstate)));
-                        new_state
-                    }
-                    // Use existing state
-                    _ => *existing_state,
-                }
+                self.init_expression_state(expr_node, Some(new_planstate))
             }
+            // We have an existing expression state, which WAS either initialized with a planstate or
+            // the newly given plan state is also None
+            (Some((existing_state, _init_with_planstate)), _new_planstate) => *existing_state,
             // First initialization
-            (None, planstate) => {
-                let planstate_ptr = planstate.map_or(std::ptr::null_mut(), |ps| ps.as_ptr());
-                let new_state = PgMemoryContexts::TopTransactionContext
-                    .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
-                self.initialized_expression = Some((new_state, planstate));
-                new_state
-            }
+            (None, planstate) => self.init_expression_state(expr_node, planstate),
         };
         if expr_state.is_null() {
             self.initialized_expression = None;
-            // Restore original scan tuple if we're using a provided context
-            if standalone_context.is_none() {
-                (*econtext).ecxt_scantuple = original_scan_tuple;
-            }
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
+            Self::cleanup_and_restore_context(
+                slot,
+                buffer,
+                econtext,
+                original_scan_tuple,
+                &standalone_context,
+            );
             return false;
         }
 
@@ -197,17 +176,51 @@ impl HeapFieldFilter {
         let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
-        // Restore original scan tuple if we're using a provided context
-        if standalone_context.is_none() {
-            (*econtext).ecxt_scantuple = original_scan_tuple;
-        }
+        Self::cleanup_and_restore_context(
+            slot,
+            buffer,
+            econtext,
+            original_scan_tuple,
+            &standalone_context,
+        );
 
+        eval_result
+    }
+
+    /// Helper function to initialize a new expression state and update the cached state
+    unsafe fn init_expression_state(
+        &mut self,
+        expr_node: *mut pg_sys::Node,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
+    ) -> *mut pg_sys::ExprState {
+        let planstate_ptr = planstate.map_or(std::ptr::null_mut(), |ps| ps.as_ptr());
+        let new_state = PgMemoryContexts::TopTransactionContext
+            .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
+        self.initialized_expression = Some((new_state, planstate));
+        new_state
+    }
+
+    /// Helper function to clean up tuple slot and buffer resources
+    unsafe fn cleanup_resources(slot: *mut pg_sys::TupleTableSlot, buffer: pg_sys::Buffer) {
         pg_sys::ExecDropSingleTupleTableSlot(slot);
         if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
             pg_sys::ReleaseBuffer(buffer);
         }
+    }
 
-        eval_result
+    /// Helper function to restore expression context state and cleanup resources
+    unsafe fn cleanup_and_restore_context(
+        slot: *mut pg_sys::TupleTableSlot,
+        buffer: pg_sys::Buffer,
+        econtext: *mut pg_sys::ExprContext,
+        original_scan_tuple: *mut pg_sys::TupleTableSlot,
+        standalone_context: &Option<PgBox<pg_sys::ExprContext>>,
+    ) {
+        // Restore original scan tuple if we're using a provided context
+        if standalone_context.is_none() {
+            (*econtext).ecxt_scantuple = original_scan_tuple;
+        }
+        Self::cleanup_resources(slot, buffer);
     }
 
     /// Get the PostgreSQL expression node

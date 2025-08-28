@@ -113,28 +113,30 @@ impl PdbScan {
             }
         };
 
-        let search_reader = if !expr_context.is_null() && !planstate.is_null() {
-            // Use context-aware method for proper postgres expression evaluation
-            // SAFETY: We've checked that the pointers are not null
-            let expr_context_nonnull = unsafe { std::ptr::NonNull::new_unchecked(expr_context) };
-            let planstate_nonnull = unsafe { std::ptr::NonNull::new_unchecked(planstate) };
-
-            SearchIndexReader::open_with_context(
-                indexrel,
-                search_query_input.clone(),
-                need_scores,
-                mvcc_style,
-                Some(expr_context_nonnull),
-                Some(planstate_nonnull),
-            )
-        } else {
-            // Use regular method without context
-            SearchIndexReader::open(
-                indexrel,
-                search_query_input.clone(),
-                need_scores,
-                mvcc_style,
-            )
+        let search_reader = match (
+            std::ptr::NonNull::new(expr_context),
+            std::ptr::NonNull::new(planstate),
+        ) {
+            (Some(expr_ctx), Some(plan_state)) => {
+                // Use context-aware method for proper postgres expression evaluation
+                SearchIndexReader::open_with_context(
+                    indexrel,
+                    search_query_input.clone(),
+                    need_scores,
+                    mvcc_style,
+                    Some(expr_ctx),
+                    Some(plan_state),
+                )
+            }
+            _ => {
+                // Use regular method without context (one or both contexts are null)
+                SearchIndexReader::open(
+                    indexrel,
+                    search_query_input.clone(),
+                    need_scores,
+                    mvcc_style,
+                )
+            }
         }
         .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);

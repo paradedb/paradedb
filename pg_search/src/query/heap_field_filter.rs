@@ -151,32 +151,35 @@ impl HeapFieldFilter {
         (*econtext).ecxt_scantuple = slot;
 
         // Initialize the expression for execution with proper planstate for subquery support
-        let has_planstate = planstate.is_some();
-
         // Check if we need to reinitialize with a better planstate
         let expr_state = if let Some(existing_state) = self.initialized_expression {
-            if has_planstate && !self.initialized_with_planstate {
-                // We now have a planstate but were initialized without one, reinitialize
-                let planstate_ptr = planstate
-                    .map(|p| p.as_ptr())
-                    .unwrap_or(std::ptr::null_mut());
-                let new_state = PgMemoryContexts::TopTransactionContext
-                    .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
-                self.initialized_expression = Some(new_state);
-                self.initialized_with_planstate = true;
-                new_state
+            if let Some(planstate_nonnull) = planstate {
+                if !self.initialized_with_planstate {
+                    // We now have a planstate but were initialized without one, reinitialize
+                    let new_state = PgMemoryContexts::TopTransactionContext.switch_to(|_| {
+                        pg_sys::ExecInitExpr(expr_node.cast(), planstate_nonnull.as_ptr())
+                    });
+                    self.initialized_expression = Some(new_state);
+                    self.initialized_with_planstate = true;
+                    new_state
+                } else {
+                    existing_state
+                }
             } else {
                 existing_state
             }
         } else {
             // First initialization
-            let planstate_ptr = planstate
-                .map(|p| p.as_ptr())
-                .unwrap_or(std::ptr::null_mut());
+            let planstate_ptr = if let Some(ps) = planstate {
+                ps.as_ptr()
+            } else {
+                std::ptr::null_mut()
+            };
+
             let new_state = PgMemoryContexts::TopTransactionContext
                 .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
             self.initialized_expression = Some(new_state);
-            self.initialized_with_planstate = has_planstate;
+            self.initialized_with_planstate = planstate.is_some();
             new_state
         };
         if expr_state.is_null() {
@@ -390,11 +393,9 @@ impl HeapFilterScorer {
 
     fn passes_heap_filters(&mut self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
-        let ctid_value = self.ctid_ff.as_u64(doc_id);
-        if ctid_value.is_none() {
+        let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) else {
             panic!("Could not get ctid for doc_id: {doc_id}");
-        }
-        let ctid_value = ctid_value.unwrap();
+        };
         // Convert u64 ctid back to ItemPointer
         let mut item_pointer = pg_sys::ItemPointerData::default();
         crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);

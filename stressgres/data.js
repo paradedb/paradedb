@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756403720256,
+  "lastUpdate": 1756403834950,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2614,6 +2614,72 @@ window.BENCHMARK_DATA = {
             "value": 89.75232898841321,
             "unit": "median tps",
             "extra": "avg tps: 90.54459902943915, max tps: 754.4840875533514, count: 55180"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b22de0bdee25950b89ad8356f8dac38d06f5f9b",
+          "message": "fix: cleanup fsm overhead and fix `content.header.empty` bug (#3061)\n\n## What\n\nFixes a bug where pages weren't properly being marked as empty.\n\nAlso optimizes the `pop()/drain()` codepaths so that they're not holding\na lock as long.\n\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-28T13:40:46-04:00",
+          "tree_id": "2ba678ad022bf0f3bb1222be35535135d3ea6a44",
+          "url": "https://github.com/paradedb/paradedb/commit/3b22de0bdee25950b89ad8356f8dac38d06f5f9b"
+        },
+        "date": 1756403833704,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1104.183786522377,
+            "unit": "median tps",
+            "extra": "avg tps: 1100.8864515228702, max tps: 1127.3598187580817, count: 54783"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2554.5014882636865,
+            "unit": "median tps",
+            "extra": "avg tps: 2545.317047872536, max tps: 2567.0912277358566, count: 54783"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1079.8565992853032,
+            "unit": "median tps",
+            "extra": "avg tps: 1078.7010044490107, max tps: 1136.930041914108, count: 54783"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 913.7025280289864,
+            "unit": "median tps",
+            "extra": "avg tps: 904.693960379374, max tps: 928.1955369695065, count: 54783"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 159.91429371832962,
+            "unit": "median tps",
+            "extra": "avg tps: 173.28956745209672, max tps: 194.37554556447685, count: 109566"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 140.05045389670738,
+            "unit": "median tps",
+            "extra": "avg tps: 140.02437970678017, max tps: 152.17794262039365, count: 54783"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 187.8113289353017,
+            "unit": "median tps",
+            "extra": "avg tps: 193.9941980118564, max tps: 611.8165015475898, count: 54783"
           }
         ]
       }

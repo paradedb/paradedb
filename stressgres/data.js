@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756384697293,
+  "lastUpdate": 1756385367969,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10612,6 +10612,40 @@ window.BENCHMARK_DATA = {
             "value": 150.0900467130065,
             "unit": "median tps",
             "extra": "avg tps: 149.4609506348113, max tps: 151.62421694828174, count: 57321"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "committer": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "id": "78bf7aa445454fd8239f6932a37be33be616ab6e",
+          "message": "perf: reduce FSM locking overhead",
+          "timestamp": "2025-08-28T12:05:51Z",
+          "url": "https://github.com/paradedb/paradedb/commit/78bf7aa445454fd8239f6932a37be33be616ab6e"
+        },
+        "date": 1756385366718,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 29.830487395476485,
+            "unit": "median tps",
+            "extra": "avg tps: 29.71889520090245, max tps: 30.031375243332864, count: 57883"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 152.70447489476018,
+            "unit": "median tps",
+            "extra": "avg tps: 152.32514824772628, max tps: 155.55396310317096, count: 57883"
           }
         ]
       }

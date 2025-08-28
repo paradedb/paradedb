@@ -90,19 +90,19 @@ jobs:
           # Precreate a 8–16 GiB file so the test isn’t tiny
           fallocate -l 12G "$testfile" || truncate -s 12G "$testfile"
 
-          # 4k random read — depth + multiple jobs to show NVMe IOPS
+          # 4k random write — depth + multiple jobs to show NVMe IOPS
           fio --name=randread \
               --filename="$testfile" \
               --ioengine=io_uring --direct=1 \
-              --rw=randread --bs=4k \
+              --rw=randwrite --bs=4k \
               --iodepth=256 --numjobs=4 \
               --runtime=20 --time_based --group_reporting
 
-          # Optional: sequential read
+          # Optional: sequential write
           fio --name=seqread \
               --filename="$testfile" \
               --ioengine=io_uring --direct=1 \
-              --rw=read --bs=1M \
+              --rw=write --bs=1M \
               --iodepth=64 --numjobs=2 \
               --runtime=15 --time_based --group_reporting
 

@@ -11,6 +11,7 @@ on:
     branches:
       - main
       - 0.*.x # Release branches
+      - phil/nvme-test
     paths:
       - "benchmarks/**"
       - "**/*.rs"
@@ -58,6 +59,67 @@ jobs:
           labels: |
             benchmark
             benchmark-benchmarks
+
+      - name: Detect storage backing the workspace (EBS vs local NVMe)
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # Directory we care about (your workspace / builds live here)
+          TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/work}"
+
+          echo "Inspecting filesystem/device for: $TARGET_DIR"
+
+          # Find the block device for TARGET_DIR, e.g. /dev/nvme0n1p1 or /dev/root
+          dev=$(df -P "$TARGET_DIR" | tail -1 | awk '{print $1}')
+
+          # Resolve to the underlying block device (strip partition suffix like p1)
+          real=$(readlink -f "$dev")
+          base=$(basename "$real")
+          # handle /dev/mapper/* and /dev/root indirections
+          if [[ "$base" == mapper/* || "$base" == root ]]; then
+            # Walk up the chain to a real /sys/block entry
+            sysdev=$(lsblk -no PKNAME "$real" || true)
+            if [[ -n "$sysdev" ]]; then
+              base="$sysdev"
+            fi
+          fi
+          # If it's a partition, get its parent (e.g. nvme0n1p1 -> nvme0n1)
+          parent=$(lsblk -no PKNAME "/dev/$base" 2>/dev/null || true)
+          [[ -n "$parent" ]] && base="$parent"
+
+          model_file="/sys/block/$base/device/model"
+          vendor_file="/sys/block/$base/device/vendor"
+          rota_file="/sys/block/$base/queue/rotational"
+
+          model=$(cat "$model_file" 2>/dev/null || echo "UNKNOWN")
+          vendor=$(cat "$vendor_file" 2>/dev/null || echo "UNKNOWN")
+          rota=$(cat "$rota_file" 2>/dev/null || echo "UNKNOWN")
+
+          echo "Block device: /dev/$base"
+          echo "Vendor: $vendor"
+          echo "Model:  $model"
+          echo "Rotational: $rota (0=SSD, 1=HDD)"
+
+          verdict="UNKNOWN"
+          case "$model" in
+            *"EC2 NVMe Instance Storage"*)
+              verdict="LOCAL_NVME (instance-store)";;
+            *"Elastic Block Store"*)
+              verdict="EBS (NVMe-backed)";;
+          esac
+
+          # As a second opinion, use nvme-cli if available
+          if command -v nvme >/dev/null 2>&1; then
+            echo "nvme list:"
+            nvme list || true
+          else
+            echo "nvme-cli not found; installing…"
+            sudo apt-get update -y && sudo apt-get install -y nvme-cli
+            nvme list || true
+          fi
+
+          echo "Storage verdict for $TARGET_DIR: $verdict"
 
       - name: Determine Ref to Benchmark
         id: determine-ref

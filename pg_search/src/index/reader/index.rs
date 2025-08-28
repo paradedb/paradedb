@@ -258,6 +258,25 @@ impl SearchIndexReader {
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
+        Self::open_with_context(
+            index_relation,
+            search_query_input,
+            need_scores,
+            mvcc_style,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    }
+
+    /// Open a tantivy index with optional expression context for proper postgres expression evaluation
+    pub fn open_with_context(
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        mvcc_style: MvccSatisfies,
+        expr_context: *mut pgrx::pg_sys::ExprContext,
+        planstate: *mut pgrx::pg_sys::PlanState,
+    ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -295,6 +314,8 @@ impl SearchIndexReader {
                     &searcher,
                     index_relation.oid(),
                     index_relation.rel_oid(),
+                    expr_context,
+                    planstate,
                 )
                 .unwrap_or_else(|e| panic!("{e}"))
         };
@@ -360,6 +381,8 @@ impl SearchIndexReader {
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
+                std::ptr::null_mut(), // no expr_context
+                std::ptr::null_mut(), // no planstate
             )
             .unwrap_or_else(|e| panic!("{e}"))
     }

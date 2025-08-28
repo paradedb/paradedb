@@ -96,25 +96,43 @@ impl PdbScan {
 
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
+        let mvcc_style = unsafe {
+            if pg_sys::ParallelWorkerNumber == -1 {
+                // the leader only sees snapshot-visible segments
+                MvccSatisfies::Snapshot
+            } else {
+                // the workers have their own rules, which is literally every segment
+                // this is because the workers pick a specific segment to query that
+                // is known to be held open/pinned by the leader but might not pass a ::Snapshot
+                // visibility test due to concurrent merges/garbage collects
+                MvccSatisfies::ParallelWorker(list_segment_ids(
+                    state.custom_state().parallel_state.expect(
+                        "Parallel Custom Scan rescan_custom_scan should have a parallel state",
+                    ),
+                ))
+            }
+        };
 
-        let search_reader =
-            SearchIndexReader::open(indexrel, search_query_input.clone(), need_scores, unsafe {
-                if pg_sys::ParallelWorkerNumber == -1 {
-                    // the leader only sees snapshot-visible segments
-                    MvccSatisfies::Snapshot
-                } else {
-                    // the workers have their own rules, which is literally every segment
-                    // this is because the workers pick a specific segment to query that
-                    // is known to be held open/pinned by the leader but might not pass a ::Snapshot
-                    // visibility test due to concurrent merges/garbage collects
-                    MvccSatisfies::ParallelWorker(list_segment_ids(
-                        state.custom_state().parallel_state.expect(
-                            "Parallel Custom Scan rescan_custom_scan should have a parallel state",
-                        ),
-                    ))
-                }
-            })
-            .expect("should be able to open the search index reader");
+        let search_reader = if !expr_context.is_null() && !planstate.is_null() {
+            // Use context-aware method for proper postgres expression evaluation
+            SearchIndexReader::open_with_context(
+                indexrel,
+                search_query_input.clone(),
+                need_scores,
+                mvcc_style,
+                expr_context,
+                planstate,
+            )
+        } else {
+            // Use regular method without context
+            SearchIndexReader::open(
+                indexrel,
+                search_query_input.clone(),
+                need_scores,
+                mvcc_style,
+            )
+        }
+        .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -174,10 +192,6 @@ impl PdbScan {
         unsafe {
             inject_score_and_snippet_placeholders(state);
         }
-
-        // Set the runtime context for heap filters with subquery support
-        let planstate = state.planstate();
-        crate::query::heap_field_filter::set_runtime_context(state.runtime_context, planstate);
     }
 
     unsafe fn extract_all_possible_quals(
@@ -1055,9 +1069,6 @@ impl CustomScan for PdbScan {
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Clear the runtime context for heap filters with subquery support
-        crate::query::heap_field_filter::clear_runtime_context();
-
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().search_reader.take());

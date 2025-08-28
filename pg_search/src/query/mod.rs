@@ -555,6 +555,7 @@ fn coerce_bound_to_field_type(
 }
 
 impl SearchQueryInput {
+    #[allow(clippy::too_many_arguments)]
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
@@ -562,6 +563,8 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
+        expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
     ) -> Result<Box<dyn TantivyQuery>> {
         match self {
             SearchQueryInput::Uninitialized => {
@@ -583,6 +586,8 @@ impl SearchQueryInput {
                             searcher,
                             index_oid,
                             relation_oid,
+                            expr_context,
+                            planstate,
                         )?,
                     ));
                 }
@@ -595,6 +600,8 @@ impl SearchQueryInput {
                             searcher,
                             index_oid,
                             relation_oid,
+                            expr_context,
+                            planstate,
                         )?,
                     ));
                 }
@@ -607,24 +614,50 @@ impl SearchQueryInput {
                             searcher,
                             index_oid,
                             relation_oid,
+                            expr_context,
+                            planstate,
                         )?,
                     ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             SearchQueryInput::Boost { query, factor } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
+                query.into_tantivy_query(
+                    schema,
+                    parser,
+                    searcher,
+                    index_oid,
+                    relation_oid,
+                    expr_context,
+                    planstate,
+                )?,
                 factor,
             ))),
             SearchQueryInput::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
+                query.into_tantivy_query(
+                    schema,
+                    parser,
+                    searcher,
+                    index_oid,
+                    relation_oid,
+                    expr_context,
+                    planstate,
+                )?,
                 score,
             ))),
             SearchQueryInput::ScoreFilter { bounds, query } => Ok(Box::new(ScoreFilter::new(
                 bounds,
                 query
                     .expect("ScoreFilter's query should have been set")
-                    .into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)?,
+                    .into_tantivy_query(
+                        schema,
+                        parser,
+                        searcher,
+                        index_oid,
+                        relation_oid,
+                        expr_context,
+                        planstate,
+                    )?,
             ))),
             SearchQueryInput::DisjunctionMax {
                 disjuncts,
@@ -633,7 +666,15 @@ impl SearchQueryInput {
                 let disjuncts = disjuncts
                     .into_iter()
                     .map(|query| {
-                        query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
+                        query.into_tantivy_query(
+                            schema,
+                            parser,
+                            searcher,
+                            index_oid,
+                            relation_oid,
+                            expr_context,
+                            planstate,
+                        )
                     })
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
@@ -762,9 +803,15 @@ impl SearchQueryInput {
 
                 Ok(Box::new(TermSetQuery::new(terms)))
             }
-            SearchQueryInput::WithIndex { query, .. } => {
-                query.into_tantivy_query(schema, parser, searcher, index_oid, relation_oid)
-            }
+            SearchQueryInput::WithIndex { query, .. } => query.into_tantivy_query(
+                schema,
+                parser,
+                searcher,
+                index_oid,
+                relation_oid,
+                expr_context,
+                planstate,
+            ),
             SearchQueryInput::HeapFilter {
                 indexed_query,
                 field_filters,
@@ -776,6 +823,8 @@ impl SearchQueryInput {
                     searcher,
                     index_oid,
                     relation_oid,
+                    expr_context,
+                    planstate,
                 )?;
 
                 // Create combined query with heap field filters
@@ -783,6 +832,8 @@ impl SearchQueryInput {
                     indexed_tantivy_query,
                     field_filters,
                     relation_oid.expect("relation_oid is required for HeapFilter queries"),
+                    expr_context,
+                    planstate,
                 )))
             }
             SearchQueryInput::PostgresExpression { .. } => {

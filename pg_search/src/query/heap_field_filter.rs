@@ -4,47 +4,10 @@ use crate::query::PostgresPointer;
 use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
     DocId, DocSet, Score, SegmentReader, TERMINATED,
 };
-
-thread_local! {
-    /// Thread-local storage for the runtime expression context
-    /// This allows heap filters to access the proper context for subquery evaluation
-    static RUNTIME_EXPR_CONTEXT: RefCell<*mut pg_sys::ExprContext> = const { RefCell::new(std::ptr::null_mut()) };
-
-    /// Thread-local storage for the planstate
-    /// This allows expressions to be properly initialized with subplan support
-    static RUNTIME_PLANSTATE: RefCell<*mut pg_sys::PlanState> = const { RefCell::new(std::ptr::null_mut()) };
-}
-
-/// Set the runtime expression context and planstate for the current thread
-/// This should be called before executing queries that may use heap filters
-pub fn set_runtime_context(context: *mut pg_sys::ExprContext, planstate: *mut pg_sys::PlanState) {
-    RUNTIME_EXPR_CONTEXT.with(|ctx| {
-        *ctx.borrow_mut() = context;
-    });
-    RUNTIME_PLANSTATE.with(|ps| {
-        *ps.borrow_mut() = planstate;
-    });
-}
-
-/// Clear the runtime context for the current thread
-pub fn clear_runtime_context() {
-    set_runtime_context(std::ptr::null_mut(), std::ptr::null_mut());
-}
-
-/// Get the current runtime expression context
-fn get_runtime_expr_context() -> *mut pg_sys::ExprContext {
-    RUNTIME_EXPR_CONTEXT.with(|ctx| *ctx.borrow())
-}
-
-/// Get the current runtime planstate
-fn get_runtime_planstate() -> *mut pg_sys::PlanState {
-    RUNTIME_PLANSTATE.with(|ps| *ps.borrow())
-}
 
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
@@ -83,18 +46,8 @@ impl HeapFieldFilter {
         &mut self,
         ctid: pg_sys::ItemPointer,
         heaprel: &PgSearchRelation,
-    ) -> bool {
-        // Use the runtime expression context if available
-        let runtime_context = get_runtime_expr_context();
-        self.evaluate_with_context(ctid, heaprel, runtime_context)
-    }
-
-    /// Evaluate this filter with a specific expression context (supports subqueries)
-    unsafe fn evaluate_with_context(
-        &mut self,
-        ctid: pg_sys::ItemPointer,
-        heaprel: &PgSearchRelation,
         expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
     ) -> bool {
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
@@ -102,7 +55,7 @@ impl HeapFieldFilter {
             return true;
         }
 
-        self.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context)
+        self.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context, planstate)
     }
 
     /// Inner expression evaluation method that can be wrapped in panic handling
@@ -111,7 +64,8 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
-        provided_expr_context: *mut pg_sys::ExprContext,
+        expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
@@ -169,9 +123,9 @@ impl HeapFieldFilter {
         }
 
         // Use provided expression context if available, otherwise create a standalone one
-        let (econtext, should_free_context) = if !provided_expr_context.is_null() {
+        let (econtext, should_free_context) = if !expr_context.is_null() {
             // Use the provided context (supports subqueries)
-            (provided_expr_context, false)
+            (expr_context, false)
         } else {
             // Create a standalone context (fallback for simple expressions)
             let standalone_context = pg_sys::CreateStandaloneExprContext();
@@ -186,7 +140,7 @@ impl HeapFieldFilter {
         };
 
         // Store the original scan tuple to restore later if we're using a provided context
-        let original_scan_tuple = if !provided_expr_context.is_null() {
+        let original_scan_tuple = if !expr_context.is_null() {
             (*econtext).ecxt_scantuple
         } else {
             std::ptr::null_mut()
@@ -196,7 +150,6 @@ impl HeapFieldFilter {
         (*econtext).ecxt_scantuple = slot;
 
         // Initialize the expression for execution with proper planstate for subquery support
-        let planstate = get_runtime_planstate();
         let has_planstate = !planstate.is_null();
 
         // Check if we need to reinitialize with a better planstate
@@ -227,7 +180,7 @@ impl HeapFieldFilter {
         if expr_state.is_null() {
             self.initialized_expression = None;
             // Restore original scan tuple if we're using a provided context
-            if !provided_expr_context.is_null() {
+            if !expr_context.is_null() {
                 (*econtext).ecxt_scantuple = original_scan_tuple;
             }
             // Only free the context if we created it ourselves
@@ -250,7 +203,7 @@ impl HeapFieldFilter {
 
         // Cleanup resources in reverse order
         // Restore original scan tuple if we're using a provided context
-        if !provided_expr_context.is_null() {
+        if !expr_context.is_null() {
             (*econtext).ecxt_scantuple = original_scan_tuple;
         }
 
@@ -292,18 +245,28 @@ pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
+    expr_context: *mut pg_sys::ExprContext,
+    planstate: *mut pg_sys::PlanState,
 }
+
+// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
+unsafe impl Send for HeapFilterQuery {}
+unsafe impl Sync for HeapFilterQuery {}
 
 impl HeapFilterQuery {
     pub fn new(
         indexed_query: Box<dyn Query>,
         field_filters: Vec<HeapFieldFilter>,
         rel_oid: pg_sys::Oid,
+        expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
     ) -> Self {
         Self {
             indexed_query,
             field_filters,
             rel_oid,
+            expr_context,
+            planstate,
         }
     }
 }
@@ -314,6 +277,8 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
             indexed_query: self.indexed_query.box_clone(),
             field_filters: self.field_filters.clone(),
             rel_oid: self.rel_oid,
+            expr_context: self.expr_context,
+            planstate: self.planstate,
         })
     }
 }
@@ -325,6 +290,8 @@ impl Query for HeapFilterQuery {
             indexed_weight,
             field_filters: self.field_filters.clone(),
             rel_oid: self.rel_oid,
+            expr_context: self.expr_context,
+            planstate: self.planstate,
         }))
     }
 }
@@ -333,7 +300,13 @@ struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
+    expr_context: *mut pg_sys::ExprContext,
+    planstate: *mut pg_sys::PlanState,
 }
+
+// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
+unsafe impl Send for HeapFilterWeight {}
+unsafe impl Sync for HeapFilterWeight {}
 
 impl Weight for HeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
@@ -348,6 +321,8 @@ impl Weight for HeapFilterWeight {
             self.field_filters.clone(),
             ctid_ff,
             self.rel_oid,
+            self.expr_context,
+            self.planstate,
         );
 
         Ok(Box::new(scorer))
@@ -365,6 +340,8 @@ struct HeapFilterScorer {
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
+    expr_context: *mut pg_sys::ExprContext,
+    planstate: *mut pg_sys::PlanState,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -377,6 +354,8 @@ impl HeapFilterScorer {
         field_filters: Vec<HeapFieldFilter>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         rel_oid: pg_sys::Oid,
+        expr_context: *mut pg_sys::ExprContext,
+        planstate: *mut pg_sys::PlanState,
     ) -> Self {
         let mut scorer = Self {
             indexed_scorer,
@@ -384,6 +363,8 @@ impl HeapFilterScorer {
             ctid_ff,
             heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
+            expr_context,
+            planstate,
         };
 
         // Position at the first valid document
@@ -422,6 +403,8 @@ impl HeapFilterScorer {
                 let filter_result = filter.evaluate(
                     &mut item_pointer as *mut pg_sys::ItemPointerData,
                     &self.heaprel,
+                    self.expr_context,
+                    self.planstate,
                 );
                 if !filter_result {
                     return false;

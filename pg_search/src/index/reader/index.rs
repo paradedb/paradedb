@@ -30,6 +30,7 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use std::ptr::NonNull;
 
 use anyhow::Result;
 use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs, TopOrderable};
@@ -263,8 +264,8 @@ impl SearchIndexReader {
             search_query_input,
             need_scores,
             mvcc_style,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
+            None,
+            None,
         )
     }
 
@@ -274,8 +275,8 @@ impl SearchIndexReader {
         search_query_input: SearchQueryInput,
         need_scores: bool,
         mvcc_style: MvccSatisfies,
-        expr_context: *mut pgrx::pg_sys::ExprContext,
-        planstate: *mut pgrx::pg_sys::PlanState,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
     ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
@@ -381,8 +382,8 @@ impl SearchIndexReader {
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
-                std::ptr::null_mut(), // no expr_context
-                std::ptr::null_mut(), // no planstate
+                None, // no expr_context
+                None, // no planstate
             )
             .unwrap_or_else(|e| panic!("{e}"))
     }

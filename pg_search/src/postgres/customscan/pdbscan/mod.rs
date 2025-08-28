@@ -115,13 +115,17 @@ impl PdbScan {
 
         let search_reader = if !expr_context.is_null() && !planstate.is_null() {
             // Use context-aware method for proper postgres expression evaluation
+            // SAFETY: We've checked that the pointers are not null
+            let expr_context_nonnull = unsafe { std::ptr::NonNull::new_unchecked(expr_context) };
+            let planstate_nonnull = unsafe { std::ptr::NonNull::new_unchecked(planstate) };
+
             SearchIndexReader::open_with_context(
                 indexrel,
                 search_query_input.clone(),
                 need_scores,
                 mvcc_style,
-                expr_context,
-                planstate,
+                Some(expr_context_nonnull),
+                Some(planstate_nonnull),
             )
         } else {
             // Use regular method without context

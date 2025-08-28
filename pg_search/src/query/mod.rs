@@ -563,8 +563,8 @@ impl SearchQueryInput {
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
         relation_oid: Option<pg_sys::Oid>,
-        expr_context: *mut pg_sys::ExprContext,
-        planstate: *mut pg_sys::PlanState,
+        expr_context: Option<std::ptr::NonNull<pg_sys::ExprContext>>,
+        planstate: Option<std::ptr::NonNull<pg_sys::PlanState>>,
     ) -> Result<Box<dyn TantivyQuery>> {
         match self {
             SearchQueryInput::Uninitialized => {

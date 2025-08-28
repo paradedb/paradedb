@@ -868,24 +868,26 @@ impl CustomScan for PdbScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            // we have some runtime Postgres expressions/sub-queries that need to be evaluated
-            //
-            // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
-            // make a new one and swap some pointers around
+            if state.custom_state_mut().has_postgres_expressions() {
+                // we have some runtime Postgres expressions/sub-queries that need to be evaluated
+                //
+                // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
+                // make a new one and swap some pointers around
 
-            // hold onto the planstate's current ExprContext
-            let planstate = state.planstate();
-            let stdecontext = (*planstate).ps_ExprContext;
+                // hold onto the planstate's current ExprContext
+                let planstate = state.planstate();
+                let stdecontext = (*planstate).ps_ExprContext;
 
-            // assign a new one
-            pg_sys::ExecAssignExprContext(estate, planstate);
+                // assign a new one
+                pg_sys::ExecAssignExprContext(estate, planstate);
 
-            // take that one and assign it to our state's `runtime_context`.  This is what
-            // will be used during `rescan_custom_state` to evaluate expressions
-            state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+                // take that one and assign it to our state's `runtime_context`.  This is what
+                // will be used during `rescan_custom_state` to evaluate expressions
+                state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
 
-            // and restore our planstate's original ExprContext
-            (*planstate).ps_ExprContext = stdecontext;
+                // and restore our planstate's original ExprContext
+                (*planstate).ps_ExprContext = stdecontext;
+            }
         }
     }
 

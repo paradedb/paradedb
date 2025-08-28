@@ -1,3 +1,4 @@
+use crate::postgres::customscan::qual_inspect::contains_exec_param;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::FromDatum;
@@ -269,6 +270,17 @@ impl HeapFieldFilter {
     /// Get the PostgreSQL expression node
     pub unsafe fn get_expression_node(&self) -> *mut pg_sys::Node {
         self.expr_node.0.cast()
+    }
+
+    /// Check if this heap filter contains subqueries (PARAM_EXEC nodes)
+    pub fn contains_subqueries(&self) -> bool {
+        unsafe {
+            let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+            if expr_node.is_null() {
+                return false;
+            }
+            contains_exec_param(expr_node)
+        }
     }
 
     // The new expression-based approach handles evaluation directly

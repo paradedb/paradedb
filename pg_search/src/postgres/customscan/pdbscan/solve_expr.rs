@@ -6,8 +6,20 @@ impl SearchQueryInput {
     pub fn has_postgres_expressions(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {
-            if matches!(sqi, SearchQueryInput::PostgresExpression { .. }) {
-                found = true;
+            match sqi {
+                SearchQueryInput::PostgresExpression { .. } => {
+                    found = true;
+                }
+                SearchQueryInput::HeapFilter { field_filters, .. } => {
+                    // Check if any heap field filters contain subqueries
+                    for filter in field_filters.iter() {
+                        if filter.contains_subqueries() {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+                _ => {}
             }
         });
         found

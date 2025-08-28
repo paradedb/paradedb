@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756403041141,
+  "lastUpdate": 1756403043786,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12748,6 +12748,64 @@ window.BENCHMARK_DATA = {
             "value": 166.19921875,
             "unit": "median mem",
             "extra": "avg mem: 155.35678882940587, max mem: 175.578125, count: 57883"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "committer": {
+            "name": "Eric B. Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@paradedb.com"
+          },
+          "id": "5cab4aa559a5cd11b90ceb4fb346d42f43b8db07",
+          "message": "bugfixes and cleanup work",
+          "timestamp": "2025-08-28T16:00:38Z",
+          "url": "https://github.com/paradedb/paradedb/commit/5cab4aa559a5cd11b90ceb4fb346d42f43b8db07"
+        },
+        "date": 1756403042549,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.75,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.67323193070815, max cpu: 46.55674, count: 57086"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 180.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 179.02731104167395, max mem: 184.078125, count: 57086"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19098,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17584.198700206707, max block_count: 23505.0, count: 57086"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 35,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 37.91356900115615, max segment_count: 102.0, count: 57086"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.384164,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.489041966239196, max cpu: 33.333336, count: 57086"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 154.15843345183146, max mem: 177.6953125, count: 57086"
           }
         ]
       }

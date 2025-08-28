@@ -62,13 +62,15 @@ jobs:
             benchmark
             benchmark-benchmarks
 
-      - name: fio sanity on /mnt/ephemeral (10s)
+      - name: fio sanity (sudo)
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -y && sudo apt-get install -y fio
-          fio --name=randread --directory=/mnt/ephemeral --iodepth=32 --rw=randread --bs=4k \
-              --direct=1 --numjobs=1 --size=1G --runtime=10 --time_based --group_reporting
+          sudo fio --name=randread \
+            --filename=/mnt/ephemeral/fio.test \
+            --iodepth=32 --rw=randread --bs=4k --direct=1 \
+            --numjobs=1 --size=1G --runtime=10 --time_based --group_reporting
+          sudo rm -f /mnt/ephemeral/fio.test
 
       - name: BEFORE | Detect actual backing device (handles overlayfs → upperdir)
         shell: bash

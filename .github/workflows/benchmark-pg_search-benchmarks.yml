@@ -72,6 +72,50 @@ jobs:
             --numjobs=1 --size=1G --runtime=10 --time_based --group_reporting
           sudo rm -f /mnt/ephemeral/fio.test
 
+      - name: fio sanity on /mnt/ephemeral (NVMe)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /mnt/ephemeral/fio && sudo chown -R "$USER:$USER" /mnt/ephemeral/fio
+          testfile=/mnt/ephemeral/fio/testfile
+
+          # Precreate a 8–16 GiB file so the test isn’t tiny
+          fallocate -l 12G "$testfile" || truncate -s 12G "$testfile"
+
+          # 4k random read — depth + multiple jobs to show NVMe IOPS
+          fio --name=randread \
+              --filename="$testfile" \
+              --ioengine=io_uring --direct=1 \
+              --rw=randread --bs=4k \
+              --iodepth=256 --numjobs=4 \
+              --runtime=20 --time_based --group_reporting
+
+          # Optional: sequential read
+          fio --name=seqread \
+              --filename="$testfile" \
+              --ioengine=io_uring --direct=1 \
+              --rw=read --bs=1M \
+              --iodepth=64 --numjobs=2 \
+              --runtime=15 --time_based --group_reporting
+
+          rm -f "$testfile"
+
+      - name: fio on EBS root for comparison (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          testfile=/var/tmp/ebs_testfile
+          sudo mkdir -p /var/tmp
+          sudo chown "$USER:$USER" /var/tmp
+          fallocate -l 6G "$testfile" || truncate -s 6G "$testfile"
+          fio --name=randread_ebs \
+              --filename="$testfile" \
+              --ioengine=io_uring --direct=1 \
+              --rw=randread --bs=4k \
+              --iodepth=64 --numjobs=2 \
+              --runtime=15 --time_based --group_reporting
+          rm -f "$testfile"
+
       - name: BEFORE | Detect actual backing device (handles overlayfs → upperdir)
         shell: bash
         run: |

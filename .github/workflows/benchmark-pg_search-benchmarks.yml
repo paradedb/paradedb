@@ -60,312 +60,353 @@ jobs:
             benchmark
             benchmark-benchmarks
 
-      - name: Prepare local NVMe (RAID0 if multiple) and move workspace
+      - name: BEFORE | Detect actual backing device (handles overlayfs → upperdir)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/_work}"
+
+          echo "Target: $TARGET_DIR"
+
+          # If overlay, extract upperdir; else just use TARGET_DIR
+          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS)
+          src=$(awk '{print $1}' <<<"${info[0]}")
+          fstype=$(awk '{print $2}' <<<"${info[0]}")
+          opts=$(awk '{print $3}' <<<"${info[0]}")
+
+          probe_path="$TARGET_DIR"
+          if [[ "$fstype" == "overlay" ]]; then
+            upperdir=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
+            workdir=$(sed -n 's/.*workdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
+            echo "overlayfs detected."
+            echo "  upperdir: $upperdir"
+            echo "  workdir:  $workdir"
+            probe_path="${upperdir:-$TARGET_DIR}"
+          fi
+
+          echo "Probing underlying FS for: $probe_path"
+          dev=$(df -P "$probe_path" | tail -1 | awk '{print $1}')
+          real=$(readlink -f "$dev" || echo "$dev")
+          # resolve mapper/root indirections → parent block device
+          base=$(basename "$real")
+          parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
+          [[ -n "$parent" ]] && base="$parent"
+
+          model="UNKNOWN"; vendor="UNKNOWN"
+          [[ -r "/sys/block/$base/device/model"  ]] && model=$(<"/sys/block/$base/device/model")
+          [[ -r "/sys/block/$base/device/vendor" ]] && vendor=$(<"/sys/block/$base/device/vendor")
+
+          echo "Mount source: $src"
+          echo "FSType:       $fstype"
+          echo "df device:    $dev (real: $real, base: /dev/$base)"
+          echo "Vendor:       $vendor"
+          echo "Model:        $model"
+
+          case "$model" in
+            *"EC2 NVMe Instance Storage"*)
+              echo "Verdict: LOCAL NVMe (instance-store)";;
+            *"Elastic Block Store"*)
+              echo "Verdict: EBS (NVMe-backed)";;
+            *)
+              echo "Verdict: UNKNOWN";;
+          esac
+
+          echo
+          echo "Available NVMe devices:"
+          if ! command -v nvme >/dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y nvme-cli
+          fi
+          nvme list || true
+
+      - name: Mount local NVMe and move workspace to it (safe, idempotent)
         shell: bash
         run: |
           set -euo pipefail
 
-          sudo apt-get update -y
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mdadm xfsprogs util-linux
+          # Pick the first *instance-store* NVMe that is not mounted
+          cand=$(nvme list | awk '/EC2 NVMe Instance Storage/{print $1}' | head -n1)
+          if [[ -z "$cand" ]]; then
+            echo "No EC2 NVMe Instance Storage device found."; exit 0
+          fi
+          dev="$cand"
+          part="${dev}p1"
 
-          # Find unmounted NVMe disks that aren't the root device
-          ROOT_DEV="$(lsblk -no pkname /)"
-          mapfile -t NVME_DISKS < <(lsblk -dn -o NAME,TYPE | awk '$2=="disk" && $1 ~ /^nvme/ {print $1}' \
-            | grep -v "${ROOT_DEV:-^$}" \
-            | while read -r d; do
-                # skip if any partitions already mounted
-                if ! findmnt -rn -S "/dev/${d}"* >/dev/null 2>&1; then
-                  echo "$d"
-                fi
-              done)
-
-          if [[ "${#NVME_DISKS[@]}" -eq 0 ]]; then
-            echo "No free NVMe disks found; continuing on root volume." >&2
-            exit 0
+          # Partition if needed
+          if ! lsblk -no TYPE "$part" >/dev/null 2>&1; then
+            echo -e "g\nn\n1\n\n\nw" | sudo fdisk "$dev"
+            sudo partprobe "$dev"
           fi
 
+          # Make filesystem if missing (XFS preferred for large-file workloads)
+          fstype=$(lsblk -no FSTYPE "$part")
+          if [[ -z "${fstype:-}" ]]; then
+            sudo mkfs.xfs -f "$part" || sudo mkfs.ext4 -F "$part"
+          fi
+
+          # Mount it
           sudo mkdir -p /mnt/nvme
-
-          if [[ "${#NVME_DISKS[@]}" -eq 1 ]]; then
-            DEV="/dev/${NVME_DISKS[0]}"
-          else
-            # Create RAID0 across all NVMe disks for max throughput
-            DEV="/dev/md0"
-            sudo mdadm --create "$DEV" --level=0 --raid-devices="${#NVME_DISKS[@]}" $(printf "/dev/%s " "${NVME_DISKS[@]}")
-            # Persist mdadm config (harmless on ephemeral runner)
-            sudo bash -c 'mdadm --detail --scan >> /etc/mdadm/mdadm.conf' || true
+          if ! mountpoint -q /mnt/nvme; then
+            sudo mount "$part" /mnt/nvme
           fi
-
-          # Wipe any old signatures and make XFS
-          sudo wipefs -af "$DEV"
-          sudo mkfs.xfs -f "$DEV"
-
-          # Mount and give current user ownership
-          sudo mount "$DEV" /mnt/nvme
           sudo chown -R "$USER:$USER" /mnt/nvme
 
-          # Create a workspace on NVMe and bind-mount it over the default
-          mkdir -p /mnt/nvme/workspace
-          # Ensure the target exists
-          mkdir -p "$GITHUB_WORKSPACE"
-          # If anything already there (rare), move it
-          shopt -s dotglob nullglob
-          if compgen -G "$GITHUB_WORKSPACE/*" > /dev/null; then
-            rsync -a "$GITHUB_WORKSPACE"/ /mnt/nvme/workspace/
+          # Move the *runner workspace root* (one level above your repo) onto NVMe
+          runner_root="/home/runner/_work"
+          mkdir -p /mnt/nvme/_work
+
+          # If not already bind-mounted, populate once and bind
+          if ! mountpoint -q "$runner_root"; then
+            rsync -aHAX --delete "$runner_root"/ /mnt/nvme/_work/
+            sudo mount --bind /mnt/nvme/_work "$runner_root"
+            echo "Bound $runner_root to NVMe."
+          else
+            echo "$runner_root is already a mountpoint; skipping bind."
           fi
-          sudo mount --bind /mnt/nvme/workspace "$GITHUB_WORKSPACE"
 
-          # Optional: fast caches on NVMe
-          mkdir -p /mnt/nvme/{tmp,cargo-cache,pip-cache}
-          echo "TMPDIR=/mnt/nvme/tmp" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_DIR=/mnt/nvme/cargo-cache/target" >> "$GITHUB_ENV"
-          echo "PIP_CACHE_DIR=/mnt/nvme/pip-cache" >> "$GITHUB_ENV"
+          # Speed up temp files too
+          sudo rm -rf /tmp && sudo mkdir -p /mnt/nvme/tmp && sudo ln -s /mnt/nvme/tmp /tmp
 
-          df -hT /mnt/nvme || true
-          lsblk
+          df -hT "$runner_root" /tmp
 
-      - name: Detect storage backing the workspace (EBS vs local NVMe)
+      - name: AFTER | Detect actual backing device (handles overlayfs → upperdir)
         shell: bash
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+          TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/_work}"
 
-          # Directory we care about (your workspace / builds live here)
-          TARGET_DIR="${GITHUB_WORKSPACE:-/home/runner/work}"
+          echo "Target: $TARGET_DIR"
 
-          echo "Inspecting filesystem/device for: $TARGET_DIR"
+          # If overlay, extract upperdir; else just use TARGET_DIR
+          readarray -t info < <(findmnt -T "$TARGET_DIR" -no SOURCE,FSTYPE,OPTIONS)
+          src=$(awk '{print $1}' <<<"${info[0]}")
+          fstype=$(awk '{print $2}' <<<"${info[0]}")
+          opts=$(awk '{print $3}' <<<"${info[0]}")
 
-          # Find the block device for TARGET_DIR, e.g. /dev/nvme0n1p1 or /dev/root
-          dev=$(df -P "$TARGET_DIR" | tail -1 | awk '{print $1}')
-
-          # Resolve to the underlying block device (strip partition suffix like p1)
-          real=$(readlink -f "$dev")
-          base=$(basename "$real")
-          # handle /dev/mapper/* and /dev/root indirections
-          if [[ "$base" == mapper/* || "$base" == root ]]; then
-            # Walk up the chain to a real /sys/block entry
-            sysdev=$(lsblk -no PKNAME "$real" || true)
-            if [[ -n "$sysdev" ]]; then
-              base="$sysdev"
-            fi
+          probe_path="$TARGET_DIR"
+          if [[ "$fstype" == "overlay" ]]; then
+            upperdir=$(sed -n 's/.*upperdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
+            workdir=$(sed -n 's/.*workdir=\([^,]*\).*/\1/p' <<<"$opts" | head -n1)
+            echo "overlayfs detected."
+            echo "  upperdir: $upperdir"
+            echo "  workdir:  $workdir"
+            probe_path="${upperdir:-$TARGET_DIR}"
           fi
-          # If it's a partition, get its parent (e.g. nvme0n1p1 -> nvme0n1)
-          parent=$(lsblk -no PKNAME "/dev/$base" 2>/dev/null || true)
+
+          echo "Probing underlying FS for: $probe_path"
+          dev=$(df -P "$probe_path" | tail -1 | awk '{print $1}')
+          real=$(readlink -f "$dev" || echo "$dev")
+          # resolve mapper/root indirections → parent block device
+          base=$(basename "$real")
+          parent=$(lsblk -no PKNAME "$real" 2>/dev/null || true)
           [[ -n "$parent" ]] && base="$parent"
 
-          model_file="/sys/block/$base/device/model"
-          vendor_file="/sys/block/$base/device/vendor"
-          rota_file="/sys/block/$base/queue/rotational"
+          model="UNKNOWN"; vendor="UNKNOWN"
+          [[ -r "/sys/block/$base/device/model"  ]] && model=$(<"/sys/block/$base/device/model")
+          [[ -r "/sys/block/$base/device/vendor" ]] && vendor=$(<"/sys/block/$base/device/vendor")
 
-          model=$(cat "$model_file" 2>/dev/null || echo "UNKNOWN")
-          vendor=$(cat "$vendor_file" 2>/dev/null || echo "UNKNOWN")
-          rota=$(cat "$rota_file" 2>/dev/null || echo "UNKNOWN")
+          echo "Mount source: $src"
+          echo "FSType:       $fstype"
+          echo "df device:    $dev (real: $real, base: /dev/$base)"
+          echo "Vendor:       $vendor"
+          echo "Model:        $model"
 
-          echo "Block device: /dev/$base"
-          echo "Vendor: $vendor"
-          echo "Model:  $model"
-          echo "Rotational: $rota (0=SSD, 1=HDD)"
-
-          verdict="UNKNOWN"
           case "$model" in
             *"EC2 NVMe Instance Storage"*)
-              verdict="LOCAL_NVME (instance-store)";;
+              echo "Verdict: LOCAL NVMe (instance-store)";;
             *"Elastic Block Store"*)
-              verdict="EBS (NVMe-backed)";;
+              echo "Verdict: EBS (NVMe-backed)";;
+            *)
+              echo "Verdict: UNKNOWN";;
           esac
 
-          # As a second opinion, use nvme-cli if available
-          if command -v nvme >/dev/null 2>&1; then
-            echo "nvme list:"
-            nvme list || true
-          else
-            echo "nvme-cli not found; installing…"
+          echo
+          echo "Available NVMe devices:"
+          if ! command -v nvme >/dev/null; then
             sudo apt-get update -y && sudo apt-get install -y nvme-cli
-            nvme list || true
           fi
+          nvme list || true
 
-          echo "Storage verdict for $TARGET_DIR: $verdict"
+      # - name: Determine Ref to Benchmark
+      #   id: determine-ref
+      #   run: |
+      #     # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
+      #     REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
+      #     echo "ref=$REF" >> $GITHUB_OUTPUT
 
-      - name: Determine Ref to Benchmark
-        id: determine-ref
-        run: |
-          # Use a workflow-provided commit (if any), else a PR's head ref, else the main branch.
-          REF=${{ inputs.commit || (github.event_name == 'pull_request' && github.head_ref) || 'main' }}
-          echo "ref=$REF" >> $GITHUB_OUTPUT
+      # - name: Derive Short Commit
+      #   id: commit_info
+      #   run: |
+      #     short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
+      #     echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
-      - name: Derive Short Commit
-        id: commit_info
-        run: |
-          short_commit=$(echo "${GITHUB_SHA}" | cut -c1-7)
-          echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
+      # - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
+      #   uses: actions/checkout@v4
+      #   with:
+      #     ref: ${{ steps.determine-ref.outputs.ref }}
 
-      - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.determine-ref.outputs.ref }}
+      # - name: Fetch the Latest Composite Actions
+      #   if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: ${{ github.repository }}
+      #     path: actions-temp
+      #     token: ${{ secrets.GITHUB_TOKEN }}
+      #     fetch-depth: 1
+      #     ref: main
 
-      - name: Fetch the Latest Composite Actions
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          path: actions-temp
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 1
-          ref: main
+      # - name: Copy latest actions into place
+      #   if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
+      #   run: cp -rv actions-temp/.github/actions .github/
 
-      - name: Copy latest actions into place
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        run: cp -rv actions-temp/.github/actions .github/
+      # - name: Cleanup temporary checkout
+      #   if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
+      #   run: rm -rf actions-temp
 
-      - name: Cleanup temporary checkout
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        run: rm -rf actions-temp
+      # # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
+      # - name: Fetch latest benchmark code, suites
+      #   if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
+      #   uses: ./.github/actions/benchmarks-from-main
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
-      - name: Fetch latest benchmark code, suites
-        if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-benchmarks'
-        uses: ./.github/actions/benchmarks-from-main
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Resolve git ref to PR
+      #   id: pr_label
+      #   uses: actions/github-script@v7
+      #   env:
+      #     # ← Set this to whatever ref you’re resolving:
+      #     # • a SHA:            ${{ github.sha }}
+      #     # • a branch name:    ${{ github.ref_name }}
+      #     # • a tag:            ${{ github.ref_name }}
+      #     # • a PR number:      e.g. “123”
+      #     TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+      #   with:
+      #     github-token: ${{ secrets.GITHUB_TOKEN }}
+      #     result-encoding: string
+      #     script: |
+      #       const { owner, repo } = context.repo;
+      #       const ref = process.env.TARGET_REF;
 
-      - name: Resolve git ref to PR
-        id: pr_label
-        uses: actions/github-script@v7
-        env:
-          # ← Set this to whatever ref you’re resolving:
-          # • a SHA:            ${{ github.sha }}
-          # • a branch name:    ${{ github.ref_name }}
-          # • a tag:            ${{ github.ref_name }}
-          # • a PR number:      e.g. “123”
-          TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          result-encoding: string
-          script: |
-            const { owner, repo } = context.repo;
-            const ref = process.env.TARGET_REF;
+      #       let pr = null;
 
-            let pr = null;
+      #       // If the ref is purely numeric, treat it as a PR number
+      #       if (/^\d+$/.test(ref)) {
+      #         try {
+      #           const { data } = await github.rest.pulls.get({
+      #             owner,
+      #             repo,
+      #             pull_number: parseInt(ref, 10)
+      #           });
+      #           pr = data;
+      #         } catch (e) {
+      #           // not a valid PR number → fall through
+      #         }
+      #       }
 
-            // If the ref is purely numeric, treat it as a PR number
-            if (/^\d+$/.test(ref)) {
-              try {
-                const { data } = await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: parseInt(ref, 10)
-                });
-                pr = data;
-              } catch (e) {
-                // not a valid PR number → fall through
-              }
-            }
+      #       // Otherwise, try to find any PR associated with this commit SHA
+      #       if (!pr) {
+      #         const res = await github.request(
+      #           'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
+      #           {
+      #             owner,
+      #             repo,
+      #             commit_sha: ref,
+      #             headers: {
+      #               accept: 'application/vnd.github.groot-preview+json'
+      #             }
+      #           }
+      #         );
+      #         if (res.data.length) {
+      #           pr = res.data[0];
+      #         }
+      #       }
 
-            // Otherwise, try to find any PR associated with this commit SHA
-            if (!pr) {
-              const res = await github.request(
-                'GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls',
-                {
-                  owner,
-                  repo,
-                  commit_sha: ref,
-                  headers: {
-                    accept: 'application/vnd.github.groot-preview+json'
-                  }
-                }
-              );
-              if (res.data.length) {
-                pr = res.data[0];
-              }
-            }
+      #       // Return “PR #123: Title” or the raw ref
+      #       return pr
+      #         ? `PR #${pr.number}: ${pr.title}`
+      #         : ref;
 
-            // Return “PR #123: Title” or the raw ref
-            return pr
-              ? `PR #${pr.number}: ${pr.title}`
-              : ref;
+      # - name: Running for ${{ steps.pr_label.outputs.result }}"
+      #   run: echo ${{ steps.pr_label.outputs.result }}
 
-      - name: Running for ${{ steps.pr_label.outputs.result }}"
-        run: echo ${{ steps.pr_label.outputs.result }}
+      # - name: Install Rust
+      #   uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+      # - name: Install & Configure Supported PostgreSQL Version
+      #   run: |
+      #     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+      #     sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+      #     sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
+      #     echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+      # - name: Install Rust Cache
+      #   uses: swatinem/rust-cache@v2
+      #   with:
+      #     prefix-key: "v1-benchmarks-rust-cache"
+      #     shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
+      #     cache-targets: true
+      #     cache-all-crates: true
+      #     cache-on-failure: true
 
-      - name: Install Rust Cache
-        uses: swatinem/rust-cache@v2
-        with:
-          prefix-key: "v1-benchmarks-rust-cache"
-          shared-key: pg${{ env.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
-          cache-targets: true
-          cache-all-crates: true
-          cache-on-failure: true
+      # - name: Extract pgrx Version
+      #   id: pgrx
+      #   working-directory: pg_search/
+      #   run: |
+      #     version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+      #     echo "version=$version" >> $GITHUB_OUTPUT
 
-      - name: Extract pgrx Version
-        id: pgrx
-        working-directory: pg_search/
-        run: |
-          version=$(cargo tree --depth 1 -i pgrx -p pg_search | head -n 1 | sed -E 's/.*v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
-          echo "version=$version" >> $GITHUB_OUTPUT
+      # - name: Install cargo-pgrx
+      #   run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
 
-      - name: Install cargo-pgrx
-        run: cargo install cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug --locked
+      # - name: Initialize cargo-pgrx environment
+      #   run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
 
-      - name: Initialize cargo-pgrx environment
-        run: cargo pgrx init --pg${{ env.pg_version }}=`which pg_config`
+      # - name: Compile & install pg_search extension
+      #   run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
-      - name: Compile & install pg_search extension
-        run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
+      # - name: Configure PostgreSQL settings
+      #   working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
+      #   run: |
+      #     sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+      #     sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
+      #     sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
+      #     sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
+      #     sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
+      #     sed -i "s/^#max_parallel_maintenance_workers = .*/max_parallel_maintenance_workers = 8/" postgresql.conf
+      #     sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
 
-      - name: Configure PostgreSQL settings
-        working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
-        run: |
-          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
-          sed -i "s/^#maintenance_work_mem = .*/maintenance_work_mem = '12GB'/" postgresql.conf
-          sed -i "s/^shared_buffers = .*/shared_buffers = '12GB'/" postgresql.conf
-          sed -i "s/^#max_parallel_workers = .*/max_parallel_workers = 8/" postgresql.conf
-          sed -i "s/^#max_worker_processes = .*/max_worker_processes = 8/" postgresql.conf
-          sed -i "s/^#max_parallel_maintenance_workers = .*/max_parallel_maintenance_workers = 8/" postgresql.conf
-          sed -i "s/^#max_parallel_workers_per_gather = .*/max_parallel_workers_per_gather = 8/" postgresql.conf
+      # - name: Restart Postgres
+      #   working-directory: pg_search/
+      #   run: |
+      #     cargo pgrx stop pg${{ env.pg_version }}
+      #     cargo pgrx start pg${{ env.pg_version }}
 
-      - name: Restart Postgres
-        working-directory: pg_search/
-        run: |
-          cargo pgrx stop pg${{ env.pg_version }}
-          cargo pgrx start pg${{ env.pg_version }}
+      # - name: Install pg_search
+      #   working-directory: pg_search/
+      #   run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
 
-      - name: Install pg_search
-        working-directory: pg_search/
-        run: psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
+      # - name: Benchmark "logs" Dataset
+      #   uses: ./.github/actions/benchmark-benchmarks
+      #   with:
+      #     dataset: logs
+      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+      #     pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark "logs" Dataset
-        uses: ./.github/actions/benchmark-benchmarks
-        with:
-          dataset: logs
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
+      # - name: Benchmark "docs" Dataset
+      #   uses: ./.github/actions/benchmark-benchmarks
+      #   with:
+      #     dataset: docs
+      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}
+      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+      #     pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark "docs" Dataset
-        uses: ./.github/actions/benchmark-benchmarks
-        with:
-          dataset: docs
-          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-          pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Notify Slack on Failure (push only)
-        if: failure() && github.event_name == 'push'
-        run: |
-          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> `benchmark-pg_search-benchmarks` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
-          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}
+      # - name: Notify Slack on Failure (push only)
+      #   if: failure() && github.event_name == 'push'
+      #   run: |
+      #     GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      #     MESSAGE="<!here> `benchmark-pg_search-benchmarks` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+      #     curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

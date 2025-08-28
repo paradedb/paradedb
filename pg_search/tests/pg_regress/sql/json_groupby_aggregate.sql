@@ -599,7 +599,239 @@ GROUP BY document->'metrics'->>'category'
 ORDER BY metric_category;
 
 -- =========================================
--- Test 10: Edge cases with special characters
+-- Test 10: Complex JSON reconstruction
+-- =========================================
+
+-- Create test table for JSON reconstruction scenarios
+CREATE TABLE json_test_reconstruction (
+    id SERIAL PRIMARY KEY,
+    config JSONB
+);
+
+-- Insert test data with nested objects that need reconstruction
+INSERT INTO json_test_reconstruction (config) VALUES
+    ('{"api": {"version": "v1", "endpoints": {"users": "/api/v1/users", "orders": "/api/v1/orders"}}, "database": {"host": "db1", "port": 5432}}'),
+    ('{"api": {"version": "v2", "endpoints": {"users": "/api/v2/users", "orders": "/api/v2/orders"}}, "database": {"host": "db2", "port": 5432}}'),
+    ('{"api": {"version": "v1", "endpoints": {"users": "/api/v1/users", "products": "/api/v1/products"}}, "database": {"host": "db1", "port": 3306}}'),
+    ('{"api": {"version": "v2", "endpoints": {"users": "/api/v2/users", "products": "/api/v2/products"}}, "database": {"host": "db3", "port": 5432}}'),
+    ('{"api": {"version": "v1", "endpoints": {"users": "/api/v1/users", "orders": "/api/v1/orders"}}, "database": {"host": "db1", "port": 5432}}');
+
+-- Create BM25 index
+CREATE INDEX idx_json_reconstruction ON json_test_reconstruction
+USING bm25 (id, config)
+WITH (
+    key_field = 'id',
+    json_fields = '{"config": {"indexed": true, "fast": true, "expand_dots": true}}'
+);
+
+-- GROUP BY intermediate JSON object
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    config->'api'->>'version' AS api_version,  -- Simpler: extract version string
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.api.version')
+GROUP BY config->'api'->>'version'  -- Group by version string
+ORDER BY api_version;
+
+-- Execute the query
+SELECT 
+    config->'api'->>'version' AS api_version,
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.api.version')
+GROUP BY config->'api'->>'version'
+ORDER BY api_version;
+
+-- Another example: GROUP BY multiple nested fields
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    config->'database'->>'host' AS db_host,  -- Extract host string
+    config->'api'->>'version' AS api_version,
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.database.host')
+  AND id @@@ paradedb.exists('config.api.version')
+GROUP BY config->'database'->>'host', config->'api'->>'version'
+ORDER BY db_host, api_version;
+
+-- Execute the query
+SELECT 
+    config->'database'->>'host' AS db_host,
+    config->'api'->>'version' AS api_version,
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.database.host')
+  AND id @@@ paradedb.exists('config.api.version')
+GROUP BY config->'database'->>'host', config->'api'->>'version'
+ORDER BY db_host, api_version;
+
+-- Test case demonstrating deep nested path grouping
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    config->'api'->'endpoints'->>'users' AS users_endpoint,  -- Extract specific endpoint
+    config->'database'->>'port' AS db_port,
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.api.endpoints.users')
+  AND id @@@ paradedb.exists('config.database.port')
+GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
+ORDER BY users_endpoint, db_port;
+
+-- Execute the query  
+SELECT 
+    config->'api'->'endpoints'->>'users' AS users_endpoint,
+    config->'database'->>'port' AS db_port,
+    COUNT(*) AS count
+FROM json_test_reconstruction
+WHERE id @@@ paradedb.exists('config.api.endpoints.users')
+  AND id @@@ paradedb.exists('config.database.port')
+GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
+ORDER BY users_endpoint, db_port;
+
+-- =========================================
+-- Test 11: Multiple subfields from same JSON field as GROUP BY columns
+-- =========================================
+
+-- Create test table demonstrating multiple subfields from same JSON object
+CREATE TABLE json_test_multi_subfields (
+    id SERIAL PRIMARY KEY,
+    user_profile JSONB,
+    order_details JSONB
+);
+
+-- Insert test data with multiple subfields in the same JSON objects
+INSERT INTO json_test_multi_subfields (user_profile, order_details) VALUES
+    ('{"name": "Alice", "department": "Engineering", "role": "Senior", "location": "SF"}', '{"product": "laptop", "category": "electronics", "quantity": 2, "price": 1200}'),
+    ('{"name": "Bob", "department": "Engineering", "role": "Junior", "location": "NYC"}', '{"product": "mouse", "category": "electronics", "quantity": 5, "price": 25}'),
+    ('{"name": "Carol", "department": "Marketing", "role": "Senior", "location": "SF"}', '{"product": "desk", "category": "furniture", "quantity": 1, "price": 300}'),
+    ('{"name": "David", "department": "Marketing", "role": "Manager", "location": "LA"}', '{"product": "chair", "category": "furniture", "quantity": 3, "price": 150}'),
+    ('{"name": "Eve", "department": "Engineering", "role": "Senior", "location": "SF"}', '{"product": "monitor", "category": "electronics", "quantity": 2, "price": 400}'),
+    ('{"name": "Frank", "department": "Sales", "role": "Junior", "location": "NYC"}', '{"product": "laptop", "category": "electronics", "quantity": 1, "price": 1200}'),
+    ('{"name": "Grace", "department": "Marketing", "role": "Senior", "location": "LA"}', '{"product": "tablet", "category": "electronics", "quantity": 1, "price": 500}'),
+    ('{"name": "Henry", "department": "Engineering", "role": "Manager", "location": "SF"}', '{"product": "desk", "category": "furniture", "quantity": 2, "price": 300}');
+
+-- Create BM25 index
+CREATE INDEX idx_json_multi_subfields ON json_test_multi_subfields
+USING bm25 (id, user_profile, order_details)
+WITH (
+    key_field = 'id',
+    json_fields = '{
+        "user_profile": {"indexed": true, "fast": true, "expand_dots": true},
+        "order_details": {"indexed": true, "fast": true, "expand_dots": true}
+    }'
+);
+
+-- Test 1: Two subfields from the same JSON field (user_profile)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'role' AS role,
+    COUNT(*) AS employee_count
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('user_profile.role')
+GROUP BY user_profile->>'department', user_profile->>'role'
+ORDER BY department, role;
+
+-- Execute the query
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'role' AS role,
+    COUNT(*) AS employee_count
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('user_profile.role')
+GROUP BY user_profile->>'department', user_profile->>'role'
+ORDER BY department, role;
+
+-- Test 2: Three subfields from the same JSON field 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'role' AS role,
+    user_profile->>'location' AS location,
+    COUNT(*) AS employee_count
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('user_profile.role')
+  AND id @@@ paradedb.exists('user_profile.location')
+GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
+ORDER BY department, role, location;
+
+-- Execute the query
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'role' AS role,
+    user_profile->>'location' AS location,
+    COUNT(*) AS employee_count
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('user_profile.role')
+  AND id @@@ paradedb.exists('user_profile.location')
+GROUP BY user_profile->>'department', user_profile->>'role', user_profile->>'location'
+ORDER BY department, role, location;
+
+-- Test 3: Mix subfields from different JSON fields (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    user_profile->>'department' AS department,
+    order_details->>'category' AS product_category,
+    COUNT(*) AS order_count,
+    SUM((order_details->>'quantity')::int) AS total_quantity
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('order_details.category')
+GROUP BY user_profile->>'department', order_details->>'category'
+ORDER BY department, product_category;
+
+-- Execute the query
+SELECT 
+    user_profile->>'department' AS department,
+    order_details->>'category' AS product_category,
+    COUNT(*) AS order_count,
+    SUM((order_details->>'quantity')::int) AS total_quantity
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('order_details.category')
+GROUP BY user_profile->>'department', order_details->>'category'
+ORDER BY department, product_category;
+
+-- Test 4: Complex query with subfields from both JSON fields plus aggregates (NOT SUPPORTED BY CUSTOM AGGREGATE SCAN YET)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'location' AS location,
+    order_details->>'product' AS product,
+    order_details->>'category' AS category,
+    COUNT(*) AS order_count,
+    AVG((order_details->>'price')::numeric) AS avg_price,
+    SUM((order_details->>'quantity')::int) AS total_quantity
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('order_details.category')
+GROUP BY user_profile->>'department', user_profile->>'location', 
+         order_details->>'product', order_details->>'category'
+ORDER BY department, location, product;
+
+-- Execute the query
+SELECT 
+    user_profile->>'department' AS department,
+    user_profile->>'location' AS location,
+    order_details->>'product' AS product,
+    order_details->>'category' AS category,
+    COUNT(*) AS order_count,
+    AVG((order_details->>'price')::numeric) AS avg_price,
+    SUM((order_details->>'quantity')::int) AS total_quantity
+FROM json_test_multi_subfields
+WHERE id @@@ paradedb.exists('user_profile.department')
+  AND id @@@ paradedb.exists('order_details.category')
+GROUP BY user_profile->>'department', user_profile->>'location', 
+         order_details->>'product', order_details->>'category'
+ORDER BY department, location, product;
+
+-- =========================================
+-- Test 12: Edge cases with special characters
 -- =========================================
 
 -- Create test table with special JSON keys
@@ -650,4 +882,6 @@ DROP TABLE json_test_deep;
 DROP TABLE json_test_mixed;
 DROP TABLE json_test_operators;
 DROP TABLE json_test_complex;
+DROP TABLE json_test_reconstruction;
+DROP TABLE json_test_multi_subfields;
 DROP TABLE json_test_special;

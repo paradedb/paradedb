@@ -978,7 +978,7 @@ unsafe fn is_node_range_table_entry(node: *mut pg_sys::Node, rti: pg_sys::Index)
     }
 }
 
-unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
+pub unsafe fn contains_exec_param(root: *mut pg_sys::Node) -> bool {
     #[pg_guard]
     unsafe extern "C-unwind" fn walker(
         node: *mut pg_sys::Node,

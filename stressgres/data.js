@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756501122924,
+  "lastUpdate": 1756501125695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9502,6 +9502,126 @@ window.BENCHMARK_DATA = {
             "value": 83.078125,
             "unit": "median mem",
             "extra": "avg mem: 83.64507526837296, max mem: 141.2109375, count: 55217"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "843745590ada545bde4f761e2ee89cfa8fc47ff0",
+          "message": "fix: don't include target_segment_count in background_layer_sizes (#3075)\n\n## What\n\nThis removes the (sneaky) addition of an \"average layer size\" based on\nthe configured `target_segment_count` into the list of\n`background_layer_sizes`.\n\nThe reason we're removing this is that when this happens on an existing,\nlarge, unbalanced index, it will cause essentially the entire index to\nbe merged in the background, and that's almost never what one would want\nin a production setting.\n\n## Why\n\nLooking to improve operational problems.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-29T13:42:40-07:00",
+          "tree_id": "ca5049b6aa5789ad5e20c72a1f12a1050bae393f",
+          "url": "https://github.com/paradedb/paradedb/commit/843745590ada545bde4f761e2ee89cfa8fc47ff0"
+        },
+        "date": 1756501124413,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.716218430242253, max cpu: 9.476802, count: 55144"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 103.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 102.47224921909002, max mem: 155.4453125, count: 55144"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.603729752669261, max cpu: 9.204219, count: 55144"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 97.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.10732936153525, max mem: 148.16796875, count: 55144"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.730363106103781, max cpu: 9.458128, count: 55144"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 103.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 102.42774067951636, max mem: 154.92578125, count: 55144"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.274144121780676, max cpu: 4.6421666, count: 55144"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 105.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 102.36198166958327, max mem: 155.65625, count: 55144"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.145516975997857, max cpu: 23.121387, count: 110288"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 110.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 108.71496112734387, max mem: 170.515625, count: 110288"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9292,
+            "unit": "median block_count",
+            "extra": "avg block_count: 9132.5333671841, max block_count: 17182.0, count: 55144"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.679421151893225, max segment_count: 35.0, count: 55144"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.101261039368768, max cpu: 14.145383, count: 55144"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 115.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 114.38261932678533, max mem: 169.10546875, count: 55144"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.944540392336821, max cpu: 9.275363, count: 55144"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 96.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 94.4227237012413, max mem: 148.62109375, count: 55144"
           }
         ]
       }

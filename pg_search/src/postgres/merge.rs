@@ -106,7 +106,7 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         unsafe {
             MetaPage::open(index).segment_metas().for_each(|_, entry| {
                 if entry.visible() {
-                    index_byte_size += entry.byte_size();
+                    index_byte_size += entry.byte_size()
                 }
             });
         }

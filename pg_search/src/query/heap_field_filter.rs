@@ -1,8 +1,10 @@
+use crate::postgres::customscan::qual_inspect::contains_exec_param;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::FromDatum;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{pg_sys, PgBox, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
+use std::ptr::NonNull;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
     DocId, DocSet, Score, SegmentReader, TERMINATED,
@@ -19,7 +21,7 @@ pub struct HeapFieldFilter {
     pub description: String,
 
     #[serde(skip)]
-    initialized_expression: Option<*mut pg_sys::ExprState>,
+    initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -42,6 +44,8 @@ impl HeapFieldFilter {
         &mut self,
         ctid: pg_sys::ItemPointer,
         heaprel: &PgSearchRelation,
+        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> bool {
         // Get the expression node
         let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
@@ -49,7 +53,7 @@ impl HeapFieldFilter {
             return true;
         }
 
-        self.evaluate_expression_inner(ctid, heaprel, expr_node)
+        self.evaluate_expression_inner(ctid, heaprel, expr_node, expr_context, planstate)
     }
 
     /// Inner expression evaluation method that can be wrapped in panic handling
@@ -58,6 +62,8 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
+        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
         let mut heap_tuple = pg_sys::HeapTupleData {
@@ -107,38 +113,58 @@ impl HeapFieldFilter {
         // Store the heap tuple in the slot
         let stored_slot = pg_sys::ExecStoreHeapTuple(&mut heap_tuple, slot, false);
         if stored_slot.is_null() {
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
+            Self::cleanup_resources(slot, buffer);
             return false;
         }
 
-        // Create an expression context for evaluation
-        let econtext = pg_sys::CreateStandaloneExprContext();
-        if econtext.is_null() {
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
+        // Use provided expression context if available, otherwise create a standalone one
+        let (econtext, standalone_context) = if let Some(ctx) = expr_context {
+            // Use the provided context (supports subqueries)
+            (ctx.as_ptr(), None)
+        } else {
+            // Create a standalone context (fallback for simple expressions)
+            let standalone_context = pg_sys::CreateStandaloneExprContext();
+            if standalone_context.is_null() {
+                Self::cleanup_resources(slot, buffer);
+                panic!("Failed to create standalone expression context");
             }
-            return false;
-        }
+            // SAFETY: We just checked that standalone_context is not null
+            let pgbox_context = unsafe { PgBox::from_pg(standalone_context) };
+            (pgbox_context.as_ptr(), Some(pgbox_context))
+        };
+
+        // Store the original scan tuple to restore later if we're using a provided context
+        let original_scan_tuple = if standalone_context.is_none() {
+            (*econtext).ecxt_scantuple
+        } else {
+            std::ptr::null_mut()
+        };
 
         // Set the tuple slot in the expression context
         (*econtext).ecxt_scantuple = slot;
 
-        // Initialize the expression for execution
-        let expr_state = *self.initialized_expression.get_or_insert_with(|| {
-            PgMemoryContexts::TopTransactionContext
-                .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), std::ptr::null_mut()))
-        });
+        // Initialize the expression for execution with proper planstate for subquery support
+        let expr_state = match (&self.initialized_expression, planstate) {
+            // We have an existing expression state, which WAS NOT initialized without a planstate
+            (Some((_existing_state, None)), Some(new_planstate)) => {
+                // Check if we need to reinitialize with a better planstate
+                self.init_expression_state(expr_node, Some(new_planstate))
+            }
+            // We have an existing expression state, which WAS either initialized with a planstate or
+            // the newly given plan state is also None
+            (Some((existing_state, _init_with_planstate)), _new_planstate) => *existing_state,
+            // First initialization
+            (None, planstate) => self.init_expression_state(expr_node, planstate),
+        };
         if expr_state.is_null() {
             self.initialized_expression = None;
-            pg_sys::FreeExprContext(econtext, false);
-            pg_sys::ExecDropSingleTupleTableSlot(slot);
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
+            Self::cleanup_and_restore_context(
+                slot,
+                buffer,
+                econtext,
+                original_scan_tuple,
+                &standalone_context,
+            );
             return false;
         }
 
@@ -150,18 +176,67 @@ impl HeapFieldFilter {
         let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
-        pg_sys::FreeExprContext(econtext, false);
+        Self::cleanup_and_restore_context(
+            slot,
+            buffer,
+            econtext,
+            original_scan_tuple,
+            &standalone_context,
+        );
+
+        eval_result
+    }
+
+    /// Helper function to initialize a new expression state and update the cached state
+    unsafe fn init_expression_state(
+        &mut self,
+        expr_node: *mut pg_sys::Node,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
+    ) -> *mut pg_sys::ExprState {
+        let planstate_ptr = planstate.map_or(std::ptr::null_mut(), |ps| ps.as_ptr());
+        let new_state = PgMemoryContexts::TopTransactionContext
+            .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
+        self.initialized_expression = Some((new_state, planstate));
+        new_state
+    }
+
+    /// Helper function to clean up tuple slot and buffer resources
+    unsafe fn cleanup_resources(slot: *mut pg_sys::TupleTableSlot, buffer: pg_sys::Buffer) {
         pg_sys::ExecDropSingleTupleTableSlot(slot);
         if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
             pg_sys::ReleaseBuffer(buffer);
         }
+    }
 
-        eval_result
+    /// Helper function to restore expression context state and cleanup resources
+    unsafe fn cleanup_and_restore_context(
+        slot: *mut pg_sys::TupleTableSlot,
+        buffer: pg_sys::Buffer,
+        econtext: *mut pg_sys::ExprContext,
+        original_scan_tuple: *mut pg_sys::TupleTableSlot,
+        standalone_context: &Option<PgBox<pg_sys::ExprContext>>,
+    ) {
+        // Restore original scan tuple if we're using a provided context
+        if standalone_context.is_none() {
+            (*econtext).ecxt_scantuple = original_scan_tuple;
+        }
+        Self::cleanup_resources(slot, buffer);
     }
 
     /// Get the PostgreSQL expression node
     pub unsafe fn get_expression_node(&self) -> *mut pg_sys::Node {
         self.expr_node.0.cast()
+    }
+
+    /// Check if this heap filter contains subqueries (PARAM_EXEC nodes)
+    pub fn contains_subqueries(&self) -> bool {
+        unsafe {
+            let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+            if expr_node.is_null() {
+                return false;
+            }
+            contains_exec_param(expr_node)
+        }
     }
 
     // The new expression-based approach handles evaluation directly
@@ -173,18 +248,28 @@ pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
+    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    planstate: Option<NonNull<pg_sys::PlanState>>,
 }
+
+// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
+unsafe impl Send for HeapFilterQuery {}
+unsafe impl Sync for HeapFilterQuery {}
 
 impl HeapFilterQuery {
     pub fn new(
         indexed_query: Box<dyn Query>,
         field_filters: Vec<HeapFieldFilter>,
         rel_oid: pg_sys::Oid,
+        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         Self {
             indexed_query,
             field_filters,
             rel_oid,
+            expr_context,
+            planstate,
         }
     }
 }
@@ -195,6 +280,8 @@ impl tantivy::query::QueryClone for HeapFilterQuery {
             indexed_query: self.indexed_query.box_clone(),
             field_filters: self.field_filters.clone(),
             rel_oid: self.rel_oid,
+            expr_context: self.expr_context,
+            planstate: self.planstate,
         })
     }
 }
@@ -206,6 +293,8 @@ impl Query for HeapFilterQuery {
             indexed_weight,
             field_filters: self.field_filters.clone(),
             rel_oid: self.rel_oid,
+            expr_context: self.expr_context,
+            planstate: self.planstate,
         }))
     }
 }
@@ -214,7 +303,13 @@ struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
+    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    planstate: Option<NonNull<pg_sys::PlanState>>,
 }
+
+// SAFETY: PostgreSQL doesn't execute within threads despite Tantivy expecting it
+unsafe impl Send for HeapFilterWeight {}
+unsafe impl Sync for HeapFilterWeight {}
 
 impl Weight for HeapFilterWeight {
     fn scorer(&self, reader: &SegmentReader, boost: Score) -> tantivy::Result<Box<dyn Scorer>> {
@@ -229,6 +324,8 @@ impl Weight for HeapFilterWeight {
             self.field_filters.clone(),
             ctid_ff,
             self.rel_oid,
+            self.expr_context,
+            self.planstate,
         );
 
         Ok(Box::new(scorer))
@@ -246,6 +343,8 @@ struct HeapFilterScorer {
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
+    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -258,6 +357,8 @@ impl HeapFilterScorer {
         field_filters: Vec<HeapFieldFilter>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         rel_oid: pg_sys::Oid,
+        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         let mut scorer = Self {
             indexed_scorer,
@@ -265,6 +366,8 @@ impl HeapFilterScorer {
             ctid_ff,
             heaprel: PgSearchRelation::open(rel_oid),
             current_doc: TERMINATED,
+            expr_context,
+            planstate,
         };
 
         // Position at the first valid document
@@ -288,11 +391,9 @@ impl HeapFilterScorer {
 
     fn passes_heap_filters(&mut self, doc_id: DocId) -> bool {
         // Extract ctid from the current document
-        let ctid_value = self.ctid_ff.as_u64(doc_id);
-        if ctid_value.is_none() {
+        let Some(ctid_value) = self.ctid_ff.as_u64(doc_id) else {
             panic!("Could not get ctid for doc_id: {doc_id}");
-        }
-        let ctid_value = ctid_value.unwrap();
+        };
         // Convert u64 ctid back to ItemPointer
         let mut item_pointer = pg_sys::ItemPointerData::default();
         crate::postgres::utils::u64_to_item_pointer(ctid_value, &mut item_pointer);
@@ -303,6 +404,8 @@ impl HeapFilterScorer {
                 let filter_result = filter.evaluate(
                     &mut item_pointer as *mut pg_sys::ItemPointerData,
                     &self.heaprel,
+                    self.expr_context,
+                    self.planstate,
                 );
                 if !filter_result {
                     return false;

@@ -30,6 +30,7 @@ use crate::postgres::storage::buffer::PinnedBuffer;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
+use std::ptr::NonNull;
 
 use anyhow::Result;
 use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs, TopOrderable};
@@ -258,6 +259,25 @@ impl SearchIndexReader {
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
+        Self::open_with_context(
+            index_relation,
+            search_query_input,
+            need_scores,
+            mvcc_style,
+            None,
+            None,
+        )
+    }
+
+    /// Open a tantivy index with optional expression context for proper postgres expression evaluation
+    pub fn open_with_context(
+        index_relation: &PgSearchRelation,
+        search_query_input: SearchQueryInput,
+        need_scores: bool,
+        mvcc_style: MvccSatisfies,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+        planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+    ) -> Result<Self> {
         // It is possible for index only scans and custom scans, which only check the visibility map
         // and do not fetch tuples from the heap, to suffer from the concurrent TID recycling problem.
         // This problem occurs due to a race condition: after vacuum is called, a concurrent index only or custom scan
@@ -295,6 +315,8 @@ impl SearchIndexReader {
                     &searcher,
                     index_relation.oid(),
                     index_relation.rel_oid(),
+                    expr_context,
+                    planstate,
                 )
                 .unwrap_or_else(|e| panic!("{e}"))
         };
@@ -360,6 +382,8 @@ impl SearchIndexReader {
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
+                None, // no expr_context
+                None, // no planstate
             )
             .unwrap_or_else(|e| panic!("{e}"))
     }

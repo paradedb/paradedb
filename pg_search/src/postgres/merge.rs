@@ -93,6 +93,7 @@ impl FromDatum for BackgroundMergeArgs {
 
 #[derive(Debug, Clone)]
 struct IndexLayerSizes {
+    user_configured_bg_layers: bool,
     foreground_layer_sizes: Vec<u64>,
     background_layer_sizes: Vec<u64>,
 }
@@ -139,34 +140,39 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
 
         let foreground_layer_sizes = index_options.foreground_layer_sizes();
         let mut background_layer_sizes = index_options.background_layer_sizes();
+        let has_bg_layers = !background_layer_sizes.is_empty();
 
         if !background_layer_sizes.is_empty() {
             // additionally, ensure that the background layer sizes are <= to the target segment size
             background_layer_sizes.retain(|&layer_size| layer_size <= target_segment_byte_size);
 
-            // ensure the background layer sizes can merge down to the target segment size
-            background_layer_sizes.push(target_segment_byte_size);
+            // NB:  Doing this can cause an existing, large, unbalanced index to end up merging down
+            //      and this can cause operational problems.  It seems more practical to simply honor
+            //      the user's configuration and not try to do anything clever.
+            // // ensure the background layer sizes can merge down to the target segment size
+            // background_layer_sizes.push(target_segment_byte_size);
         }
 
         // NB:  it's possible a user could configure "layer_sizes = '10TB'" or something ridiculous
         //      and that would cause us to merge the entire index into a single segment
         //      uncommenting this would prevent that, but light up some unit tests
-        // // ensure the foreground layer sizes are <= to the target segment size
+        // ensure the foreground layer sizes are <= to the target segment size
         // foreground_layer_sizes.retain(|&layer_size| layer_size <= target_segment_byte_size);
 
         Self {
+            user_configured_bg_layers: has_bg_layers,
             foreground_layer_sizes,
             background_layer_sizes,
         }
     }
 }
 impl IndexLayerSizes {
-    fn foreground(&self) -> &[u64] {
-        &self.foreground_layer_sizes
+    fn user_configured_background_layers(&self) -> bool {
+        self.user_configured_bg_layers
     }
 
-    fn background(&self) -> &[u64] {
-        &self.background_layer_sizes
+    fn foreground(&self) -> &[u64] {
+        &self.foreground_layer_sizes
     }
 
     fn combined(&self) -> Vec<u64> {
@@ -187,7 +193,6 @@ pub unsafe fn do_merge(
     style: MergeStyle,
     current_xid: Option<pg_sys::TransactionId>,
 ) -> anyhow::Result<()> {
-    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
     let layer_sizes = IndexLayerSizes::from(index);
 
     let metadata = MetaPage::open(index);
@@ -195,13 +200,21 @@ pub unsafe fn do_merge(
     let merge_lock = metadata.acquire_merge_lock();
 
     let needs_background_merge = style == MergeStyle::Vacuum
-        || (!layer_sizes.background().is_empty() && { merge_lock.merge_list().is_empty() } && {
-            let combined_layers = layer_sizes.combined();
-            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
-            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let merge_candidates = background_merge_policy.simulate();
-            !merge_candidates.is_empty()
-        });
+        || (layer_sizes.user_configured_background_layers()
+            && { merge_lock.merge_list().is_empty() }
+            && {
+                let combined_layers = layer_sizes.combined();
+                let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+                let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+
+                background_merge_policy.set_mergeable_segment_entries(
+                    &metadata,
+                    &merge_lock,
+                    &merger,
+                );
+                let merge_candidates = background_merge_policy.simulate();
+                !merge_candidates.is_empty()
+            });
 
     if needs_background_merge {
         // if we need (and think we can do) a background merge then we prefer to do that

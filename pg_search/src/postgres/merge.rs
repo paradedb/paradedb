@@ -106,7 +106,8 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
         unsafe {
             MetaPage::open(index).segment_metas().for_each(|_, entry| {
                 if entry.visible() {
-                    index_byte_size += entry.byte_size()
+                    index_byte_size += entry.byte_size();
+                    num_segments += 1;
                 }
             });
         }
@@ -194,7 +195,6 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::TransactionId>,
 ) -> anyhow::Result<()> {
     let layer_sizes = IndexLayerSizes::from(index);
-
     let metadata = MetaPage::open(index);
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();

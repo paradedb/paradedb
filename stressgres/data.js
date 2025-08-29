@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756421433073,
+  "lastUpdate": 1756467216103,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3076,6 +3076,72 @@ window.BENCHMARK_DATA = {
             "value": 67.42452723396414,
             "unit": "median tps",
             "extra": "avg tps: 67.20993151726047, max tps: 786.9702902976007, count: 55154"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7154182905899829813b2117801117008d59af8b",
+          "message": "feat: heap filter pushdown works with sub-queries (#3046)\n\n# Ticket(s) Closed\n\n- Closes #3043\n\n## What\n\nImplements subquery support for `paradedb.enable_filter_pushdown` by\nsetting up PostgreSQL expression contexts with subplan infrastructure,\nallowing heap filter expressions containing subqueries to execute\ncorrectly.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. Previously, `HeapFieldFilter` used\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries were present.\n\n## How\n\nImplemented subquery support via expression context setup:\n\n1. Added thread-local storage for runtime expression context and\nplanstate\n2. Modified `begin_custom_scan` to always create an expression context\nwith `ExecAssignExprContext()` that supports subplans\n3. Improved `HeapFieldFilter` to:\n   - Use runtime expression context when available\n   - Initialize expressions with planstate for subquery support\n   - Reinitialize expressions when a better planstate becomes available\n4. Set runtime context in `exec_custom_scan` and clear it in\n`end_custom_scan`\n\nThis provides subquery support while maintaining the performance\nbenefits of heap filter pushdown for simple expressions.\n\n## Tests\n\n- Test cases 19.1 and 19.2 with complex subqueries now execute\nsuccessfully\n- No system crashes when `enable_filter_pushdown` encounters subqueries\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-08-29T04:17:39-07:00",
+          "tree_id": "7b29d5dccfebfb2b79fd199ffe496075ed495153",
+          "url": "https://github.com/paradedb/paradedb/commit/7154182905899829813b2117801117008d59af8b"
+        },
+        "date": 1756467214869,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1192.1327641765877,
+            "unit": "median tps",
+            "extra": "avg tps: 1183.768015306244, max tps: 1197.6237612010152, count: 55226"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2892.352378527564,
+            "unit": "median tps",
+            "extra": "avg tps: 2859.120481509883, max tps: 2906.3277917367705, count: 55226"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1176.0585916684306,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.4620730566503, max tps: 1180.0392187507866, count: 55226"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 998.8477531931178,
+            "unit": "median tps",
+            "extra": "avg tps: 992.0182428069888, max tps: 1007.8125935459248, count: 55226"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 165.45994848033925,
+            "unit": "median tps",
+            "extra": "avg tps: 164.90526937762502, max tps: 166.64295882358448, count: 110452"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 147.98434797195995,
+            "unit": "median tps",
+            "extra": "avg tps: 147.8842297454935, max tps: 152.72965561010597, count: 55226"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 70.94972819366066,
+            "unit": "median tps",
+            "extra": "avg tps: 91.3393100167709, max tps: 918.8651280576386, count: 55226"
           }
         ]
       }

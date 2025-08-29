@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756496080293,
+  "lastUpdate": 1756501065331,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3274,6 +3274,72 @@ window.BENCHMARK_DATA = {
             "value": 98.09266899711265,
             "unit": "median tps",
             "extra": "avg tps: 109.30740282094703, max tps: 846.4418968424332, count: 55284"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e38c1e286700d77433f203f511db37c06e5232d2",
+          "message": "fix: don't include target_segment_count in background_layer_sizes (#3076)\n\n## What\n\nThis removes the (sneaky) addition of an \"average layer size\" based on\nthe configured `target_segment_count` into the list of\n`background_layer_sizes`.\n\nThe reason we're removing this is that when this happens on an existing,\nlarge, unbalanced index, it will cause essentially the entire index to\nbe merged in the background, and that's almost never what one would want\nin a production setting.\n\n## Why\n\nLooking to improve operational problems.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-29T13:41:41-07:00",
+          "tree_id": "612afe926217ff65d05dece7911ab8592cb99695",
+          "url": "https://github.com/paradedb/paradedb/commit/e38c1e286700d77433f203f511db37c06e5232d2"
+        },
+        "date": 1756501064052,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1110.040525713989,
+            "unit": "median tps",
+            "extra": "avg tps: 1107.370885037298, max tps: 1119.1854762770342, count: 55217"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2815.844839170666,
+            "unit": "median tps",
+            "extra": "avg tps: 2781.475402886161, max tps: 2829.9113396967373, count: 55217"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1151.4686210000768,
+            "unit": "median tps",
+            "extra": "avg tps: 1144.798690452602, max tps: 1158.289193953749, count: 55217"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 928.7868566506426,
+            "unit": "median tps",
+            "extra": "avg tps: 922.8157951216868, max tps: 938.8992720494201, count: 55217"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 179.93315783980202,
+            "unit": "median tps",
+            "extra": "avg tps: 178.83758048788226, max tps: 181.03988672291075, count: 110434"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 170.3377976546021,
+            "unit": "median tps",
+            "extra": "avg tps: 168.4884344049909, max tps: 171.34923502035582, count: 55217"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 231.1060777018286,
+            "unit": "median tps",
+            "extra": "avg tps: 193.97606289097806, max tps: 1065.1532968624845, count: 55217"
           }
         ]
       }

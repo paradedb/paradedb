@@ -58,6 +58,7 @@ pub const NUMERIC_TYPE_PAIRS: &[[&str; 2]] = &[
     ["float4", "float4"],
     ["float8", "float8"],
     ["float4", "float8"],
+    ["numeric", "numeric"],
     // dates
     ["date", "date"],
     ["time", "time"],

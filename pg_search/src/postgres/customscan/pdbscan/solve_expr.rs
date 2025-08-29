@@ -3,23 +3,26 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
 
 impl SearchQueryInput {
+    pub fn has_heap_filters(&mut self) -> bool {
+        let mut found = false;
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
+                // Check if any heap field filters contain subqueries
+                for filter in field_filters.iter() {
+                    if filter.contains_subqueries() {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        });
+        found
+    }
     pub fn has_postgres_expressions(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {
-            match sqi {
-                SearchQueryInput::PostgresExpression { .. } => {
-                    found = true;
-                }
-                SearchQueryInput::HeapFilter { field_filters, .. } => {
-                    // Check if any heap field filters contain subqueries
-                    for filter in field_filters.iter() {
-                        if filter.contains_subqueries() {
-                            found = true;
-                            break;
-                        }
-                    }
-                }
-                _ => {}
+            if let SearchQueryInput::PostgresExpression { .. } = sqi {
+                found = true;
             }
         });
         found

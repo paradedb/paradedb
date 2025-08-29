@@ -618,7 +618,7 @@ ORDER BY score DESC;
 SET paradedb.enable_filter_pushdown = true;
 
 -- Test Case 19.1: Test that subqueries on the RHS of a heap filter which don't match anything
--- result in an error.
+-- don't result in an error.
 SELECT
   products.id
 FROM products
@@ -640,8 +640,8 @@ WHERE
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
 
--- Test Case 19.3: Test that subqueries on the RHS of a heap filter which match somethin
--- result in an error.
+-- Test Case 19.3: Test that subqueries on the RHS of a heap filter which match something
+-- don't result in an error.
 SELECT
   products.id
 FROM products

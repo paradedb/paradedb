@@ -126,7 +126,7 @@ impl HeapFieldFilter {
             let standalone_context = pg_sys::CreateStandaloneExprContext();
             if standalone_context.is_null() {
                 Self::cleanup_resources(slot, buffer);
-                return false;
+                panic!("Failed to create standalone expression context");
             }
             // SAFETY: We just checked that standalone_context is not null
             let pgbox_context = unsafe { PgBox::from_pg(standalone_context) };

@@ -874,7 +874,9 @@ impl CustomScan for PdbScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            if state.custom_state_mut().has_postgres_expressions() {
+            if state.custom_state_mut().has_postgres_expressions()
+                || state.custom_state_mut().has_heap_filters()
+            {
                 // we have some runtime Postgres expressions/sub-queries that need to be evaluated
                 //
                 // Our planstate's ExprContext isn't sufficiently configured for that, so we need to

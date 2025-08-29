@@ -241,5 +241,5 @@ jobs:
         if: failure() && github.event_name == 'push'
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> `benchmark-pg_search-benchmarks` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`benchmark-pg_search-benchmarks\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

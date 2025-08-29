@@ -188,6 +188,11 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::TransactionId>,
 ) -> anyhow::Result<()> {
     let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+    let options = index.options();
+    let target_segment_count = options.target_segment_count();
+    if merger.all_entries().len() <= target_segment_count {
+        return Ok(());
+    }
     let layer_sizes = IndexLayerSizes::from(index);
 
     let metadata = MetaPage::open(index);

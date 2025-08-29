@@ -815,7 +815,7 @@ impl CustomScan for PdbScan {
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
-                    state.custom_state().query_count as u64,
+                    state.custom_state().total_query_count().try_into().unwrap(),
                     None,
                 );
             }

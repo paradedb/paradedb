@@ -290,11 +290,16 @@ impl ParallelScanPayload {
     }
 }
 
+// We do not know ahead of time how many workers there will be, so we preallocate fixed size
+// arrays for metrics for up to a given number of parallel workers.
+const WORKER_METRICS_MAX_COUNT: usize = 256;
+
 #[repr(C)]
 pub struct ParallelScanState {
     mutex: Spinlock,
     remaining_segments: usize,
     nsegments: usize,
+    queries_per_worker: [u16; WORKER_METRICS_MAX_COUNT],
     payload: ParallelScanPayload, // must be last field, b/c it allocates on the heap after this struct
 }
 
@@ -314,6 +319,7 @@ impl ParallelScanState {
         self.payload.init(segments, query);
         self.remaining_segments = segments.len();
         self.nsegments = segments.len();
+        self.queries_per_worker = [0; WORKER_METRICS_MAX_COUNT];
     }
 
     fn init_mutex(&mut self) {
@@ -329,7 +335,22 @@ impl ParallelScanState {
         self.remaining_segments
     }
 
-    /// Claim a segment to work on.
+    fn query_count(&mut self, parallel_worker_number: i32) -> Option<&mut u16> {
+        let offset: usize = (parallel_worker_number + 1).try_into().unwrap();
+        // We will not record metrics past WORKER_METRICS_MAX_COUNT workers.
+        self.queries_per_worker.get_mut(offset)
+    }
+
+    /// Increment the count of queries executed by this worker.
+    pub fn increment_query_count(&mut self) {
+        let _mutex = self.acquire_mutex();
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        if let Some(query_count) = self.query_count(parallel_worker_number) {
+            *query_count = query_count.saturating_add(1);
+        }
+    }
+
+    /// Claim a segment for this worker to work on.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
         #[cfg(not(any(feature = "pg14", feature = "pg15")))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
@@ -377,20 +398,32 @@ impl ParallelScanState {
     }
 
     /// Returns per-worker `ParallelExplainData`.
-    pub fn explain_data(&mut self) -> BTreeMap<i32, ParallelExplainData> {
-        let mut segments: BTreeMap<i32, ParallelExplainData> = BTreeMap::default();
+    pub fn explain_data(&mut self) -> ParallelExplainData {
+        let _mutex = self.acquire_mutex();
+
+        let mut workers: BTreeMap<i32, ParallelExplainWorkerData> = BTreeMap::default();
         for (i, &claiming_worker) in self.payload.segment_claims().iter().enumerate().rev() {
             if claiming_worker <= SEGMENT_CLAIM_UNCLAIMED {
                 // Segment is unclaimed.
                 continue;
             }
-            segments
+            workers
                 .entry(claiming_worker)
                 .or_default()
                 .claimed_segments
                 .push(self.segment_id(i).short_uuid_string());
         }
-        segments
+        let mut total_query_count: usize = 0;
+        for (parallel_worker_number, worker) in workers.iter_mut() {
+            let query_count = self.query_count(*parallel_worker_number).copied();
+            total_query_count += query_count.map(|qc| qc as usize).unwrap_or(0);
+            worker.query_count = query_count;
+        }
+
+        ParallelExplainData {
+            total_query_count,
+            workers,
+        }
     }
 
     fn segment_id(&self, i: usize) -> SegmentId {
@@ -407,6 +440,8 @@ impl ParallelScanState {
 
     fn reset(&mut self) {
         self.remaining_segments = self.nsegments;
+        // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
+        // rescans.
     }
 }
 
@@ -415,5 +450,12 @@ impl ParallelScanState {
 /// from the ParallelScanState for the purposes of EXPLAIN.
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 pub struct ParallelExplainData {
+    total_query_count: usize,
+    workers: BTreeMap<i32, ParallelExplainWorkerData>,
+}
+
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+pub struct ParallelExplainWorkerData {
+    query_count: Option<u16>,
     claimed_segments: Vec<String>,
 }

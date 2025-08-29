@@ -97,8 +97,11 @@ impl PdbScan {
         let search_query_input = state.custom_state().search_query_input();
         let need_scores = state.custom_state().need_scores();
 
-        let search_reader =
-            SearchIndexReader::open(indexrel, search_query_input.clone(), need_scores, unsafe {
+        let search_reader = SearchIndexReader::open_with_context(
+            indexrel,
+            search_query_input.clone(),
+            need_scores,
+            unsafe {
                 if pg_sys::ParallelWorkerNumber == -1 {
                     // the leader only sees snapshot-visible segments
                     MvccSatisfies::Snapshot
@@ -113,8 +116,11 @@ impl PdbScan {
                         ),
                     ))
                 }
-            })
-            .expect("should be able to open the search index reader");
+            },
+            std::ptr::NonNull::new(expr_context),
+            std::ptr::NonNull::new(planstate),
+        )
+        .expect("should be able to open the search index reader");
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -860,8 +866,10 @@ impl CustomScan for PdbScan {
                 (*state.csstate.ss.ss_ScanTupleSlot).tts_tupleDescriptor,
             );
 
-            if state.custom_state_mut().has_postgres_expressions() {
-                // we have some runtime Postgres expressions that need to be evaluated in `rescan_custom_scan`
+            if state.custom_state_mut().has_postgres_expressions()
+                || state.custom_state_mut().has_heap_filters()
+            {
+                // we have some runtime Postgres expressions/sub-queries that need to be evaluated
                 //
                 // Our planstate's ExprContext isn't sufficiently configured for that, so we need to
                 // make a new one and swap some pointers around

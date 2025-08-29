@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756481897377,
+  "lastUpdate": 1756481900226,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8944,6 +8944,126 @@ window.BENCHMARK_DATA = {
             "value": 81.078125,
             "unit": "median mem",
             "extra": "avg mem: 86.78479254563068, max mem: 145.12109375, count: 55226"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ce0fc0ba98917d4c8bac6d5559795e36f8bf97bf",
+          "message": "feat: heap filter pushdown works with sub-queries (#3070)\n\n# Ticket(s) Closed\n\n- Closes #3043\n\n## What\n\nImplements subquery support for `paradedb.enable_filter_pushdown` by\nsetting up PostgreSQL expression contexts with subplan infrastructure,\nallowing heap filter expressions containing subqueries to execute\ncorrectly.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. Previously, `HeapFieldFilter` used\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries were present.\n\n## How\n\nImplemented subquery support via expression context setup:\n\n1. Added thread-local storage for runtime expression context and\nplanstate\n2. Modified `begin_custom_scan` to always create an expression context\nwith `ExecAssignExprContext()` that supports subplans\n3. Improved `HeapFieldFilter` to:\n   - Use runtime expression context when available\n   - Initialize expressions with planstate for subquery support\n   - Reinitialize expressions when a better planstate becomes available\n4. Set runtime context in `exec_custom_scan` and clear it in\n`end_custom_scan`\n\nThis provides subquery support while maintaining the performance\nbenefits of heap filter pushdown for simple expressions.\n\n## Tests\n\n- Test cases 19.1 and 19.2 with complex subqueries now execute\nsuccessfully\n- No system crashes when `enable_filter_pushdown` encounters subqueries\n\nCo-authored-by: Moe <mdashti@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-08-29T08:22:16-07:00",
+          "tree_id": "732f60b60f88cdf8e7f2a624cce8cf47e7b0661f",
+          "url": "https://github.com/paradedb/paradedb/commit/ce0fc0ba98917d4c8bac6d5559795e36f8bf97bf"
+        },
+        "date": 1756481898923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.761163901039549, max cpu: 9.467456, count: 55146"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 89.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.07437791555598, max mem: 147.046875, count: 55146"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6707033359003916, max cpu: 9.239654, count: 55146"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 85.07421875,
+            "unit": "median mem",
+            "extra": "avg mem: 85.17462437778805, max mem: 140.4453125, count: 55146"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.761391416702342, max cpu: 9.458128, count: 55146"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 90.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 92.1662215414536, max mem: 148.13671875, count: 55146"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.880878108520946, max cpu: 9.213051, count: 55146"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 90.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 91.48055346829325, max mem: 147.9375, count: 55146"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.213051,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.772290440507241, max cpu: 23.738873, count: 110292"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 95.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.35957836640463, max mem: 158.71484375, count: 110292"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7544,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7767.136129547021, max block_count: 14835.0, count: 55146"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.559133935371559, max segment_count: 32.0, count: 55146"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.184262807181482, max cpu: 14.215202, count: 55146"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 101.22431725272459, max mem: 158.0, count: 55146"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.66838216559974, max cpu: 7.5412407, count: 55146"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 86.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 85.9098299145677, max mem: 141.1015625, count: 55146"
           }
         ]
       }

@@ -482,7 +482,6 @@ mod tests {
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();
-        assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());
         assert!(entry.postings.is_some());

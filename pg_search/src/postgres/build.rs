@@ -27,7 +27,7 @@ use anyhow::Result;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::*;
 use tantivy::schema::Schema;
-use tantivy::{Index, IndexSettings};
+use tantivy::{Index, IndexSettings, IndexSortByField, Order};
 use tokenizers::SearchTokenizer;
 
 #[pg_guard]
@@ -285,6 +285,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let directory = MvccSatisfies::Snapshot.directory(index_relation);
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false,
+        sort_by_field: Some(IndexSortByField {
+            field: "ctid".to_string(),
+            order: Order::Asc,
+        }),
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;

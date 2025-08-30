@@ -153,7 +153,7 @@ impl ExecMethod for TopNScanExecState {
         }
 
         // We track the total number of queries executed by Top-N (for any of the above reasons).
-        state.query_count += 1;
+        state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
         let local_limit = self.limit.max(self.chunk_size);

@@ -102,16 +102,26 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = index.options();
 
+        let mut segment_cnt = 0;
         let mut index_byte_size = 0;
         unsafe {
             MetaPage::open(index).segment_metas().for_each(|_, entry| {
                 if entry.visible() {
-                    index_byte_size += entry.byte_size()
+                    index_byte_size += entry.byte_size();
+                    segment_cnt += 1;
                 }
             });
         }
 
         let target_segment_count = index_options.target_segment_count();
+        if segment_cnt <= target_segment_count {
+            return Self {
+                user_configured_bg_layers: false,
+                foreground_layer_sizes: Vec::new(),
+                background_layer_sizes: Vec::new(),
+            };
+        }
+
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does

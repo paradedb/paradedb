@@ -1,0 +1,14 @@
+---
+title: 0.17.10
+---
+
+## Performance Improvements 🚀
+
+- We have roughly 2Xed single-record update throughput as a result of improving lock contention and optimizing Tantivy's
+  write path
+
+## Stability Improvements 💪
+
+- Fixed an error with the custom scan where subqueries that returned no results could cause a segfault or error message to be thrown
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.17.10).

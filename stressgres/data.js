@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756675079029,
+  "lastUpdate": 1756675309057,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3604,6 +3604,72 @@ window.BENCHMARK_DATA = {
             "value": 185.6256507919301,
             "unit": "median tps",
             "extra": "avg tps: 189.87168044539283, max tps: 937.5462913481354, count: 55290"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61f7d5fa27516625eba0d94622d397bd79de8b65",
+          "message": "perf: update tantivy dependency (#3086)\n\n## What\n\nUpdate our tantivy dependency to pick (mostly pg_search-specific)\noptimizations made in https://github.com/paradedb/tantivy/pull/60\n\nThis will be cherry-picked to v0.18.x. A different PR will be for 0.17.x\nas our tantivy timeline has forked.\n\n## Why\n\nThis drastically improves INSERT/UPDATE performance for single-row\n\"atomic updates\", especially if the connection doing it is\npersistent/long-lived.\n\n## How\n\n## Tests\n\nAll existing tests pass.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-31T17:04:08-04:00",
+          "tree_id": "be8e82a10b78e99894f4679688cc3cb8ab8e66fd",
+          "url": "https://github.com/paradedb/paradedb/commit/61f7d5fa27516625eba0d94622d397bd79de8b65"
+        },
+        "date": 1756675307732,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1164.1055337798134,
+            "unit": "median tps",
+            "extra": "avg tps: 1163.4763985624159, max tps: 1170.4055698497018, count: 54859"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2775.795856002547,
+            "unit": "median tps",
+            "extra": "avg tps: 2761.5543171919535, max tps: 2786.078403358151, count: 54859"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1153.6020469099233,
+            "unit": "median tps",
+            "extra": "avg tps: 1153.1229309212536, max tps: 1192.0796936419624, count: 54859"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 952.5944320010142,
+            "unit": "median tps",
+            "extra": "avg tps: 947.8680398157422, max tps: 955.8235713270943, count: 54859"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 516.2647994559483,
+            "unit": "median tps",
+            "extra": "avg tps: 517.7816124138516, max tps: 559.992570581167, count: 109718"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 497.5232601252927,
+            "unit": "median tps",
+            "extra": "avg tps: 492.4410282361538, max tps: 498.85061192771457, count: 54859"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 133.8401845258788,
+            "unit": "median tps",
+            "extra": "avg tps: 148.39929787549886, max tps: 956.8086985392401, count: 54859"
           }
         ]
       }

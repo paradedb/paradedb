@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756676286673,
+  "lastUpdate": 1756676537695,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3802,6 +3802,72 @@ window.BENCHMARK_DATA = {
             "value": 219.08770219814207,
             "unit": "median tps",
             "extra": "avg tps: 223.16441757051868, max tps: 1092.677639335521, count: 55116"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "66416cd75501ccbc7dccc4fa5ff52351515297f9",
+          "message": "chore: clean up + test null subselects (#3085)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n- Makes warning when a subselect is null less noisy\n- Adds a regression test\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-31T17:26:18-04:00",
+          "tree_id": "fce6e0f4193a8ed265430eec17e026251778bed2",
+          "url": "https://github.com/paradedb/paradedb/commit/66416cd75501ccbc7dccc4fa5ff52351515297f9"
+        },
+        "date": 1756676536366,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1179.7150513256965,
+            "unit": "median tps",
+            "extra": "avg tps: 1176.381868168413, max tps: 1184.903674742418, count: 55004"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2758.1067308029214,
+            "unit": "median tps",
+            "extra": "avg tps: 2748.229909625627, max tps: 2768.4107426408905, count: 55004"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1172.2322136877965,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.887311662457, max tps: 1175.1607385621103, count: 55004"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 976.6912951312639,
+            "unit": "median tps",
+            "extra": "avg tps: 967.7302473768834, max tps: 986.8833929835729, count: 55004"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 536.3738074532836,
+            "unit": "median tps",
+            "extra": "avg tps: 555.500043378147, max tps: 590.2223849320851, count: 110008"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 503.2446378685842,
+            "unit": "median tps",
+            "extra": "avg tps: 488.84649227569366, max tps: 515.2904435600567, count: 55004"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 179.81263882659547,
+            "unit": "median tps",
+            "extra": "avg tps: 181.66467874963354, max tps: 889.2944071385441, count: 55004"
           }
         ]
       }

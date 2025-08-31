@@ -67,8 +67,7 @@ runs:
       working-directory: "${{ inputs.repo-path }}"
       run: |
         set -euo pipefail
-        max_attempts=10
-        delay=5
+        max_attempts=5
 
         for attempt in $(seq 1 $max_attempts); do
           echo "Attempt $attempt to push changes..."
@@ -81,6 +80,8 @@ runs:
               echo "Fetching and rebasing before retry..."
               git fetch origin "${{ inputs.branch }}"
               git rebase "origin/${{ inputs.branch }}" || git rebase --abort
+
+              delay=$(( (RANDOM % 60) + 1 ))
               echo "Retrying in $delay seconds..."
               sleep $delay
             else

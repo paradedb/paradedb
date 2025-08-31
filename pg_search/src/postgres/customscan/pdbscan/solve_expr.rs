@@ -35,9 +35,17 @@ impl SearchQueryInput {
                 let sqi_typoid = searchqueryinput_typoid();
                 for sqi in self {
                     if let SearchQueryInput::PostgresExpression { expr } = sqi {
-                        *sqi = expr
-                            .solve(expr_context, sqi_typoid)
-                            .expect("PostgresExpression should not evaluate to NULL");
+                        if let Some(resolved_sqi) = expr.solve(expr_context, sqi_typoid) {
+                            *sqi = resolved_sqi;
+                        } else {
+                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results)
+                            // Replace with a query that matches nothing
+                            pgrx::debug1!(
+                                "PostgresExpression evaluated to NULL for expression: {}",
+                                pgrx::node_to_string(expr.node()).unwrap_or("unknown")
+                            );
+                            *sqi = SearchQueryInput::Empty;
+                        }
                     }
                 }
             })

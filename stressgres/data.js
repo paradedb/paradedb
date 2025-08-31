@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756676540404,
+  "lastUpdate": 1756676560577,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3868,6 +3868,72 @@ window.BENCHMARK_DATA = {
             "value": 179.81263882659547,
             "unit": "median tps",
             "extra": "avg tps: 181.66467874963354, max tps: 889.2944071385441, count: 55004"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7880880ebd7ac0d11324c3535f09d8cccad14bfa",
+          "message": "fix: cherry pick excluded sub-queries from filter-pushdown (on non-indexed fields… (#3089)\n\n…). (#3045)\n\n# Ticket(s) Closed\n\n- Closes #3043 \n\n## What\n\nPrevents system crashes when `paradedb.enable_filter_pushdown` is\nenabled and heap filter expressions contain subqueries.\n\n## Why\n\nWhen `enable_filter_pushdown` is enabled, expressions that cannot be\npushed down to the index are converted to `Qual::HeapExpr` for\nheap-based evaluation. However, `HeapFieldFilter` uses\n`CreateStandaloneExprContext()` which lacks the infrastructure needed\nfor subquery evaluation (subplans, proper executor state), causing\nsystem crashes when subqueries are present.\n\n## How\n\nAdded subquery detection in `try_pushdown()` using the existing\n`contains_exec_param()` function to identify expressions containing EXEC\nparameters (subqueries). When subqueries are detected, the function\nreturns `None` instead of creating a `Qual::HeapExpr`, causing\nPostgreSQL's regular executor to handle the expression safely.\n\n## Tests\n\n- Added test cases in `unified_expression_comprehensive.sql` with\nsubqueries in heap filter expressions\n\n---------\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Moe <mdashti@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-08-31T17:26:43-04:00",
+          "tree_id": "669aeeae50dcf9a9e766c99607331fffa18556af",
+          "url": "https://github.com/paradedb/paradedb/commit/7880880ebd7ac0d11324c3535f09d8cccad14bfa"
+        },
+        "date": 1756676559250,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1197.6373717663262,
+            "unit": "median tps",
+            "extra": "avg tps: 1195.4410809759695, max tps: 1221.5084870685728, count: 55320"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2805.533469879397,
+            "unit": "median tps",
+            "extra": "avg tps: 2786.3588852799503, max tps: 2820.1450957161455, count: 55320"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1196.845901337933,
+            "unit": "median tps",
+            "extra": "avg tps: 1191.8124476374815, max tps: 1199.5444890921488, count: 55320"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 985.7343234525016,
+            "unit": "median tps",
+            "extra": "avg tps: 980.8954997016747, max tps: 990.3717342843613, count: 55320"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 567.8068150935328,
+            "unit": "median tps",
+            "extra": "avg tps: 571.7123455511027, max tps: 593.2077364791162, count: 110640"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 533.1779823301107,
+            "unit": "median tps",
+            "extra": "avg tps: 523.2828847136104, max tps: 538.8953002624071, count: 55320"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 197.74278068650457,
+            "unit": "median tps",
+            "extra": "avg tps: 199.4364457683407, max tps: 912.9318624175165, count: 55320"
           }
         ]
       }

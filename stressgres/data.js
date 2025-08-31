@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756682970503,
+  "lastUpdate": 1756683834821,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4132,6 +4132,72 @@ window.BENCHMARK_DATA = {
             "value": 138.34728729719023,
             "unit": "median tps",
             "extra": "avg tps: 150.0688341158831, max tps: 1041.2555876377971, count: 55288"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1cfc7c5a684d93ff742844cc9a73f47a88a1c2e",
+          "message": "fix: fix failing test (#3094)\n\n## What\n\nOur recent changes to tantivy have adjusted the default MemoryArena page\nsize from 1MB to 512k, and this actually has a downstream effect of\nallowing indexers to fit more docs in the arena before tantivy calcuates\nthat the indexer has exceeded its memory budget.\n\nWe have a test that exposed this, so this adjustes the number of\ndocuments to insert to generate 5 segments.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-31T19:27:45-04:00",
+          "tree_id": "8deb2601fc513f26b18413cdcd95b63227800cef",
+          "url": "https://github.com/paradedb/paradedb/commit/c1cfc7c5a684d93ff742844cc9a73f47a88a1c2e"
+        },
+        "date": 1756683833463,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1205.9049330559776,
+            "unit": "median tps",
+            "extra": "avg tps: 1199.7963466276092, max tps: 1209.9207481374146, count: 55265"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2792.777802890582,
+            "unit": "median tps",
+            "extra": "avg tps: 2767.5581738011083, max tps: 2805.9798513288933, count: 55265"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1206.2926726199107,
+            "unit": "median tps",
+            "extra": "avg tps: 1200.397965083423, max tps: 1212.0997373547652, count: 55265"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 967.9402074713536,
+            "unit": "median tps",
+            "extra": "avg tps: 966.0660407665429, max tps: 973.268886727115, count: 55265"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 583.3851002688441,
+            "unit": "median tps",
+            "extra": "avg tps: 578.1456280044637, max tps: 600.2831997012248, count: 110530"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 467.0048491482408,
+            "unit": "median tps",
+            "extra": "avg tps: 462.79592876786893, max tps: 468.1098832744387, count: 55265"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 135.46567991157485,
+            "unit": "median tps",
+            "extra": "avg tps: 148.00395896067448, max tps: 897.0387852659586, count: 55265"
           }
         ]
       }

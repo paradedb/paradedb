@@ -173,6 +173,21 @@ impl RelationBufferAccess {
         )
     }
 
+    /// Retrieve an existing [`pg_sys::Buffer`] by its number with an exclusive lock.  If the lock
+    /// cannot be acquired due to another backend (or this one!) already holding a lock on it, this
+    /// function returns `None`.
+    pub fn get_buffer_conditional(&self, blockno: pg_sys::BlockNumber) -> Option<pg_sys::Buffer> {
+        unsafe {
+            let pg_buffer = pg_sys::ReadBuffer(self.rel.as_ptr(), blockno);
+            if pg_sys::ConditionalLockBuffer(pg_buffer) {
+                Some(pg_buffer)
+            } else {
+                pg_sys::ReleaseBuffer(pg_buffer);
+                None
+            }
+        }
+    }
+
     pub fn get_buffer_extended(
         &self,
         blockno: pg_sys::BlockNumber,

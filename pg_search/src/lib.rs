@@ -55,6 +55,17 @@ extension_sql!(
     finalize
 );
 
+pub fn available_parallelism() -> usize {
+    use once_cell::sync::Lazy;
+
+    static AVAILABLE_PARALLELISM: Lazy<usize> = Lazy::new(|| {
+        std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(1)
+    });
+    *AVAILABLE_PARALLELISM
+}
+
 /// Initializes option parsing
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]

@@ -56,15 +56,11 @@ impl SearchQueryInput {
                         } else {
                             // PostgresExpression evaluated to NULL (e.g., subquery returned no results)
                             // Replace with a query that matches nothing
-                            pgrx::warning!(
+                            pgrx::debug1!(
                                 "PostgresExpression evaluated to NULL for expression: {}",
                                 pgrx::node_to_string(expr.node()).unwrap_or("unknown")
                             );
-                            *sqi = SearchQueryInput::Boolean {
-                                must: vec![],
-                                should: vec![],
-                                must_not: vec![SearchQueryInput::All],
-                            };
+                            *sqi = SearchQueryInput::Empty;
                         }
                     }
                 });

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756675076784,
+  "lastUpdate": 1756675079029,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10060,6 +10060,126 @@ window.BENCHMARK_DATA = {
             "value": 84.8203125,
             "unit": "median mem",
             "extra": "avg mem: 86.41385934758326, max mem: 145.39453125, count: 55281"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "997b50e18ae26aa147b1228635a79740df1d137c",
+          "message": "perf: FSM conditional locking & other minor drive-bys (#3083)\n\n## What\n\nTeach the FSM how to conditionally upgrade its buffer lock to an\nexclusive lock, skipping the page if it can't be acquired (unless it's\nthe last page, then we wait).\n\nWhile here, centralize `std::thread::available_parallelism()` (it\nactually showed up on profiles!) and gate some `pgrx::debug!()`\nstatements\n\n## Why\n\nTrying to remove some overhead that showed up during profiling.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-31T17:00:19-04:00",
+          "tree_id": "7fd6ec90f00ff021061576bba5a811b99db53be1",
+          "url": "https://github.com/paradedb/paradedb/commit/997b50e18ae26aa147b1228635a79740df1d137c"
+        },
+        "date": 1756675077755,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7173006076270125, max cpu: 14.693878, count: 55290"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 98.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 98.00649473232049, max mem: 155.2265625, count: 55290"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.567257962293803, max cpu: 9.257474, count: 55290"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 91.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.18676665084102, max mem: 148.4609375, count: 55290"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.723462156375411, max cpu: 9.795918, count: 55290"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 98.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 98.47944474588533, max mem: 154.73828125, count: 55290"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.461045480141112, max cpu: 4.669261, count: 55290"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 98.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 98.19326371461838, max mem: 154.93359375, count: 55290"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.956561443114754, max cpu: 13.953489, count: 110580"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 107.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 107.85015249847396, max mem: 170.5078125, count: 110580"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8591,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8601.486778802677, max block_count: 16791.0, count: 55290"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.493760173629951, max segment_count: 33.0, count: 55290"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.755342907475064, max cpu: 9.599999, count: 55290"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 109.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 108.22958350289383, max mem: 163.51171875, count: 55290"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.151008225909657, max cpu: 9.284333, count: 55290"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 91.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.05231676162055, max mem: 149.8671875, count: 55290"
           }
         ]
       }

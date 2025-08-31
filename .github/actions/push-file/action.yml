@@ -1,4 +1,5 @@
-name: Commit and Push File
+name: "Commit and Push File"
+
 description: Checks out the specified remote repository, stages the provided file, commits it if there are changes, and pushes to the given branch.
 
 inputs:
@@ -60,11 +61,34 @@ runs:
           echo "no_changes=false" >> $GITHUB_OUTPUT
         fi
 
-    - name: Push changes
+    - name: Push changes with retry
       if: steps.commit.outputs.no_changes == 'false'
       shell: bash
       working-directory: "${{ inputs.repo-path }}"
-      run: git push origin HEAD:${{ inputs.branch }}
+      run: |
+        set -euo pipefail
+        max_attempts=10
+        delay=5
+
+        for attempt in $(seq 1 $max_attempts); do
+          echo "Attempt $attempt to push changes..."
+          if git push origin HEAD:${{ inputs.branch }}; then
+            echo "Push succeeded"
+            break
+          else
+            echo "Push failed (attempt $attempt)."
+            if [ $attempt -lt $max_attempts ]; then
+              echo "Fetching and rebasing before retry..."
+              git fetch origin "${{ inputs.branch }}"
+              git rebase "origin/${{ inputs.branch }}" || git rebase --abort
+              echo "Retrying in $delay seconds..."
+              sleep $delay
+            else
+              echo "All $max_attempts attempts to retry the push failed."
+              exit 1
+            fi
+          fi
+        done
 
     - name: Cleanup
       shell: bash

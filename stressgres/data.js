@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756674838252,
+  "lastUpdate": 1756675076784,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3538,6 +3538,72 @@ window.BENCHMARK_DATA = {
             "value": 140.69479451068003,
             "unit": "median tps",
             "extra": "avg tps: 162.1741227913579, max tps: 848.2490866477959, count: 55281"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "997b50e18ae26aa147b1228635a79740df1d137c",
+          "message": "perf: FSM conditional locking & other minor drive-bys (#3083)\n\n## What\n\nTeach the FSM how to conditionally upgrade its buffer lock to an\nexclusive lock, skipping the page if it can't be acquired (unless it's\nthe last page, then we wait).\n\nWhile here, centralize `std::thread::available_parallelism()` (it\nactually showed up on profiles!) and gate some `pgrx::debug!()`\nstatements\n\n## Why\n\nTrying to remove some overhead that showed up during profiling.\n\n## How\n\n## Tests",
+          "timestamp": "2025-08-31T17:00:19-04:00",
+          "tree_id": "7fd6ec90f00ff021061576bba5a811b99db53be1",
+          "url": "https://github.com/paradedb/paradedb/commit/997b50e18ae26aa147b1228635a79740df1d137c"
+        },
+        "date": 1756675075495,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1203.8844835550806,
+            "unit": "median tps",
+            "extra": "avg tps: 1198.740626356099, max tps: 1207.8462876310803, count: 55290"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2773.15356682191,
+            "unit": "median tps",
+            "extra": "avg tps: 2744.9272914735266, max tps: 2788.193276009167, count: 55290"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1185.2032308090193,
+            "unit": "median tps",
+            "extra": "avg tps: 1182.073501916808, max tps: 1205.9131174484223, count: 55290"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 988.5440315325995,
+            "unit": "median tps",
+            "extra": "avg tps: 978.2708837113738, max tps: 994.6132759982552, count: 55290"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 569.5849874031438,
+            "unit": "median tps",
+            "extra": "avg tps: 601.7924732042322, max tps: 684.4112110843611, count: 110580"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 429.1404440214925,
+            "unit": "median tps",
+            "extra": "avg tps: 427.347633747279, max tps: 430.1618877910681, count: 55290"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 185.6256507919301,
+            "unit": "median tps",
+            "extra": "avg tps: 189.87168044539283, max tps: 937.5462913481354, count: 55290"
           }
         ]
       }

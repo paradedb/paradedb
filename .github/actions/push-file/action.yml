@@ -1,5 +1,4 @@
-name: "Commit and Push File"
-
+name: Commit and Push File
 description: Checks out the specified remote repository, stages the provided file, commits it if there are changes, and pushes to the given branch.
 
 inputs:

@@ -460,7 +460,7 @@ mod tests {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             max_docs_per_segment: None,
         };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        let segment_ids = simulate_index_writer(config, relation_oid, 75000);
         assert_eq!(segment_ids.len(), 5);
     }
 

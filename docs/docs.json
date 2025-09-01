@@ -198,7 +198,7 @@
             "icon": "sparkles",
             "groups": [
               {
-                "group": "Documentation",
+                "group": "Documentation (v2)",
                 "pages": [
                   "v2/overview",
                   {

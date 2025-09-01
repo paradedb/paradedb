@@ -151,7 +151,7 @@ mod block_tracker {
 
 #[derive(Debug)]
 pub struct Buffer {
-    pg_buffer: pg_sys::Buffer,
+    pub(super) pg_buffer: pg_sys::Buffer,
 }
 
 impl Drop for Buffer {
@@ -197,7 +197,27 @@ impl Buffer {
     pub fn upgrade(self, bman: &mut BufferManager) -> BufferMut {
         let blockno = self.number();
         drop(self);
-        bman.get_buffer_mut(blockno)
+
+        let pg_buffer = bman
+            .rbufacc
+            .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
+        block_tracker::track!(Write, pg_buffer);
+        BufferMut {
+            dirty: false,
+            inner: Buffer::new(pg_buffer),
+        }
+    }
+
+    pub fn upgrade_conditional(self, bman: &mut BufferManager) -> Option<BufferMut> {
+        let blockno = self.number();
+        drop(self);
+
+        let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
+        block_tracker::track!(Write, pg_buffer);
+        Some(BufferMut {
+            dirty: false,
+            inner: Buffer::new(pg_buffer),
+        })
     }
 }
 

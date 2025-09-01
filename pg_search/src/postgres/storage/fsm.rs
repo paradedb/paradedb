@@ -188,7 +188,20 @@ impl FreeSpaceManager {
                 continue;
             }
 
-            let mut buffer = buffer.upgrade(bman);
+            let mut buffer = if blockno == pg_sys::InvalidBlockNumber {
+                // if we're at the end of the FSM, we'll wait for a buffer upgrade
+                // this is likely better than ending up not finding a block to recycle and requiring
+                // the caller to extend the relation
+                buffer.upgrade(bman)
+            } else {
+                // there is a next block so we'll conditionally upgrade the buffer.  If we don't get
+                // the upgrade then we'll move to the next block in FSM
+                let Some(buffer) = buffer.upgrade_conditional(bman) else {
+                    // and here's where that happens
+                    continue;
+                };
+                buffer
+            };
             let mut page = buffer.page_mut();
             let contents = page.contents_mut::<FSMBlock>();
 
@@ -265,7 +278,9 @@ impl FreeSpaceManager {
                 continue;
             }
 
-            let mut buffer = buffer.upgrade(bman);
+            let Some(mut buffer) = buffer.upgrade_conditional(bman) else {
+                continue;
+            };
             let mut page = buffer.page_mut();
             let contents = page.contents_mut::<FSMBlock>();
 

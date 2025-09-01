@@ -17,6 +17,7 @@
 
 use crate::api::{HashMap, HashSet};
 use anyhow::Result;
+use pgrx::pg_sys;
 use std::num::NonZeroUsize;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, SegmentWriter};
@@ -130,12 +131,14 @@ impl SerialIndexWriter {
         config: IndexWriterConfig,
         worker_number: i32,
     ) -> Result<Self> {
-        pgrx::debug1!(
-            "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
-            worker_number,
-            config,
-            mvcc_satisfies
-        );
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!(
+                "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
+                worker_number,
+                config,
+                mvcc_satisfies
+            );
+        }
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
@@ -181,27 +184,31 @@ impl SerialIndexWriter {
         let max_doc = pending_segment.max_doc();
 
         if mem_usage >= self.config.memory_budget.into() {
-            pgrx::debug1!(
-                "writer {}: finalizing segment {} with {} docs, mem_usage: {} (out of {}), has created {} segments so far",
-                self.id,
-                pending_segment.segment.id(),
-                max_doc,
-                mem_usage,
-                self.config.memory_budget.get(),
-                self.new_metas.len()
-            );
+            if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+                pgrx::debug1!(
+                    "writer {}: finalizing segment {} with {} docs, mem_usage: {} (out of {}), has created {} segments so far",
+                    self.id,
+                    pending_segment.segment.id(),
+                    max_doc,
+                    mem_usage,
+                    self.config.memory_budget.get(),
+                    self.new_metas.len()
+                );
+            }
             return self.finalize_segment(on_finalize);
         }
 
         if let Some(max_docs_per_segment) = self.config.max_docs_per_segment {
             if max_doc >= max_docs_per_segment as usize {
-                pgrx::debug1!(
-                    "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
-                    self.id,
-                    pending_segment.segment.id(),
-                    max_doc,
-                    self.new_metas.len()
-                );
+                if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+                    pgrx::debug1!(
+                        "writer {}: finalizing segment {} with {} docs, has created {} segments so far",
+                        self.id,
+                        pending_segment.segment.id(),
+                        max_doc,
+                        self.new_metas.len()
+                    );
+                }
                 return self.finalize_segment(on_finalize);
             }
         }
@@ -237,7 +244,9 @@ impl SerialIndexWriter {
         &mut self,
         on_finalize: OnFinalize,
     ) -> Result<Option<SegmentMeta>> {
-        pgrx::debug1!("writer {}: finalizing segment", self.id);
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!("writer {}: finalizing segment", self.id);
+        }
         let Some(pending_segment) = self.pending_segment.take() else {
             // no docs were ever added
             return Ok(None);
@@ -249,11 +258,13 @@ impl SerialIndexWriter {
     }
 
     fn commit_segment(&mut self, finalized_segment: Segment) -> Result<SegmentMeta> {
-        pgrx::debug1!(
-            "writer {}: committing segment {}",
-            self.id,
-            finalized_segment.id()
-        );
+        if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
+            pgrx::debug1!(
+                "writer {}: committing segment {}",
+                self.id,
+                finalized_segment.id()
+            );
+        }
         let previous_metas = self.new_metas.clone();
         let new_meta = finalized_segment.meta().clone();
         self.new_metas.push(new_meta.clone());
@@ -443,7 +454,7 @@ mod tests {
             memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
             max_docs_per_segment: None,
         };
-        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        let segment_ids = simulate_index_writer(config, relation_oid, 75000);
         assert_eq!(segment_ids.len(), 5);
     }
 

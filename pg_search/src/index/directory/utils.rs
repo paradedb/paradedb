@@ -66,11 +66,13 @@ pub unsafe fn save_new_metas(
         .map(|s| s.id())
         .collect::<HashSet<_>>();
 
-    pgrx::debug1!(
-        "entered save_new_metas with {} new ids and {} previous ids",
-        new_ids.len(),
-        previous_ids.len()
-    );
+    if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+        pgrx::debug1!(
+            "entered save_new_metas with {} new ids and {} previous ids",
+            new_ids.len(),
+            previous_ids.len()
+        );
+    }
 
     // first, reorganize the directory_entries by segment id
     let mut new_files =
@@ -284,12 +286,16 @@ pub unsafe fn save_new_metas(
             // ... and add it to somewhere in the list, starting on this page
             linked_list.add_items(&[entry], Some(buffer));
         }
-        pgrx::debug1!("MODIFY: {entry:?}");
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!("MODIFY: {entry:?}");
+        }
     }
 
     // add the new entries -- happens via an index commit or the result of a merge
     if !created_entries.is_empty() {
-        pgrx::debug1!("CREATE: {created_entries:?}");
+        if pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) {
+            pgrx::debug1!("CREATE: {created_entries:?}");
+        }
         linked_list.add_items(&created_entries, None);
     }
 

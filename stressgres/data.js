@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756836883097,
+  "lastUpdate": 1756837124195,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16894,6 +16894,42 @@ window.BENCHMARK_DATA = {
             "value": 148.51094505204927,
             "unit": "median tps",
             "extra": "avg tps: 147.79835798027096, max tps: 150.19044655104582, count: 57352"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2467050ed25dbfb99f985b5d744f39731299360",
+          "message": "chore: cherry-pick PR3013 to main (#3103)\n\nCherry picks PR #3013, which only landed in 0.17.x, to `main` and\n`0.18.x` via the label.",
+          "timestamp": "2025-09-02T13:40:37-04:00",
+          "tree_id": "1a99392dd5174d5d2b4957f3955d66aecacb68d5",
+          "url": "https://github.com/paradedb/paradedb/commit/f2467050ed25dbfb99f985b5d744f39731299360"
+        },
+        "date": 1756837122829,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 34.14756538973905,
+            "unit": "median tps",
+            "extra": "avg tps: 34.034272719468845, max tps: 34.349689796064055, count: 57802"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 376.2724760420283,
+            "unit": "median tps",
+            "extra": "avg tps: 374.80902215410316, max tps: 392.0543536805481, count: 57802"
           }
         ]
       }

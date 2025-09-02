@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756835835310,
+  "lastUpdate": 1756835837754,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12478,6 +12478,126 @@ window.BENCHMARK_DATA = {
             "value": 90.3046875,
             "unit": "median mem",
             "extra": "avg mem: 87.45076105492379, max mem: 144.93359375, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12a5dd0083189771b71a13a34642cc8b648b8b8a",
+          "message": "feat: ability to apply a slop value to \"phrase queries\" (#3100)\n\n## What\n\nThis adds a new `slop` SQL type with a typmod which allows for the easy\napplication of a phrase slop value as part of the SQL query.\n\nOnly phrases support slop, so this only works with the `###` operator\nand the `@@@ pdb.phrase()` function.\n\n## Why\n\nThis is in furtherance of our SQL UX improvements.\n\n## How\n\n```sql\nSELECT * FROM t WHERE field ### 'bbq chicken'::slop(3);\nSELECT * FROM t WHERE field @@@ pdb.phrase('bbq chicken')::slop(3);\n```\n\n## Tests\n\nA new regression test has been added.",
+          "timestamp": "2025-09-02T13:41:15-04:00",
+          "tree_id": "91fdace9b6c4bd5ae2d6c9c4df0cfd3778fb1740",
+          "url": "https://github.com/paradedb/paradedb/commit/12a5dd0083189771b71a13a34642cc8b648b8b8a"
+        },
+        "date": 1756835836418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.720117764713226, max cpu: 9.60961, count: 55265"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 95.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 94.74580642698815, max mem: 149.78515625, count: 55265"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.724393794912719, max cpu: 9.458128, count: 55265"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 87.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 87.00896285227992, max mem: 141.03125, count: 55265"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.770967344432825, max cpu: 11.510792, count: 55265"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 96.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.38385548606713, max mem: 149.734375, count: 55265"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5292809124519, max cpu: 4.6647234, count: 55265"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 93.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 93.38956434339093, max mem: 148.609375, count: 55265"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.947890409190644, max cpu: 13.766731, count: 110530"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 104.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 102.93579885692799, max mem: 159.27734375, count: 110530"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 8182,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8102.213987152809, max block_count: 15008.0, count: 55265"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.461956030037094, max segment_count: 33.0, count: 55265"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.652055283723331, max cpu: 9.638554, count: 55265"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 105.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 105.46003036505925, max mem: 160.08984375, count: 55265"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.534814165825305, max cpu: 9.239654, count: 55265"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 90.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 88.59405421604994, max mem: 141.12890625, count: 55265"
           }
         ]
       }

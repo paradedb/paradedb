@@ -62,4 +62,10 @@ Slop allows phrase queries to be relaxed a bit. It specifies how many changes â€
 For example, searching for `sleek shoes` with a slop of `1` would match `sleek running shoes` because there is one word, `running`, between
 `sleek` and `shoes`.
 
-Slop has not yet been implemented in `v2`. Please continue to use [`v1` for this capability](/documentation/full-text/phrase).
+To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the allowed edit distance.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'sleek shoes'::slop(1);
+```

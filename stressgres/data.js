@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756835808965,
+  "lastUpdate": 1756835835310,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4396,6 +4396,72 @@ window.BENCHMARK_DATA = {
             "value": 159.66551963421347,
             "unit": "median tps",
             "extra": "avg tps: 179.57576010143444, max tps: 831.6395607612496, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12a5dd0083189771b71a13a34642cc8b648b8b8a",
+          "message": "feat: ability to apply a slop value to \"phrase queries\" (#3100)\n\n## What\n\nThis adds a new `slop` SQL type with a typmod which allows for the easy\napplication of a phrase slop value as part of the SQL query.\n\nOnly phrases support slop, so this only works with the `###` operator\nand the `@@@ pdb.phrase()` function.\n\n## Why\n\nThis is in furtherance of our SQL UX improvements.\n\n## How\n\n```sql\nSELECT * FROM t WHERE field ### 'bbq chicken'::slop(3);\nSELECT * FROM t WHERE field @@@ pdb.phrase('bbq chicken')::slop(3);\n```\n\n## Tests\n\nA new regression test has been added.",
+          "timestamp": "2025-09-02T13:41:15-04:00",
+          "tree_id": "91fdace9b6c4bd5ae2d6c9c4df0cfd3778fb1740",
+          "url": "https://github.com/paradedb/paradedb/commit/12a5dd0083189771b71a13a34642cc8b648b8b8a"
+        },
+        "date": 1756835833964,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1211.7573115996624,
+            "unit": "median tps",
+            "extra": "avg tps: 1207.4198926876913, max tps: 1214.2177435351914, count: 55265"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2827.8139855114937,
+            "unit": "median tps",
+            "extra": "avg tps: 2803.953240304103, max tps: 2836.8075371603304, count: 55265"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1190.8705361167945,
+            "unit": "median tps",
+            "extra": "avg tps: 1185.9511170239357, max tps: 1194.4616411761995, count: 55265"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1003.1788983726357,
+            "unit": "median tps",
+            "extra": "avg tps: 993.550847894539, max tps: 1010.0600369508915, count: 55265"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 588.9540195349655,
+            "unit": "median tps",
+            "extra": "avg tps: 607.9181902915475, max tps: 666.5884076410538, count: 110530"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 490.1684856974879,
+            "unit": "median tps",
+            "extra": "avg tps: 485.45654624636427, max tps: 491.12225225309385, count: 55265"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 158.0750883849962,
+            "unit": "median tps",
+            "extra": "avg tps: 173.08333601085948, max tps: 903.2411906886673, count: 55265"
           }
         ]
       }

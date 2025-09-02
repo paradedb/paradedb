@@ -1,0 +1,70 @@
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::slop(2);
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":2}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::slop(2);
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":2}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::slop(2);
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::slop(2);
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::slop(2)::boost(2);
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+SELECT * FROM regress.mock_items WHERE description @@@ pdb.phrase('running shoes')::slop(2)::boost(2);
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+--
+-- validate json representation
+--
+SELECT 'running shoes'::slop(2);
+                                   slop                                    
+---------------------------------------------------------------------------
+ {"unclassified_string":{"string":"running shoes","slop_data":{"slop":2}}}
+(1 row)
+
+--
+-- error conditions
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes'::boost(2)::slop(2);
+ERROR:  cannot cast type boost to slop at character 126
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes'::slop(2);
+ERROR:  query type is not compatible with slop
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes'::slop(2);
+ERROR:  operator is not unique: text &&& slop at character 97
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes'::slop(2);
+ERROR:  operator is not unique: text ||| slop at character 97
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'running shoes'::slop(2);
+ERROR:  operator is not unique: text === slop at character 97
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('running shoes')::slop(2);
+ERROR:  query type is not compatible with slop

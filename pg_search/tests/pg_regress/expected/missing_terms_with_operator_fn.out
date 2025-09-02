@@ -36,9 +36,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id =
          Exec Method: MixedFastFieldExecState
          Fast Fields: id
          Scores: false
-         Full Index Scan: true
          Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 96 :opfuncid 65 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} {CONST :consttype 1007 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 28 [ 112 0 0 0 1 0 0 0 0 0 0 0 23 0 0 0 1 0 0 0 1 0 0 0 3 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
-(10 rows)
+(9 rows)
 
 SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
  id 

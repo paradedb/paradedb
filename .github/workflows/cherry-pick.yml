@@ -24,6 +24,7 @@ jobs:
           branch: "0.17.x"
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           inherit_labels: false
+          labels: automated-cherry-pick
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
@@ -42,3 +43,4 @@ jobs:
           branch: "0.18.x"
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           inherit_labels: false
+          labels: automated-cherry-pick

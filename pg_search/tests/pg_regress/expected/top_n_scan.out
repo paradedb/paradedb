@@ -357,7 +357,21 @@ WHERE id @@@ paradedb.all()
   AND state IS NULL
 ORDER BY state, id
 LIMIT 10000;
-ERROR:  Not all terms were matched in segment.
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=2500 loops=1)
+   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500 loops=1)
+         Table: records
+         Index: records_search_idx
+         Heap Fetches: 2500
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: state asc, id asc
+            TopN Limit: 10000
+            Queries: 1
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
+(11 rows)
+
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;
 DROP TABLE IF EXISTS records;

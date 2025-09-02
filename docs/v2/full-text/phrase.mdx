@@ -57,15 +57,15 @@ These examples assume that index uses the default tokenizer and token filters, a
 
 ## Slop
 
-Slop allows phrase queries to be relaxed a bit. It specifies how many changes — like extra words in between or swapped word positions — are allowed while still considering the phrase a match.
+Slop allows the token ordering requirement of phrase queries to be relaxed. It specifies how many changes — like extra words in between or transposed word positions — are allowed while still considering the phrase a match:
 
-For example, searching for `sleek shoes` with a slop of `1` would match `sleek running shoes` because there is one word, `running`, between
-`sleek` and `shoes`.
+- An extra word in between (e.g. `sleek shoes` vs. `sleek running shoes`) has a slop of `1`
+- A transposition (e.g. `running shoes` vs. `shoes running`) has a slop of `2`
 
-To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the allowed edit distance.
+To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
 
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE description ### 'sleek shoes'::slop(1);
+WHERE description ### 'shoes running'::slop(2);
 ```

@@ -3,20 +3,18 @@ CREATE TABLE missing_fn (id int);
 INSERT INTO missing_fn (id) SELECT generate_series(1, 1000);
 CREATE INDEX idxmissing_fn ON missing_fn USING bm25 (id) WITH (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
-                                                                        QUERY PLAN                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge
-   Workers Planned: 1
-   ->  Sort
-         Sort Key: id
-         ->  Parallel Custom Scan (ParadeDB Scan) on missing_fn
-               Table: missing_fn
-               Index: idxmissing_fn
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: id
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"id","value":3,"is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
-(11 rows)
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on missing_fn
+         Table: missing_fn
+         Index: idxmissing_fn
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id
+         Scores: false
+         Tantivy Query: {"boolean":{"must":[{"term_set":{"terms":[{"field":"id","value":3,"is_datetime":false}]}},{"with_index":{"query":"all"}}]}}
+(9 rows)
 
 SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
  id 
@@ -28,20 +26,19 @@ BEGIN;
 ALTER EXTENSION pg_search DROP FUNCTION paradedb.terms_with_operator;
 DROP FUNCTION paradedb.terms_with_operator;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
-                                                                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Gather Merge
-   Workers Planned: 1
-   ->  Sort
-         Sort Key: id
-         ->  Parallel Custom Scan (ParadeDB Scan) on missing_fn
-               Table: missing_fn
-               Index: idxmissing_fn
-               Exec Method: NumericFastFieldExecState
-               Fast Fields: id
-               Scores: false
-               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 96 :opfuncid 65 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} {CONST :consttype 1007 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 28 [ 112 0 0 0 1 0 0 0 0 0 0 0 23 0 0 0 1 0 0 0 1 0 0 0 3 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
-(11 rows)
+                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Scan) on missing_fn
+         Table: missing_fn
+         Index: idxmissing_fn
+         Exec Method: MixedFastFieldExecState
+         Fast Fields: id
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"expr_node":"{SCALARARRAYOPEXPR :opno 96 :opfuncid 65 :hashfuncid 0 :negfuncid 0 :useOr true :inputcollid 0 :args ({VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 1 :location -1} {CONST :consttype 1007 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 28 [ 112 0 0 0 1 0 0 0 0 0 0 0 23 0 0 0 1 0 0 0 1 0 0 0 3 0 0 0 ]}) :location -1}","description":"OpExpr with operator OID 96"}]}}]}}
+(10 rows)
 
 SELECT * FROM missing_fn WHERE id = ANY(ARRAY[3]) AND id @@@ paradedb.all() ORDER BY id;
  id 

@@ -100,6 +100,13 @@ CREATE  FUNCTION "search_with_phrase_slop"(
     IMMUTABLE STRICT PARALLEL SAFE COST 1000000000
     LANGUAGE c /* Rust */
 AS 'MODULE_PATHNAME', 'search_with_phrase_slop_wrapper';
+-- pg_search/src/api/operator/hashhashhash.rs:53
+-- pg_search::api::operator::hashhashhash::search_with_phrase_slop
+CREATE OPERATOR pg_catalog.### (
+    PROCEDURE="search_with_phrase_slop",
+    LEFTARG=TEXT, /* &str */
+    RIGHTARG=slop /* pg_search::api::operator::slop::SlopType */
+    );
 /* </end connected objects> */
 /* <begin connected objects> */
 -- pg_search/src/api/operator/slop.rs:190

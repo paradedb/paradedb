@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756931882782,
+  "lastUpdate": 1756931885323,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13966,6 +13966,126 @@ window.BENCHMARK_DATA = {
             "value": 90.65625,
             "unit": "median mem",
             "extra": "avg mem: 87.73543480129574, max mem: 146.00390625, count: 55258"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2e8c8c499f6220d3271d80feed4c69e969e5405",
+          "message": "fix: Do not background merge during vacuum if background merge is disabled (#3115)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a bug where vacuum would ignore background merging being\ndisabled and do one anyway\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-03T16:21:49-04:00",
+          "tree_id": "79555406c8597e534930c1dfe4b8ec4dfd675970",
+          "url": "https://github.com/paradedb/paradedb/commit/f2e8c8c499f6220d3271d80feed4c69e969e5405"
+        },
+        "date": 1756931883947,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.722296420362098, max cpu: 9.651475, count: 55125"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 89.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.50559197845806, max mem: 150.984375, count: 55125"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623484226260548, max cpu: 9.311348, count: 55125"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 80.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 83.53773207199546, max mem: 142.44140625, count: 55125"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.744826958294189, max cpu: 9.523809, count: 55125"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 90.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 92.20463924319728, max mem: 150.61328125, count: 55125"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.459744555252632, max cpu: 4.743083, count: 55125"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 90.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 92.95791262755102, max mem: 151.68359375, count: 55125"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.142118755665999, max cpu: 14.356929, count: 110250"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 96.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 99.35603220663265, max mem: 159.19140625, count: 110250"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 7473,
+            "unit": "median block_count",
+            "extra": "avg block_count: 7791.230566893424, max block_count: 15226.0, count: 55125"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.391927437641723, max segment_count: 31.0, count: 55125"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.795975017581234, max cpu: 9.448819, count: 55125"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 99.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.216418792517, max mem: 158.12890625, count: 55125"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.421001,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.517906192357263, max cpu: 9.448819, count: 55125"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 80.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 83.7365357851474, max mem: 139.52734375, count: 55125"
           }
         ]
       }

@@ -209,13 +209,11 @@ impl CustomScan for AggregateScan {
                     // Keep it as-is
                     pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    // This is an aggregate - replace with placeholder FuncExpr
+                    // This is an aggregate
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
                     agg_idx += 1;
 
-                    let te = pg_sys::flatCopyTargetEntry(input_te);
-                    (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
-                    te
+                    pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
                     // This might be a JSON operator expression - verify and find matching grouping column
                     let var_context = VarContext::from_planner(builder.args().root);
@@ -264,6 +262,14 @@ impl CustomScan for AggregateScan {
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
+        // EXECUTION-TIME REPLACEMENT: Replace T_Aggref with T_FuncExpr to avoid crashes
+        // We kept T_Aggref during planning for pathkey matching, now we replace them for execution
+        unsafe {
+            let cscan = builder.args().cscan;
+            let plan = &mut (*cscan).scan.plan;
+            replace_aggrefs_in_target_list(plan.targetlist);
+        }
+
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
         builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
@@ -714,6 +720,26 @@ unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -
     }
 
     None
+}
+
+/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
+/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+unsafe fn replace_aggrefs_in_target_list(targetlist: *mut pg_sys::List) {
+    if targetlist.is_null() {
+        return;
+    }
+
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+
+    for te_ptr in tlist.iter_ptr() {
+        let te = te_ptr;
+
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
+            // Replace the T_Aggref with a T_FuncExpr placeholder
+            let funcexpr = make_placeholder_func_expr(aggref);
+            (*te).expr = funcexpr as *mut pg_sys::Expr;
+        }
+    }
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

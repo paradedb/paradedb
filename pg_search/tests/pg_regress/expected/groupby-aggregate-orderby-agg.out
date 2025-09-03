@@ -37,13 +37,30 @@ FROM test_products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY product_count DESC;
-ERROR:  could not find pathkey item to sort
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+         Output: category, now()
+         Index: test_products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
 SELECT category, COUNT(*) as product_count
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY product_count DESC;
-ERROR:  could not find pathkey item to sort
+  category   | product_count 
+-------------+---------------
+ Electronics |             4
+ Books       |             1
+ Clothing    |             1
+(3 rows)
+
 -- Test 2: Direct aggregate ORDER BY (should work)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*)
@@ -51,13 +68,30 @@ FROM test_products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC;
-ERROR:  could not find pathkey item to sort
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+         Output: category, now()
+         Index: test_products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
 SELECT category, COUNT(*)
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC;
-ERROR:  could not find pathkey item to sort
+  category   | count 
+-------------+-------
+ Electronics |     4
+ Books       |     1
+ Clothing    |     1
+(3 rows)
+
 -- Test 3: SUM aggregate ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
@@ -65,13 +99,30 @@ FROM test_products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY total_price DESC;
-ERROR:  could not find pathkey item to sort
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+         Output: category, now()
+         Index: test_products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+(8 rows)
+
 SELECT category, SUM(price) as total_price
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY total_price DESC;
-ERROR:  could not find pathkey item to sort
+  category   | total_price 
+-------------+-------------
+ Electronics |      759.96
+ Clothing    |       79.99
+ Books       |       29.99
+(3 rows)
+
 -- Test 4: Multiple aggregate ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
@@ -79,13 +130,30 @@ FROM test_products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
-ERROR:  could not find pathkey item to sort
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now()), (now())
+   Sort Key: (now()) DESC, (now())
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+         Output: category, now(), now()
+         Index: test_products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}
+(8 rows)
+
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
-ERROR:  could not find pathkey item to sort
+  category   | cnt | avg_price 
+-------------+-----+-----------
+ Electronics |   4 |    189.99
+ Books       |   1 |     29.99
+ Clothing    |   1 |     79.99
+(3 rows)
+
 -- Test 5: Mix of aggregate and field ORDER BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt
@@ -93,13 +161,30 @@ FROM test_products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
-ERROR:  could not find pathkey item to sort
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC, test_products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+         Output: category, now()
+         Index: test_products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
-ERROR:  could not find pathkey item to sort
+  category   | cnt | avg_price 
+-------------+-----+-----------
+ Electronics |   4 |    189.99
+ Books       |   1 |     29.99
+ Clothing    |   1 |     79.99
+(3 rows)
+
 -- Test 6: ORDER BY with LIMIT (common use case)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as product_count
@@ -108,14 +193,32 @@ WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY product_count DESC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (now())
+   ->  Sort
+         Output: category, (now())
+         Sort Key: (now()) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.test_products
+               Output: category, now()
+               Index: test_products_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(10 rows)
+
 SELECT category, COUNT(*) as product_count
 FROM test_products 
 WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY product_count DESC
 LIMIT 2;
-ERROR:  could not find pathkey item to sort
+  category   | product_count 
+-------------+---------------
+ Electronics |             4
+ Clothing    |             2
+(2 rows)
+
 -- Verify these work by checking the actual results
 -- The results should be ordered correctly by the aggregate values
 -- Cleanup

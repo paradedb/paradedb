@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756933047453,
+  "lastUpdate": 1756933209158,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18964,6 +18964,42 @@ window.BENCHMARK_DATA = {
             "value": 382.5610478061756,
             "unit": "median tps",
             "extra": "avg tps: 380.1023818512893, max tps: 394.35195123588613, count: 57306"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2e8c8c499f6220d3271d80feed4c69e969e5405",
+          "message": "fix: Do not background merge during vacuum if background merge is disabled (#3115)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a bug where vacuum would ignore background merging being\ndisabled and do one anyway\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-03T16:21:49-04:00",
+          "tree_id": "79555406c8597e534930c1dfe4b8ec4dfd675970",
+          "url": "https://github.com/paradedb/paradedb/commit/f2e8c8c499f6220d3271d80feed4c69e969e5405"
+        },
+        "date": 1756933207767,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 34.34623550494276,
+            "unit": "median tps",
+            "extra": "avg tps: 34.09223949703333, max tps: 34.58384274278606, count: 57692"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 383.63601902134087,
+            "unit": "median tps",
+            "extra": "avg tps: 380.9063695201767, max tps: 396.1097081507226, count: 57692"
           }
         ]
       }

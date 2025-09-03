@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::api::HashMap;
-use crate::api::Varno;
+use std::cell::UnsafeCell;
+
+use crate::api::{FieldName, HashMap, Varno};
 use crate::index::reader::index::{SearchIndexReader, SearchResults};
 use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
@@ -27,17 +27,18 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
-use crate::postgres::ParallelScanState;
+use crate::postgres::{ParallelExplainData, ParallelScanState};
 use crate::query::{AsHumanReadable, SearchQueryInput};
+
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
-use std::cell::UnsafeCell;
 use tantivy::snippet::SnippetGenerator;
 use tantivy::SegmentReader;
 
 #[derive(Default)]
 pub struct PdbScanState {
     pub parallel_state: Option<*mut ParallelScanState>,
+    pub parallel_explain_data: Option<ParallelExplainData>,
 
     // Note: the range table index at execution time might be different from the one at planning time,
     // so we need to use the one at execution time when creating the custom scan state.
@@ -58,7 +59,7 @@ pub struct PdbScanState {
     pub sort_field: Option<FieldName>,
     pub sort_direction: Option<SortDirection>,
 
-    pub query_count: usize,
+    query_count: usize,
     pub heap_tuple_check_count: usize,
     pub virtual_tuple_count: usize,
     pub invisible_tuple_count: usize,
@@ -304,6 +305,23 @@ impl PdbScanState {
             self.sort_direction,
             Some(SortDirection::Asc | SortDirection::Desc)
         )
+    }
+
+    pub fn total_query_count(&self) -> usize {
+        if let Some(explain_data) = &self.parallel_explain_data {
+            explain_data.total_query_count
+        } else {
+            self.query_count
+        }
+    }
+
+    pub fn increment_query_count(&mut self) {
+        self.query_count += 1;
+        if let Some(parallel_state) = self.parallel_state {
+            unsafe {
+                (*parallel_state).increment_query_count();
+            }
+        }
     }
 
     pub fn reset(&mut self) {

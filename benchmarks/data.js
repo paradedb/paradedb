@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756915915984,
+  "lastUpdate": 1756916956323,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'logs' Query Performance": [
@@ -22510,6 +22510,84 @@ window.BENCHMARK_DATA = {
           {
             "name": "paging-string-min",
             "value": 93.0375,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e1895283ef244b91334cdfab6ddaeaec2bfe227c",
+          "message": "feat: EXPLAIN metrics for parallel workers (#3113)\n\n## What\n\nRecord claimed segments and total (re)query counts in the parallel\nworker state, and render it in `EXPLAIN ANALYZE VERBOSE`.\n\n```\nParallel Custom Scan (ParadeDB Scan) on public.benchmark_logs  (cost=10.00..10.12 rows=12 width=221) (actual time=128.030..128.174 rows=88 loops=8)\n   Output: id, message, country, severity, \"timestamp\", metadata\n   Table: benchmark_logs\n   Index: benchmark_logs_idx\n   Segment Count: 8\n   Heap Fetches: 1\n   Virtual Tuples: 0\n   Invisible Tuples: 0\n   Parallel Workers: {\"-1\":{\"query_count\":1,\"claimed_segments\":[\"fb215663\"]},\"0\":{\"query_count\":1,\"claimed_segments\":[\"3fa330ca\"]},\"1\":{\"query_count\":1,\"claimed_segments\":[\"a86ca5f4\"]},\"2\":{\"query_count\":1,\"claimed_segments\":[\"bf4ce4c8\"]},\"3\":{\"query_count\":1,\"claimed_segments\":[\"aba90988\"]},\"4\":{\"query_count\":1,\"claimed_segments\":[\"814b1c11\"]},\"5\":{\"query_count\":1,\"claimed_segments\":[\"0d810284\"]},\"6\":{\"query_count\":1,\"claimed_segments\":[\"5ac67c9e\"]}}\n   Exec Method: TopNScanExecState\n   Scores: false\n      TopN Order By: id asc\n      TopN Limit: 100\n      Queries: 8\n   Full Index Scan: true\n   Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n   Worker 0:  actual time=115.632..115.850 rows=100 loops=1\n   Worker 1:  actual time=117.287..117.461 rows=100 loops=1\n   Worker 2:  actual time=145.469..145.583 rows=100 loops=1\n   Worker 3:  actual time=123.740..123.936 rows=100 loops=1\n   Worker 4:  actual time=124.626..124.780 rows=100 loops=1\n   Worker 5:  actual time=147.075..147.200 rows=100 loops=1\n   Worker 6:  actual time=143.026..143.182 rows=100 loops=1\n```\n\n## Why\n\n`EXPLAIN` only runs in the parallel worker leader, and so by default\nwill not render any metrics recorded by the parallel workers.\n\nWe suspect that we have lopsided distributions of segments to workers\nand/or re-queries happening in parallel workers, but we don't currently\nhave visibility into it.\n\n## How\n\nAdding additional fields highlighted the fact that our access to `u32`\nfields was not aligned, and that our `transmute`s were resulting in\nslices of the wrong length (a `transmute` of a `&[u8]` to a slice of any\nother type will result in a slice of the original length!). Instead,\nswitched to use `std::alloc::Layout` and the `bytemuck` crate to do\nthese casts more safely.\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-03T08:47:41-07:00",
+          "tree_id": "04be54f839a1e26575aeb541e332465bdeaf8d94",
+          "url": "https://github.com/paradedb/paradedb/commit/e1895283ef244b91334cdfab6ddaeaec2bfe227c"
+        },
+        "date": 1756916954904,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 1211.624,
+            "unit": "median ms",
+            "extra": "SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 657.8585,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach'"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 1490.632,
+            "unit": "median ms",
+            "extra": "SELECT *, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 725.039,
+            "unit": "median ms",
+            "extra": "WITH topn AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topn.score FROM topn JOIN documents d ON topn.doc_id = d.id JOIN files f ON topn.file_id = f.id JOIN pages p ON topn.page_id = p.id WHERE topn.doc_id = d.id AND topn.file_id = f.id AND topn.page_id = p.id ORDER BY topn.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 697.2035000000001,
+            "unit": "median ms",
+            "extra": "SELECT documents.id, files.id, pages.id, paradedb.score(documents.id) + paradedb.score(files.id) + paradedb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents @@@ 'SFR' AND files.title @@@ 'collab12' AND pages.\"content\" @@@ 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "line_items-distinct",
+            "value": 1612.3755,
+            "unit": "median ms",
+            "extra": "SELECT DISTINCT pages.* FROM pages JOIN files ON pages.\"fileId\" = files.id WHERE pages.content @@@ 'Single Number Reach'  AND files.\"sizeInBytes\" < 5 AND files.id @@@ paradedb.all() ORDER by pages.\"createdAt\" DESC LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 24.219,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 68.7165,
+            "unit": "median ms",
+            "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 93.4135,
             "unit": "median ms",
             "extra": "SELECT * FROM pages WHERE id @@@ paradedb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
           }

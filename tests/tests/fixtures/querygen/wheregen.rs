@@ -65,9 +65,8 @@ pub fn arb_wheres<V: Clone + Debug + Eq + SqlValue + 'static>(
         .map(|t| t.as_ref().to_owned())
         .collect::<Vec<_>>();
     let columns = columns
-        .iter()
-        .filter(|c| c.is_whereable)
-        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
+        .into_iter()
+        .map(|(c, value)| (c.as_ref().to_owned(), value))
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.

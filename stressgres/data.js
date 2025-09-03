@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756914415323,
+  "lastUpdate": 1756914418312,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13036,6 +13036,126 @@ window.BENCHMARK_DATA = {
             "value": 88.85546875,
             "unit": "median mem",
             "extra": "avg mem: 84.78046693994696, max mem: 140.55859375, count: 55247"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f3f4aa38ce36160e79c75dec6adaa73f3594b23",
+          "message": "feat: EXPLAIN metrics for parallel workers (#3077)\n\n## What\n\nRecord claimed segments and total (re)query counts in the parallel\nworker state, and render it in `EXPLAIN ANALYZE VERBOSE`.\n\n```\nParallel Custom Scan (ParadeDB Scan) on public.benchmark_logs  (cost=10.00..10.12 rows=12 width=221) (actual time=128.030..128.174 rows=88 loops=8)\n   Output: id, message, country, severity, \"timestamp\", metadata\n   Table: benchmark_logs\n   Index: benchmark_logs_idx\n   Segment Count: 8\n   Heap Fetches: 1\n   Virtual Tuples: 0\n   Invisible Tuples: 0\n   Parallel Workers: {\"-1\":{\"query_count\":1,\"claimed_segments\":[\"fb215663\"]},\"0\":{\"query_count\":1,\"claimed_segments\":[\"3fa330ca\"]},\"1\":{\"query_count\":1,\"claimed_segments\":[\"a86ca5f4\"]},\"2\":{\"query_count\":1,\"claimed_segments\":[\"bf4ce4c8\"]},\"3\":{\"query_count\":1,\"claimed_segments\":[\"aba90988\"]},\"4\":{\"query_count\":1,\"claimed_segments\":[\"814b1c11\"]},\"5\":{\"query_count\":1,\"claimed_segments\":[\"0d810284\"]},\"6\":{\"query_count\":1,\"claimed_segments\":[\"5ac67c9e\"]}}\n   Exec Method: TopNScanExecState\n   Scores: false\n      TopN Order By: id asc\n      TopN Limit: 100\n      Queries: 8\n   Full Index Scan: true\n   Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n   Worker 0:  actual time=115.632..115.850 rows=100 loops=1\n   Worker 1:  actual time=117.287..117.461 rows=100 loops=1\n   Worker 2:  actual time=145.469..145.583 rows=100 loops=1\n   Worker 3:  actual time=123.740..123.936 rows=100 loops=1\n   Worker 4:  actual time=124.626..124.780 rows=100 loops=1\n   Worker 5:  actual time=147.075..147.200 rows=100 loops=1\n   Worker 6:  actual time=143.026..143.182 rows=100 loops=1\n```\n\n## Why\n\n`EXPLAIN` only runs in the parallel worker leader, and so by default\nwill not render any metrics recorded by the parallel workers.\n\nWe suspect that we have lopsided distributions of segments to workers\nand/or re-queries happening in parallel workers, but we don't currently\nhave visibility into it.\n\n## How\n\nAdding additional fields highlighted the fact that our access to `u32`\nfields was not aligned, and that our `transmute`s were resulting in\nslices of the wrong length (a `transmute` of a `&[u8]` to a slice of any\nother type will result in a slice of the original length!). Instead,\nswitched to use `std::alloc::Layout` and the `bytemuck` crate to do\nthese casts more safely.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-03T08:29:12-07:00",
+          "tree_id": "2228b5309478fc05a352c2b5062210892466fe02",
+          "url": "https://github.com/paradedb/paradedb/commit/1f3f4aa38ce36160e79c75dec6adaa73f3594b23"
+        },
+        "date": 1756914416935,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.774754472390916, max cpu: 9.628887, count: 55287"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 102.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 101.12142638922803, max mem: 155.2265625, count: 55287"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701740384789022, max cpu: 9.347614, count: 55287"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 95.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 93.6755995278049, max mem: 148.57421875, count: 55287"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.734568723609109, max cpu: 9.619239, count: 55287"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 102.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 101.55146977363576, max mem: 155.625, count: 55287"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.039057043925956, max cpu: 4.729064, count: 55287"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 102.125,
+            "unit": "median mem",
+            "extra": "avg mem: 100.1864613149339, max mem: 153.8203125, count: 55287"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.040801745275058, max cpu: 13.872832, count: 110574"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 111.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 108.2745598041244, max mem: 165.0234375, count: 110574"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 9027,
+            "unit": "median block_count",
+            "extra": "avg block_count: 8936.987447320347, max block_count: 16959.0, count: 55287"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.505417186680413, max segment_count: 32.0, count: 55287"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.798501548703746, max cpu: 9.458128, count: 55287"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 112.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 111.37564676709715, max mem: 165.1171875, count: 55287"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.57332074815019, max cpu: 9.230769, count: 55287"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 93.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 94.01494961801599, max mem: 150.91015625, count: 55287"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756915741039,
+  "lastUpdate": 1756916390976,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20648,6 +20648,60 @@ window.BENCHMARK_DATA = {
             "value": 16.334143563885178,
             "unit": "median tps",
             "extra": "avg tps: 16.412515594727775, max tps: 19.686048732183682, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1f3f4aa38ce36160e79c75dec6adaa73f3594b23",
+          "message": "feat: EXPLAIN metrics for parallel workers (#3077)\n\n## What\n\nRecord claimed segments and total (re)query counts in the parallel\nworker state, and render it in `EXPLAIN ANALYZE VERBOSE`.\n\n```\nParallel Custom Scan (ParadeDB Scan) on public.benchmark_logs  (cost=10.00..10.12 rows=12 width=221) (actual time=128.030..128.174 rows=88 loops=8)\n   Output: id, message, country, severity, \"timestamp\", metadata\n   Table: benchmark_logs\n   Index: benchmark_logs_idx\n   Segment Count: 8\n   Heap Fetches: 1\n   Virtual Tuples: 0\n   Invisible Tuples: 0\n   Parallel Workers: {\"-1\":{\"query_count\":1,\"claimed_segments\":[\"fb215663\"]},\"0\":{\"query_count\":1,\"claimed_segments\":[\"3fa330ca\"]},\"1\":{\"query_count\":1,\"claimed_segments\":[\"a86ca5f4\"]},\"2\":{\"query_count\":1,\"claimed_segments\":[\"bf4ce4c8\"]},\"3\":{\"query_count\":1,\"claimed_segments\":[\"aba90988\"]},\"4\":{\"query_count\":1,\"claimed_segments\":[\"814b1c11\"]},\"5\":{\"query_count\":1,\"claimed_segments\":[\"0d810284\"]},\"6\":{\"query_count\":1,\"claimed_segments\":[\"5ac67c9e\"]}}\n   Exec Method: TopNScanExecState\n   Scores: false\n      TopN Order By: id asc\n      TopN Limit: 100\n      Queries: 8\n   Full Index Scan: true\n   Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n   Worker 0:  actual time=115.632..115.850 rows=100 loops=1\n   Worker 1:  actual time=117.287..117.461 rows=100 loops=1\n   Worker 2:  actual time=145.469..145.583 rows=100 loops=1\n   Worker 3:  actual time=123.740..123.936 rows=100 loops=1\n   Worker 4:  actual time=124.626..124.780 rows=100 loops=1\n   Worker 5:  actual time=147.075..147.200 rows=100 loops=1\n   Worker 6:  actual time=143.026..143.182 rows=100 loops=1\n```\n\n## Why\n\n`EXPLAIN` only runs in the parallel worker leader, and so by default\nwill not render any metrics recorded by the parallel workers.\n\nWe suspect that we have lopsided distributions of segments to workers\nand/or re-queries happening in parallel workers, but we don't currently\nhave visibility into it.\n\n## How\n\nAdding additional fields highlighted the fact that our access to `u32`\nfields was not aligned, and that our `transmute`s were resulting in\nslices of the wrong length (a `transmute` of a `&[u8]` to a slice of any\nother type will result in a slice of the original length!). Instead,\nswitched to use `std::alloc::Layout` and the `bytemuck` crate to do\nthese casts more safely.\n\n---------\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-03T08:29:12-07:00",
+          "tree_id": "2228b5309478fc05a352c2b5062210892466fe02",
+          "url": "https://github.com/paradedb/paradedb/commit/1f3f4aa38ce36160e79c75dec6adaa73f3594b23"
+        },
+        "date": 1756916389619,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.365866570277134,
+            "unit": "median tps",
+            "extra": "avg tps: 37.52766420508728, max tps: 39.142583278977334, count: 55462"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.9233355049965,
+            "unit": "median tps",
+            "extra": "avg tps: 273.36230866589784, max tps: 2357.915944378945, count: 55462"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 488.62266856256707,
+            "unit": "median tps",
+            "extra": "avg tps: 481.38298814823656, max tps: 500.7117424092659, count: 55462"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 102.87150543143599,
+            "unit": "median tps",
+            "extra": "avg tps: 105.37125231970865, max tps: 244.86752518289913, count: 110924"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.740712131602171,
+            "unit": "median tps",
+            "extra": "avg tps: 15.820036080343947, max tps: 19.189627223548882, count: 55462"
           }
         ]
       }

@@ -49,6 +49,7 @@ pub struct Column {
     pub sample_value: &'static str,
     pub is_primary_key: bool,
     pub is_groupable: bool,
+    pub is_whereable: bool,
     pub is_indexed: bool,
     pub bm25_options: Option<BM25Options>,
     pub random_generator_sql: &'static str,
@@ -66,6 +67,7 @@ impl Column {
             sample_value,
             is_primary_key: false,
             is_groupable: true,
+            is_whereable: true,
             is_indexed: true,
             bm25_options: None,
             random_generator_sql: "NULL",
@@ -79,6 +81,11 @@ impl Column {
 
     pub const fn groupable(mut self, is_groupable: bool) -> Self {
         self.is_groupable = is_groupable;
+        self
+    }
+
+    pub const fn whereable(mut self, is_whereable: bool) -> Self {
+        self.is_whereable = is_whereable;
         self
     }
 

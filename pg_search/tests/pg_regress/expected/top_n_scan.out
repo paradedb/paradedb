@@ -63,7 +63,7 @@ SELECT
     ),
     CASE WHEN i % 7 = 0 THEN '2023-06-01'::timestamp + ((i % 30) || ' days')::interval ELSE NULL END,
     CASE WHEN i % 4 = 0 THEN 'USD' WHEN i % 4 = 1 THEN 'EUR' WHEN i % 4 = 2 THEN 'GBP' ELSE 'JPY' END,
-    CASE WHEN i % 3 = 0 THEN 'pending' WHEN i % 3 = 1 THEN 'completed' ELSE 'failed' END,
+    CASE WHEN i % 4 = 0 THEN 'pending' WHEN i % 4 = 1 THEN 'completed' WHEN i % 4 = 2 THEN 'failed' ELSE NULL END,
     CASE WHEN i % 2 = 0 THEN 'inbound' ELSE 'outbound' END
 FROM generate_series(1, 10000) i;
 -- Create a search index with various field types
@@ -345,6 +345,31 @@ LIMIT 25;
                Scores: false
                Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_active","value":true,"is_datetime":false}},{"with_index":{"query":{"match":{"field":"notes","value":"check","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}},{"term":{"field":"tenant_id","value":"tenant-1","is_datetime":false}}]}}
 (9 rows)
+
+-- Test 11: ORDER BY on column containing NULL.
+\echo 'Test 11: ORDER BY on column containing NULL.'
+Test 11: ORDER BY on column containing NULL.
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT state, id
+FROM records
+WHERE id @@@ paradedb.all()
+  AND state IS NULL
+ORDER BY state, id
+LIMIT 10000;
+                                                                     QUERY PLAN                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=2500 loops=1)
+   ->  Custom Scan (ParadeDB Scan) on records (actual rows=2500 loops=1)
+         Table: records
+         Index: records_search_idx
+         Heap Fetches: 2500
+         Exec Method: TopNScanExecState
+         Scores: false
+            TopN Order By: state asc, id asc
+            TopN Limit: 10000
+            Queries: 1
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"state"}}]}}]}}
+(11 rows)
 
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;

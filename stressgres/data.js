@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756933211730,
+  "lastUpdate": 1756933862904,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22256,6 +22256,60 @@ window.BENCHMARK_DATA = {
             "value": 15.931713452795938,
             "unit": "median tps",
             "extra": "avg tps: 16.14782811530278, max tps: 19.95374601950203, count: 55458"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2e8c8c499f6220d3271d80feed4c69e969e5405",
+          "message": "fix: Do not background merge during vacuum if background merge is disabled (#3115)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere was a bug where vacuum would ignore background merging being\ndisabled and do one anyway\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-03T16:21:49-04:00",
+          "tree_id": "79555406c8597e534930c1dfe4b8ec4dfd675970",
+          "url": "https://github.com/paradedb/paradedb/commit/f2e8c8c499f6220d3271d80feed4c69e969e5405"
+        },
+        "date": 1756933861540,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.23689692964608,
+            "unit": "median tps",
+            "extra": "avg tps: 36.38279784298222, max tps: 37.75190297914774, count: 55342"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 134.45091584801781,
+            "unit": "median tps",
+            "extra": "avg tps: 175.26092453752833, max tps: 2369.2600356672356, count: 55342"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 402.1197949841303,
+            "unit": "median tps",
+            "extra": "avg tps: 399.83094781202004, max tps: 414.61987874689237, count: 55342"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 100.66328856851248,
+            "unit": "median tps",
+            "extra": "avg tps: 95.22098296297737, max tps: 315.89388642902117, count: 110684"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.808613339541274,
+            "unit": "median tps",
+            "extra": "avg tps: 15.902225874261072, max tps: 19.942072268474536, count: 55342"
           }
         ]
       }

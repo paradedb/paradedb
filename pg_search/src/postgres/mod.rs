@@ -147,6 +147,7 @@ struct ParallelScanPayloadLayout {
     query: Range<usize>,
     ids: Range<usize>,
     deleted_docs: Range<usize>,
+    max_docs: Range<usize>,
     claims: Range<usize>,
     /// The padded size of the layout.
     total: Layout,
@@ -169,6 +170,11 @@ impl ParallelScanPayloadLayout {
         let deleted_docs_range =
             (deleted_docs_offset)..(deleted_docs_offset + deleted_docs_layout.size());
 
+        // Max docs. Must be aligned for u32.
+        let max_docs_layout = Layout::array::<u32>(nsegments)?;
+        let (layout, max_docs_offset) = layout.extend(max_docs_layout)?;
+        let max_docs_range = (max_docs_offset)..(max_docs_offset + max_docs_layout.size());
+
         // Segment claims. Must be aligned for i32.
         let claims_layout = Layout::array::<i32>(nsegments)?;
         let (layout, claims_offset) = layout.extend(claims_layout)?;
@@ -178,6 +184,7 @@ impl ParallelScanPayloadLayout {
             query: query_range,
             ids: ids_range,
             deleted_docs: deleted_docs_range,
+            max_docs: max_docs_range,
             claims: claims_range,
             // Finalize the layout by padding it to its overall alignment.
             total: layout.pad_to_align(),
@@ -236,6 +243,14 @@ impl ParallelScanPayload {
             *target = segment.num_deleted_docs();
         }
 
+        // Max docs.
+        let max_docs_range = self.layout.max_docs.clone();
+        let max_docs_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[max_docs_range]).unwrap();
+        for (segment, target) in segments.iter().zip(max_docs_slice.iter_mut()) {
+            *target = segment.max_doc();
+        }
+
         // Segment claims.
         for segment_claim in self.segment_claims_mut().iter_mut() {
             *segment_claim = SEGMENT_CLAIM_UNCLAIMED;
@@ -271,6 +286,10 @@ impl ParallelScanPayload {
 
     fn segment_deleted_docs(&self) -> &[u32] {
         bytemuck::try_cast_slice(&self.data()[self.layout.deleted_docs.clone()]).unwrap()
+    }
+
+    fn segment_max_docs(&self) -> &[u32] {
+        bytemuck::try_cast_slice(&self.data()[self.layout.max_docs.clone()]).unwrap()
     }
 
     /// An array of `i32` parallel worker numbers (as returned by pg_sys::ParallelWorkerNumber)
@@ -389,10 +408,13 @@ impl ParallelScanState {
         }
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, u32> {
+    pub fn segments(&self) -> HashMap<SegmentId, (u32, u32)> {
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
-            segments.insert(self.segment_id(i), self.num_deleted_docs(i));
+            segments.insert(
+                self.segment_id(i),
+                (self.num_deleted_docs(i), self.segment_max_docs(i)),
+            );
         }
         segments
     }
@@ -411,7 +433,11 @@ impl ParallelScanState {
                 .entry(claiming_worker)
                 .or_default()
                 .claimed_segments
-                .push(self.segment_id(i).short_uuid_string());
+                .push(ClaimedSegmentData {
+                    id: self.segment_id(i).short_uuid_string(),
+                    deleted_docs: self.num_deleted_docs(i),
+                    max_doc: self.segment_max_docs(i),
+                });
         }
         let mut total_query_count: usize = 0;
         for (parallel_worker_number, worker) in workers.iter_mut() {
@@ -432,6 +458,10 @@ impl ParallelScanState {
 
     fn num_deleted_docs(&self, i: usize) -> u32 {
         self.payload.segment_deleted_docs()[i]
+    }
+
+    fn segment_max_docs(&self, i: usize) -> u32 {
+        self.payload.segment_max_docs()[i]
     }
 
     fn query(&self) -> anyhow::Result<Option<SearchQueryInput>> {
@@ -457,5 +487,12 @@ pub struct ParallelExplainData {
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 pub struct ParallelExplainWorkerData {
     query_count: Option<u16>,
-    claimed_segments: Vec<String>,
+    claimed_segments: Vec<ClaimedSegmentData>,
+}
+
+#[derive(Default, serde::Deserialize, serde::Serialize)]
+pub struct ClaimedSegmentData {
+    id: String,
+    deleted_docs: u32,
+    max_doc: u32,
 }

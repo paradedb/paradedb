@@ -259,7 +259,6 @@ impl ParallelScanPayload {
     }
 
     fn data(&self) -> &[u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_ptr = std::ptr::addr_of!(self.data);
             std::slice::from_raw_parts(data_ptr.cast(), self.layout.total.size())
@@ -267,7 +266,6 @@ impl ParallelScanPayload {
     }
 
     fn data_mut(&mut self) -> &mut [u8] {
-        assert!(self.segments.1 > 0);
         unsafe {
             let data_ptr = std::ptr::addr_of_mut!(self.data);
             std::slice::from_raw_parts_mut(data_ptr.cast(), self.layout.total.size())

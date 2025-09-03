@@ -20,7 +20,7 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
-use crate::query::{AsHumanReadable, SearchQueryInput};
+use crate::query::SearchQueryInput;
 
 pub struct Explainer {
     state: NonNull<pg_sys::ExplainState>,

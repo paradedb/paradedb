@@ -17,9 +17,9 @@
 
 use std::cell::UnsafeCell;
 
-use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
-use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::api::{FieldName, HashMap, Varno};
+use crate::index::reader::index::{SearchIndexReader, SearchResults};
+use crate::postgres::customscan::builders::custom_path::{ExecMethodType, SortDirection};
 use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::qual_inspect::Qual;
@@ -28,7 +28,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::{ParallelExplainData, ParallelScanState};
-use crate::query::SearchQueryInput;
+use crate::query::{AsHumanReadable, SearchQueryInput};
 
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
@@ -54,6 +54,10 @@ pub struct PdbScanState {
 
     pub search_results: SearchResults,
     pub targetlist_len: usize,
+
+    pub limit: Option<usize>,
+    pub sort_field: Option<FieldName>,
+    pub sort_direction: Option<SortDirection>,
 
     query_count: usize,
     pub heap_tuple_check_count: usize,

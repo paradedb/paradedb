@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756927139383,
+  "lastUpdate": 1756927736484,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4792,6 +4792,72 @@ window.BENCHMARK_DATA = {
             "value": 183.10528720257943,
             "unit": "median tps",
             "extra": "avg tps: 182.8012213508454, max tps: 567.0374335432127, count: 55208"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e32b5f3fcf2fc6dcc9b32f180f6954e53800be13",
+          "message": "feat: EXPLAIN metrics for parallel workers (#3112)\n\n## What\n\nRecord claimed segments and total (re)query counts in the parallel\nworker state, and render it in `EXPLAIN ANALYZE VERBOSE`.\n\n```\nParallel Custom Scan (ParadeDB Scan) on public.benchmark_logs  (cost=10.00..10.12 rows=12 width=221) (actual time=128.030..128.174 rows=88 loops=8)\n   Output: id, message, country, severity, \"timestamp\", metadata\n   Table: benchmark_logs\n   Index: benchmark_logs_idx\n   Segment Count: 8\n   Heap Fetches: 1\n   Virtual Tuples: 0\n   Invisible Tuples: 0\n   Parallel Workers: {\"-1\":{\"query_count\":1,\"claimed_segments\":[\"fb215663\"]},\"0\":{\"query_count\":1,\"claimed_segments\":[\"3fa330ca\"]},\"1\":{\"query_count\":1,\"claimed_segments\":[\"a86ca5f4\"]},\"2\":{\"query_count\":1,\"claimed_segments\":[\"bf4ce4c8\"]},\"3\":{\"query_count\":1,\"claimed_segments\":[\"aba90988\"]},\"4\":{\"query_count\":1,\"claimed_segments\":[\"814b1c11\"]},\"5\":{\"query_count\":1,\"claimed_segments\":[\"0d810284\"]},\"6\":{\"query_count\":1,\"claimed_segments\":[\"5ac67c9e\"]}}\n   Exec Method: TopNScanExecState\n   Scores: false\n      TopN Order By: id asc\n      TopN Limit: 100\n      Queries: 8\n   Full Index Scan: true\n   Tantivy Query: {\"with_index\":{\"query\":\"all\"}}\n   Worker 0:  actual time=115.632..115.850 rows=100 loops=1\n   Worker 1:  actual time=117.287..117.461 rows=100 loops=1\n   Worker 2:  actual time=145.469..145.583 rows=100 loops=1\n   Worker 3:  actual time=123.740..123.936 rows=100 loops=1\n   Worker 4:  actual time=124.626..124.780 rows=100 loops=1\n   Worker 5:  actual time=147.075..147.200 rows=100 loops=1\n   Worker 6:  actual time=143.026..143.182 rows=100 loops=1\n```\n\n## Why\n\n`EXPLAIN` only runs in the parallel worker leader, and so by default\nwill not render any metrics recorded by the parallel workers.\n\nWe suspect that we have lopsided distributions of segments to workers\nand/or re-queries happening in parallel workers, but we don't currently\nhave visibility into it.\n\n## How\n\nAdding additional fields highlighted the fact that our access to `u32`\nfields was not aligned, and that our `transmute`s were resulting in\nslices of the wrong length (a `transmute` of a `&[u8]` to a slice of any\nother type will result in a slice of the original length!). Instead,\nswitched to use `std::alloc::Layout` and the `bytemuck` crate to do\nthese casts more safely.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@gmail.com>",
+          "timestamp": "2025-09-03T12:11:09-07:00",
+          "tree_id": "0e699e02dc2089d12fa9f72bd954261e49904273",
+          "url": "https://github.com/paradedb/paradedb/commit/e32b5f3fcf2fc6dcc9b32f180f6954e53800be13"
+        },
+        "date": 1756927735114,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1199.2930209245094,
+            "unit": "median tps",
+            "extra": "avg tps: 1195.8767625880016, max tps: 1201.5640611833826, count: 55221"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2813.9983022093706,
+            "unit": "median tps",
+            "extra": "avg tps: 2796.573759768061, max tps: 2825.79159435584, count: 55221"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1209.7118242466352,
+            "unit": "median tps",
+            "extra": "avg tps: 1204.2854250305274, max tps: 1212.0377731370497, count: 55221"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 999.1677076060892,
+            "unit": "median tps",
+            "extra": "avg tps: 991.7984615212409, max tps: 1003.3709785191902, count: 55221"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 594.3302781094488,
+            "unit": "median tps",
+            "extra": "avg tps: 595.1424306461362, max tps: 615.084651412748, count: 110442"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 430.286688087831,
+            "unit": "median tps",
+            "extra": "avg tps: 429.9348996140818, max tps: 433.88723230328753, count: 55221"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 168.4999349502631,
+            "unit": "median tps",
+            "extra": "avg tps: 168.00103432140668, max tps: 746.1205462199296, count: 55221"
           }
         ]
       }

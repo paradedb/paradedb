@@ -310,11 +310,7 @@ impl BM25IndexOptions {
         self.options_data()
             .target_segment_count()
             .map(|count| count as usize)
-            .unwrap_or_else(|| {
-                std::thread::available_parallelism()
-                    .expect("your computer should have at least one CPU")
-                    .get()
-            })
+            .unwrap_or_else(crate::available_parallelism)
     }
 
     pub fn key_field_name(&self) -> FieldName {

@@ -46,7 +46,7 @@ jobs:
           fi
 
       - name: Checkout Git Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # We confirm that if the release type is beta, the version in Cargo.toml matches with `-rc.X`, and that the
       # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
@@ -93,7 +93,7 @@ jobs:
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
@@ -125,4 +125,4 @@ jobs:
           make_latest: ${{ steps.release_latest.outputs.is_latest }}
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}

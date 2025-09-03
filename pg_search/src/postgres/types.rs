@@ -484,13 +484,14 @@ impl TryFrom<TantivyValue> for String {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Str(val) = value.0 {
-            Ok(val)
+        Ok(if let tantivy::schema::OwnedValue::Str(val) = value.0 {
+            val
         } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
-                "String".to_string(),
-            ))
-        }
+            // TODO(mdashti): make sure the string conversion for all values is aligned with the
+            // postgres logic, especially for JSON types (i.e., string, boolean, number, object, array).
+            // This is specially used for the `->>` JSON operator, as it returns a string.
+            value.to_string()
+        })
     }
 }
 

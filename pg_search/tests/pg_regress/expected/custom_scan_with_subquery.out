@@ -1,0 +1,111 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+DROP TABLE IF EXISTS t;
+CREATE TABLE t (
+  col_a BIGINT PRIMARY KEY,
+  col_b UUID NOT NULL,
+  col_c BOOLEAN NOT NULL,
+  col_d DATE NOT NULL,
+  col_e TIMESTAMP NOT NULL,
+  col_f TIMESTAMP
+);
+INSERT INTO t (col_a, col_b, col_c, col_d, col_e, col_f) VALUES
+(100, '11111111-1111-1111-1111-111111111111', TRUE, '2025-08-01', '2025-08-01 10:00:00', NULL),
+( 99, '11111111-1111-1111-1111-111111111111', TRUE, '2025-07-31', '2025-07-31 09:00:00', NULL),
+(101, '11111111-1111-1111-1111-111111111111', TRUE, '2025-08-01', '2025-08-01 09:30:00', NULL);
+CREATE INDEX ON t USING bm25 (col_a, col_b, col_c, col_d, col_e, col_f) WITH (key_field='col_a');
+SELECT
+  t.col_a, t.col_b, t.col_c, t.col_d, t.col_e, t.col_f
+FROM t
+WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
+  AND t.col_c = TRUE
+  AND 1 = 1
+  AND (t.col_a @@@ paradedb.all())
+  AND t.col_d >= '2025-07-01'
+  AND t.col_d <= '2025-08-31'
+  AND t.col_f IS NULL
+  AND t.col_d <= (
+        SELECT col_d FROM t WHERE t.col_a = 999
+      )
+  AND (
+        (
+          t.col_d < (SELECT col_d FROM t WHERE col_a = 999)
+          OR t.col_e < (SELECT col_e FROM t WHERE col_a = 999)
+             AND t.col_d = (SELECT col_d FROM t WHERE col_a = 999)
+        )
+        OR t.col_a < 100
+           AND t.col_d = (SELECT col_d FROM t WHERE col_a = 999)
+           AND t.col_e = (SELECT col_e FROM t WHERE col_a = 999)
+      )
+ORDER BY t.col_d DESC, t.col_e DESC, t.col_a DESC
+LIMIT 10;
+ col_a | col_b | col_c | col_d | col_e | col_f 
+-------+-------+-------+-------+-------+-------
+(0 rows)
+
+SELECT
+  t.col_a, t.col_b, t.col_c, t.col_d, t.col_e, t.col_f
+FROM t
+WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
+  AND t.col_c = TRUE
+  AND 1 = 1
+  AND (t.col_a @@@ paradedb.all())
+  AND t.col_d >= '2025-07-01'
+  AND t.col_d <= '2025-08-31'
+  AND t.col_f IS NULL
+  AND t.col_d <= (
+        SELECT col_d FROM t WHERE t.col_a = 100
+      )
+  AND (
+        (
+          t.col_d < (SELECT col_d FROM t WHERE col_a = 100)
+          OR t.col_e < (SELECT col_e FROM t WHERE col_a = 100)
+             AND t.col_d = (SELECT col_d FROM t WHERE col_a = 100)
+        )
+        OR t.col_a < 100
+           AND t.col_d = (SELECT col_d FROM t WHERE col_a = 100)
+           AND t.col_e = (SELECT col_e FROM t WHERE col_a = 100)
+      )
+ORDER BY t.col_d DESC, t.col_e DESC, t.col_a DESC
+LIMIT 10;
+ col_a |                col_b                 | col_c |   col_d    |          col_e           | col_f 
+-------+--------------------------------------+-------+------------+--------------------------+-------
+   101 | 11111111-1111-1111-1111-111111111111 | t     | 08-01-2025 | Fri Aug 01 09:30:00 2025 | 
+    99 | 11111111-1111-1111-1111-111111111111 | t     | 07-31-2025 | Thu Jul 31 09:00:00 2025 | 
+(2 rows)
+
+-- No paradedb.all(), should be the same as above
+SELECT
+  t.col_a, t.col_b, t.col_c, t.col_d, t.col_e, t.col_f
+FROM t
+WHERE t.col_b = '11111111-1111-1111-1111-111111111111'
+  AND t.col_c = TRUE
+  AND t.col_d >= '2025-07-01'
+  AND t.col_d <= '2025-08-31'
+  AND t.col_f IS NULL
+  AND t.col_d <= (
+        SELECT col_d FROM t WHERE t.col_a = 100
+      )
+  AND (
+        (
+          t.col_d < (SELECT col_d FROM t WHERE col_a = 100)
+          OR t.col_e < (SELECT col_e FROM t WHERE col_a = 100)
+             AND t.col_d = (SELECT col_d FROM t WHERE col_a = 100)
+        )
+        OR t.col_a < 100
+           AND t.col_d = (SELECT col_d FROM t WHERE col_a = 100)
+           AND t.col_e = (SELECT col_e FROM t WHERE col_a = 100)
+      )
+ORDER BY t.col_d DESC, t.col_e DESC, t.col_a DESC
+LIMIT 10;
+ col_a |                col_b                 | col_c |   col_d    |          col_e           | col_f 
+-------+--------------------------------------+-------+------------+--------------------------+-------
+   101 | 11111111-1111-1111-1111-111111111111 | t     | 08-01-2025 | Fri Aug 01 09:30:00 2025 | 
+    99 | 11111111-1111-1111-1111-111111111111 | t     | 07-31-2025 | Thu Jul 31 09:00:00 2025 | 
+(2 rows)
+
+DROP TABLE t;

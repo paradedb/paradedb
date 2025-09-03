@@ -33,7 +33,7 @@ impl MergePolicy for LayeredMergePolicy {
             if self.enable_logging {
                 if let Some(directory) = directory {
                     directory.log(message);
-                } else {
+                } else if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
                     pgrx::debug1!("{message}");
                 }
             }
@@ -175,9 +175,7 @@ impl MergePolicy for LayeredMergePolicy {
 impl LayeredMergePolicy {
     pub fn new(layer_sizes: Vec<u64>) -> LayeredMergePolicy {
         Self {
-            n: std::thread::available_parallelism()
-                .expect("your computer should have at least one CPU")
-                .get(),
+            n: crate::available_parallelism(),
             layer_sizes,
             min_merge_count: 2,
             enable_logging: unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) },

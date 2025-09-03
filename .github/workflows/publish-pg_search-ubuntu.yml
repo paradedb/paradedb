@@ -104,7 +104,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Dependencies
         run: sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo apt-get install -y sudo wget curl gnupg gpg lsb-release pkg-config libssl-dev jq
@@ -208,7 +208,7 @@ jobs:
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: |
             ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
@@ -216,7 +216,7 @@ jobs:
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
         env:
-          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
@@ -230,7 +230,7 @@ jobs:
       - name: Upload pg_search .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb

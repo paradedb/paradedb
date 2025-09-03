@@ -3,23 +3,39 @@ use crate::query::{PostgresExpression, SearchQueryInput};
 use pgrx::{pg_sys, FromDatum, PgMemoryContexts};
 
 impl SearchQueryInput {
-    pub fn has_postgres_expressions(&mut self) -> bool {
-        for sqi in self {
-            if matches!(sqi, SearchQueryInput::PostgresExpression { .. }) {
-                return true;
+    pub fn has_heap_filters(&mut self) -> bool {
+        let mut found = false;
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
+                // Check if any heap field filters contain subqueries
+                for filter in field_filters.iter() {
+                    if filter.contains_subqueries() {
+                        found = true;
+                        break;
+                    }
+                }
             }
-        }
-        false
+        });
+        found
+    }
+    pub fn has_postgres_expressions(&mut self) -> bool {
+        let mut found = false;
+        self.visit(&mut |sqi| {
+            if let SearchQueryInput::PostgresExpression { .. } = sqi {
+                found = true;
+            }
+        });
+        found
     }
 
     pub fn init_postgres_expressions(&mut self, planstate: *mut pg_sys::PlanState) -> usize {
         let mut cnt = 0;
-        for sqi in self {
+        self.visit(&mut |sqi| {
             if let SearchQueryInput::PostgresExpression { expr } = sqi {
                 expr.init(planstate);
                 cnt += 1;
             }
-        }
+        });
         cnt
     }
 
@@ -33,13 +49,21 @@ impl SearchQueryInput {
 
             PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory).switch_to(|_| {
                 let sqi_typoid = searchqueryinput_typoid();
-                for sqi in self {
+                self.visit(&mut |sqi| {
                     if let SearchQueryInput::PostgresExpression { expr } = sqi {
-                        *sqi = expr
-                            .solve(expr_context, sqi_typoid)
-                            .expect("PostgresExpression should not evaluate to NULL");
+                        if let Some(resolved_sqi) = expr.solve(expr_context, sqi_typoid) {
+                            *sqi = resolved_sqi;
+                        } else {
+                            // PostgresExpression evaluated to NULL (e.g., subquery returned no results)
+                            // Replace with a query that matches nothing
+                            pgrx::debug1!(
+                                "PostgresExpression evaluated to NULL for expression: {}",
+                                pgrx::node_to_string(expr.node()).unwrap_or("unknown")
+                            );
+                            *sqi = SearchQueryInput::Empty;
+                        }
                     }
-                }
+                });
             })
         }
     }

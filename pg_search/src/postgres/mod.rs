@@ -43,6 +43,7 @@ mod vacuum;
 mod validate;
 
 mod build_parallel;
+pub mod catalog;
 pub mod customscan;
 pub mod datetime;
 #[cfg(not(feature = "pg17"))]

@@ -616,8 +616,9 @@ WHERE (name @@@ 'Apple' OR description @@@ 'smartphone')
 ORDER BY score DESC; 
 
 SET paradedb.enable_filter_pushdown = true;
--- Test Case 19.1: Test that subqueries on the RHS of a heap filter which don't match anything don't
--- result in an error.
+
+-- Test Case 19.1: Test that subqueries on the RHS of a heap filter which don't match anything
+-- don't result in an error.
 SELECT
   products.id
 FROM products
@@ -636,6 +637,53 @@ WHERE
   (products.id @@@ paradedb.all())
   AND (products.name ILIKE ANY (array['%Socks%']))
   AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 7) OR products.id < 7 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 7))
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.3: Test that subqueries on the RHS of a heap filter which match something
+-- don't result in an error.
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.name ILIKE ANY (array['%Nike%', '%Adidas%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.4: Test that nested heap filters are solved (with non-empty result).
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 8) OR products.id < 8 AND products.created_at = (SELECT created_at FROM products WHERE products.id = 8))
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.5: Test that subqueries returning no results are handled correctly.
+-- This subquery deliberately uses a non-existent product ID (99999) to ensure empty results.
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.name ILIKE ANY (array['%Apple%', '%Samsung%']))
+  AND (products.created_at < (SELECT created_at FROM products WHERE products.id = 99999) OR products.id < 5)
+ORDER BY products.created_at DESC, products.id DESC
+LIMIT 100;
+
+-- Test Case 19.6: Test multiple subqueries where one returns empty results.
+-- Uses both an existing ID (8) and a non-existent ID (88888) in different subqueries.
+SELECT
+  products.id
+FROM products
+WHERE
+  (products.id @@@ paradedb.all())
+  AND (products.category_id = (SELECT category_id FROM products WHERE products.id = 8))
+  AND (products.description NOT LIKE (SELECT description FROM products WHERE products.id = 88888))
 ORDER BY products.created_at DESC, products.id DESC
 LIMIT 100;
 

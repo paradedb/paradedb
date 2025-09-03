@@ -74,13 +74,13 @@ jobs:
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
 
       - name: Checkout Git Repository at ref=${{ steps.determine-ref.outputs.ref }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ steps.determine-ref.outputs.ref }}
 
       - name: Fetch the Latest Composite Actions
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ github.repository }}
           path: actions-temp
@@ -201,11 +201,11 @@ jobs:
         run: cargo pgrx install -p pg_search --sudo --release --pg-config `which pg_config` --features=pg${{ env.pg_version }},icu --no-default-features
 
       - name: Checkout Stressgres Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: paradedb/stressgres
           path: stressgres
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Install the stressgres CLI tool
         run: cd stressgres && CARGO_TARGET_DIR=../target/ cargo install --path .
@@ -219,7 +219,7 @@ jobs:
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -229,7 +229,7 @@ jobs:
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -239,7 +239,7 @@ jobs:
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -249,7 +249,7 @@ jobs:
         with:
           test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -258,5 +258,5 @@ jobs:
         if: failure() && github.event_name == 'push'
         run: |
           GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow failed in `${{ github.repository }}` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          MESSAGE="<!here> \`benchmark-pg_search-stressgres\` workflow failed in \`${{ github.repository }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
           curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_BENCHMARKS_CHANNEL_WEBHOOK_URL }}

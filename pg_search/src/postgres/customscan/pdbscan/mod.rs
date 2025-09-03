@@ -810,6 +810,9 @@ impl CustomScan for PdbScan {
                     state.custom_state().invisible_tuple_count as u64,
                     None,
                 );
+                if let Some(explain_data) = &state.custom_state().parallel_explain_data {
+                    explainer.add_json("Parallel Workers", &explain_data.workers);
+                }
             }
         }
 
@@ -845,7 +848,7 @@ impl CustomScan for PdbScan {
             if explainer.is_analyze() {
                 explainer.add_unsigned_integer(
                     "   Queries",
-                    state.custom_state().query_count as u64,
+                    state.custom_state().total_query_count().try_into().unwrap(),
                     None,
                 );
             }
@@ -1073,7 +1076,12 @@ impl CustomScan for PdbScan {
         }
     }
 
-    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        if let Some(parallel_state) = state.custom_state().parallel_state {
+            state.custom_state_mut().parallel_explain_data =
+                Some(unsafe { (*parallel_state).explain_data() });
+        }
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now

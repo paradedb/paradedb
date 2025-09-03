@@ -564,7 +564,21 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
 
--- Test 8.6: Multiple ORDER BY expressions (aggregate + field)
+-- Test 8.6: Multiple aggregates with mixed ORDER BY (cnt DESC, avg_price ASC)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+
+-- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
 SELECT category
 FROM products 
@@ -578,7 +592,7 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category ASC;
 
--- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
+-- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
 SELECT COUNT(*) as cnt
 FROM products 

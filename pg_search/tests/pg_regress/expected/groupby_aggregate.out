@@ -1067,7 +1067,37 @@ ORDER BY cnt DESC, category ASC;
    1
 (2 rows)
 
--- Test 8.6: Multiple ORDER BY expressions (aggregate + field)
+-- Test 8.6: Multiple aggregates with mixed ORDER BY (cnt DESC, avg_price ASC)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now()), (now())
+   Sort Key: (now()) DESC, (now())
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now(), now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+  category   | cnt | avg_price 
+-------------+-----+-----------
+ Electronics |   4 |    632.49
+ Toys        |   1 |    499.99
+(2 rows)
+
+-- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
 SELECT category
 FROM products 
@@ -1094,7 +1124,7 @@ ORDER BY category ASC;
  Toys
 (2 rows)
 
--- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
+-- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
 SELECT COUNT(*) as cnt
 FROM products 

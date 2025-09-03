@@ -330,6 +330,7 @@
                 "group": "Changelog",
                 "pages": [
                   "changelog/0.18.0",
+                  "changelog/0.17.12",
                   "changelog/0.17.10",
                   "changelog/0.17.9",
                   "changelog/0.17.8",

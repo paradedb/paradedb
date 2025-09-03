@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756927738934,
+  "lastUpdate": 1756927788440,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18088,6 +18088,42 @@ window.BENCHMARK_DATA = {
             "value": 385.9839347139548,
             "unit": "median tps",
             "extra": "avg tps: 384.4088559783798, max tps: 396.28067958835953, count: 57160"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "daa1d5aaa2eb3be4e6da0c93e1d352b89a5bc4b7",
+          "message": "fix: Fix handling of nulls in TopN (#3110)\n\n## What\n\nTopN was not handling nulls properly: instead, they were filled in with\na default, which would cause an error when the limit was high enough to\ninclude them.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/61.\n\n## Tests\n\nAdded a regression test and property tests (which exposed a related\nissue in pushdown: https://github.com/paradedb/paradedb/pull/3110).",
+          "timestamp": "2025-09-03T11:49:57-07:00",
+          "tree_id": "406781ed0840de7d7c190e6d69ef8af7a0a8eb76",
+          "url": "https://github.com/paradedb/paradedb/commit/daa1d5aaa2eb3be4e6da0c93e1d352b89a5bc4b7"
+        },
+        "date": 1756927787057,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 33.840183412562766,
+            "unit": "median tps",
+            "extra": "avg tps: 33.751879534357336, max tps: 34.18666756857594, count: 57306"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 382.5610478061756,
+            "unit": "median tps",
+            "extra": "avg tps: 380.1023818512893, max tps: 394.35195123588613, count: 57306"
           }
         ]
       }

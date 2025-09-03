@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756928316262,
+  "lastUpdate": 1756928440792,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21452,6 +21452,60 @@ window.BENCHMARK_DATA = {
             "value": 15.740712131602171,
             "unit": "median tps",
             "extra": "avg tps: 15.820036080343947, max tps: 19.189627223548882, count: 55462"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "daa1d5aaa2eb3be4e6da0c93e1d352b89a5bc4b7",
+          "message": "fix: Fix handling of nulls in TopN (#3110)\n\n## What\n\nTopN was not handling nulls properly: instead, they were filled in with\na default, which would cause an error when the limit was high enough to\ninclude them.\n\n## How\n\nSee https://github.com/paradedb/tantivy/pull/61.\n\n## Tests\n\nAdded a regression test and property tests (which exposed a related\nissue in pushdown: https://github.com/paradedb/paradedb/pull/3110).",
+          "timestamp": "2025-09-03T11:49:57-07:00",
+          "tree_id": "406781ed0840de7d7c190e6d69ef8af7a0a8eb76",
+          "url": "https://github.com/paradedb/paradedb/commit/daa1d5aaa2eb3be4e6da0c93e1d352b89a5bc4b7"
+        },
+        "date": 1756928439415,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.070505710064566,
+            "unit": "median tps",
+            "extra": "avg tps: 36.435450694573575, max tps: 39.37830375484033, count: 55458"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.63793148501318,
+            "unit": "median tps",
+            "extra": "avg tps: 268.8164540190805, max tps: 2351.223381512193, count: 55458"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 428.09396662484437,
+            "unit": "median tps",
+            "extra": "avg tps: 422.45429540944076, max tps: 431.46558498319934, count: 55458"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 104.8674922035464,
+            "unit": "median tps",
+            "extra": "avg tps: 106.10746997138209, max tps: 247.89588674293768, count: 110916"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.931713452795938,
+            "unit": "median tps",
+            "extra": "avg tps: 16.14782811530278, max tps: 19.95374601950203, count: 55458"
           }
         ]
       }

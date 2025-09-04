@@ -24,9 +24,11 @@ mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
+mod slop;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
+use crate::api::operator::slop::{slop_to_slop, SlopType};
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -159,6 +161,20 @@ pub fn fuzzy_typoid() -> pg_sys::Oid {
         .expect("type `pg_catalog.fuzzy` should exist");
         if oid == pg_sys::Oid::INVALID {
             panic!("type `pg_catalog.fuzzy` should exist");
+        }
+        oid
+    }
+}
+
+pub fn slop_typoid() -> pg_sys::Oid {
+    unsafe {
+        let oid = direct_function_call::<pg_sys::Oid>(
+            pg_sys::regtypein,
+            &[c"pg_catalog.slop".into_datum()],
+        )
+        .expect("type `pg_catalog.slop` should exist");
+        if oid == pg_sys::Oid::INVALID {
+            panic!("type `pg_catalog.slop` should exist");
         }
         oid
     }
@@ -517,6 +533,13 @@ where
                     .expect("rhs fuzzy value must not be NULL");
                 let fuzzy = fuzzy_to_fuzzy(fuzzy, (*const_).consttypmod, true);
                 RHSValue::PdbQuery(fuzzy.into())
+            }
+
+            other if other == slop_typoid() => {
+                let slop = SlopType::from_datum((*const_).constvalue, (*const_).constisnull)
+                    .expect("rhs slop value must not be NULL");
+                let slop = slop_to_slop(slop, (*const_).consttypmod, true);
+                RHSValue::PdbQuery(slop.into())
             }
 
             other if other == pdb_proximityclause_typoid() => {

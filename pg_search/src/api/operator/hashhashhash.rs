@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 use crate::api::builder_fns::phrase_string;
 use crate::api::operator::boost::BoostType;
+use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
     get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
 };
@@ -37,7 +38,7 @@ fn search_with_phrase(_field: &str, terms_to_tokenize: &str) -> bool {
 #[opname(pg_catalog.###)]
 fn search_with_phrase_pdb_query(_field: &str, terms_to_tokenize: pdb::Query) -> bool {
     panic!(
-        "query is incompatible with pg_search's `###(field, boost)` operator: `{terms_to_tokenize:?}`"
+        "query is incompatible with pg_search's `###(field, pdb.query)` operator: `{terms_to_tokenize:?}`"
     )
 }
 
@@ -46,6 +47,14 @@ fn search_with_phrase_pdb_query(_field: &str, terms_to_tokenize: pdb::Query) -> 
 fn search_with_phrase_boost(_field: &str, terms_to_tokenize: BoostType) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, boost)` operator: `{terms_to_tokenize:?}`"
+    )
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000, requires = ["SlopType_final"])]
+#[opname(pg_catalog.###)]
+fn search_with_phrase_slop(_field: &str, terms_to_tokenize: SlopType) -> bool {
+    panic!(
+        "query is incompatible with pg_search's `###(field, slop)` operator: `{terms_to_tokenize:?}`"
     )
 }
 
@@ -61,10 +70,16 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 },
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, ..} = query {
+                    if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
                         query = phrase_string(string);
+                        query.apply_slop_data(slop_data);
                     }
                     to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                }
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, slop_data, ..}) => {
+                    let mut query = phrase_string(string);
+                    query.apply_slop_data(slop_data);
+                    to_search_query_input(field, query)
                 }
 
                 _ => panic!("The right-hand side of the `###(field, TEXT)` operator must be a text value."),
@@ -103,6 +118,7 @@ extension_sql!(
         ALTER FUNCTION paradedb.search_with_phrase SUPPORT paradedb.search_with_phrase_support;
         ALTER FUNCTION paradedb.search_with_phrase_pdb_query SUPPORT paradedb.search_with_phrase_support;
         ALTER FUNCTION paradedb.search_with_phrase_boost SUPPORT paradedb.search_with_phrase_support;
+        ALTER FUNCTION paradedb.search_with_phrase_slop SUPPORT paradedb.search_with_phrase_support;
     "#,
     name = "search_with_phrase_support_fn",
     requires = [

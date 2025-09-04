@@ -176,6 +176,7 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             orderby_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
+            has_order_by: false,         // Will be set in plan_custom_path
         }))
     }
 
@@ -245,18 +246,48 @@ impl CustomScan for AggregateScan {
 
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        builder.build()
+        // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
+        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
+        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
+        // the aggregate_custom_scan/test_count test failure
+        let has_order_by = unsafe {
+            let parse = (*builder.args().root).parse;
+            !parse.is_null() && !(*parse).sortClause.is_null()
+        };
+
+        // Store ORDER BY information in private data for execution time
+        builder.custom_private_mut().has_order_by = has_order_by;
+
+        if builder.custom_private().grouping_columns.is_empty()
+            && builder.custom_private().orderby_info.is_empty()
+            && !has_order_by
+        {
+            unsafe {
+                let mut cscan = builder.build();
+                let plan = &mut cscan.scan.plan;
+                replace_aggrefs_in_target_list(plan);
+                cscan
+            }
+        } else {
+            builder.build()
+        }
     }
 
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
-        // EXECUTION-TIME REPLACEMENT: Replace T_Aggref with T_FuncExpr to avoid crashes
-        // We kept T_Aggref during planning for pathkey matching, now we replace them for execution
-        unsafe {
-            let cscan = builder.args().cscan;
-            let plan = &mut (*cscan).scan.plan;
-            replace_aggrefs_in_target_list(plan.targetlist);
+        // EXECUTION-TIME REPLACEMENT: Replace T_Aggref if we have GROUP BY or ORDER BY
+        // For simple aggregations without GROUP BY or ORDER BY, replacement should have happened at planning time
+        // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
+        if !builder.custom_private().grouping_columns.is_empty()
+            || !builder.custom_private().orderby_info.is_empty()
+            || builder.custom_private().has_order_by
+        {
+            unsafe {
+                let cscan = builder.args().cscan;
+                let plan = &mut (*cscan).scan.plan;
+                replace_aggrefs_in_target_list(plan);
+            }
         }
 
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
@@ -713,22 +744,31 @@ unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
 /// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
-unsafe fn replace_aggrefs_in_target_list(targetlist: *mut pg_sys::List) {
-    if targetlist.is_null() {
+unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    if (*plan).targetlist.is_null() {
         return;
     }
 
-    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    let targetlist = (*plan).targetlist;
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
 
-    for te_ptr in tlist.iter_ptr() {
-        let te = te_ptr;
-
+    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
         if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
             // Replace the T_Aggref with a T_FuncExpr placeholder
             let funcexpr = make_placeholder_func_expr(aggref);
-            (*te).expr = funcexpr as *mut pg_sys::Expr;
+            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
+            new_targetlist.push(new_te);
+        } else {
+            // For non-Aggref entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
         }
     }
+
+    (*plan).targetlist = new_targetlist.into_pg();
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

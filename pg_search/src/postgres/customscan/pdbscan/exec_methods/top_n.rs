@@ -227,19 +227,10 @@ impl ExecMethod for TopNScanExecState {
                 }
             }
 
-            // calculate a scaling factor to use against the limit
-            let factor = if self.chunk_size == 0 {
-                self.scale_factor
-            } else {
-                // we've already done chunking, so just use a default scaling factor
-                // to avoid exponentially growing the chunk size
-                SUBSEQUENT_RETRY_SCALE_FACTOR as f64
-            };
-
             // set the chunk size to the scaling factor times the limit
-            self.chunk_size = ((self.chunk_size as f64 * factor)
-                .max(self.limit as f64 * factor)
-                .min(MAX_CHUNK_SIZE as f64)) as usize;
+            self.chunk_size = (self.chunk_size * SUBSEQUENT_RETRY_SCALE_FACTOR)
+                .max((self.limit as f64 * self.scale_factor) as usize)
+                .min(MAX_CHUNK_SIZE);
 
             // Then try querying again, and continue looping if we got more results.
             if !self.query(state) {

@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "Checking if ${{ github.actor }} is a member of the org..."
           result=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
+            -H "Authorization: token ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}" \
             https://api.github.com/orgs/paradedb/members/${{ github.actor }})
           if [ "$result" -eq 204 ]; then
             echo "is_member=true" >> $GITHUB_OUTPUT

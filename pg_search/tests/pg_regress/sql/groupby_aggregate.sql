@@ -383,6 +383,228 @@ GROUP BY category
 ORDER BY category;
 
 -- =====================================================================
+-- SECTION 8: ORDER BY Aggregate Functions (New Feature)
+-- =====================================================================
+
+-- Test 8.1: ORDER BY COUNT(*) DESC - Customer's reported issue  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 10;
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 10;
+
+-- Test 8.2: ORDER BY COUNT(field) DESC
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+
+-- Test 8.3: ORDER BY SUM() DESC  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+
+-- Test 8.4: ORDER BY AVG() ASC
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY AVG(price) ASC;
+
+SELECT category, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY AVG(price) ASC;
+
+-- Test 8.5: ORDER BY MIN() and MAX()
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, MIN(price) as min_price, MAX(price) as max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY MIN(price) DESC;
+
+SELECT category, MIN(price) as min_price, MAX(price) as max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY MIN(price) DESC;
+
+-- Test 8.6: Multiple aggregate ORDER BY (first by COUNT, then by category)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, SUM(price) as total
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+
+SELECT category, COUNT(*) as cnt, SUM(price) as total
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+
+-- Test 8.7: ORDER BY aggregate with LIMIT - real-world use case
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as product_count
+FROM products 
+WHERE description @@@ 'laptop OR keyboard OR jacket' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+
+SELECT category, COUNT(*) as product_count
+FROM products 
+WHERE description @@@ 'laptop OR keyboard OR jacket' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+
+-- =====================================================================
+-- SECTION 8: ORDER BY Aggregate Functions (Testing the pathkey fix)
+-- =====================================================================
+
+-- Test 8.0: Named Aggregate ORDER BY (alias-based) - Should be simplest case
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as pcount
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY pcount DESC
+LIMIT 10;
+
+SELECT category, COUNT(*) as pcount
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY pcount DESC
+LIMIT 10;
+
+-- Test 8.2: ORDER BY COUNT(field) DESC - Aggregate on specific field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+
+-- Test 8.3: ORDER BY SUM() DESC  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+
+-- Test 8.4: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT category, COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+
+SELECT category, COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY cnt DESC, category ASC;
+
+-- Test 8.5: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY cnt DESC, category ASC;
+
+-- Test 8.6: Multiple aggregates with mixed ORDER BY (cnt DESC, avg_price ASC)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+
+-- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category ASC;
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category ASC;
+
+-- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+ORDER BY COUNT(*) DESC;
+
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+ORDER BY cnt DESC;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 

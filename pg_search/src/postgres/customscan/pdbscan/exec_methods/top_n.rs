@@ -29,7 +29,7 @@ use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
 // TODO:  should these be GUCs?  I think yes, probably
-const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
+const RETRY_SCALE_FACTOR: usize = 2;
 const MAX_CHUNK_SIZE: usize = 5000;
 
 pub struct TopNScanExecState {
@@ -64,6 +64,10 @@ impl TopNScanExecState {
             panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
         }
 
+        // the scale_factor to multiply the limit that the query asked for by
+        // calculated as (1 + (1 + n_dead) / (1 + n_live)) * limit_fetch_multiplier
+        // where n_dead and n_live are the number of dead and live tuples in the heaprel
+        // and limit_fetch_multiplier is a GUC
         let scale_factor = unsafe {
             let n_dead = direct_function_call::<i64>(
                 pg_sys::pg_stat_get_dead_tuples,
@@ -228,8 +232,8 @@ impl ExecMethod for TopNScanExecState {
             }
 
             // set the chunk size to the scaling factor times the limit
-            // on subsequent retries, multiply the chunk size by `SUBSEQUENT_RETRY_SCALE_FACTOR`
-            self.chunk_size = (self.chunk_size * SUBSEQUENT_RETRY_SCALE_FACTOR)
+            // on subsequent retries, multiply the chunk size by `RETRY_SCALE_FACTOR`
+            self.chunk_size = (self.chunk_size * RETRY_SCALE_FACTOR)
                 .max((self.limit as f64 * self.scale_factor) as usize)
                 .min(MAX_CHUNK_SIZE);
 

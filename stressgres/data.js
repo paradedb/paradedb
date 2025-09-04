@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1756999932886,
+  "lastUpdate": 1757000608960,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16076,6 +16076,42 @@ window.BENCHMARK_DATA = {
             "value": 5.426118099203348,
             "unit": "median tps",
             "extra": "avg tps: 4.907045513327709, max tps: 6.041893297398907, count: 57312"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39b0f5cb06f95e3fa837b64db3654d2e59393b5a",
+          "message": "fix: don't merge if we are under `target_segment_count` (#3074)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIf we are under the target segment count, don't merge.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-04T11:15:54-04:00",
+          "tree_id": "b113aa88ff145c8c9e44a04ca3946fa028df1871",
+          "url": "https://github.com/paradedb/paradedb/commit/39b0f5cb06f95e3fa837b64db3654d2e59393b5a"
+        },
+        "date": 1757000607531,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.212530378080142,
+            "unit": "median tps",
+            "extra": "avg tps: 7.0114021002861415, max tps: 10.862996791747518, count: 57790"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.414231426805908,
+            "unit": "median tps",
+            "extra": "avg tps: 4.886141143005415, max tps: 6.0346196280863005, count: 57790"
           }
         ]
       }

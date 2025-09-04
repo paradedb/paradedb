@@ -176,6 +176,7 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             orderby_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
+            has_order_by: false,         // Will be set in plan_custom_path
         }))
     }
 
@@ -185,13 +186,12 @@ impl CustomScan for AggregateScan {
         //
         // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
         // them with.
-        let mut targetlist = PgList::<pg_sys::TargetEntry>::new();
         let grouping_columns = &builder.custom_private().grouping_columns;
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
-            let te = unsafe {
+            unsafe {
                 if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
                     // This is a Var - it should be a grouping column
                     // Find which grouping column this is
@@ -206,16 +206,9 @@ impl CustomScan for AggregateScan {
                     if !found {
                         panic!("Var in target list not found in grouping columns");
                     }
-                    // Keep it as-is
-                    pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    // This is an aggregate - replace with placeholder FuncExpr
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
                     agg_idx += 1;
-
-                    let te = pg_sys::flatCopyTargetEntry(input_te);
-                    (*te).expr = make_placeholder_func_expr(aggref) as *mut pg_sys::Expr;
-                    te
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
                     // This might be a JSON operator expression - verify and find matching grouping column
                     let var_context = VarContext::from_planner(builder.args().root);
@@ -238,8 +231,6 @@ impl CustomScan for AggregateScan {
                         "OpExpr in target list does not match any detected grouping column",
                     );
                     target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
-                    // Keep it as-is
-                    pg_sys::flatCopyTargetEntry(input_te)
                 } else {
                     // Other expression types we don't support yet
                     panic!(
@@ -248,22 +239,57 @@ impl CustomScan for AggregateScan {
                     );
                 }
             };
-
-            targetlist.push(te);
         }
 
         // Update the private data with the target list mapping
         builder.custom_private_mut().target_list_mapping = target_list_mapping;
 
-        builder.set_targetlist(targetlist);
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        builder.build()
+        // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
+        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
+        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
+        // the aggregate_custom_scan/test_count test failure
+        let has_order_by = unsafe {
+            let parse = (*builder.args().root).parse;
+            !parse.is_null() && !(*parse).sortClause.is_null()
+        };
+
+        // Store ORDER BY information in private data for execution time
+        builder.custom_private_mut().has_order_by = has_order_by;
+
+        if builder.custom_private().grouping_columns.is_empty()
+            && builder.custom_private().orderby_info.is_empty()
+            && !has_order_by
+        {
+            unsafe {
+                let mut cscan = builder.build();
+                let plan = &mut cscan.scan.plan;
+                replace_aggrefs_in_target_list(plan);
+                cscan
+            }
+        } else {
+            builder.build()
+        }
     }
 
     fn create_custom_scan_state(
         mut builder: CustomScanStateBuilder<Self, Self::PrivateData>,
     ) -> *mut CustomScanStateWrapper<Self> {
+        // EXECUTION-TIME REPLACEMENT: Replace T_Aggref if we have GROUP BY or ORDER BY
+        // For simple aggregations without GROUP BY or ORDER BY, replacement should have happened at planning time
+        // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
+        if !builder.custom_private().grouping_columns.is_empty()
+            || !builder.custom_private().orderby_info.is_empty()
+            || builder.custom_private().has_order_by
+        {
+            unsafe {
+                let cscan = builder.args().cscan;
+                let plan = &mut (*cscan).scan.plan;
+                replace_aggrefs_in_target_list(plan);
+            }
+        }
+
         builder.custom_state().aggregate_types = builder.custom_private().aggregate_types.clone();
         builder.custom_state().grouping_columns = builder.custom_private().grouping_columns.clone();
         builder.custom_state().orderby_info = builder.custom_private().orderby_info.clone();
@@ -714,6 +740,35 @@ unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -
     }
 
     None
+}
+
+/// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
+/// This is called at execution time to avoid "Aggref found in non-Agg plan node" errors
+unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
+    if (*plan).targetlist.is_null() {
+        return;
+    }
+
+    let targetlist = (*plan).targetlist;
+    let original_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*plan).targetlist);
+    let mut new_targetlist = PgList::<pg_sys::TargetEntry>::new();
+
+    for (te_idx, te) in original_tlist.iter_ptr().enumerate() {
+        if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*te).expr) {
+            // Create a flat copy of the target entry
+            let new_te = pg_sys::flatCopyTargetEntry(te);
+            // Replace the T_Aggref with a T_FuncExpr placeholder
+            let funcexpr = make_placeholder_func_expr(aggref);
+            (*new_te).expr = funcexpr as *mut pg_sys::Expr;
+            new_targetlist.push(new_te);
+        } else {
+            // For non-Aggref entries, just make a flat copy
+            let copied_te = pg_sys::flatCopyTargetEntry(te);
+            new_targetlist.push(copied_te);
+        }
+    }
+
+    (*plan).targetlist = new_targetlist.into_pg();
 }
 
 unsafe fn make_placeholder_func_expr(aggref: *mut pg_sys::Aggref) -> *mut pg_sys::FuncExpr {

@@ -690,6 +690,468 @@ ORDER BY category;
 (1 row)
 
 -- =====================================================================
+-- SECTION 8: ORDER BY Aggregate Functions (New Feature)
+-- =====================================================================
+-- Test 8.1: ORDER BY COUNT(*) DESC - Customer's reported issue  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 10;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (now())
+   ->  Sort
+         Output: category, (now())
+         Sort Key: (now()) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+               Output: category, now()
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(10 rows)
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 10;
+  category   
+-------------
+ Electronics
+ Toys
+(2 rows)
+
+-- Test 8.2: ORDER BY COUNT(field) DESC
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+  category   
+-------------
+ Electronics
+ Toys
+(2 rows)
+
+-- Test 8.3: ORDER BY SUM() DESC  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+  category   | total_price 
+-------------+-------------
+ Electronics |     2529.96
+ Toys        |      499.99
+(2 rows)
+
+-- Test 8.4: ORDER BY AVG() ASC
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY AVG(price) ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now())
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY AVG(price) ASC;
+  category   | avg_price 
+-------------+-----------
+ Toys        |    499.99
+ Electronics |    632.49
+(2 rows)
+
+-- Test 8.5: ORDER BY MIN() and MAX()
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, MIN(price) as min_price, MAX(price) as max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY MIN(price) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now()), (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now(), now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, MIN(price) as min_price, MAX(price) as max_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY MIN(price) DESC;
+  category   | min_price | max_price 
+-------------+-----------+-----------
+ Toys        |    499.99 |    499.99
+ Electronics |     79.99 |   1299.99
+(2 rows)
+
+-- Test 8.6: Multiple aggregate ORDER BY (first by COUNT, then by category)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, SUM(price) as total
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now()), (now())
+   Sort Key: (now()) DESC, products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now(), now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, COUNT(*) as cnt, SUM(price) as total
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+  category   | cnt |  total  
+-------------+-----+---------
+ Electronics |   4 | 2529.96
+ Toys        |   1 |  499.99
+(2 rows)
+
+-- Test 8.7: ORDER BY aggregate with LIMIT - real-world use case
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as product_count
+FROM products 
+WHERE description @@@ 'laptop OR keyboard OR jacket' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (now())
+   ->  Sort
+         Output: category, (now())
+         Sort Key: (now()) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+               Output: category, now()
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(10 rows)
+
+SELECT category, COUNT(*) as product_count
+FROM products 
+WHERE description @@@ 'laptop OR keyboard OR jacket' 
+GROUP BY category
+ORDER BY COUNT(*) DESC
+LIMIT 2;
+  category   | product_count 
+-------------+---------------
+ Electronics |             4
+ Clothing    |             2
+(2 rows)
+
+-- =====================================================================
+-- SECTION 8: ORDER BY Aggregate Functions (Testing the pathkey fix)
+-- =====================================================================
+-- Test 8.0: Named Aggregate ORDER BY (alias-based) - Should be simplest case
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as pcount
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY pcount DESC
+LIMIT 10;
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: category, (now())
+   ->  Sort
+         Output: category, (now())
+         Sort Key: (now()) DESC
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+               Output: category, now()
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(10 rows)
+
+SELECT category, COUNT(*) as pcount
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY pcount DESC
+LIMIT 10;
+  category   | pcount 
+-------------+--------
+ Electronics |      4
+ Toys        |      1
+(2 rows)
+
+-- Test 8.2: ORDER BY COUNT(field) DESC - Aggregate on specific field
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(category) DESC;
+  category   
+-------------
+ Electronics
+ Toys
+(2 rows)
+
+-- Test 8.3: ORDER BY SUM() DESC  
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, SUM(price) as total_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY SUM(price) DESC;
+  category   | total_price 
+-------------+-------------
+ Electronics |     2529.96
+ Toys        |      499.99
+(2 rows)
+
+-- Test 8.4: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT category, COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now())
+   Sort Key: (now()) DESC, products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
+SELECT category, COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY cnt DESC, category ASC;
+  category   | cnt 
+-------------+-----
+ Electronics |   4
+ Toys        |   1
+(2 rows)
+
+-- Test 8.5: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY COUNT(*) DESC, category ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (now()), category
+   Sort Key: (now()) DESC, products.category
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: now(), category
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(8 rows)
+
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY cnt DESC, category ASC;
+ cnt 
+-----
+   4
+   1
+(2 rows)
+
+-- Test 8.6: Multiple aggregates with mixed ORDER BY (cnt DESC, avg_price ASC)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: category, (now()), (now())
+   Sort Key: (now()) DESC, (now())
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: category, now(), now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}
+(8 rows)
+
+SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
+FROM products 
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category
+ORDER BY cnt DESC, avg_price ASC;
+  category   | cnt | avg_price 
+-------------+-----+-----------
+ Electronics |   4 |    632.49
+ Toys        |   1 |    499.99
+(2 rows)
+
+-- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category ASC;
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: category
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+(5 rows)
+
+SELECT category
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+GROUP BY category
+ORDER BY category ASC;
+  category   
+-------------
+ Electronics
+ Toys
+(2 rows)
+
+-- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+ORDER BY COUNT(*) DESC;
+                                                                               QUERY PLAN                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: (now())
+   Sort Key: (now()) DESC
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+         Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(8 rows)
+
+SELECT COUNT(*) as cnt
+FROM products 
+WHERE description @@@ 'laptop OR keyboard' 
+ORDER BY cnt DESC;
+ cnt 
+-----
+   5
+(1 row)
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 DROP TABLE IF EXISTS products CASCADE;

@@ -156,7 +156,14 @@ impl ExecMethod for TopNScanExecState {
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
-        let local_limit = self.limit.max(self.chunk_size);
+        let multiplier = state
+            .indexrel
+            .as_ref()
+            .unwrap()
+            .options()
+            .limit_fetch_multiplier();
+        let local_limit =
+            ((self.limit as f64 * multiplier).max(self.chunk_size as f64)).ceil() as usize;
         let next_offset = self.offset + local_limit;
 
         self.search_results = state

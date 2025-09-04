@@ -183,7 +183,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 11;
+const NUM_REL_OPTS: usize = 12;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -244,6 +244,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "background_layer_sizes".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_STRING,
             offset: offset_of!(BM25IndexOptionsData, background_layer_sizes_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "limit_fetch_multiplier".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(BM25IndexOptionsData, limit_fetch_multiplier) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -311,6 +316,10 @@ impl BM25IndexOptions {
             .target_segment_count()
             .map(|count| count as usize)
             .unwrap_or_else(crate::available_parallelism)
+    }
+
+    pub fn limit_fetch_multiplier(&self) -> f64 {
+        self.options_data().limit_fetch_multiplier()
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -572,6 +581,7 @@ struct BM25IndexOptionsData {
     inet_fields_offset: i32,
     target_segment_count: i32,
     background_layer_sizes_offset: i32,
+    limit_fetch_multiplier: f64,
 }
 
 impl BM25IndexOptionsData {
@@ -649,6 +659,10 @@ impl BM25IndexOptionsData {
             self.datetime_fields_offset,
             &SearchFieldConfig::date_from_json,
         )
+    }
+
+    pub fn limit_fetch_multiplier(&self) -> f64 {
+        self.limit_fetch_multiplier
     }
 
     fn deserialize_configs(
@@ -766,6 +780,15 @@ pub unsafe fn init() {
         "The sizes of each layer to merge in the background".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_layer_sizes),
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_real_reloption(
+        RELOPT_KIND_PDB,
+        "limit_fetch_multiplier".as_pg_cstr(),
+        "The multiplier to apply to the limit when fetching results".as_pg_cstr(),
+        1.0,
+        1.0,
+        100.0,
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
 }

@@ -34,7 +34,6 @@ const MAX_CHUNK_SIZE: usize = 5000;
 
 pub struct TopNScanExecState {
     // required
-    heaprelid: pg_sys::Oid,
     limit: usize,
     orderby_info: Option<Vec<OrderByInfo>>,
 
@@ -52,6 +51,7 @@ pub struct TopNScanExecState {
     chunk_size: usize,
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
+    scale_factor: f64,
 }
 
 impl TopNScanExecState {
@@ -64,8 +64,22 @@ impl TopNScanExecState {
             panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
         }
 
+        let scale_factor = unsafe {
+            let n_dead = direct_function_call::<i64>(
+                pg_sys::pg_stat_get_dead_tuples,
+                &[heaprelid.into_datum()],
+            )
+            .unwrap();
+            let n_live = direct_function_call::<i64>(
+                pg_sys::pg_stat_get_live_tuples,
+                &[heaprelid.into_datum()],
+            )
+            .unwrap();
+
+            1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
+        } * crate::gucs::limit_fetch_multiplier();
+
         Self {
-            heaprelid,
             limit,
             orderby_info,
             search_query_input: None,
@@ -78,6 +92,7 @@ impl TopNScanExecState {
             offset: 0,
             chunk_size: 0,
             claimed_segments: RefCell::default(),
+            scale_factor,
         }
     }
 
@@ -156,14 +171,8 @@ impl ExecMethod for TopNScanExecState {
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
-        let multiplier = state
-            .indexrel
-            .as_ref()
-            .unwrap()
-            .options()
-            .limit_fetch_multiplier();
         let local_limit =
-            ((self.limit as f64 * multiplier).max(self.chunk_size as f64)).ceil() as usize;
+            (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
         self.search_results = state
@@ -193,64 +202,48 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
-        unsafe {
-            loop {
-                check_for_interrupts!();
+        loop {
+            check_for_interrupts!();
 
-                match self.search_results.next() {
-                    None if !self.did_query => {
-                        // we haven't even done a query yet, so this is our very first time in
-                        return ExecState::Eof;
-                    }
-                    None | Some(_) if self.found >= self.limit => {
-                        // we found all the matching rows
-                        return ExecState::Eof;
-                    }
-                    Some((scored, doc_address)) => {
-                        self.nresults += 1;
-                        return ExecState::RequiresVisibilityCheck {
-                            ctid: scored.ctid,
-                            score: scored.bm25,
-                            doc_address,
-                        };
-                    }
-                    None => {
-                        // Fall through to query more results.
-                    }
-                }
-
-                // calculate a scaling factor to use against the limit
-                let factor = if self.chunk_size == 0 {
-                    // if we haven't done any chunking yet, calculate the scaling factor
-                    // based on the proportion of dead tuples compared to live tuples
-                    let heaprelid = self.heaprelid;
-                    let n_dead = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_dead_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-                    let n_live = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_live_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-
-                    (1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))).ceil() as usize
-                } else {
-                    // we've already done chunking, so just use a default scaling factor
-                    // to avoid exponentially growing the chunk size
-                    SUBSEQUENT_RETRY_SCALE_FACTOR
-                };
-
-                // set the chunk size to the scaling factor times the limit
-                self.chunk_size = (self.chunk_size * factor)
-                    .max(self.limit * factor)
-                    .min(MAX_CHUNK_SIZE);
-
-                // Then try querying again, and continue looping if we got more results.
-                if !self.query(state) {
+            match self.search_results.next() {
+                None if !self.did_query => {
+                    // we haven't even done a query yet, so this is our very first time in
                     return ExecState::Eof;
                 }
+                None | Some(_) if self.found >= self.limit => {
+                    // we found all the matching rows
+                    return ExecState::Eof;
+                }
+                Some((scored, doc_address)) => {
+                    self.nresults += 1;
+                    return ExecState::RequiresVisibilityCheck {
+                        ctid: scored.ctid,
+                        score: scored.bm25,
+                        doc_address,
+                    };
+                }
+                None => {
+                    // Fall through to query more results.
+                }
+            }
+
+            // calculate a scaling factor to use against the limit
+            let factor = if self.chunk_size == 0 {
+                self.scale_factor
+            } else {
+                // we've already done chunking, so just use a default scaling factor
+                // to avoid exponentially growing the chunk size
+                SUBSEQUENT_RETRY_SCALE_FACTOR as f64
+            };
+
+            // set the chunk size to the scaling factor times the limit
+            self.chunk_size = ((self.chunk_size as f64 * factor)
+                .max(self.limit as f64 * factor)
+                .min(MAX_CHUNK_SIZE as f64)) as usize;
+
+            // Then try querying again, and continue looping if we got more results.
+            if !self.query(state) {
+                return ExecState::Eof;
             }
         }
     }

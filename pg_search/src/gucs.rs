@@ -43,6 +43,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the MixedFastFieldExecState executor. Default is `true`.
 static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
+static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -150,6 +153,17 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.limit_fetch_multiplier",
+        c"Multiplier for the limit in a TopN query",
+        c"Multiplier for the limit in a TopN query",
+        &LIMIT_FETCH_MULTIPLIER,
+        1.0,
+        100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -243,6 +257,10 @@ pub fn adjust_work_mem() -> NonZeroUsize {
     );
 
     NonZeroUsize::new(wm_as_bytes).unwrap()
+}
+
+pub fn limit_fetch_multiplier() -> f64 {
+    LIMIT_FETCH_MULTIPLIER.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -208,22 +208,17 @@ pub unsafe fn do_merge(
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = style == MergeStyle::Vacuum
-        || (layer_sizes.user_configured_background_layers()
-            && { merge_lock.merge_list().is_empty() }
-            && {
-                let combined_layers = layer_sizes.combined();
-                let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
-                let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let needs_background_merge = layer_sizes.user_configured_background_layers()
+        && { merge_lock.merge_list().is_empty() }
+        && {
+            let combined_layers = layer_sizes.combined();
+            let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-                background_merge_policy.set_mergeable_segment_entries(
-                    &metadata,
-                    &merge_lock,
-                    &merger,
-                );
-                let merge_candidates = background_merge_policy.simulate();
-                !merge_candidates.is_empty()
-            });
+            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            let merge_candidates = background_merge_policy.simulate();
+            !merge_candidates.is_empty()
+        };
 
     if needs_background_merge {
         // if we need (and think we can do) a background merge then we prefer to do that

@@ -46,9 +46,15 @@ impl Explainer {
     pub fn add_query(&mut self, query: &SearchQueryInput) {
         let mut json_value = serde_json::to_value(query).expect("query should serialize to json");
         cleanup_variabilities_from_tantivy_query(&mut json_value);
-        let updated_json_query =
-            serde_json::to_string(&json_value).expect("updated query should serialize to json");
-        self.add_text("Tantivy Query", &updated_json_query);
+        self.add_json("Tantivy Query", json_value)
+    }
+
+    pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {
+        self.add_text(
+            key,
+            serde_json::to_string(&value)
+                .unwrap_or_else(|e| panic!("{key} should serialize to json: {e}")),
+        );
     }
 
     pub fn add_text<S: AsRef<str>>(&mut self, key: &str, value: S) {

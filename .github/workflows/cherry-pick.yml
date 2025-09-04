@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Cherry Pick
@@ -23,6 +23,8 @@ jobs:
         with:
           branch: "0.17.x"
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          inherit_labels: false
+          labels: automated-cherry-pick
 
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
@@ -32,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Cherry Pick
@@ -40,3 +42,5 @@ jobs:
         with:
           branch: "0.18.x"
           token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          inherit_labels: false
+          labels: automated-cherry-pick

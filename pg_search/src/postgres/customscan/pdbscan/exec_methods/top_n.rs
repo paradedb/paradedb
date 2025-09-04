@@ -228,6 +228,7 @@ impl ExecMethod for TopNScanExecState {
             }
 
             // set the chunk size to the scaling factor times the limit
+            // on subsequent retries, multiply the chunk size by `SUBSEQUENT_RETRY_SCALE_FACTOR`
             self.chunk_size = (self.chunk_size * SUBSEQUENT_RETRY_SCALE_FACTOR)
                 .max((self.limit as f64 * self.scale_factor) as usize)
                 .min(MAX_CHUNK_SIZE);

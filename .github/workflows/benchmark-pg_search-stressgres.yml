@@ -208,7 +208,7 @@ jobs:
         with:
           repository: paradedb/stressgres
           path: stressgres
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Install the stressgres CLI tool
         run: cd stressgres && CARGO_TARGET_DIR=../target/ cargo install --path .

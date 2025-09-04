@@ -185,13 +185,12 @@ impl CustomScan for AggregateScan {
         //
         // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
         // them with.
-        let mut targetlist = PgList::<pg_sys::TargetEntry>::new();
         let grouping_columns = &builder.custom_private().grouping_columns;
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
-            let te = unsafe {
+            unsafe {
                 if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
                     // This is a Var - it should be a grouping column
                     // Find which grouping column this is
@@ -206,14 +205,9 @@ impl CustomScan for AggregateScan {
                     if !found {
                         panic!("Var in target list not found in grouping columns");
                     }
-                    // Keep it as-is
-                    pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    // This is an aggregate
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
                     agg_idx += 1;
-
-                    pg_sys::flatCopyTargetEntry(input_te)
                 } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
                     // This might be a JSON operator expression - verify and find matching grouping column
                     let var_context = VarContext::from_planner(builder.args().root);
@@ -236,8 +230,6 @@ impl CustomScan for AggregateScan {
                         "OpExpr in target list does not match any detected grouping column",
                     );
                     target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
-                    // Keep it as-is
-                    pg_sys::flatCopyTargetEntry(input_te)
                 } else {
                     // Other expression types we don't support yet
                     panic!(
@@ -246,14 +238,11 @@ impl CustomScan for AggregateScan {
                     );
                 }
             };
-
-            targetlist.push(te);
         }
 
         // Update the private data with the target list mapping
         builder.custom_private_mut().target_list_mapping = target_list_mapping;
 
-        builder.set_targetlist(targetlist);
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
         builder.build()

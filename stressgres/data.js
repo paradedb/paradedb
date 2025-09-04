@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757019216895,
+  "lastUpdate": 1757019897040,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16484,6 +16484,42 @@ window.BENCHMARK_DATA = {
             "value": 5.414231426805908,
             "unit": "median tps",
             "extra": "avg tps: 4.886141143005415, max tps: 6.0346196280863005, count: 57790"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eba935d350842b1e4a158c0f46278665836231d6",
+          "message": "feat: added support for ORDER BY aggregates in aggregate custom scan (#3119)\n\n# Ticket(s) Closed\n\n- Closes #2982\n\n## What\n\nFixed PostgreSQL pathkey matching errors for ORDER BY clauses containing\naggregate functions (e.g., `ORDER BY COUNT(*) DESC`) in custom aggregate\nscans. Previously, these queries would fail with `\"could not find\npathkey item to sort\"` errors.\n\n## Why\n\nPostgreSQL's Sort node requires exact expression matching between\npathkeys and target list entries during plan creation. Our custom scan\nwas replacing `T_Aggref` expressions with `T_FuncExpr` placeholders\nduring planning, causing pathkey matching to fail when the Sort node\ntried to find aggregate expressions for ORDER BY clauses.\n\n## How\n\nImplemented a simple two-phase solution that separates planning and\nexecution concerns:\n\n1. **Planning Phase**: Preserve all original `T_Aggref` expressions in\nthe target list to enable PostgreSQL's internal pathkey matching and\nplan validation\n2. **Execution Phase**: Replace all `T_Aggref` expressions with\n`T_FuncExpr` placeholders in `create_custom_scan_state()` to prevent\n\"Aggref found in non-Agg plan node\" execution crashes\n\nThis approach works for all aggregate queries (not just ORDER BY cases)\nby ensuring PostgreSQL's planner sees the expected `T_Aggref` nodes\nwhile the executor sees `T_FuncExpr` placeholders.\n\n## Tests\n\n- All existing ORDER BY aggregate tests now pass without pathkey errors\n- Added test coverage for mixed ORDER BY patterns (`cnt DESC, avg_price\nASC`)\n- Verified correct execution flow: planning preserves `T_Aggref` →\npathkey matching succeeds → execution replaces with `T_FuncExpr` → no\ncrashes\n- Tests cover: `COUNT(*)`, `SUM()`, `AVG()`, `MIN()`, `MAX()` with\n`DESC`/`ASC`, multiple ORDER BY expressions, and `LIMIT` clauses",
+          "timestamp": "2025-09-04T13:37:23-07:00",
+          "tree_id": "3ce8d5b739fad8417c331beb6901ca40273aae65",
+          "url": "https://github.com/paradedb/paradedb/commit/eba935d350842b1e4a158c0f46278665836231d6"
+        },
+        "date": 1757019895590,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.374169076875809,
+            "unit": "median tps",
+            "extra": "avg tps: 7.156074420247033, max tps: 11.134832797397799, count: 57313"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.320236161551757,
+            "unit": "median tps",
+            "extra": "avg tps: 4.81291236676752, max tps: 5.908652673803015, count: 57313"
           }
         ]
       }

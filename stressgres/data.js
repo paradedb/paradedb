@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757020555767,
+  "lastUpdate": 1757020558400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22280,6 +22280,66 @@ window.BENCHMARK_DATA = {
             "value": 168.39453125,
             "unit": "median mem",
             "extra": "avg mem: 157.25087123215803, max mem: 170.796875, count: 57659"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eba935d350842b1e4a158c0f46278665836231d6",
+          "message": "feat: added support for ORDER BY aggregates in aggregate custom scan (#3119)\n\n# Ticket(s) Closed\n\n- Closes #2982\n\n## What\n\nFixed PostgreSQL pathkey matching errors for ORDER BY clauses containing\naggregate functions (e.g., `ORDER BY COUNT(*) DESC`) in custom aggregate\nscans. Previously, these queries would fail with `\"could not find\npathkey item to sort\"` errors.\n\n## Why\n\nPostgreSQL's Sort node requires exact expression matching between\npathkeys and target list entries during plan creation. Our custom scan\nwas replacing `T_Aggref` expressions with `T_FuncExpr` placeholders\nduring planning, causing pathkey matching to fail when the Sort node\ntried to find aggregate expressions for ORDER BY clauses.\n\n## How\n\nImplemented a simple two-phase solution that separates planning and\nexecution concerns:\n\n1. **Planning Phase**: Preserve all original `T_Aggref` expressions in\nthe target list to enable PostgreSQL's internal pathkey matching and\nplan validation\n2. **Execution Phase**: Replace all `T_Aggref` expressions with\n`T_FuncExpr` placeholders in `create_custom_scan_state()` to prevent\n\"Aggref found in non-Agg plan node\" execution crashes\n\nThis approach works for all aggregate queries (not just ORDER BY cases)\nby ensuring PostgreSQL's planner sees the expected `T_Aggref` nodes\nwhile the executor sees `T_FuncExpr` placeholders.\n\n## Tests\n\n- All existing ORDER BY aggregate tests now pass without pathkey errors\n- Added test coverage for mixed ORDER BY patterns (`cnt DESC, avg_price\nASC`)\n- Verified correct execution flow: planning preserves `T_Aggref` →\npathkey matching succeeds → execution replaces with `T_FuncExpr` → no\ncrashes\n- Tests cover: `COUNT(*)`, `SUM()`, `AVG()`, `MIN()`, `MAX()` with\n`DESC`/`ASC`, multiple ORDER BY expressions, and `LIMIT` clauses",
+          "timestamp": "2025-09-04T13:37:23-07:00",
+          "tree_id": "3ce8d5b739fad8417c331beb6901ca40273aae65",
+          "url": "https://github.com/paradedb/paradedb/commit/eba935d350842b1e4a158c0f46278665836231d6"
+        },
+        "date": 1757020556984,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.879250494316235, max cpu: 53.333336, count: 57713"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.2475754893828, max mem: 173.03125, count: 57713"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22092,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19877.150139483307, max block_count: 23466.0, count: 57713"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 49,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.175974217247415, max segment_count: 136.0, count: 57713"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.664455870183733, max cpu: 32.684826, count: 57713"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 167.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.86709626189074, max mem: 169.81640625, count: 57713"
           }
         ]
       }

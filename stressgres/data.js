@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757019899604,
+  "lastUpdate": 1757020294941,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5386,6 +5386,72 @@ window.BENCHMARK_DATA = {
             "value": 41.290337151314446,
             "unit": "median tps",
             "extra": "avg tps: 50.5437723448947, max tps: 872.3217541343689, count: 55174"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "918955d3eb44cf296e9eacfb5aae1fc96d3f878a",
+          "message": "feat: added support for ORDER BY aggregates in aggregate custom scan (#3126)\n\n# Ticket(s) Closed\n\n- Closes #2982\n\n## What\n\nFixed PostgreSQL pathkey matching errors for ORDER BY clauses containing\naggregate functions (e.g., `ORDER BY COUNT(*) DESC`) in custom aggregate\nscans. Previously, these queries would fail with `\"could not find\npathkey item to sort\"` errors.\n\n## Why\n\nPostgreSQL's Sort node requires exact expression matching between\npathkeys and target list entries during plan creation. Our custom scan\nwas replacing `T_Aggref` expressions with `T_FuncExpr` placeholders\nduring planning, causing pathkey matching to fail when the Sort node\ntried to find aggregate expressions for ORDER BY clauses.\n\n## How\n\nImplemented a simple two-phase solution that separates planning and\nexecution concerns:\n\n1. **Planning Phase**: Preserve all original `T_Aggref` expressions in\nthe target list to enable PostgreSQL's internal pathkey matching and\nplan validation\n2. **Execution Phase**: Replace all `T_Aggref` expressions with\n`T_FuncExpr` placeholders in `create_custom_scan_state()` to prevent\n\"Aggref found in non-Agg plan node\" execution crashes\n\nThis approach works for all aggregate queries (not just ORDER BY cases)\nby ensuring PostgreSQL's planner sees the expected `T_Aggref` nodes\nwhile the executor sees `T_FuncExpr` placeholders.\n\n## Tests\n\n- All existing ORDER BY aggregate tests now pass without pathkey errors\n- Added test coverage for mixed ORDER BY patterns (`cnt DESC, avg_price\nASC`)\n- Verified correct execution flow: planning preserves `T_Aggref` →\npathkey matching succeeds → execution replaces with `T_FuncExpr` → no\ncrashes\n- Tests cover: `COUNT(*)`, `SUM()`, `AVG()`, `MIN()`, `MAX()` with\n`DESC`/`ASC`, multiple ORDER BY expressions, and `LIMIT` clauses\n\nCo-authored-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-09-04T13:55:24-07:00",
+          "tree_id": "4d5982936d23a6d2a230bd3876c6c7573537a181",
+          "url": "https://github.com/paradedb/paradedb/commit/918955d3eb44cf296e9eacfb5aae1fc96d3f878a"
+        },
+        "date": 1757020293506,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 765.097617952794,
+            "unit": "median tps",
+            "extra": "avg tps: 765.6383893400208, max tps: 784.8359176435345, count: 55286"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2689.511621210997,
+            "unit": "median tps",
+            "extra": "avg tps: 2673.381214681125, max tps: 2695.69779430216, count: 55286"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 766.3538085708951,
+            "unit": "median tps",
+            "extra": "avg tps: 766.8167379661712, max tps: 806.6778421763576, count: 55286"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 603.5134385087889,
+            "unit": "median tps",
+            "extra": "avg tps: 605.1971196104774, max tps: 655.5415483695718, count: 55286"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 514.8187617043565,
+            "unit": "median tps",
+            "extra": "avg tps: 527.306508337355, max tps: 580.7604180377886, count: 110572"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 502.3236960703242,
+            "unit": "median tps",
+            "extra": "avg tps: 491.9941293786865, max tps: 506.32863359040476, count: 55286"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 27.9543624519173,
+            "unit": "median tps",
+            "extra": "avg tps: 40.215778610467304, max tps: 1000.7185158944122, count: 55286"
           }
         ]
       }

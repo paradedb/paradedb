@@ -309,6 +309,9 @@ fn index_info(
                             .map(|file| file.file_entry.total_bytes.into()),
                     ));
                 }
+                SegmentMetaEntryContent::Mutable(_) => {
+                    todo!("index_info");
+                }
             }
         }
     }

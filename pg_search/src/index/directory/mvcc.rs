@@ -21,7 +21,8 @@ use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry,
+    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -42,11 +43,11 @@ use tantivy::directory::error::{
     DeleteError, LockError, OpenDirectoryError, OpenReadError, OpenWriteError,
 };
 use tantivy::directory::{
-    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, TerminatingWrite, WatchCallback,
-    WatchHandle,
+    DirectoryLock, DirectoryPanicHandler, FileHandle, Lock, RamDirectory, TerminatingWrite,
+    WatchCallback, WatchHandle,
 };
-use tantivy::index::SegmentId;
-use tantivy::{index::SegmentMetaInventory, Directory, IndexMeta, TantivyError};
+use tantivy::index::{SegmentId, SegmentMetaInventory};
+use tantivy::{Directory, IndexMeta, SegmentMeta, TantivyError};
 
 /// By default Tantivy writes 8192 bytes at a time (the `BufWriter` default).
 /// We want to write more at a time so we can allocate chunks of blocks all at once,
@@ -69,6 +70,31 @@ pub enum MvccSatisfies {
 impl MvccSatisfies {
     pub fn directory(self, index_relation: &PgSearchRelation) -> MVCCDirectory {
         MVCCDirectory::with_mvcc_style(index_relation, self)
+    }
+}
+
+#[derive(Debug, Clone)]
+enum LoadedSegmentMetaEntry {
+    Persisted {
+        meta: SegmentMetaEntry,
+        entry: SegmentMetaEntryImmutable,
+    },
+    Memory {
+        meta: SegmentMetaEntry,
+        tantivy_meta: SegmentMeta,
+        entry: SegmentMetaEntryMutable,
+        // Created lazily on first read so that indexing occurs in whichever parallel worker is
+        // responsible for this segment.
+        directory: OnceLock<RamDirectory>,
+    },
+}
+
+impl LoadedSegmentMetaEntry {
+    fn pintest_blockno(&self) -> pg_sys::BlockNumber {
+        match self {
+            Self::Persisted { entry, .. } => entry.pintest_blockno(),
+            Self::Memory { entry, .. } => entry.pintest_blockno(),
+        }
     }
 }
 
@@ -95,7 +121,7 @@ pub struct MVCCDirectory {
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
     loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
-    all_entries: Arc<Mutex<HashMap<SegmentId, SegmentMetaEntry>>>,
+    all_entries: Arc<Mutex<HashMap<SegmentId, LoadedSegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
 }
@@ -124,25 +150,46 @@ impl MVCCDirectory {
         }
     }
 
-    pub unsafe fn directory_lookup(&self, path: &Path) -> tantivy::Result<FileEntry> {
+    fn file_entry(&self, path: &Path) -> tantivy::Result<Arc<dyn FileHandle>> {
         let file_name = path
             .file_name()
             .expect("path should have a filename")
             .to_str()
             .expect("path should be valid UTF8");
-        let file_name = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
-        let segment_id = SegmentId::from_uuid_string(file_name)
+        let uuid_string = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
+        let segment_id = SegmentId::from_uuid_string(uuid_string)
             .map_err(|e| TantivyError::InvalidArgument(e.to_string()))?;
 
-        if let Some(meta_entry) = self.all_entries.lock().get(&segment_id) {
-            if let Some(file_entry) = meta_entry.file_entry(path) {
-                return Ok(file_entry);
+        let Some(meta_entry) = self.all_entries.lock().get(&segment_id).cloned() else {
+            return Err(TantivyError::OpenDirectoryError(
+                OpenDirectoryError::DoesNotExist(path.to_path_buf()),
+            ));
+        };
+
+        match meta_entry {
+            LoadedSegmentMetaEntry::Persisted { entry, .. } => {
+                let file_entry = entry
+                    .file_entry(uuid_string, path)
+                    .expect("TODO: figure out the ordering here.");
+                Ok(Arc::new(unsafe {
+                    SegmentComponentReader::new(&self.indexrel, file_entry)
+                }))
+            }
+            LoadedSegmentMetaEntry::Memory {
+                tantivy_meta,
+                entry,
+                directory,
+                ..
+            } => {
+                let file_handle = directory
+                    .get_or_init(|| {
+                        index_memory_segment(&self.indexrel, &tantivy_meta, &entry)
+                            .expect("TODO: Move error handling out?")
+                    })
+                    .get_file_handle(path)?;
+                Ok(file_handle)
             }
         }
-
-        Err(TantivyError::OpenDirectoryError(
-            OpenDirectoryError::DoesNotExist(path.to_path_buf()),
-        ))
     }
 
     /// Drop the pins that are held on the specified [`SegmentId`]s.
@@ -170,16 +217,25 @@ impl MVCCDirectory {
 
     pub(crate) unsafe fn drop_pin(&mut self, segment_id: &SegmentId) -> Option<()> {
         let all_entries = self.all_entries.lock();
-        let segment_meta_entry = all_entries.get(segment_id)?;
+
+        let pintest_blockno = all_entries.get(segment_id)?.pintest_blockno();
         let mut pin_cushion = self.pin_cushion.lock();
         let pin_cushion = pin_cushion.as_mut()?;
 
-        pin_cushion.remove(segment_meta_entry.pintest_blockno());
+        pin_cushion.remove(pintest_blockno);
         Some(())
     }
 
     pub(crate) fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
-        self.all_entries.lock().clone()
+        // TODO: Support merging memory segments.
+        self.all_entries
+            .lock()
+            .iter()
+            .map(|(id, entry)| match entry {
+                LoadedSegmentMetaEntry::Persisted { meta, .. } => (*id, *meta),
+                LoadedSegmentMetaEntry::Memory { meta, .. } => (*id, *meta),
+            })
+            .collect()
     }
 
     /// Returns the [`AtomicUsize`] where the number of segments that survive [`load_metas()`]'
@@ -198,32 +254,28 @@ impl Directory for MVCCDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
         match self.readers.lock().entry(path.to_path_buf()) {
             Entry::Occupied(reader) => Ok(reader.get().clone()),
-            Entry::Vacant(vacant) => {
-                let file_entry = unsafe {
-                    match self.directory_lookup(path) {
-                        Ok(file_entry) => file_entry,
-                        Err(err) => {
-                            if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path)
-                            {
-                                FileEntry {
-                                    starting_block: file_entry.starting_block,
-                                    total_bytes: total_bytes.load(Ordering::Relaxed),
-                                }
-                            } else {
-                                return Err(OpenReadError::IoError {
-                                    io_error: io::Error::other(err.to_string()).into(),
-                                    filepath: PathBuf::from(path),
-                                });
+            Entry::Vacant(vacant) => match self.file_entry(path) {
+                Ok(file_handle) => Ok(vacant.insert(file_handle).clone()),
+                Err(err) => {
+                    let file_entry =
+                        if let Some((file_entry, total_bytes)) = self.new_files.lock().get(path) {
+                            FileEntry {
+                                starting_block: file_entry.starting_block,
+                                total_bytes: total_bytes.load(Ordering::Relaxed),
                             }
-                        }
-                    }
-                };
-                Ok(vacant
-                    .insert(Arc::new(unsafe {
-                        SegmentComponentReader::new(&self.indexrel, file_entry)
-                    }))
-                    .clone())
-            }
+                        } else {
+                            return Err(OpenReadError::IoError {
+                                io_error: io::Error::other(err.to_string()).into(),
+                                filepath: PathBuf::from(path),
+                            });
+                        };
+                    Ok(vacant
+                        .insert(Arc::new(unsafe {
+                            SegmentComponentReader::new(&self.indexrel, file_entry)
+                        }))
+                        .clone())
+                }
+            },
         }
     }
     /// delete is called by Tantivy's garbage collection
@@ -364,12 +416,56 @@ impl Directory for MVCCDirectory {
                     .tantivy_schema(),
             ) {
                 Err(e) => Arc::new(Err(e)),
-                Ok(loaded) => {
-                    *self.all_entries.lock() = loaded
+                Ok(mut loaded) => {
+                    let all_entries: HashMap<_, _> = loaded
                         .entries
                         .into_iter()
-                        .map(|entry| (entry.segment_id(), entry))
+                        .map(|entry| {
+                            let lsme = match entry.content {
+                                SegmentMetaEntryContent::Immutable(content) => {
+                                    LoadedSegmentMetaEntry::Persisted {
+                                        meta: entry,
+                                        entry: content,
+                                    }
+                                }
+                                SegmentMetaEntryContent::Mutable(content) => {
+                                    LoadedSegmentMetaEntry::Memory {
+                                        meta: entry,
+                                        tantivy_meta: entry.as_tantivy().track(inventory),
+                                        entry: content,
+                                        directory: OnceLock::default(),
+                                    }
+                                }
+                            };
+                            (entry.segment_id(), lsme)
+                        })
                         .collect();
+
+                    // Sort the segments in ascending order by how long we think they'll take to
+                    // query.
+                    // * for immutable, smallest to largest by document count
+                    // * followed by mutable/in-memory, since they're indexed at read time, so
+                    //   their doc count is not comparable.
+                    //
+                    // When segments are claimed by workers they're claimed from back-to-front
+                    // and our goal is to have the most expensive segments claimed first to reduce
+                    // stragglers.
+                    //
+                    // TODO: I don't love doing this here, but it's the last place where we can
+                    // (easily) determine which segments are memory segments. If we found a better
+                    // way to identify a `SegmentReader` as being in-memory, then we could put it
+                    // back in parallel worker initialization.
+                    loaded.meta.segments.sort_unstable_by_key(|meta| {
+                        match all_entries.get(&meta.id()).unwrap() {
+                            LoadedSegmentMetaEntry::Persisted { meta, .. } => meta.num_docs(),
+                            LoadedSegmentMetaEntry::Memory { meta, .. } => {
+                                (u32::MAX as usize) + meta.num_docs()
+                            }
+                        }
+                    });
+
+                    *self.all_entries.lock() = all_entries;
+
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
                         .store(loaded.total_segments, Ordering::Relaxed);
@@ -461,6 +557,124 @@ impl PinCushion {
     }
 }
 
+/// Index the mutable segment to create a RamDirectory with contents corresponding to the given
+/// SegmentMeta entry.
+///
+/// Note that between `prepare` and `index`, additional documents may have been added. We limit the
+/// number of contained docs to the `max_doc` value and ignore trailing values.
+pub fn index_memory_segment(
+    indexrel: &PgSearchRelation,
+    segment_meta: &SegmentMeta,
+    segment: &SegmentMetaEntryMutable,
+) -> anyhow::Result<RamDirectory> {
+    use crate::index::writer::index::SerialIndexWriter;
+    use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
+    use pgrx::{pg_sys::heap_deform_tuple, PgTupleDesc};
+
+    let directory = RamDirectory::create();
+    let mut writer = SerialIndexWriter::in_memory(
+        indexrel,
+        segment_meta.id(),
+        directory.clone(),
+        // TODO: Remove argument.
+        1337,
+    )?;
+
+    let mut mutable_segment = segment.open(indexrel);
+
+    let heaprel = indexrel
+        .heap_relation()
+        .expect("Should have a heap relation.");
+    let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
+    let search_schema = indexrel.schema()?;
+    let key_field_name = search_schema.key_field_name();
+    let categorized_fields = search_schema.categorized_fields();
+
+    let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
+    let mut isnull = vec![false; heaptupdesc.len()];
+
+    unsafe {
+        let mut count = 0;
+        mutable_segment.for_each(|_, entry| {
+            if count >= segment_meta.max_doc() {
+                return;
+            }
+            count += 1;
+
+            let mut ipd = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(entry.ctid, &mut ipd);
+
+            let mut htup = pg_sys::HeapTupleData {
+                t_self: ipd,
+                ..Default::default()
+            };
+            let mut buffer: pg_sys::Buffer = pg_sys::InvalidBuffer as i32;
+
+            let fetched = {
+                #[cfg(feature = "pg14")]
+                {
+                    pg_sys::heap_fetch(
+                        heaprel.as_ptr(),
+                        pg_sys::GetActiveSnapshot(),
+                        &mut htup,
+                        &mut buffer,
+                    )
+                }
+
+                #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                {
+                    pg_sys::heap_fetch(
+                        heaprel.as_ptr(),
+                        pg_sys::GetActiveSnapshot(),
+                        &mut htup,
+                        &mut buffer,
+                        false,
+                    )
+                }
+            };
+
+            if fetched {
+                heap_deform_tuple(
+                    &mut htup,
+                    heaptupdesc.as_ptr(),
+                    values.as_mut_ptr(),
+                    isnull.as_mut_ptr(),
+                );
+
+                let mut doc = tantivy::TantivyDocument::new();
+                match row_to_search_document(
+                    values.as_mut_ptr(),
+                    isnull.as_mut_ptr(),
+                    &key_field_name,
+                    &categorized_fields,
+                    &mut doc,
+                ) {
+                    Ok(()) => {
+                        writer
+                            .insert(doc, entry.ctid, || {
+                                unreachable!("No limits configured: should not finalize.")
+                            })
+                            .expect("TODO: Failed to index heap tuple.");
+                    }
+                    Err(e) => {
+                        pgrx::warning!("Failed to create document from row: {e}");
+                    }
+                }
+            }
+
+            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
+                pg_sys::ReleaseBuffer(buffer);
+            }
+        });
+    }
+
+    writer.finalize_nocommit()?.expect(
+        "Segment should be non-empty because we created a `SegmentMeta` for it in the first place.",
+    );
+
+    Ok(directory)
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
@@ -485,7 +699,9 @@ mod tests {
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();
-        let SegmentMetaEntryContent::Immutable(entry) = entry.content;
+        let SegmentMetaEntryContent::Immutable(entry) = entry.content else {
+            todo!("test_list_meta_entries");
+        };
         assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());

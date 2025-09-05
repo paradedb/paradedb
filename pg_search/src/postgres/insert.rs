@@ -15,42 +15,50 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
-use crate::gucs;
-use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
+use std::panic::{catch_unwind, resume_unwind};
+
+use crate::index::writer::index::SerialIndexWriter;
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
-use crate::schema::{CategorizedFieldData, SearchField};
+use crate::postgres::storage::block::{
+    MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
+};
+use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::item_pointer_to_u64;
+
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
-use std::panic::{catch_unwind, resume_unwind};
-use tantivy::TantivyDocument;
+use tantivy::index::SegmentId;
+
+// TODO: GUC
+const MAX_MUTABLE_SEGMENT_SIZE: u32 = 100;
+
+/// TODO: Write as Mutable until we hit a threshold, and then switch to Immutable?
+enum InsertMode {
+    /*
+    Immutable {
+        write: SerialIndexWriter,
+        categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
+        key_field_name: FieldName,
+    },
+    */
+    Mutable { ctids: Vec<u64> },
+}
 
 pub struct InsertState {
     #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
-    pub indexrelid: pg_sys::Oid,
-    pub writer: Option<SerialIndexWriter>,
-    categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: FieldName,
+    indexrelid: pg_sys::Oid,
+    indexrel: PgSearchRelation,
     per_row_context: PgMemoryContexts,
+    mode: InsertMode,
 }
 
 impl InsertState {
     unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
-        let config = IndexWriterConfig {
-            memory_budget: gucs::adjust_work_mem(),
-            max_docs_per_segment: None,
-        };
-        let writer = SerialIndexWriter::with_mvcc(
-            indexrel,
-            MvccSatisfies::Mergeable,
-            config,
-            Default::default(),
-        )?;
-        let schema = writer.schema();
+        /*
+        let schema = indexrel.schema()?;
         let categorized_fields = schema.categorized_fields().clone();
         let key_field_name = schema.key_field_name();
+        */
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             PgMemoryContexts::CurrentMemoryContext.value(),
@@ -62,9 +70,8 @@ impl InsertState {
 
         Ok(Self {
             indexrelid: indexrel.oid(),
-            writer: Some(writer),
-            categorized_fields,
-            key_field_name,
+            mode: InsertMode::Mutable { ctids: Vec::new() },
+            indexrel: indexrel.clone(),
             per_row_context: PgMemoryContexts::For(per_row_context),
         })
     }
@@ -118,8 +125,8 @@ pub unsafe fn init_insert_state(
 #[pg_guard]
 pub unsafe extern "C-unwind" fn aminsert(
     index_relation: pg_sys::Relation,
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
+    _values: *mut pg_sys::Datum,
+    _isnull: *mut bool,
     ctid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck::Type,
@@ -138,28 +145,13 @@ pub unsafe extern "C-unwind" fn aminsert(
                 .expect("index_info argument must not be null"),
         );
 
-        state.per_row_context.switch_to(|cxt| {
-            let categorized_fields = &state.categorized_fields;
-            let key_field_name = &state.key_field_name;
-            let writer = state.writer.as_mut().expect("writer should not be null");
-
-            let mut search_document = TantivyDocument::new();
-
-            row_to_search_document(
-                values,
-                isnull,
-                key_field_name,
-                categorized_fields,
-                &mut search_document,
-            )
-            .unwrap_or_else(|err| panic!("{err}"));
-            writer
-                .insert(search_document, item_pointer_to_u64(*ctid), || {})
-                .expect("insertion into index should succeed");
-
-            cxt.reset();
-            true
-        })
+        match &mut state.mode {
+            InsertMode::Mutable { ctids } => state.per_row_context.switch_to(|cxt| {
+                ctids.push(item_pointer_to_u64(*ctid));
+                cxt.reset();
+                true
+            }),
+        }
     });
 
     match result {
@@ -179,9 +171,52 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
         return;
     }
 
-    paradedb_aminsertcleanup(state.as_mut().and_then(|state| state.writer.take()));
+    let entries = match &mut (*state).mode {
+        InsertMode::Mutable { ctids } => ctids
+            .drain(..)
+            .map(|ctid| MutableSegmentEntry { ctid })
+            .collect::<Vec<_>>(),
+    };
+
+    let mut segment_metas = MetaPage::open(&(*state).indexrel).segment_metas();
+
+    // Attempt to insert into an existing mutable segment.
+    // TODO: Validate that we're acquiring whatever locks are necessary to block `save_metas` from
+    // completely swapping the list out from under us.
+    // TODO: We're holding two write locks at a time here.
+    let inserted = segment_metas.update_item(
+        |entry| {
+            // TODO: Introduce freezing of entries, and skip them here.
+            matches!(entry.content, SegmentMetaEntryContent::Mutable(_) if entry.max_doc() < MAX_MUTABLE_SEGMENT_SIZE)
+        },
+        |entry| {
+            entry.increment_max_doc(entries.len().try_into().unwrap());
+
+            let SegmentMetaEntryContent::Mutable(content) = entry.content else {
+                panic!("update_item returned the wrong item.")
+            };
+
+            content.open(&(*state).indexrel).add_items(&entries, None);
+        },
+    );
+
+    // If we didn't find an existing mutable segment, create a new one.
+    // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
+    // `Result`.
+    if inserted.is_err() {
+        let (content, mut items) = SegmentMetaEntryMutable::create(&(*state).indexrel);
+        items.add_items(&entries, None);
+        let entry = SegmentMetaEntry::new_mutable(
+            SegmentId::generate_random(),
+            entries.len().try_into().unwrap(),
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+        segment_metas.add_items(&[entry], None);
+    }
 }
 
+#[allow(dead_code)] // TODO
 pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
     if let Some(writer) = writer.take() {
         if let Some((_, indexrel)) = writer

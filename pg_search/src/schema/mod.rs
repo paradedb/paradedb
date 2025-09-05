@@ -151,6 +151,7 @@ impl TryFrom<PgOid> for SearchFieldType {
 #[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
+    pub heap_attno: usize,
     pub base_oid: PgOid,
     pub is_array: bool,
     pub is_json: bool,
@@ -259,6 +260,7 @@ impl SearchIndexSchema {
                 attname,
                 ExtractedFieldAttribute {
                     attno,
+                    heap_attno,
                     pg_type,
                     tantivy_type,
                 },
@@ -288,6 +290,7 @@ impl SearchIndexSchema {
                         search_field,
                         CategorizedFieldData {
                             attno: *attno,
+                            heap_attno: *heap_attno,
                             base_oid,
                             is_array,
                             is_json,

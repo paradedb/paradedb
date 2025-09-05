@@ -20,7 +20,7 @@
 #![allow(static_mut_refs)]
 
 use crate::api::HashMap;
-use crate::postgres::insert::{paradedb_aminsertcleanup, InsertState};
+use crate::postgres::insert::{insertcleanup, InsertMode, InsertState};
 use pgrx::pg_sys::{uint64, QueryDesc, ScanDirection};
 use pgrx::{pg_guard, pg_sys};
 use std::collections::hash_map::Entry;
@@ -130,8 +130,9 @@ pub unsafe fn register() {
         let entry = EXECUTOR_RUN_STACK
             .pop()
             .expect("should have an ExecutorRuntimeState entry")?;
-        for (_, insert_state) in entry.active {
-            paradedb_aminsertcleanup(insert_state.writer);
+        for (_, mut insert_state) in entry.active {
+            let mode = std::mem::replace(&mut insert_state.mode, InsertMode::Completed);
+            insertcleanup(&insert_state, mode);
         }
         None
     }

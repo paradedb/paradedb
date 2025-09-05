@@ -39,8 +39,7 @@ mod tests {
         let xid = pg_sys::TransactionId::from(xid_n);
 
         let blocks: Vec<BlockNumber> = (1..=n as BlockNumber).collect();
-        fsm.extend_with_when_recyclable(&mut bman, xid, blocks.clone().into_iter());
-
+       fsm.extend_with_when_recyclable(&mut bman, xid, blocks.clone().into_iter());
         let mut drained: Vec<BlockNumber> = fsm.drain(&mut bman, n + 10).collect();
         drained.sort();
 
@@ -99,6 +98,8 @@ mod tests {
         let (mut bman, mut fsm) = init();
         let xid = pg_sys::TransactionId::from(100);
 
+        // we don't guarantee order of drains, so we can't check for vector
+        // equality here.
         fsm.extend_with_when_recyclable(&mut bman, xid, vec![1, 2].into_iter());
         let first_drain: Vec<BlockNumber> = fsm.drain(&mut bman, 5).collect();
         assert_eq!(first_drain.len(), 2);
@@ -130,7 +131,7 @@ mod tests {
     // Tests XID ordering with out-of-order inserts and varying horizons
     #[pg_test]
     fn fsm_xid_ordering() {
-        let (mut bman, mut fsm) = init();
+        let (mut bman, fsm) = init();
 
         let xid1 = pg_sys::TransactionId::from(105);
         let xid2 = pg_sys::TransactionId::from(102);

@@ -207,15 +207,6 @@ struct ParallelScanPayload {
 
 impl ParallelScanPayload {
     fn init(&mut self, segments: &[SegmentReader], query: &[u8]) {
-        // resort the segments, smallest to largest by document count
-        //
-        // when segments are claimed by workers they're claimed from back-to-front
-        // and our goal is to have the largest segments claimed first so that
-        // the processing done on them takes longer, allowing more workers to
-        // checkout their own segments
-        let mut segments = segments.iter().collect::<Vec<_>>();
-        segments.sort_unstable_by_key(|reader| reader.max_doc() - reader.num_deleted_docs());
-
         // Compute and assign our Layout: must match what we were allocated with.
         self.layout = ParallelScanPayloadLayout::new(segments.len(), query)
             .expect("could not layout `ParallelScanPayload` for initialization");

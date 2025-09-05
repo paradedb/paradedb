@@ -51,7 +51,7 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
@@ -130,6 +130,21 @@ impl CustomScan for AggregateScan {
         // Extract ORDER BY pathkeys if present
         let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
         let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
+        let limit = unsafe {
+            let parse = (*builder.args().root).parse;
+            let limit_count = (*parse).limitCount;
+
+            if !limit_count.is_null() {
+                let const_node = nodecast!(Const, T_Const, limit_count);
+                if let Some(const_node) = const_node {
+                    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
 
         // Can we handle all of the quals?
         let query = unsafe {

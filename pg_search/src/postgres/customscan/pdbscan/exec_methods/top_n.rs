@@ -30,12 +30,11 @@ use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
 // TODO:  should these be GUCs?  I think yes, probably
-const SUBSEQUENT_RETRY_SCALE_FACTOR: usize = 2;
+const RETRY_SCALE_FACTOR: usize = 2;
 const MAX_CHUNK_SIZE: usize = 5000;
 
 pub struct TopNScanExecState {
     // required
-    heaprelid: pg_sys::Oid,
     limit: usize,
     sort_direction: SortDirection,
 
@@ -53,12 +52,31 @@ pub struct TopNScanExecState {
     chunk_size: usize,
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
+    scale_factor: f64,
 }
 
 impl TopNScanExecState {
     pub fn new(heaprelid: pg_sys::Oid, limit: usize, sort_direction: SortDirection) -> Self {
+        // the scale_factor to multiply the limit that the query asked for by
+        // calculated as (1 + (1 + n_dead) / (1 + n_live)) * limit_fetch_multiplier
+        // where n_dead and n_live are the number of dead and live tuples in the heaprel
+        // and limit_fetch_multiplier is a GUC
+        let scale_factor = unsafe {
+            let n_dead = direct_function_call::<i64>(
+                pg_sys::pg_stat_get_dead_tuples,
+                &[heaprelid.into_datum()],
+            )
+            .unwrap();
+            let n_live = direct_function_call::<i64>(
+                pg_sys::pg_stat_get_live_tuples,
+                &[heaprelid.into_datum()],
+            )
+            .unwrap();
+
+            1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
+        } * crate::gucs::limit_fetch_multiplier();
+
         Self {
-            heaprelid,
             limit,
             sort_direction,
             search_query_input: None,
@@ -71,6 +89,7 @@ impl TopNScanExecState {
             offset: 0,
             chunk_size: 0,
             claimed_segments: RefCell::default(),
+            scale_factor,
         }
     }
 
@@ -157,7 +176,8 @@ impl ExecMethod for TopNScanExecState {
         state.increment_query_count();
 
         // Calculate the limit for this query, and what the offset will be for the next query.
-        let local_limit = self.limit.max(self.chunk_size);
+        let local_limit =
+            (self.limit as f64 * self.scale_factor).max(self.chunk_size as f64) as usize;
         let next_offset = self.offset + local_limit;
 
         self.search_results = state
@@ -184,64 +204,40 @@ impl ExecMethod for TopNScanExecState {
     }
 
     fn internal_next(&mut self, state: &mut PdbScanState) -> ExecState {
-        unsafe {
-            loop {
-                check_for_interrupts!();
+        loop {
+            check_for_interrupts!();
 
-                match self.search_results.next() {
-                    None if !self.did_query => {
-                        // we haven't even done a query yet, so this is our very first time in
-                        return ExecState::Eof;
-                    }
-                    None | Some(_) if self.found >= self.limit => {
-                        // we found all the matching rows
-                        return ExecState::Eof;
-                    }
-                    Some((scored, doc_address)) => {
-                        self.nresults += 1;
-                        return ExecState::RequiresVisibilityCheck {
-                            ctid: scored.ctid,
-                            score: scored.bm25,
-                            doc_address,
-                        };
-                    }
-                    None => {
-                        // Fall through to query more results.
-                    }
-                }
-
-                // calculate a scaling factor to use against the limit
-                let factor = if self.chunk_size == 0 {
-                    // if we haven't done any chunking yet, calculate the scaling factor
-                    // based on the proportion of dead tuples compared to live tuples
-                    let heaprelid = self.heaprelid;
-                    let n_dead = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_dead_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-                    let n_live = direct_function_call::<i64>(
-                        pg_sys::pg_stat_get_live_tuples,
-                        &[heaprelid.into_datum()],
-                    )
-                    .unwrap();
-
-                    (1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))).ceil() as usize
-                } else {
-                    // we've already done chunking, so just use a default scaling factor
-                    // to avoid exponentially growing the chunk size
-                    SUBSEQUENT_RETRY_SCALE_FACTOR
-                };
-
-                // set the chunk size to the scaling factor times the limit
-                self.chunk_size = (self.chunk_size * factor)
-                    .max(self.limit * factor)
-                    .min(MAX_CHUNK_SIZE);
-
-                // Then try querying again, and continue looping if we got more results.
-                if !self.query(state) {
+            match self.search_results.next() {
+                None if !self.did_query => {
+                    // we haven't even done a query yet, so this is our very first time in
                     return ExecState::Eof;
                 }
+                None | Some(_) if self.found >= self.limit => {
+                    // we found all the matching rows
+                    return ExecState::Eof;
+                }
+                Some((scored, doc_address)) => {
+                    self.nresults += 1;
+                    return ExecState::RequiresVisibilityCheck {
+                        ctid: scored.ctid,
+                        score: scored.bm25,
+                        doc_address,
+                    };
+                }
+                None => {
+                    // Fall through to query more results.
+                }
+            }
+
+            // set the chunk size to the scaling factor times the limit
+            // on subsequent retries, multiply the chunk size by `RETRY_SCALE_FACTOR`
+            self.chunk_size = (self.chunk_size * RETRY_SCALE_FACTOR)
+                .max((self.limit as f64 * self.scale_factor) as usize)
+                .min(MAX_CHUNK_SIZE);
+
+            // Then try querying again, and continue looping if we got more results.
+            if !self.query(state) {
+                return ExecState::Eof;
             }
         }
     }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757085372207,
+  "lastUpdate": 1757085653369,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21166,6 +21166,42 @@ window.BENCHMARK_DATA = {
             "value": 401.4596842620264,
             "unit": "median tps",
             "extra": "avg tps: 400.00717906685225, max tps: 429.84934964771986, count: 58012"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c24fc0426e902f549cb45127ac7805caf82baf6d",
+          "message": "chore: cherry pick upgrade to `0.18.1` (#3127) (#3130)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-05T10:40:35-04:00",
+          "tree_id": "1790163cc726eadc1f9c7bf17f8cea2961273f81",
+          "url": "https://github.com/paradedb/paradedb/commit/c24fc0426e902f549cb45127ac7805caf82baf6d"
+        },
+        "date": 1757085651832,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 32.075837825352174,
+            "unit": "median tps",
+            "extra": "avg tps: 32.02810331334573, max tps: 32.38156140249415, count: 56632"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 388.8501161351315,
+            "unit": "median tps",
+            "extra": "avg tps: 388.747112616719, max tps: 421.0179714979759, count: 56632"
           }
         ]
       }

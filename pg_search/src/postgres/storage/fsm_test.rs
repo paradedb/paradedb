@@ -17,13 +17,11 @@
 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
-use crate::postgres::storage::fsm::FSMDrainIter;
 use super::buffer::BufferManager;
 use crate::Spi;
 use pgrx::pg_test;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
-use std::ops::Range;
 
 #[pgrx::pg_schema]
 mod tests {

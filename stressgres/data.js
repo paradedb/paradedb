@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757085369399,
+  "lastUpdate": 1757085372207,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23312,6 +23312,66 @@ window.BENCHMARK_DATA = {
             "value": 167.45703125,
             "unit": "median mem",
             "extra": "avg mem: 157.86709626189074, max mem: 169.81640625, count: 57713"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4061a570032530e4618fd04ca6ab40166bdb0b4b",
+          "message": "feat: add `limit_fetch_multiplier` index setting to reduce Top N retries (#3125)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds a GUC that allows the user to control how many results we fetch per\nsegment for a Top N query.\n\n```\nf = number of results fetched\nn = limit specified by the query\nd = number of dead tuples in the heap, estimated by Postgres\na = number of alive tuples in the heap, estimated by Postgres\nm = GUC limit_fetch_multiplier setting\n\nf = n * (1 + (1 + d) / (1 + a)) * m\n```\n\n## Why\n\nAccelerate Top N queries that are bottlenecked by retries\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-05T10:37:25-04:00",
+          "tree_id": "108ce4521d100bf2b5b1492285b5f876c2519094",
+          "url": "https://github.com/paradedb/paradedb/commit/4061a570032530e4618fd04ca6ab40166bdb0b4b"
+        },
+        "date": 1757085370734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.695229,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.597247094493984, max cpu: 57.54246, count: 58012"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.1283622488666, max mem: 174.97265625, count: 58012"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22061,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19846.59692822175, max block_count: 23385.0, count: 58012"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 49,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.010515065848445, max segment_count: 142.0, count: 58012"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.722647985870556, max cpu: 28.430405, count: 58012"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 160.5843256298266, max mem: 173.7421875, count: 58012"
           }
         ]
       }

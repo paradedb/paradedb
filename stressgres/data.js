@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757084094104,
+  "lastUpdate": 1757084096638,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15826,6 +15826,126 @@ window.BENCHMARK_DATA = {
             "value": 155.19140625,
             "unit": "median mem",
             "extra": "avg mem: 138.02851686193793, max mem: 158.609375, count: 55265"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f8baa7204ab1dd435cc3ec33f865a1d78d91b3d",
+          "message": "feat: add `limit_fetch_multiplier` index setting to reduce Top N retries (#3129)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds a GUC that allows the user to control how many results we fetch per\nsegment for a Top N query.\n\n```\nf = number of results fetched\nn = limit specified by the query\nd = number of dead tuples in the heap, estimated by Postgres\na = number of alive tuples in the heap, estimated by Postgres\nm = GUC limit_fetch_multiplier setting\n\nf = n * (1 + (1 + d) / (1 + a)) * m\n```\n\n## Why\n\nAccelerate Top N queries that are bottlenecked by retries\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-05T10:38:47-04:00",
+          "tree_id": "c765a3aea4ac80896d4ba4108d167d69e758fe5f",
+          "url": "https://github.com/paradedb/paradedb/commit/2f8baa7204ab1dd435cc3ec33f865a1d78d91b3d"
+        },
+        "date": 1757084095159,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.89202914688766, max cpu: 14.131501, count: 55285"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.52621522282266, max mem: 153.3515625, count: 55285"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594124665132723, max cpu: 7.649402, count: 55285"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 147.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 134.05953496653703, max mem: 147.359375, count: 55285"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.888664718411705, max cpu: 14.723927, count: 55285"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 155.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 143.31743585794067, max mem: 156.5234375, count: 55285"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4330015943151295, max cpu: 4.8096194, count: 55285"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 153.83984375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.3276515301393, max mem: 153.83984375, count: 55285"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.841768427518667, max cpu: 13.753581, count: 110570"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 164.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.11115137752103, max mem: 166.1171875, count: 110570"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35827,
+            "unit": "median block_count",
+            "extra": "avg block_count: 36678.07815863254, max block_count: 73538.0, count: 55285"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 32.17914443339061, max segment_count: 75.0, count: 55285"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.01514634083396, max cpu: 11.464969, count: 55285"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 160.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 146.86659681084382, max mem: 162.43359375, count: 55285"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.368466725718461, max cpu: 18.568666, count: 55285"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 153.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.2323684232839, max mem: 156.48828125, count: 55285"
           }
         ]
       }

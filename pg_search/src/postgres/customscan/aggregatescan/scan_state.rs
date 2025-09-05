@@ -378,8 +378,11 @@ impl AggregateScanState {
 
     fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
         if self.orderby_info.is_empty() {
+            pgrx::info!("no order by info");
             return;
         }
+
+        pgrx::info!("sorting rows by {:?}", self.orderby_info);
 
         rows.sort_by(|a, b| {
             for order_info in &self.orderby_info {

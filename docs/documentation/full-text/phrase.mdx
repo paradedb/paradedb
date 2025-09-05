@@ -2,6 +2,12 @@
 title: Phrase
 ---
 
+<Note>
+Phrase features may not behave as expected with tokenizers that have multiple tokens
+per phrase (such as ngram). Consider using a different tokenizer or switch to 
+parse/match
+</Note>
+
 Searches for the presence of a [phrase](/documentation/concepts/phrase). The field must be indexed with [record](/documentation/indexing/record) of `position`.
 For more granular controls, see the [phrase query](/documentation/advanced/phrase).
 

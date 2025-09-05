@@ -178,8 +178,8 @@ impl FreeSpaceManager {
 
             blockno = page.special::<BM25PageSpecialData>().next_blockno;
 
-            if matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v0) {
-                // skip v0 blocks
+            if !matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v1_uncompressed) {
+                // skip unknown blocks
                 continue;
             }
 

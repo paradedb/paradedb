@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757084308826,
+  "lastUpdate": 1757084705937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17450,6 +17450,42 @@ window.BENCHMARK_DATA = {
             "value": 5.320236161551757,
             "unit": "median tps",
             "extra": "avg tps: 4.81291236676752, max tps: 5.908652673803015, count: 57313"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4061a570032530e4618fd04ca6ab40166bdb0b4b",
+          "message": "feat: add `limit_fetch_multiplier` index setting to reduce Top N retries (#3125)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds a GUC that allows the user to control how many results we fetch per\nsegment for a Top N query.\n\n```\nf = number of results fetched\nn = limit specified by the query\nd = number of dead tuples in the heap, estimated by Postgres\na = number of alive tuples in the heap, estimated by Postgres\nm = GUC limit_fetch_multiplier setting\n\nf = n * (1 + (1 + d) / (1 + a)) * m\n```\n\n## Why\n\nAccelerate Top N queries that are bottlenecked by retries\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-05T10:37:25-04:00",
+          "tree_id": "108ce4521d100bf2b5b1492285b5f876c2519094",
+          "url": "https://github.com/paradedb/paradedb/commit/4061a570032530e4618fd04ca6ab40166bdb0b4b"
+        },
+        "date": 1757084703523,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.268449197315306,
+            "unit": "median tps",
+            "extra": "avg tps: 7.05531682598858, max tps: 10.906592589808033, count: 57879"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.2897169912697075,
+            "unit": "median tps",
+            "extra": "avg tps: 4.787444317454194, max tps: 5.869578313856689, count: 57879"
           }
         ]
       }

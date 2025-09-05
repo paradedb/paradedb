@@ -61,6 +61,11 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD: GucSetting<i32> = GucSetting::<i3
 static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
     c"paradedb.mixed_fast_field_exec_column_threshold";
 
+/// The number of rows which will be indexed into a mutable segment before it is frozen, and
+/// becomes eligible for merging.
+static MUTABLE_SEGMENTS_SIZE: GucSetting<i32> = GucSetting::<i32>::new(10);
+static MUTABLE_SEGMENTS_SIZE_NAME: &CStr = c"paradedb.mutable_segments_size";
+
 /// The `PER_TUPLE_COST` is an arbitrary value that needs to be really high.  In fact, we default
 /// to one hundred million.
 ///
@@ -147,6 +152,19 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_int_guc(
+        MUTABLE_SEGMENTS_SIZE_NAME,
+        c"The number of rows to store in mutable segments",
+        c"The number of rows which will be stored in mutable segments before they are frozen and \
+          become eligible for merging. A higher value increases write throughput, but can \
+          significantly impact read throughput",
+        &MUTABLE_SEGMENTS_SIZE,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_float_guc(
         c"paradedb.per_tuple_cost",
         c"Arbitrary multiplier for the cost of retrieving a tuple from a USING bm25 index outside of an IndexScan",
@@ -217,6 +235,15 @@ pub fn mixed_fast_field_exec_column_threshold() -> usize {
                     .unwrap()
             );
         })
+}
+
+pub fn mutable_segments_size() -> u32 {
+    MUTABLE_SEGMENTS_SIZE.get().try_into().unwrap_or_else(|e| {
+        panic!(
+            "{} must be positive. {e}",
+            MUTABLE_SEGMENTS_SIZE_NAME.to_str().unwrap()
+        );
+    })
 }
 
 pub fn per_tuple_cost() -> f64 {

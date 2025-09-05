@@ -2471,7 +2471,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.3",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -2970,7 +2970,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -4761,7 +4761,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -4815,7 +4815,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "bitpacking",
 ]
@@ -4823,7 +4823,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -4838,7 +4838,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -4871,7 +4871,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "nom",
 ]
@@ -4879,7 +4879,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -4892,7 +4892,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -4905,7 +4905,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=5b5ea7576c68b7c949691c0cddef4539bb8be5ce#5b5ea7576c68b7c949691c0cddef4539bb8be5ce"
+source = "git+https://github.com/paradedb/tantivy.git?branch=stuhood.mutable-segment-support#905212edd1eaa29ed1d12f2fc5a20abc372a70d7"
 dependencies = [
  "serde",
 ]
@@ -5762,7 +5762,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

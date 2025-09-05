@@ -130,6 +130,7 @@ impl CustomScan for AggregateScan {
         // Extract ORDER BY pathkeys if present
         let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
         let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
+
         let limit = unsafe {
             let parse = (*builder.args().root).parse;
             let limit_count = (*parse).limitCount;
@@ -237,6 +238,19 @@ impl CustomScan for AggregateScan {
         // the aggregate_custom_scan/test_count test failure
         let has_order_by = unsafe {
             let parse = (*builder.args().root).parse;
+
+            let sort_clause = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
+            for sort_clause in sort_clause.iter_ptr() {
+                let expr =
+                    pg_sys::get_sortgroupclause_expr(sort_clause, builder.args().tlist.as_ptr());
+                let var_context = VarContext::from_planner(builder.args().root);
+                if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                {
+                    pgrx::info!("field_name: {:?}", field_name);
+                }
+            }
+
             !parse.is_null() && !(*parse).sortClause.is_null()
         };
 

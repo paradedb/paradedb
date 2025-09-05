@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757021219849,
+  "lastUpdate": 1757084018218,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5452,6 +5452,72 @@ window.BENCHMARK_DATA = {
             "value": 27.9543624519173,
             "unit": "median tps",
             "extra": "avg tps: 40.215778610467304, max tps: 1000.7185158944122, count: 55286"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4061a570032530e4618fd04ca6ab40166bdb0b4b",
+          "message": "feat: add `limit_fetch_multiplier` index setting to reduce Top N retries (#3125)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdds a GUC that allows the user to control how many results we fetch per\nsegment for a Top N query.\n\n```\nf = number of results fetched\nn = limit specified by the query\nd = number of dead tuples in the heap, estimated by Postgres\na = number of alive tuples in the heap, estimated by Postgres\nm = GUC limit_fetch_multiplier setting\n\nf = n * (1 + (1 + d) / (1 + a)) * m\n```\n\n## Why\n\nAccelerate Top N queries that are bottlenecked by retries\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-05T10:37:25-04:00",
+          "tree_id": "108ce4521d100bf2b5b1492285b5f876c2519094",
+          "url": "https://github.com/paradedb/paradedb/commit/4061a570032530e4618fd04ca6ab40166bdb0b4b"
+        },
+        "date": 1757084016776,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 731.4703695714488,
+            "unit": "median tps",
+            "extra": "avg tps: 733.9304699468565, max tps: 811.3106378547523, count: 54646"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2590.775728173049,
+            "unit": "median tps",
+            "extra": "avg tps: 2569.187514070287, max tps: 2596.6004127130313, count: 54646"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 722.1324315311679,
+            "unit": "median tps",
+            "extra": "avg tps: 725.7587607226259, max tps: 828.7380839274986, count: 54646"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 643.8891137258854,
+            "unit": "median tps",
+            "extra": "avg tps: 645.0343175065674, max tps: 683.6774391610641, count: 54646"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 584.269429240899,
+            "unit": "median tps",
+            "extra": "avg tps: 587.7890864826228, max tps: 630.7118965945311, count: 109292"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 439.60037625318864,
+            "unit": "median tps",
+            "extra": "avg tps: 437.72284239979047, max tps: 447.3875868379755, count: 54646"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 25.740446867027835,
+            "unit": "median tps",
+            "extra": "avg tps: 32.19208458416157, max tps: 891.1480482075449, count: 54646"
           }
         ]
       }

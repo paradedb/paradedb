@@ -728,6 +728,7 @@ fn top_n_completes_issue2511(mut conn: PgConnection) {
 
 #[rstest]
 fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
+    // Note: We use a very small mutable segment size to force multiple segments to be created.
     r#"
         DROP TABLE IF EXISTS test;
         CREATE TABLE test (
@@ -736,7 +737,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
             severity INTEGER
         ) WITH (autovacuum_enabled = false);
 
-        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB');
+        CREATE INDEX idxtest ON test USING bm25(id, message, severity) WITH (key_field = 'id', layer_sizes = '1GB, 1GB', mutable_segments_size=1);
 
         INSERT INTO test (message, severity) VALUES ('beer wine cheese a', 1);
         INSERT INTO test (message, severity) VALUES ('beer wine a', 2);

@@ -308,6 +308,12 @@ pub unsafe fn save_new_metas(
                         old_content,
                     )
                 }
+                SegmentMetaEntryContent::Mutable(_) => {
+                    // TODO: See the comment in `SegmentMetaEntry::freeable_blocks`: ideally
+                    // orphaned deletes would be impossible for a mutable segment at the type
+                    // level.
+                    todo!("orphaned_deletes_files");
+                }
             })
             .collect::<Vec<_>>();
         linked_list.add_items(&fake_entries, None);

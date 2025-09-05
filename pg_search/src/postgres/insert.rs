@@ -15,30 +15,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::panic::{catch_unwind, resume_unwind};
+
 use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::{
+    MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
+};
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
+
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
-use std::panic::{catch_unwind, resume_unwind};
+use tantivy::index::SegmentId;
 use tantivy::TantivyDocument;
 
-pub struct InsertState {
-    #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
-    pub indexrelid: pg_sys::Oid,
-    pub writer: Option<SerialIndexWriter>,
+pub struct InsertModeImmutable {
+    writer: Box<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     key_field_name: FieldName,
-    per_row_context: PgMemoryContexts,
 }
 
-impl InsertState {
-    unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
+impl InsertModeImmutable {
+    fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let config = IndexWriterConfig {
             memory_budget: gucs::adjust_work_mem(),
             max_docs_per_segment: None,
@@ -49,10 +53,37 @@ impl InsertState {
             config,
             Default::default(),
         )?;
-        let schema = writer.schema();
+        let schema = indexrel.schema()?;
         let categorized_fields = schema.categorized_fields().clone();
         let key_field_name = schema.key_field_name();
+        Ok(Self {
+            writer: Box::new(writer),
+            categorized_fields,
+            key_field_name,
+        })
+    }
+}
 
+pub struct InsertModeMutable {
+    ctids: Vec<u64>,
+}
+
+pub enum InsertMode {
+    Immutable(InsertModeImmutable),
+    Mutable(InsertModeMutable),
+    Completed,
+}
+
+pub struct InsertState {
+    #[allow(dead_code)] // field is used by pg<16 for the fakeaminsertcleanup stuff
+    pub indexrelid: pg_sys::Oid,
+    indexrel: PgSearchRelation,
+    per_row_context: PgMemoryContexts,
+    pub mode: InsertMode,
+}
+
+impl InsertState {
+    unsafe fn new(indexrel: &PgSearchRelation) -> anyhow::Result<Self> {
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
             if cfg!(feature = "pg17") {
                 if IsLogicalWorker() {
@@ -71,9 +102,8 @@ impl InsertState {
 
         Ok(Self {
             indexrelid: indexrel.oid(),
-            writer: Some(writer),
-            categorized_fields,
-            key_field_name,
+            indexrel: indexrel.clone(),
+            mode: InsertMode::Mutable(InsertModeMutable { ctids: Vec::new() }),
             per_row_context: PgMemoryContexts::For(per_row_context),
         })
     }
@@ -111,7 +141,8 @@ unsafe fn logical_worker_state() -> &'static mut rustc_hash::FxHashMap<pg_sys::O
             // process.  Effectively deferring tantivy index commits to the end of the postgres transaction
             if let Some(lwstate) = LOGICAL_WORKER_STATE.take() {
                 for (_, mut insert_state) in lwstate {
-                    paradedb_aminsertcleanup(insert_state.writer.take());
+                    let mode = std::mem::replace(&mut insert_state.mode, InsertMode::Completed);
+                    insertcleanup(&insert_state, mode);
                 }
             }
         });
@@ -206,33 +237,70 @@ unsafe fn aminsert_internal(
                 .expect("index_info argument must not be null"),
         );
 
-        state.per_row_context.switch_to(|cxt| {
-            let categorized_fields = &state.categorized_fields;
-            let key_field_name = &state.key_field_name;
-            let writer = state.writer.as_mut().expect("writer should not be null");
-
-            let mut search_document = TantivyDocument::new();
-
-            row_to_search_document(
-                values,
-                isnull,
-                key_field_name,
-                categorized_fields,
-                &mut search_document,
-            )
-            .unwrap_or_else(|err| panic!("{err}"));
-            writer
-                .insert(search_document, item_pointer_to_u64(*ctid), || {})
-                .expect("insertion into index should succeed");
-
-            cxt.reset();
-            true
-        })
+        unsafe {
+            insert(state, values, isnull, item_pointer_to_u64(*ctid));
+        };
     });
 
     match result {
-        Ok(result) => result,
+        Ok(()) => true,
         Err(e) => resume_unwind(e),
+    }
+}
+
+unsafe fn insert(
+    state: &mut InsertState,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    ctid: u64,
+) {
+    match &mut state.mode {
+        InsertMode::Immutable(mode) => state.per_row_context.switch_to(|cxt| {
+            let mut search_document = TantivyDocument::new();
+
+            row_to_search_document(
+                mode.categorized_fields.iter().map(|(field, categorized)| {
+                    let index_attno = categorized.attno;
+                    (
+                        *values.add(index_attno),
+                        *isnull.add(index_attno),
+                        field,
+                        categorized,
+                    )
+                }),
+                &mode.key_field_name,
+                &mut search_document,
+            )
+            .unwrap_or_else(|err| panic!("{err}"));
+            mode.writer
+                .insert(search_document, ctid, || {})
+                .expect("insertion into index should succeed");
+
+            cxt.reset();
+        }),
+        InsertMode::Mutable(mode) => {
+            if mode.ctids.len() < state.indexrel.options().mutable_segments_size() {
+                mode.ctids.push(ctid);
+                return;
+            }
+
+            // A large number of inserts have already occurred within this aminsert series:
+            // switch modes for this insert, based on the assumption that more are likely
+            // on the way.
+            //
+            // Swap in the new mode, cleanup the old one, and then recurse to insert in the new
+            // mode.
+            let new_mode = InsertMode::Immutable(
+                InsertModeImmutable::new(&state.indexrel)
+                    .expect("failed to open index for writing"),
+            );
+            let old_mode = std::mem::replace(&mut state.mode, new_mode);
+            insertcleanup(state, old_mode);
+            insert(state, values, isnull, ctid);
+        }
+        InsertMode::Completed => {
+            panic!("aminsertcleanup was already called.");
+        }
     }
 }
 
@@ -250,42 +318,87 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
         if state.is_null() {
             return;
         }
+        let Some(state) = state.as_mut() else {
+            return;
+        };
 
-        paradedb_aminsertcleanup(state.as_mut().and_then(|state| state.writer.take()));
+        let mode = std::mem::replace(&mut state.mode, InsertMode::Completed);
+        insertcleanup(state, mode);
     }
 }
 
-pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
-    if let Some(writer) = writer.take() {
-        if let Some((_, indexrel)) = writer
-            .commit()
-            .expect("must be able to commit inserts in paradedb_aminsertcleanup")
-        {
-            /*
-             * Recompute VACUUM XID boundaries.
-             *
-             * We don't actually care about the oldest non-removable XID.  Computing
-             * the oldest such XID has a useful side-effect that we rely on: it
-             * forcibly updates the XID horizon state for this backend.  This step is
-             * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
-             * that it is now safe to recycle newly deleted pages without this step.
-             */
-            unsafe {
-                let heaprel = indexrel
-                    .heap_relation()
-                    .expect("index should belong to a heap relation");
-                pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
-            }
-
-            unsafe {
-                do_merge(
-                    &indexrel,
-                    MergeStyle::Insert,
-                    Some(pg_sys::GetCurrentFullTransactionId()),
-                    Some(pg_sys::ReadNextFullTransactionId()),
-                )
-                .expect("should be able to merge");
-            }
+pub fn insertcleanup(state: &InsertState, mode: InsertMode) {
+    match mode {
+        InsertMode::Immutable(mode) => insertcleanup_immutable(mode),
+        InsertMode::Mutable(mode) => unsafe { insertcleanup_mutable(&state.indexrel, mode) },
+        InsertMode::Completed => {
+            panic!("insertcleanup was called twice.");
         }
+    }
+
+    /*
+     * Recompute VACUUM XID boundaries.
+     *
+     * We don't actually care about the oldest non-removable XID.  Computing
+     * the oldest such XID has a useful side-effect that we rely on: it
+     * forcibly updates the XID horizon state for this backend.  This step is
+     * essential; GlobalVisCheckRemovableFullXid() will not reliably recognize
+     * that it is now safe to recycle newly deleted pages without this step.
+     */
+    unsafe {
+        let heaprel = state
+            .indexrel
+            .heap_relation()
+            .expect("index should belong to a heap relation");
+        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
+
+        do_merge(
+            &state.indexrel,
+            MergeStyle::Insert,
+            Some(pg_sys::GetCurrentFullTransactionId()),
+            Some(pg_sys::ReadNextFullTransactionId()),
+        )
+        .expect("should be able to merge");
+    }
+}
+
+fn insertcleanup_immutable(mode: InsertModeImmutable) {
+    mode.writer
+        .commit()
+        .expect("must be able to commit inserts in insertcleanup");
+}
+
+unsafe fn insertcleanup_mutable(indexrel: &PgSearchRelation, mode: InsertModeMutable) {
+    let entries = mode
+        .ctids
+        .into_iter()
+        .map(MutableSegmentEntry::Add)
+        .collect::<Vec<_>>();
+
+    let mut segment_metas = MetaPage::open(indexrel).segment_metas();
+
+    // Attempt to insert into an existing mutable segment.
+    let inserted = segment_metas.update_item(
+        |entry| {
+            matches!(entry.content, SegmentMetaEntryContent::Mutable(content) if !content.frozen)
+        },
+        |entry| {
+            entry.mutable_add_items(indexrel, &entries).expect("update_item guard not executed properly")
+        },
+    );
+
+    // If we didn't find an existing mutable segment, create a new one.
+    // TODO: `lookup_ex` and `update_item` should probably return an `Option` rather than a
+    // `Result`.
+    if inserted.is_err() {
+        let (content, mut items) = SegmentMetaEntryMutable::create(indexrel);
+        items.add_items(&entries, None);
+        let entry = SegmentMetaEntry::new_mutable(
+            SegmentId::generate_random(),
+            entries.len().try_into().unwrap(),
+            pg_sys::InvalidTransactionId,
+            content,
+        );
+        segment_metas.add_items(&[entry], None);
     }
 }

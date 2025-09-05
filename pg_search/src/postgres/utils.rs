@@ -223,6 +223,9 @@ pub struct ExtractedFieldAttribute {
     /// its ordinal position in the index attribute list
     pub attno: usize,
 
+    /// its ordinal position in the heap attribute list
+    pub heap_attno: usize,
+
     /// its original Postgres type OID
     pub pg_type: PgOid,
 
@@ -359,6 +362,7 @@ pub unsafe fn extract_field_attributes(
             attname.into(),
             ExtractedFieldAttribute {
                 attno: attno as usize,
+                heap_attno: (heap_attno - 1) as usize,
                 pg_type,
                 tantivy_type,
                 inner_typoid,
@@ -383,26 +387,30 @@ pub unsafe fn deparse_expr(heaprel: &PgSearchRelation, expr: Option<*mut pg_sys:
     CStr::from_ptr(deparsed).to_string_lossy().into_owned()
 }
 
-pub unsafe fn row_to_search_document(
-    values: *mut pg_sys::Datum,
-    isnull: *mut bool,
+pub unsafe fn row_to_search_document<'a>(
+    categorized_fields: impl Iterator<
+        Item = (
+            pg_sys::Datum,
+            bool,
+            &'a SearchField,
+            &'a CategorizedFieldData,
+        ),
+    >,
     key_field_name: &FieldName,
-    categorized_fields: &Vec<(SearchField, CategorizedFieldData)>,
     document: &mut tantivy::TantivyDocument,
 ) -> Result<(), IndexError> {
     for (
+        datum,
+        isnull,
         search_field,
         CategorizedFieldData {
-            attno,
             base_oid,
             is_array,
             is_json,
+            ..
         },
     ) in categorized_fields
     {
-        let datum = *values.add(*attno);
-        let isnull = *isnull.add(*attno);
-
         if isnull && key_field_name == search_field.field_name() {
             return Err(IndexError::KeyIdNull(key_field_name.to_string()));
         }

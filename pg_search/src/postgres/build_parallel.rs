@@ -492,10 +492,19 @@ unsafe extern "C-unwind" fn build_callback(
     let segment_meta = build_state.per_row_context.switch_to(|_| {
         let mut doc = TantivyDocument::new();
         row_to_search_document(
-            values,
-            isnull,
+            build_state
+                .categorized_fields
+                .iter()
+                .map(|(field, categorized)| {
+                    let index_attno = categorized.attno;
+                    (
+                        *values.add(index_attno),
+                        *isnull.add(index_attno),
+                        field,
+                        categorized,
+                    )
+                }),
             &build_state.key_field_name,
-            &build_state.categorized_fields,
             &mut doc,
         )
         .unwrap_or_else(|e| panic!("{e}"));

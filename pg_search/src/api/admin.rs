@@ -309,6 +309,25 @@ fn index_info(
                             .map(|file| file.file_entry.total_bytes.into()),
                     ));
                 }
+                SegmentMetaEntryContent::Mutable(_) => {
+                    results.push((
+                        index.name().to_owned(),
+                        unsafe { entry.visible() },
+                        unsafe { entry.recyclable(segment_components.bman_mut()) },
+                        entry.xmax(),
+                        entry.segment_id().short_uuid_string(),
+                        None,
+                        Some(entry.num_docs().into()),
+                        Some(entry.num_deleted_docs().into()),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
+                }
             }
         }
     }

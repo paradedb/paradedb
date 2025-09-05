@@ -185,7 +185,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 11;
+const NUM_REL_OPTS: usize = 12;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -241,6 +241,11 @@ pub unsafe extern "C-unwind" fn amoptions(
             optname: "target_segment_count".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
             offset: offset_of!(BM25IndexOptionsData, target_segment_count) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "mutable_segments_size".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(BM25IndexOptionsData, mutable_segments_size) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "background_layer_sizes".as_pg_cstr(),
@@ -322,6 +327,14 @@ impl BM25IndexOptions {
             .target_segment_count()
             .map(|count| count as usize)
             .unwrap_or_else(crate::available_parallelism)
+    }
+
+    pub fn mutable_segments_size(&self) -> usize {
+        // TODO: Further tune this default. Seemed to give reasonable performance on `wide-table`.
+        self.options_data()
+            .mutable_segments_size()
+            .map(|count| count as usize)
+            .unwrap_or(1000)
     }
 
     pub fn key_field_name(&self) -> FieldName {
@@ -598,6 +611,7 @@ struct BM25IndexOptionsData {
     layer_sizes_offset: i32,
     inet_fields_offset: i32,
     target_segment_count: i32,
+    mutable_segments_size: i32,
     background_layer_sizes_offset: i32,
 }
 
@@ -627,6 +641,14 @@ impl BM25IndexOptionsData {
             None
         } else {
             Some(self.target_segment_count)
+        }
+    }
+
+    pub fn mutable_segments_size(&self) -> Option<i32> {
+        if self.mutable_segments_size == 0 {
+            None
+        } else {
+            Some(self.mutable_segments_size)
         }
     }
 
@@ -782,6 +804,15 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "target_segment_count".as_pg_cstr(),
         "When creating or reindexing, how many segments should be created".as_pg_cstr(),
+        0,
+        0,
+        i32::MAX,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "mutable_segments_size".as_pg_cstr(),
+        "The size of mutable segments.".as_pg_cstr(),
         0,
         0,
         i32::MAX,

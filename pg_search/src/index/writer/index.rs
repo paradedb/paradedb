@@ -23,7 +23,8 @@ use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
 use tantivy::{
-    Directory, Index, IndexMeta, IndexWriter, Opstamp, Segment, SegmentMeta, TantivyDocument,
+    directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
+    Segment, SegmentMeta, TantivyDocument,
 };
 use thiserror::Error;
 
@@ -41,7 +42,11 @@ struct PendingSegment {
 
 impl PendingSegment {
     fn new(index: &Index, memory_budget: NonZeroUsize) -> Result<Self> {
-        let segment = index.new_segment();
+        Self::with_id(index, memory_budget, SegmentId::generate_random())
+    }
+
+    fn with_id(index: &Index, memory_budget: NonZeroUsize, segment_id: SegmentId) -> Result<Self> {
+        let segment = index.new_segment_with_id(segment_id);
         let writer = SegmentWriter::for_segment(memory_budget.into(), segment.clone())?;
         Ok(Self {
             segment,
@@ -151,6 +156,38 @@ impl SerialIndexWriter {
         })
     }
 
+    /// Create a SerialIndexWriter for a single in-memory segment.
+    pub fn in_memory(
+        index_relation: &PgSearchRelation,
+        segment_id: SegmentId,
+        directory: RamDirectory,
+        worker_number: i32,
+    ) -> Result<Self> {
+        let schema = index_relation.schema()?;
+        let mut index = Index::create(directory, schema.clone().into(), IndexSettings::default())?;
+        setup_tokenizers(index_relation, &mut index)?;
+        let ctid_field = schema.ctid_field();
+        // We bound the input size instead.
+        let memory_budget = NonZeroUsize::new(usize::MAX).unwrap();
+        let config = IndexWriterConfig {
+            memory_budget,
+            max_docs_per_segment: None,
+        };
+
+        let pending_segment = Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
+
+        Ok(Self {
+            id: worker_number,
+            indexrel: Clone::clone(index_relation),
+            ctid_field,
+            config,
+            index,
+            pending_segment,
+            new_metas: Default::default(),
+            schema,
+        })
+    }
+
     pub fn schema(&self) -> &SearchIndexSchema {
         &self.schema
     }
@@ -222,6 +259,15 @@ impl SerialIndexWriter {
     /// Otherwise, we create a MVCCDirectory-backed segment.
     fn new_segment(&mut self) -> Result<PendingSegment> {
         PendingSegment::new(&self.index, self.config.memory_budget)
+    }
+
+    pub fn finalize_nocommit(&mut self) -> Result<Option<SegmentMeta>> {
+        let Some(pending_segment) = self.pending_segment.take() else {
+            // no docs were ever added
+            return Ok(None);
+        };
+
+        Ok(Some(pending_segment.finalize()?.meta().clone()))
     }
 
     /// Once the memory budget is reached, we "finalize" the segment:

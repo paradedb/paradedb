@@ -22,6 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::{HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -236,27 +237,46 @@ impl CustomScan for AggregateScan {
         // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
         // TODO(mdashti): remove the planning time replacement once we figured the reason behind
         // the aggregate_custom_scan/test_count test failure
-        let has_order_by = unsafe {
-            let parse = (*builder.args().root).parse;
-
+        let parse = unsafe { (*builder.args().root).parse };
+        let sort_fields = unsafe {
             let sort_clause = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
-            for sort_clause in sort_clause.iter_ptr() {
-                let expr =
-                    pg_sys::get_sortgroupclause_expr(sort_clause, builder.args().tlist.as_ptr());
-                let var_context = VarContext::from_planner(builder.args().root);
-                if let Some((var, field_name)) =
-                    find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                {
-                    pgrx::info!("field_name: {:?}", field_name);
-                }
-            }
-
-            !parse.is_null() && !(*parse).sortClause.is_null()
+            sort_clause
+                .iter_ptr()
+                .filter_map(|sort_clause| {
+                    let expr = pg_sys::get_sortgroupclause_expr(
+                        sort_clause,
+                        builder.args().tlist.as_ptr(),
+                    );
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    if let Some((_, field_name)) =
+                        find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
+                    {
+                        Some(field_name)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<HashSet<_>>()
         };
 
-        // Store ORDER BY information in private data for execution time
-        builder.custom_private_mut().has_order_by = has_order_by;
+        let orderby_info = builder
+            .custom_private()
+            .orderby_info
+            .clone()
+            .into_iter()
+            .filter(|info| {
+                if let OrderByFeature::Field(field_name) = &info.feature {
+                    sort_fields.contains(&field_name)
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
 
+        // Store ORDER BY information in private data for execution time
+        builder.custom_private_mut().orderby_info = orderby_info.clone();
+
+        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
             && !has_order_by
@@ -280,7 +300,6 @@ impl CustomScan for AggregateScan {
         // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
         if !builder.custom_private().grouping_columns.is_empty()
             || !builder.custom_private().orderby_info.is_empty()
-            || builder.custom_private().has_order_by
         {
             unsafe {
                 let cscan = builder.args().cscan;

@@ -249,9 +249,6 @@ impl AggregateScanState {
         }
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
-
-        // Sort according to ORDER BY
-        self.sort_rows(&mut rows);
         rows
     }
 
@@ -374,54 +371,6 @@ impl AggregateScanState {
 
             prefix_keys.pop();
         }
-    }
-
-    fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.orderby_info.is_empty() {
-            pgrx::info!("no order by info");
-            return;
-        }
-
-        pgrx::info!("sorting rows by {:?}", self.orderby_info);
-
-        rows.sort_by(|a, b| {
-            for order_info in &self.orderby_info {
-                // Find the index of this grouping column
-                let col_index = self
-                    .grouping_columns
-                    .iter()
-                    .position(|gc| matches!(&order_info.feature, OrderByFeature::Field(field_name) if gc.field_name == **field_name));
-
-                let cmp = if let Some(idx) = col_index {
-                    let val_a = a.group_keys.get(idx);
-                    let val_b = b.group_keys.get(idx);
-
-                    // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
-                    let tantivy_a = val_a.map(|v| TantivyValue(v.clone()));
-                    let tantivy_b = val_b.map(|v| TantivyValue(v.clone()));
-                    let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
-
-                    if let Some(base_cmp) = base_cmp {
-                        if matches!(order_info.direction, SortDirection::Desc) {
-                            base_cmp.reverse()
-                        } else {
-                            base_cmp
-                        }
-                    } else {
-                        panic!(
-                            "Cannot ORDER BY {order_info:?} for {tantivy_a:?} and {tantivy_b:?}."
-                        );
-                    }
-                } else {
-                    std::cmp::Ordering::Equal
-                };
-
-                if cmp != std::cmp::Ordering::Equal {
-                    return cmp;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
     }
 }
 

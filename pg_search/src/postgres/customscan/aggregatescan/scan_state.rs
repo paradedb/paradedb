@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, OrderByFeature, OrderByInfo, ToTantivyJson};
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
@@ -73,6 +73,8 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
+    // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
+    pub limit: Option<u32>,
 }
 
 impl AggregateScanState {
@@ -129,9 +131,24 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
+
+            if let [OrderByInfo {
+                feature: OrderByFeature::Field(field_name),
+                ..
+            }] = &self.orderby_info[..]
+            {
+                if FieldName::from(group_col.field_name.clone()) == *field_name {
+                    terms.insert(
+                        self.orderby_info[0].key(),
+                        self.orderby_info[0].json_value(),
+                    );
+                }
+            }
+
             // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
             // TODO: make configurable via issue ##2964
-            terms.insert("size".to_string(), serde_json::Value::Number(10000.into()));
+            let size = self.limit.unwrap_or(10000);
+            terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));

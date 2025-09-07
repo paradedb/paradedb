@@ -322,12 +322,7 @@ impl CustomScan for AggregateScan {
         builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
-
-        if !builder.custom_private().grouping_columns.is_empty()
-            && !builder.custom_private().orderby_info.is_empty()
-        {
-            builder.custom_state().limit = builder.custom_private().limit;
-        }
+        builder.custom_state().limit = builder.custom_private().limit;
 
         builder.build()
     }

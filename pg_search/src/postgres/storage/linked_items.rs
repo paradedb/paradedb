@@ -58,13 +58,13 @@ use std::ops::{Deref, DerefMut};
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
 // +-------------------------------------------------------------+
 
-pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
+pub struct LinkedItemList<T: From<PgItem> + Into<PgItem> + Debug + Clone> {
     pub header_blockno: pg_sys::BlockNumber,
     bman: BufferManager,
     _marker: std::marker::PhantomData<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedList for LinkedItemList<T> {
     fn get_header_blockno(&self) -> pg_sys::BlockNumber {
         self.header_blockno
     }
@@ -84,7 +84,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedList for 
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     pub fn open(indexrel: &PgSearchRelation, header_blockno: pg_sys::BlockNumber) -> Self {
         Self {
             header_blockno,
@@ -190,7 +190,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         true
     }
 
-    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T> {
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) -> Vec<T>
+    where
+        T: MVCCEntry,
+    {
         // Delete all items that are definitely dead
         self.retain(when_recyclable, |bman, entry| {
             if entry.recyclable(bman) {
@@ -463,12 +466,12 @@ pub enum RetainItem<T> {
     Retain,
 }
 
-pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> {
+pub struct AtomicGuard<'s, T: From<PgItem> + Into<PgItem> + Debug + Clone> {
     original: Option<(&'s mut LinkedItemList<T>, BufferMut)>,
     cloned: LinkedItemList<T>,
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Deref for AtomicGuard<'_, T> {
     type Target = LinkedItemList<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -476,13 +479,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Deref for Atomi
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> DerefMut for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> DerefMut for AtomicGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.cloned
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> AtomicGuard<'_, T> {
     pub fn commit(mut self) {
         let (original, mut original_header_lock) =
             self.original.take().expect("Cannot commit twice!");
@@ -529,7 +532,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
     }
 }
 
-impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> Drop for AtomicGuard<'_, T> {
+impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> Drop for AtomicGuard<'_, T> {
     fn drop(&mut self) {
         if self.original.is_none() {
             // We committed successfully.

@@ -193,6 +193,7 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             orderby_info,
             target_list_mapping: vec![], // Will be filled in plan_custom_path
+            limit,
         }))
     }
 
@@ -277,9 +278,7 @@ impl CustomScan for AggregateScan {
                         builder.args().tlist.as_ptr(),
                     );
                     let var_context = VarContext::from_planner(builder.args().root);
-                    if let Some((_, field_name)) =
-                        find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
-                    {
+                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
                         Some(field_name)
                     } else {
                         None
@@ -295,15 +294,21 @@ impl CustomScan for AggregateScan {
             .into_iter()
             .filter(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
-                    sort_fields.contains(&field_name)
+                    sort_fields.contains(field_name)
                 } else {
                     false
                 }
             })
             .collect::<Vec<_>>();
 
-        // Store ORDER BY information in private data for execution time
-        builder.custom_private_mut().orderby_info = orderby_info.clone();
+        // Override orderby_info
+        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if it's a single field
+        if orderby_info.len() == 1 && !builder.custom_private().grouping_columns.is_empty() {
+            builder.custom_private_mut().orderby_info = orderby_info.clone();
+        } else {
+            builder.custom_private_mut().orderby_info = vec![];
+            builder.custom_private_mut().limit = None;
+        }
 
         let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
         if builder.custom_private().grouping_columns.is_empty()
@@ -346,6 +351,13 @@ impl CustomScan for AggregateScan {
         builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
+
+        if !builder.custom_private().grouping_columns.is_empty()
+            && !builder.custom_private().orderby_info.is_empty()
+        {
+            builder.custom_state().limit = builder.custom_private().limit;
+        }
+
         builder.build()
     }
 

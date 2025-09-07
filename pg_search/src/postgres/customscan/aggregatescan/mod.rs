@@ -238,6 +238,10 @@ impl CustomScan for AggregateScan {
         // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
         // TODO(mdashti): remove the planning time replacement once we figured the reason behind
         // the aggregate_custom_scan/test_count test failure
+        let has_order_by = unsafe {
+            let parse = (*builder.args().root).parse;
+            !parse.is_null() && !(*parse).sortClause.is_null()
+        };
         let parse = unsafe { (*builder.args().root).parse };
         let sort_fields = unsafe {
             let sort_clause = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
@@ -258,6 +262,11 @@ impl CustomScan for AggregateScan {
                 .collect::<HashSet<_>>()
         };
 
+        // Store ORDER BY information in private data for execution time
+        builder.custom_private_mut().has_order_by = has_order_by;
+
+        // Override orderby_info
+        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if it's a single field
         let orderby_info = builder
             .custom_private()
             .orderby_info
@@ -272,8 +281,6 @@ impl CustomScan for AggregateScan {
             })
             .collect::<Vec<_>>();
 
-        // Override orderby_info
-        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if it's a single field
         if orderby_info.len() == 1 && !builder.custom_private().grouping_columns.is_empty() {
             builder.custom_private_mut().orderby_info = orderby_info.clone();
         } else {
@@ -281,7 +288,6 @@ impl CustomScan for AggregateScan {
             builder.custom_private_mut().limit = None;
         }
 
-        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
             && !has_order_by
@@ -305,6 +311,7 @@ impl CustomScan for AggregateScan {
         // Now we have the complete reverse logic: replace at execution time if we have any of these conditions
         if !builder.custom_private().grouping_columns.is_empty()
             || !builder.custom_private().orderby_info.is_empty()
+            || builder.custom_private().has_order_by
         {
             unsafe {
                 let cscan = builder.args().cscan;

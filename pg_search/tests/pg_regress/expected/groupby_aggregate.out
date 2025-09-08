@@ -26,7 +26,7 @@ INSERT INTO products (description, rating, category, price, in_stock) VALUES
     ('Running shoes for athletes', 5, 'Sports', 89.99, true),
     ('Winter jacket warm', 4, 'Clothing', 129.99, true),
     ('Summer jacket light', 3, 'Clothing', 59.99, true);
-CREATE INDEX products_idx ON products 
+CREATE INDEX products_idx ON products
 USING bm25 (id, description, rating, category, price)
 WITH (
     key_field='id',
@@ -38,9 +38,9 @@ WITH (
 -- =====================================================================
 -- Test 1.1: GROUP BY with COUNT(*)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, COUNT(*) 
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+SELECT category, COUNT(*)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
                                                                             QUERY PLAN                                                                             
@@ -49,12 +49,12 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (5 rows)
 
-SELECT category, COUNT(*) 
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+SELECT category, COUNT(*)
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | count 
@@ -66,8 +66,8 @@ ORDER BY category;
 -- Test 1.2: GROUP BY with SUM
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) AS total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
                                                                             QUERY PLAN                                                                             
@@ -76,12 +76,12 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, SUM(price) AS total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | total_price 
@@ -93,8 +93,8 @@ ORDER BY category;
 -- Test 1.3: GROUP BY with AVG
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) AS avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
                                                                             QUERY PLAN                                                                             
@@ -103,12 +103,12 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, AVG(price) AS avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | avg_price 
@@ -120,22 +120,22 @@ ORDER BY category;
 -- Test 1.4: GROUP BY with MIN and MAX
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | min_price | max_price 
@@ -146,33 +146,33 @@ ORDER BY category;
 
 -- Test 1.5: GROUP BY with all aggregate functions
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
-SELECT category, 
-       COUNT(*) AS count, 
-       SUM(price) AS total, 
-       AVG(price) AS avg, 
-       MIN(price) AS min_price, 
+SELECT category,
+       COUNT(*) AS count,
+       SUM(price) AS total,
+       AVG(price) AS avg,
+       MIN(price) AS min_price,
        MAX(price) AS max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
-                                                                                                            QUERY PLAN                                                                                                            
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                       QUERY PLAN                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, now(), now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
 (5 rows)
 
-SELECT category, 
-       COUNT(*) AS count, 
-       SUM(price) AS total, 
-       AVG(price) AS avg, 
-       MIN(price) AS min_price, 
+SELECT category,
+       COUNT(*) AS count,
+       SUM(price) AS total,
+       AVG(price) AS avg,
+       MIN(price) AS min_price,
        MAX(price) AS max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | count |  total  |  avg   | min_price | max_price 
@@ -184,22 +184,22 @@ ORDER BY category;
 -- Test 1.6: GROUP BY with numeric field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*), SUM(price), AVG(price)
-FROM products 
-WHERE description @@@ 'laptop' 
+FROM products
+WHERE description @@@ 'laptop'
 GROUP BY rating
 ORDER BY rating;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: rating, now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT rating, COUNT(*), SUM(price), AVG(price)
-FROM products 
-WHERE description @@@ 'laptop' 
+FROM products
+WHERE description @@@ 'laptop'
 GROUP BY rating
 ORDER BY rating;
  rating | count |   sum   |   avg   
@@ -214,22 +214,22 @@ ORDER BY rating;
 -- Test 2.1: Two GROUP BY columns
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, COUNT(*), AVG(price)
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, rating, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT category, rating, COUNT(*), AVG(price)
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
   category   | rating | count |       avg        
@@ -248,7 +248,7 @@ SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: now(), category
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (5 rows)
 
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
@@ -266,7 +266,7 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (5 rows)
 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
@@ -282,7 +282,7 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
 -- Test 3.1: GROUP BY with empty result set
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(price)
-FROM products 
+FROM products
 WHERE description @@@ 'nonexistent'
 GROUP BY category;
                                                                           QUERY PLAN                                                                          
@@ -295,7 +295,7 @@ GROUP BY category;
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(price)
-FROM products 
+FROM products
 WHERE description @@@ 'nonexistent'
 GROUP BY category;
  category | count | sum | avg 
@@ -305,22 +305,22 @@ GROUP BY category;
 -- Test 3.2: GROUP BY with grouping column in the middle
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                               QUERY PLAN                                                                                                                                
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: now(), category, now(), rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_2":{"sum":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_2":{"sum":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category, rating;
  count |  category   |       avg        | rating |   sum   
@@ -333,7 +333,7 @@ ORDER BY category, rating;
 -- Test 3.3: GROUP BY with contradictory WHERE clauses
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
-FROM products 
+FROM products
 WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
 GROUP BY category;
                                                                                                                                                                          QUERY PLAN                                                                                                                                                                          
@@ -346,9 +346,10 @@ GROUP BY category;
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
-FROM products 
+FROM products
 WHERE ((NOT (description @@@ 'laptop')) AND (description @@@ 'laptop'))
-GROUP BY category;
+GROUP BY category
+ORDER BY category;
  category | count | sum | avg 
 ----------+-------+-----+-----
 (0 rows)
@@ -357,7 +358,7 @@ GROUP BY category;
 -- WHERE (NOT (description @@@ 'laptop')) OR (description @@@ 'laptop') is always true
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*), SUM(price), AVG(rating)
-FROM products 
+FROM products
 WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
 GROUP BY category;
                                                                                                                                                                           QUERY PLAN                                                                                                                                                                           
@@ -370,9 +371,10 @@ GROUP BY category;
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
-FROM products 
+FROM products
 WHERE ((NOT (description @@@ 'laptop')) OR (description @@@ 'laptop'))
-GROUP BY category;
+GROUP BY category
+ORDER BY category;
   category   | count |   sum   | avg  
 -------------+-------+---------+------
  Clothing    |     2 |  189.98 |  3.5
@@ -399,7 +401,7 @@ INSERT INTO type_test (int_val, bigint_val, smallint_val, numeric_val, float_val
     (100, 1000000, 10, 99.99, 1.5, 3.14159, 'test1'),
     (200, 2000000, 20, 199.99, 2.5, 6.28318, 'test2'),
     (300, 3000000, 30, 299.99, 3.5, 9.42477, 'test3');
-CREATE INDEX type_test_idx ON type_test 
+CREATE INDEX type_test_idx ON type_test
 USING bm25 (id, text_val, int_val, bigint_val, smallint_val, numeric_val, float_val, double_val)
 WITH (
     key_field='id',
@@ -455,7 +457,7 @@ ORDER BY text_val;
 -- Test 5.1: GROUP BY with DISTINCT aggregates (should fall back to PostgreSQL)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(DISTINCT rating), SUM(price)
-FROM products 
+FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category;
                                                                                   QUERY PLAN                                                                                   
@@ -476,7 +478,7 @@ GROUP BY category;
 (13 rows)
 
 SELECT category, COUNT(DISTINCT rating), SUM(price)
-FROM products 
+FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
@@ -511,9 +513,9 @@ GROUP BY rating;
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"keyboard","lenient":null,"conjunction_mode":null}}}}
 (14 rows)
 
-SELECT rating, SUM(price), MAX(rating) 
-FROM products 
-WHERE description @@@ 'keyboard' 
+SELECT rating, SUM(price), MAX(rating)
+FROM products
+WHERE description @@@ 'keyboard'
 GROUP BY rating
 ORDER BY rating;
  rating |  sum   | max 
@@ -526,7 +528,7 @@ ORDER BY rating;
 -- (category is both searched and grouped - should fall back)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(rating), MAX(rating), SUM(price)
-FROM products 
+FROM products
 WHERE category @@@ 'Electronics'
 GROUP BY category;
                                                                              QUERY PLAN                                                                              
@@ -547,7 +549,7 @@ GROUP BY category;
 (13 rows)
 
 SELECT category, MIN(rating), MAX(rating), SUM(price)
-FROM products 
+FROM products
 WHERE category @@@ 'Electronics'
 GROUP BY category
 ORDER BY category;
@@ -562,8 +564,8 @@ ORDER BY category;
 -- Test 6.1: ORDER BY aggregate result
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
                                                                             QUERY PLAN                                                                             
@@ -572,12 +574,12 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category;
   category   | total_price 
@@ -589,24 +591,24 @@ ORDER BY category;
 -- Test 6.2: ORDER BY multiple columns including aggregates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category;
-                                                                                       QUERY PLAN                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, rating, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
-ORDER BY category;
+ORDER BY category, rating;
   category   | rating | cnt |    avg_price     
 -------------+--------+-----+------------------
  Electronics |      4 |   1 |            79.99
@@ -620,8 +622,8 @@ ORDER BY category;
 -- Test 7.1: Complex boolean WHERE clauses with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, SUM(price), COUNT(*)
-FROM products 
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+FROM products
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
   AND (rating >= 4 OR category @@@ 'Electronics')
 GROUP BY rating
 ORDER BY rating;
@@ -644,8 +646,8 @@ ORDER BY rating;
 (14 rows)
 
 SELECT rating, SUM(price), COUNT(*)
-FROM products 
-WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard')) 
+FROM products
+WHERE ((description @@@ 'laptop') OR (description @@@ 'keyboard'))
   AND (rating >= 4 OR category @@@ 'Electronics')
 GROUP BY rating
 ORDER BY rating;
@@ -658,7 +660,7 @@ ORDER BY rating;
 -- Test 7.2: Nested boolean expressions with GROUP BY
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price), MIN(rating), MAX(rating)
-FROM products 
+FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
@@ -680,7 +682,7 @@ ORDER BY category;
 (13 rows)
 
 SELECT category, AVG(price), MIN(rating), MAX(rating)
-FROM products 
+FROM products
 WHERE (NOT (NOT (category @@@ 'Electronics'))) AND (description @@@ 'laptop OR keyboard')
 GROUP BY category
 ORDER BY category;
@@ -692,11 +694,11 @@ ORDER BY category;
 -- =====================================================================
 -- SECTION 8: ORDER BY Aggregate Functions (New Feature)
 -- =====================================================================
--- Test 8.1: ORDER BY COUNT(*) DESC - Customer's reported issue  
+-- Test 8.1: ORDER BY COUNT(*) DESC - Customer's reported issue
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
@@ -711,12 +713,12 @@ LIMIT 10;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10}}}
 (10 rows)
 
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 10;
@@ -729,8 +731,8 @@ LIMIT 10;
 -- Test 8.2: ORDER BY COUNT(field) DESC
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
                                                                                QUERY PLAN                                                                                
@@ -746,8 +748,8 @@ ORDER BY COUNT(category) DESC;
 (8 rows)
 
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
   category   
@@ -756,11 +758,11 @@ ORDER BY COUNT(category) DESC;
  Toys
 (2 rows)
 
--- Test 8.3: ORDER BY SUM() DESC  
+-- Test 8.3: ORDER BY SUM() DESC
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
                                                                                QUERY PLAN                                                                                
@@ -776,8 +778,8 @@ ORDER BY SUM(price) DESC;
 (8 rows)
 
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
   category   | total_price 
@@ -789,8 +791,8 @@ ORDER BY SUM(price) DESC;
 -- Test 8.4: ORDER BY AVG() ASC
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, AVG(price) as avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY AVG(price) ASC;
                                                                                QUERY PLAN                                                                                
@@ -806,8 +808,8 @@ ORDER BY AVG(price) ASC;
 (8 rows)
 
 SELECT category, AVG(price) as avg_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY AVG(price) ASC;
   category   | avg_price 
@@ -819,8 +821,8 @@ ORDER BY AVG(price) ASC;
 -- Test 8.5: ORDER BY MIN() and MAX()
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY MIN(price) DESC;
                                                                                QUERY PLAN                                                                                
@@ -836,8 +838,8 @@ ORDER BY MIN(price) DESC;
 (8 rows)
 
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY MIN(price) DESC;
   category   | min_price | max_price 
@@ -849,8 +851,8 @@ ORDER BY MIN(price) DESC;
 -- Test 8.6: Multiple aggregate ORDER BY (first by COUNT, then by category)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt, SUM(price) as total
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
                                                                                QUERY PLAN                                                                                
@@ -862,12 +864,12 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: category, now(), now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, COUNT(*) as cnt, SUM(price) as total
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
   category   | cnt |  total  
@@ -879,8 +881,8 @@ ORDER BY COUNT(*) DESC, category ASC;
 -- Test 8.7: ORDER BY aggregate with LIMIT - real-world use case
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as product_count
-FROM products 
-WHERE description @@@ 'laptop OR keyboard OR jacket' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
@@ -895,12 +897,12 @@ LIMIT 2;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":2}}}
 (10 rows)
 
 SELECT category, COUNT(*) as product_count
-FROM products 
-WHERE description @@@ 'laptop OR keyboard OR jacket' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard OR jacket'
 GROUP BY category
 ORDER BY COUNT(*) DESC
 LIMIT 2;
@@ -916,8 +918,8 @@ LIMIT 2;
 -- Test 8.0: Named Aggregate ORDER BY (alias-based) - Should be simplest case
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as pcount
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
@@ -932,12 +934,12 @@ LIMIT 10;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10}}}
 (10 rows)
 
 SELECT category, COUNT(*) as pcount
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY pcount DESC
 LIMIT 10;
@@ -950,8 +952,8 @@ LIMIT 10;
 -- Test 8.2: ORDER BY COUNT(field) DESC - Aggregate on specific field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
                                                                                QUERY PLAN                                                                                
@@ -967,8 +969,8 @@ ORDER BY COUNT(category) DESC;
 (8 rows)
 
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(category) DESC;
   category   
@@ -977,11 +979,11 @@ ORDER BY COUNT(category) DESC;
  Toys
 (2 rows)
 
--- Test 8.3: ORDER BY SUM() DESC  
+-- Test 8.3: ORDER BY SUM() DESC
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
                                                                                QUERY PLAN                                                                                
@@ -997,8 +999,8 @@ ORDER BY SUM(price) DESC;
 (8 rows)
 
 SELECT category, SUM(price) as total_price
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY SUM(price) DESC;
   category   | total_price 
@@ -1008,10 +1010,10 @@ ORDER BY SUM(price) DESC;
 (2 rows)
 
 -- Test 8.4: Multiple ORDER BY expressions (aggregate + field)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
                                                                                QUERY PLAN                                                                                
@@ -1023,12 +1025,12 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (8 rows)
 
 SELECT category, COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
   category   | cnt 
@@ -1038,10 +1040,10 @@ ORDER BY cnt DESC, category ASC;
 (2 rows)
 
 -- Test 8.5: Multiple ORDER BY expressions (aggregate + field)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY COUNT(*) DESC, category ASC;
                                                                                QUERY PLAN                                                                                
@@ -1053,12 +1055,12 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: now(), category
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (8 rows)
 
 SELECT COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, category ASC;
  cnt 
@@ -1070,7 +1072,7 @@ ORDER BY cnt DESC, category ASC;
 -- Test 8.6: Multiple aggregates with mixed ORDER BY (cnt DESC, avg_price ASC)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
-FROM products 
+FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
@@ -1087,7 +1089,7 @@ ORDER BY cnt DESC, avg_price ASC;
 (8 rows)
 
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
-FROM products 
+FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY cnt DESC, avg_price ASC;
@@ -1098,10 +1100,10 @@ ORDER BY cnt DESC, avg_price ASC;
 (2 rows)
 
 -- Test 8.7: Multiple ORDER BY expressions (aggregate + field)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category ASC;
                                                                             QUERY PLAN                                                                             
@@ -1110,12 +1112,12 @@ ORDER BY category ASC;
    Output: category
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000}}}
 (5 rows)
 
 SELECT category
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category ASC;
   category   
@@ -1125,10 +1127,10 @@ ORDER BY category ASC;
 (2 rows)
 
 -- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE) 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 ORDER BY COUNT(*) DESC;
                                                                                QUERY PLAN                                                                                
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1143,8 +1145,8 @@ ORDER BY COUNT(*) DESC;
 (8 rows)
 
 SELECT COUNT(*) as cnt
-FROM products 
-WHERE description @@@ 'laptop OR keyboard' 
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
 ORDER BY cnt DESC;
  cnt 
 -----

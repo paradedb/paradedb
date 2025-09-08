@@ -200,10 +200,10 @@ impl Iterator for FSMDrainIter {
                 let b = buf.page_mut().contents_mut::<FSMChain>();
                 let ret = b.entries[(b.count-1) as usize];
                 b.count -= 1;
-                if b.count == 0 {
-                    // TODO: free block
-                    root.partial[slot] = next(&buf);
-                }
+//                if b.count == 0 {
+//                    // TODO: free block
+//                    root.partial[slot] = next(&buf);
+//                }
                 self.last_slot = slot;
 pgrx::warning!("drain1 {}<={}", ret, self.horizon);
                 return Some(ret)

@@ -132,17 +132,15 @@ impl AggregateScanState {
                 serde_json::Value::String(group_col.field_name.clone()),
             );
 
-            if let [OrderByInfo {
-                feature: OrderByFeature::Field(field_name),
-                ..
-            }] = &self.orderby_info[..]
-            {
-                if FieldName::from(group_col.field_name.clone()) == *field_name {
-                    terms.insert(
-                        self.orderby_info[0].key(),
-                        self.orderby_info[0].json_value(),
-                    );
+            // insert ORDER BY info
+            if let Some(orderby_info) = self.orderby_info.iter().find(|info| {
+                if let OrderByFeature::Field(field_name) = &info.feature {
+                    *field_name == FieldName::from(group_col.field_name.clone())
+                } else {
+                    false
                 }
+            }) {
+                terms.insert(orderby_info.key(), orderby_info.json_value());
             }
 
             // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy

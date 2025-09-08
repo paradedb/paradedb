@@ -17,8 +17,10 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, BufferMut};
+use crate::postgres::storage::metadata::MetaPage;
 use std::option::Option;
-use pgrx::pg_sys;
+use pgrx::iter::TableIterator;
+use pgrx::{name, pg_extern, pg_sys, AnyNumeric, PgRelation};
 
 
 /// Denotes what the data on an FSM block looks like
@@ -223,8 +225,30 @@ pgrx::warning!("drain2 {}<={}", ret, self.horizon);
 }
 
 // this is useful for debugging, shut up about unused code.
-#[allow(dead_code)]
-fn dump(bman : &mut BufferManager, root : &FSMRoot) {
+
+#[pg_extern]
+unsafe fn fsm_info(
+    index: PgRelation,
+) -> TableIterator<
+    'static,
+    (
+        name!(fsm_blockno, AnyNumeric),
+        name!(free_blockno, AnyNumeric),
+        name!(freed_xid, AnyNumeric),
+    ),
+> {
+    let index = PgSearchRelation::from_pg(index.as_ptr());
+
+    let meta = MetaPage::open(&index);
+    let fsm = meta.fsm();
+    let mut bman = BufferManager::new(&index);
+    let mut rbuf = load_root(fsm, &mut bman);
+    let root = rbuf.page_mut().contents_mut::<FSMRoot>();
+    let mut mapping = Vec::<(
+        AnyNumeric,
+        AnyNumeric,
+        AnyNumeric,
+    )>::default();
     for i in 0..root.partial.len() {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {
@@ -234,14 +258,15 @@ fn dump(bman : &mut BufferManager, root : &FSMRoot) {
         let mut b = root.partial[i];
         let xid = pg_sys::TransactionId::from(!0);
         loop {
-            match get_chain(bman, b, xid){
+            match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-                    pgrx::warning!("\t[{}]: {}\n", b, node.count);
+                    for i in 0..node.count {
+                        mapping.push((b.into(), node.entries[i as usize].into(), node.xid.into()))
+                    }
                     b = next(&buf);
                 }
                 None	=> {
-                    pgrx::warning!("\t[END]");
                     break;
                 }
             }
@@ -249,19 +274,22 @@ fn dump(bman : &mut BufferManager, root : &FSMRoot) {
         pgrx::warning!("f {}:", root.filled[i]);
         b = root.filled[i];
         loop {
-            match get_chain(bman, b, xid){
+            match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-                    pgrx::warning!("\t[{}] {}\n", b, node.count);
+                    for i in 0..node.count {
+                        mapping.push((b.into(), node.entries[i as usize].into(), node.xid.into()))
+                    }
                     b = next(&buf);
                 }
                 None	=> {
-                    pgrx::warning!("\t[END]");
                     break;
                 }
             }
         }
     }
+
+    TableIterator::new(mapping.into_iter())
 }
 
 fn next_chain(
@@ -277,7 +305,6 @@ fn next_chain(
     while bno != pg_sys::InvalidBlockNumber {
         let buf = bman.get_buffer_mut(bno);
         let b = buf.page().contents::<FSMChain>();
-        let blk_xid = pg_sys::TransactionId::from(b.xid);
         if b.xid == xid.into_inner() {
             return buf;
         }

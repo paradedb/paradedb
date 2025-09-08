@@ -1434,11 +1434,14 @@ where
                 VarContext::from_planner(root),
                 expr as *mut pg_sys::Node,
             ) {
-                if let Some(search_field) = schema.search_field(field_name.root()) {
-                    if regular_sortability_check(&search_field) {
-                        pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
-                        found_valid_member = true;
-                        break;
+                let (heaprelid, _, _) = find_var_relation(var, root);
+                if heaprelid != pg_sys::Oid::INVALID {
+                    if let Some(search_field) = schema.search_field(field_name.root()) {
+                        if regular_sortability_check(&search_field) {
+                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                            found_valid_member = true;
+                            break;
+                        }
                     }
                 }
             }

@@ -28,6 +28,9 @@ use tantivy::schema::OwnedValue;
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
 
+// TODO: make configurable via issue ##2964
+const DEFAULT_LIMIT: u32 = 10000;
+
 /// Source of aggregate result data - either from result map or bucket object
 enum AggregateResultSource<'a> {
     /// Results from simple aggregation (no GROUP BY)
@@ -132,7 +135,7 @@ impl AggregateScanState {
                 serde_json::Value::String(group_col.field_name.clone()),
             );
 
-            // insert ORDER BY info
+            // if we are ordering, push down the limit and orderby info
             if let Some(orderby_info) = self.orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
                     *field_name == FieldName::from(group_col.field_name.clone())
@@ -141,12 +144,15 @@ impl AggregateScanState {
                 }
             }) {
                 terms.insert(orderby_info.key(), orderby_info.json_value());
+                let size = self.limit.unwrap_or(DEFAULT_LIMIT);
+                terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
+            // otherwise, we have to return all the results so that Postgres can sort them
+            } else {
+                terms.insert(
+                    "size".to_string(),
+                    serde_json::Value::Number(DEFAULT_LIMIT.into()),
+                );
             }
-
-            // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
-            // TODO: make configurable via issue ##2964
-            let size = self.limit.unwrap_or(10000);
-            terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));

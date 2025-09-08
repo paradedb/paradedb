@@ -203,13 +203,13 @@ FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category 
 ORDER BY category;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                      
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now(), now(), now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"value"}},"agg_2":{"avg":{"field":"value"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"agg_1":{"sum":{"field":"value"}},"agg_2":{"avg":{"field":"value"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value) 
@@ -236,13 +236,13 @@ SELECT category, value, COUNT(*) FROM empty_test
 WHERE id @@@ paradedb.all() 
 GROUP BY category, value 
 ORDER BY category, value;
-                                                                 QUERY PLAN                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                         
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, value, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"group_1":{"terms":{"field":"value","size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000},"aggs":{"group_1":{"terms":{"field":"value","order":{"_key":"asc"},"size":10000}}}}}
 (5 rows)
 
 SELECT category, value, COUNT(*) FROM empty_test 

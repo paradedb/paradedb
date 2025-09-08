@@ -106,7 +106,7 @@ pub fn load_typmod(typmod: i32) -> pgrx::spi::Result<ParsedTypmod> {
 
 extension_sql!(
     r#"
-CREATE TABLE paradedb._typmod_cache(id SERIAL NOT NULL PRIMARY KEY, regex TEXT NOT NULL UNIQUE);
+CREATE TABLE paradedb._typmod_cache(id SERIAL NOT NULL PRIMARY KEY, typmod TEXT NOT NULL UNIQUE);
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache', '');
 SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache_id_seq', '');
 GRANT ALL ON TABLE paradedb._typmod_cache TO PUBLIC;
@@ -116,7 +116,7 @@ CREATE OR REPLACE FUNCTION _typmod(int)
 RETURNS text
 SECURITY DEFINER
 LANGUAGE sql AS $$
-   SELECT regex FROM paradedb._typmod_cache WHERE id = $1;
+   SELECT typmod FROM paradedb._typmod_cache WHERE id = $1;
 $$;
 
 CREATE OR REPLACE FUNCTION _typmod(text)
@@ -129,17 +129,17 @@ LANGUAGE sql AS $$
     SELECT pg_advisory_xact_lock(hashtext($1)::bigint)
   ),
   ins AS (
-    INSERT INTO paradedb._typmod_cache (regex)
+    INSERT INTO paradedb._typmod_cache (typmod)
     SELECT $1
     WHERE NOT EXISTS (
-      SELECT 1 FROM paradedb._typmod_cache WHERE regex = $1
+      SELECT 1 FROM paradedb._typmod_cache WHERE typmod = $1
     )
     RETURNING id
   )
   -- if we inserted, return that id, otherwise return the existing id
   SELECT id FROM ins
   UNION ALL
-  SELECT id FROM paradedb._typmod_cache WHERE regex = $1
+  SELECT id FROM paradedb._typmod_cache WHERE typmod = $1
   LIMIT 1;
 $$;
 "#,

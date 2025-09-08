@@ -266,8 +266,8 @@ impl CustomScan for AggregateScan {
         builder.custom_private_mut().has_order_by = has_order_by;
 
         // Override orderby_info
-        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if it's a single field
-        let orderby_info = builder
+        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if the ORDER BY fields are indexed
+        builder.custom_private_mut().orderby_info = builder
             .custom_private()
             .orderby_info
             .clone()
@@ -280,13 +280,6 @@ impl CustomScan for AggregateScan {
                 }
             })
             .collect::<Vec<_>>();
-
-        if orderby_info.len() == 1 && !builder.custom_private().grouping_columns.is_empty() {
-            builder.custom_private_mut().orderby_info = orderby_info.clone();
-        } else {
-            builder.custom_private_mut().orderby_info = vec![];
-            builder.custom_private_mut().limit = None;
-        }
 
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()

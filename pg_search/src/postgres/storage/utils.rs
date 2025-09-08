@@ -117,7 +117,7 @@ impl RelationBufferAccess {
 
                     for pg_buffer in &mut self.iter {
                         unsafe {
-                            pg_sys::ReleaseBuffer(pg_buffer);
+                            pg_sys::UnlockReleaseBuffer(pg_buffer);
                         }
                     }
                 }

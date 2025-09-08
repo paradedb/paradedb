@@ -144,14 +144,18 @@ impl FreeSpaceManager {
                 list = next(&buf);
                 continue;
             }
+let mut added = false;
             loop {
                 match extend_with.next() {
                     None => {
+if !added { pgrx::warning!("empty iter?"); }
                         return;
                     }
                     Some(bno) => {
+pgrx::warning!("return {}@{}", bno, xid);
                         b.entries[b.count as usize] = bno;
                         b.count += 1;
+added = true;
                         if b.count as usize == NENT {
                             move_block(root, bman, &mut buf, slot, true);
                             list = root.partial[slot];
@@ -201,6 +205,7 @@ impl Iterator for FSMDrainIter {
                     root.partial[slot] = next(&buf);
                 }
                 self.last_slot = slot;
+pgrx::warning!("drain1 {}<={}", ret, self.horizon);
                 return Some(ret)
             }
             if let Some(mut buf) = get_chain(&mut self.bman, root.filled[slot], self.horizon) {
@@ -209,6 +214,7 @@ impl Iterator for FSMDrainIter {
                 b.count -= 1;
                 move_block(root, &mut self.bman, &mut buf, slot, false);
                 self.last_slot = slot;
+pgrx::warning!("drain2 {}<={}", ret, self.horizon);
                 return Some(ret)
             } 
         }
@@ -264,16 +270,22 @@ fn next_chain(
     list : pg_sys::BlockNumber,
     xid : pg_sys::TransactionId
 ) -> BufferMut {
-    match get_chain(bman, list, xid) {
-        Some(buf) => {
-            buf
+    // technically, a list scan, but we shard things so that we should
+    // rarely have overlap in transaction ids, usually the first block
+    // we look at should match
+    let mut bno = list;
+    while bno != pg_sys::InvalidBlockNumber {
+        let buf = bman.get_buffer_mut(bno);
+        let b = buf.page().contents::<FSMChain>();
+        let blk_xid = pg_sys::TransactionId::from(b.xid);
+        if b.xid == xid.into_inner() {
+            return buf;
         }
-        None      => {
-            let buf = new_chain(bman, xid);
-            *pslot = buf.number();
-            buf
-        }
+        bno = next(&buf);
     }
+    let buf = new_chain(bman, xid);
+    *pslot = buf.number();
+    buf
 }
 
 // Gets a block containing entries for the current transaction number,
@@ -290,7 +302,7 @@ fn get_chain(
         let buf = bman.get_buffer_mut(bno);
         let b = buf.page().contents::<FSMChain>();
         let blk_xid = pg_sys::TransactionId::from(b.xid);
-        if crate::postgres::utils::TransactionIdPrecedesOrEquals(blk_xid, xid) {
+        if b.count != 0 && crate::postgres::utils::TransactionIdPrecedesOrEquals(blk_xid, xid) {
             return Some(buf);
         }
         bno = next(&buf);

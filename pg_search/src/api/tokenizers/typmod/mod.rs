@@ -1,3 +1,5 @@
+mod definitions;
+
 use pgrx::datum::DatumWithOid;
 use pgrx::spi::Query;
 use pgrx::{extension_sql, pg_sys, Array, PgOid, Spi};
@@ -8,6 +10,8 @@ use std::str::FromStr;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
+
+pub use definitions::*;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -236,7 +240,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                         "dutch" => Language::Dutch,
                         "english" => Language::English,
                         "finnish" => Language::Finnish,
-                        "grench" => Language::French,
+                        "french" => Language::French,
                         "german" => Language::German,
                         "greek" => Language::Greek,
                         "hungarian" => Language::Hungarian,

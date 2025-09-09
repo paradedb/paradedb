@@ -228,7 +228,8 @@
                           "v2/full-text/fuzzy",
                           "v2/full-text/score",
                           "v2/full-text/highlight",
-                          "v2/full-text/boost"
+                          "v2/full-text/boost",
+                          "v2/full-text/proximity"
                         ]
                       },
                       {

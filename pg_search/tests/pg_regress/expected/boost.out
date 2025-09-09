@@ -285,14 +285,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::boost(3);
-                                                                                          QUERY PLAN                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"proximity":{"left":{"term":"running"},"distance":{"in_order":3},"right":{"term":"shoes"}}},"boost":3.0}}}}
+   Tantivy Query: {"with_index":{"query":{"boost":{"field":"description","query":{"proximity":{"left":{"term":"running"},"distance":{"any_order":3},"right":{"term":"shoes"}}},"boost":3.0}}}}
 (6 rows)
 
 --

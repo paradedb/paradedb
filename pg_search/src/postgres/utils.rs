@@ -76,13 +76,22 @@ pub fn TransactionIdPrecedesOrEquals(
         return id1 <= id2;
     }
 
-    // Compare as i32 to handle wraparound
-    unsafe {
-        // SAFETY: `pg_sysTransactionId` is a #[repr(transparent)] wrapper around a `u32`
-        let id1: i32 = std::mem::transmute(id1);
-        let id2: i32 = std::mem::transmute(id2);
-        let diff = id1.wrapping_sub(id2);
-        diff <= 0
+    let (diff, overflow) = id1.into_inner().overflowing_sub(id2.into_inner());
+    diff == 0 || overflow
+}
+
+#[cfg(test)]
+mod test {
+    use crate::postgres::utils::TransactionIdPrecedesOrEquals;
+    use pgrx::pg_sys;
+
+    #[test]
+    fn xid_precedes_or_equals_test() {
+        use proptest::proptest;
+
+        proptest!(|(xid1 in 0..u32::MAX/2, xid2 in u32::MAX/2..u32::MAX)| {
+            assert!(TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)));
+        });
     }
 }
 

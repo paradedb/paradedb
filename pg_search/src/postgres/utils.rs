@@ -86,6 +86,26 @@ pub fn TransactionIdPrecedesOrEquals(
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use crate::postgres::utils::TransactionIdPrecedesOrEquals;
+    use pgrx::{pg_sys, pg_test};
+
+    #[pg_test]
+    fn xid_precedes_or_equals_test() {
+        use proptest::proptest;
+
+        proptest!(|(xid1 in 0..u32::MAX, xid2 in 0..u32::MAX)| {
+            if xid1 <= xid2 {
+                let us = TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2));
+                let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
+                assert_eq!(us, pg);
+            }
+        });
+    }
+}
+
 /// Finds and returns the `USING bm25` index on the specified relation with the
 /// highest OID, or [`None`] if there aren't any.
 pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgSearchRelation> {

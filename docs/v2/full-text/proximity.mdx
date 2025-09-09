@@ -15,11 +15,13 @@ WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 ```
 
 <Note>
-Like the [term](/v2/full-text/term) query, the query string in a proximity query is treated as a finalized token.
+  Like the [term](/v2/full-text/term) query, the query string in a proximity
+  query is treated as a finalized token.
 </Note>
 
 <Note>
-Order matters for proximity queries -- the term on the left-hand side must appear before the term on the right-hand side.
+  Order does not matter for proximity queries -- the term on the left-hand side
+  may appear before or after the term on the right-hand side.
 </Note>
 
 ## Proximity Regex
@@ -35,11 +37,11 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
-By default, `pdb.prox_regex` will consider the first `50` regex matches in each document. This limit can be overriden
+By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overriden
 by providing a second argument:
 
 ```sql
--- Allow up to 100 regex expansions
+-- Expand up to 100 regex matches
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
@@ -47,4 +49,19 @@ WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
 
 ## Proximity Array
 
-`pdb.prox_array` allows an array of terms to be considered.
+`pdb.prox_array` matches against an array of tokens instead of a single token. For example, the following query finds all
+documents where any of the tokens `sleek` or `white` is within `1` token of `shoes`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
+```
+
+`pdb.prox_array` can also take regex:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
+```

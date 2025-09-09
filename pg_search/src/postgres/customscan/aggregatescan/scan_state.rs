@@ -293,7 +293,7 @@ impl AggregateScanState {
                 "maximum number of buckets/groups may have been exceeded",
                 function_name!(),
             )
-            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` will be truncated")
+            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` were truncated")
             .set_hint("consider adding a lower `LIMIT` to the query or raising `paradedb.max_term_agg_buckets`")
             .report(PgLogLevel::WARNING);
         }

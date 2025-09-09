@@ -131,22 +131,28 @@ impl CustomScan for AggregateScan {
         // Extract ORDER BY pathkeys if present
         let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
         let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
+        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
-        let limit = unsafe {
+        let (limit, offset) = unsafe {
             let parse = (*builder.args().root).parse;
             let limit_count = (*parse).limitCount;
+            let offset_count = (*parse).limitOffset;
 
-            if !limit_count.is_null() {
-                let const_node = nodecast!(Const, T_Const, limit_count);
+            let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
+                let const_node = nodecast!(Const, T_Const, node);
                 if let Some(const_node) = const_node {
                     u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            };
+
+            (extract_const(limit_count), extract_const(offset_count))
         };
+
+        if offset.unwrap_or_default() > max_term_agg_buckets {
+            return None;
+        }
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -228,6 +234,7 @@ impl CustomScan for AggregateScan {
             target_list_mapping,
             has_order_by: false, // Will be set in plan_custom_path
             limit,
+            offset,
         }))
     }
 
@@ -323,7 +330,7 @@ impl CustomScan for AggregateScan {
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.custom_state().limit = builder.custom_private().limit;
-
+        builder.custom_state().offset = builder.custom_private().offset;
         builder.build()
     }
 

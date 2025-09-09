@@ -46,6 +46,9 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
+/// The maximum number of buckets that can be returned by a TermsAggregation
+static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(10000);
+
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
 /// the Normal mode fetches data as row-oriented.
@@ -164,6 +167,17 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_term_agg_buckets",
+        c"Maximum number of buckets/groups that can be returned by a terms aggregation",
+        c"Maximum number of buckets/groups that can be returned by a terms aggregation",
+        &MAX_TERM_AGG_BUCKETS,
+        1,
+        tantivy::aggregation::DEFAULT_BUCKET_LIMIT as i32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -261,6 +275,10 @@ pub fn adjust_work_mem() -> NonZeroUsize {
 
 pub fn limit_fetch_multiplier() -> f64 {
     LIMIT_FETCH_MULTIPLIER.get()
+}
+
+pub fn max_term_agg_buckets() -> i32 {
+    MAX_TERM_AGG_BUCKETS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

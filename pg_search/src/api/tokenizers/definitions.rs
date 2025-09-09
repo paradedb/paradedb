@@ -1,12 +1,12 @@
 use crate::api::tokenizers::typmod::{load_typmod, save_typmod};
-use crate::api::tokenizers::{typmod, CowString, DatumWrapper};
+use crate::api::tokenizers::{CowString, DatumWrapper};
 use macros::generate_tokenizer_sql;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::nullable::Nullable;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
-use pgrx::{extension_sql, pg_cast, pg_extern, pg_sys, Array, FromDatum, IntoDatum};
+use pgrx::{extension_sql, pg_extern, pg_sys, Array, FromDatum, IntoDatum};
 use std::ffi::{CStr, CString};
 use tantivy::tokenizer::Language;
 use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};

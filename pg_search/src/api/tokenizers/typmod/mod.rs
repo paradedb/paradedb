@@ -1,8 +1,7 @@
 mod definitions;
 
 use pgrx::datum::DatumWithOid;
-use pgrx::spi::Query;
-use pgrx::{extension_sql, pg_sys, Array, PgOid, Spi};
+use pgrx::{extension_sql, pg_sys, Array, Spi};
 use std::ffi::CStr;
 use std::fmt::Display;
 use std::ops::Index;
@@ -37,7 +36,7 @@ pub enum Error {
     InvalidLanguage(String),
 
     #[error("SPI failure: {0}")]
-    SpiError(#[from] pgrx::spi::Error),
+    Spi(#[from] pgrx::spi::Error),
 
     #[error("null typmod entry")]
     NullTypmodEntry,
@@ -48,6 +47,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type PropertyKey = Option<String>;
 #[derive(Debug, Clone)]
 pub enum Property {
+    #[allow(clippy::enum_variant_names)] // what a stupid lint
     NoSuchProperty,
     None(PropertyKey),
     String(PropertyKey, String),
@@ -96,7 +96,7 @@ impl FromStr for Property {
                     let regex = s.trim_matches('/').to_string();
                     Ok(Property::Regex(
                         key,
-                        regex::Regex::new(&regex).map_err(|e| Error::InvalidRegex(e))?,
+                        regex::Regex::new(&regex).map_err(Error::InvalidRegex)?,
                     ))
                 } else if s == "true" || s == "false" {
                     Ok(Property::Boolean(key, s == "true"))
@@ -136,7 +136,7 @@ impl Property {
         match self {
             Property::Regex(_, r) => Some(Ok(r.clone())),
             Property::String(_, s) => {
-                Some(regex::Regex::new(s.as_str()).map_err(|e| Error::InvalidRegex(e)))
+                Some(regex::Regex::new(s.as_str()).map_err(Error::InvalidRegex))
             }
             _ => None,
         }
@@ -197,7 +197,7 @@ impl TryFrom<Vec<String>> for ParsedTypmod {
         let mut parsed = ParsedTypmod::with_capacity(value.len());
 
         for entry in value {
-            let property: Property = (&entry).parse()?;
+            let property: Property = entry.parse()?;
             parsed.add_property(property);
         }
 
@@ -226,12 +226,11 @@ impl<'mcx> TryFrom<Array<'mcx, &'mcx CStr>> for ParsedTypmod {
 impl From<&ParsedTypmod> for SearchTokenizerFilters {
     fn from(value: &ParsedTypmod) -> Self {
         SearchTokenizerFilters {
-            remove_long: value.get("remove_long").map(|p| p.as_usize()).flatten(),
-            lowercase: value.get("lowercase").map(|p| p.as_bool()).flatten(),
+            remove_long: value.get("remove_long").and_then(|p| p.as_usize()),
+            lowercase: value.get("lowercase").and_then(|p| p.as_bool()),
             stemmer: value
                 .get("stemmer")
-                .map(|p| p.as_str())
-                .flatten()
+                .and_then(|p| p.as_str())
                 .map(|stemmer| {
                     let lcase = stemmer.to_lowercase();
                     match lcase.as_str() {
@@ -253,7 +252,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
                         "swedish" => Language::Swedish,
                         "tamil" => Language::Tamil,
                         "turkish" => Language::Turkish,
-                        other => panic!("unknown stemmer: {}", other),
+                        other => panic!("unknown stemmer: {other}"),
                     }
                 }),
             // TODO: handle stopwords
@@ -287,6 +286,12 @@ impl<'a> Index<&'a str> for ParsedTypmod {
         }
         // TODO:  is this smart or too clever?
         &Property::NoSuchProperty
+    }
+}
+
+impl Default for ParsedTypmod {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

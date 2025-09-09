@@ -269,6 +269,7 @@ pub struct PrivateData {
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
     pub has_order_by: bool,
     pub limit: Option<u32>,
+    pub offset: Option<u32>,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

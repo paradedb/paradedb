@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{FieldName, OrderByFeature, OrderByInfo, ToTantivyJson};
+use crate::gucs;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
@@ -27,9 +28,6 @@ use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
 use tinyvec::TinyVec;
-
-// TODO: make configurable via issue ##2964
-const DEFAULT_LIMIT: u32 = 10000;
 
 /// Source of aggregate result data - either from result map or bucket object
 enum AggregateResultSource<'a> {
@@ -78,6 +76,8 @@ pub struct AggregateScanState {
     pub execution_rti: pg_sys::Index,
     // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
     pub limit: Option<u32>,
+    // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
+    pub offset: Option<u32>,
 }
 
 impl AggregateScanState {
@@ -127,6 +127,7 @@ impl AggregateScanState {
         // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
         // We build the JSON bottom-up so that each grouping column nests the next one.
         let mut current_aggs: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
         for (i, group_col) in self.grouping_columns.iter().enumerate().rev() {
             let mut terms = serde_json::Map::new();
@@ -144,13 +145,27 @@ impl AggregateScanState {
                 }
             }) {
                 terms.insert(orderby_info.key(), orderby_info.json_value());
-                let size = self.limit.unwrap_or(DEFAULT_LIMIT);
+                let mut size = match (self.limit, self.offset) {
+                    (Some(limit), Some(offset)) => limit + offset,
+                    (Some(limit), None) => limit,
+                    (None, Some(offset)) => offset,
+                    (None, None) => max_term_agg_buckets,
+                };
+                size = size.min(max_term_agg_buckets);
                 terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
+                // because we currently support ordering only by the grouping columns, the Top N
+                // of all segments is guaranteed to contain the global Top N
+                // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
+                // and we can no longer set segment_size (per segment top N) = size (global top N)
+                terms.insert(
+                    "segment_size".to_string(),
+                    serde_json::Value::Number(size.into()),
+                );
             // otherwise, we have to return all the results so that Postgres can sort them
             } else {
                 terms.insert(
                     "size".to_string(),
-                    serde_json::Value::Number(DEFAULT_LIMIT.into()),
+                    serde_json::Value::Number(max_term_agg_buckets.into()),
                 );
             }
 

@@ -43,7 +43,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let create_cast_sql = format!(
         "CREATE CAST ({sql_name} AS TEXT[]) WITH FUNCTION {cast_name} AS ASSIGNMENT;",
         sql_name = sql_name.value(),
-        cast_name = cast_name.to_string()
+        cast_name = cast_name
     );
 
     let typmod = if !custom_typmod {

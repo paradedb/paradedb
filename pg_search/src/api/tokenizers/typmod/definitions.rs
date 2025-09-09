@@ -27,18 +27,15 @@ pub fn lookup_ngram_typmod(typmod: i32) -> typmod::Result<NgramTypmod> {
 
     let min_gram = parsed
         .try_get("min", 0)
-        .map(|p| p.as_usize())
-        .flatten()
+        .and_then(|p| p.as_usize())
         .ok_or(typmod::Error::MissingKey("min"))?;
     let max_gram = parsed
         .try_get("max", 1)
-        .map(|p| p.as_usize())
-        .flatten()
+        .and_then(|p| p.as_usize())
         .ok_or(typmod::Error::MissingKey("max"))?;
     let prefix_only = parsed
         .try_get("prefix_only", 2)
-        .map(|p| p.as_bool())
-        .flatten()
+        .and_then(|p| p.as_bool())
         .unwrap_or(false);
 
     Ok(NgramTypmod {
@@ -59,8 +56,7 @@ pub fn lookup_regex_typmod(typmod: i32) -> typmod::Result<RegexTypmod> {
     let filters = SearchTokenizerFilters::from(&parsed);
     let pattern = parsed
         .try_get("pattern", 0)
-        .map(|p| p.as_regex())
-        .flatten()
+        .and_then(|p| p.as_regex())
         .ok_or(typmod::Error::MissingKey("pattern"))??;
 
     Ok(RegexTypmod { pattern, filters })
@@ -99,7 +95,7 @@ pub fn lookup_lindera_typmod(typmod: i32) -> typmod::Result<LinderaTypmod> {
                     "chinese" => LinderaStyle::Chinese,
                     "japanese" => LinderaStyle::Japanese,
                     "korean" => LinderaStyle::Korean,
-                    other => panic!("unknown lindera style: {}", other),
+                    other => panic!("unknown lindera style: {other}"),
                 }
             }
         })

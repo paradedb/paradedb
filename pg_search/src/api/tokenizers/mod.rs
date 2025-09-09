@@ -4,7 +4,7 @@ use crate::api::tokenizers::typmod::{
 };
 use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
-use std::borrow::{Borrow, Cow};
+use std::borrow::Cow;
 use std::ptr::addr_of_mut;
 use tokenizers::SearchTokenizer;
 
@@ -69,10 +69,13 @@ pub trait CowString {
 }
 
 pub trait DatumWrapper {
+    #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
 
+    #[allow(dead_code)]
     fn as_datum(&self) -> pg_sys::Datum;
 
+    #[allow(dead_code)]
     fn from_str<S: AsRef<str>>(value: S) -> Self
     where
         Self: Sized,

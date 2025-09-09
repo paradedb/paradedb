@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757086319675,
+  "lastUpdate": 1757440173215,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5716,6 +5716,72 @@ window.BENCHMARK_DATA = {
             "value": 32.72391544559115,
             "unit": "median tps",
             "extra": "avg tps: 36.60472156924566, max tps: 849.3124391149146, count: 55358"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4740c201e26fceabbe9fd0871116bcbc8e4078f",
+          "message": "docs: Proximity operator (#3138)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFirst cut of docs for proximity queries. The operator-only version has\nbeen documented, query builder equivalent is a TODO.\n\nAdditionally, per discussion with @eeeebbbbrrrr we decided to make the\noperator-only version not enforce ordering as the default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-09T13:33:19-04:00",
+          "tree_id": "d96d1279b28c02c9d08b44501d0a9e16338f2407",
+          "url": "https://github.com/paradedb/paradedb/commit/d4740c201e26fceabbe9fd0871116bcbc8e4078f"
+        },
+        "date": 1757440171646,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 754.8746269589083,
+            "unit": "median tps",
+            "extra": "avg tps: 752.9867387256278, max tps: 818.2360349462705, count: 55355"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2697.3151450696773,
+            "unit": "median tps",
+            "extra": "avg tps: 2675.430007737429, max tps: 2703.857273706272, count: 55355"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 776.6022892182052,
+            "unit": "median tps",
+            "extra": "avg tps: 775.7590648938909, max tps: 865.1598436326153, count: 55355"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 660.3267952531027,
+            "unit": "median tps",
+            "extra": "avg tps: 660.6161983565314, max tps: 669.6565274395396, count: 55355"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 533.5392034691512,
+            "unit": "median tps",
+            "extra": "avg tps: 578.7793393706194, max tps: 649.0994113386544, count: 110710"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 408.41711883862496,
+            "unit": "median tps",
+            "extra": "avg tps: 407.94783416336657, max tps: 409.88442260536345, count: 55355"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 28.449623671399152,
+            "unit": "median tps",
+            "extra": "avg tps: 33.78945206882463, max tps: 1017.9950993715917, count: 55355"
           }
         ]
       }

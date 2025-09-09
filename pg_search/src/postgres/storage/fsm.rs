@@ -136,12 +136,12 @@ impl FreeSpaceManager {
         &self,
         bman: &mut BufferManager,
         xid: pg_sys::TransactionId,
-        mut extend_with_: impl Iterator<Item = pg_sys::BlockNumber>,
+        extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
     ) {
         let slot = (xid.into_inner() as usize) % NLIST;
         let mut rbuf = load_root(self.root, bman);
         let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-        let mut iter = extend_with_.peekable();
+        let mut iter = extend_with.peekable();
 dump(bman, &root, "preextend");
 
         let mut list = root.partial[slot];
@@ -164,7 +164,7 @@ dump(bman, &root, "postextend");
                     }
                     Some(bno) => {
                         root.extended += 1;
-pgrx::warning!("return {}@{}", bno, xid.into_inner());
+eprintln!("return {}@{} {}!{} @ {}", bno, xid.into_inner(), root.partial[slot], slot, b.count);
                         b.entries[b.count as usize] = bno;
                         b.count += 1;
                         if b.count as usize == NENT {
@@ -205,7 +205,7 @@ impl Iterator for FSMDrainIter {
     fn next(&mut self) -> Option<Self::Item> {
         let mut rbuf = load_root(self.root, &mut self.bman);
         let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-pgrx::warning!("wut");
+eprintln!("wut");
 dump(&mut self.bman, &root, "predrain");
         for i in 0..NLIST {
             let slot = (self.last_slot + i) % NLIST;
@@ -219,9 +219,9 @@ dump(&mut self.bman, &root, "predrain");
                     root.partial[slot] = next(&buf);
                 }
                 self.last_slot = slot;
-pgrx::warning!("drain1 {}<={}", ret, self.horizon);
-//drop(buf);
-//dump(&mut self.bman, root, "postdrain1");
+eprintln!("drain1 {}<={}", ret, self.horizon);
+drop(buf);
+dump(&mut self.bman, root, "postdrain1");
                 return Some(ret)
             }
             if let Some(mut buf) = get_chain(&mut self.bman, root.filled[slot], self.horizon) {
@@ -231,9 +231,9 @@ pgrx::warning!("drain1 {}<={}", ret, self.horizon);
                 root.drained += 1;
                 move_block(root, &mut self.bman, &mut buf, slot, false);
                 self.last_slot = slot;
-//pgrx::warning!("drain2 {}<={}", ret, self.horizon);
-//drop(buf);
-//dump(&mut self.bman, &root, "postdrain2");
+eprintln!("drain2 {}<={}", ret, self.horizon);
+drop(buf);
+dump(&mut self.bman, &root, "postdrain2");
                 return Some(ret)
             } 
         }
@@ -266,48 +266,42 @@ unsafe fn fsm_info(
         u32,
         u32,
     )>::default();
-mapping.push((fsm, root.drained, !0));
-mapping.push((fsm, root.extended, !0));
+    let xid = pg_sys::TransactionId::from(!0);
+
+    // TODO: remove these
+    mapping.push((fsm, root.drained, !0));
+    mapping.push((fsm, root.extended, !0));
     for i in 0..root.partial.len() {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {
             continue;
         }
-pgrx::warning!("p {}:", root.partial[i]);
         let mut b = root.partial[i];
-        let xid = pg_sys::TransactionId::from(!0);
         loop {
-pgrx::warning!("getting: {}", b);
             match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-pgrx::warning!("\tnode {} count {}", root.partial[i], node.count);
                     for i in 0..node.count {
                         mapping.push((b, node.entries[i as usize], node.xid))
                     }
                     b = next(&buf);
                 }
                 None	=> {
-pgrx::warning!("no buf??? {}", b);
                     break;
                 }
             }
         }
-pgrx::warning!("f {}:", root.filled[i]);
         b = root.filled[i];
         loop {
-pgrx::warning!("getting: {}", b);
             match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-pgrx::warning!("\tnode {} count {}", root.partial[i], node.count);
                     for i in 0..node.count {
                         mapping.push((b, node.entries[i as usize], node.xid))
                     }
                     b = next(&buf);
                 }
                 None	=> {
-pgrx::warning!("no buf??? {}", b);
                     break;
                 }
             }
@@ -318,54 +312,53 @@ pgrx::warning!("no buf??? {}", b);
 }
 
 fn dump(mut bman : &mut BufferManager, root : &FSMRoot, msg : &str) {
-pgrx::warning!("BEGIN -------- {} -------------", msg);
+    eprintln!("BEGIN -------- {} -------------", msg);
     for i in 0..root.partial.len() {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {
             continue;
         }
-pgrx::warning!("p {}:", root.partial[i]);
+        eprintln!("partial[{}]: {}:", i, root.partial[i]);
         let mut b = root.partial[i];
-        let xid = pg_sys::TransactionId::from(!0);
+        let xid = unsafe {
+            pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
+        };
         loop {
-pgrx::warning!("getting: {}", b);
             match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-pgrx::warning!("\tnode {} count {}", root.partial[i], node.count);
+                    eprintln!("\tnode {} count {}", root.partial[i], node.count);
                     for i in 0..node.count {
-pgrx::warning!("\t\tentry {}", node.entries[i as usize]);
+                        eprintln!("\t\tentry {}", node.entries[i as usize]);
                     }
                     b = next(&buf);
                 }
                 None	=> {
-pgrx::warning!("no buf??? {}", b);
+                    eprintln!("\t[END]");
                     break;
                 }
             }
         }
-pgrx::warning!("f {}:", root.filled[i]);
         b = root.filled[i];
+        eprintln!("filled[{}]: {}:", i, root.partial[i]);
         loop {
-pgrx::warning!("getting: {}", b);
             match get_chain(&mut bman, b, xid){
                 Some(buf) => {
                     let node = buf.page().contents::<FSMChain>();
-pgrx::warning!("\tnode {} count {}", root.partial[i], node.count);
+                    eprintln!("\tnode {} count {}", root.partial[i], node.count);
                     for i in 0..node.count {
-pgrx::warning!("\t\tentry {}", node.entries[i as usize]);
-                      }
+                        eprintln!("\t\tentry {}", node.entries[i as usize]);
+                    }
                     b = next(&buf);
                 }
                 None	=> {
-pgrx::warning!("no buf??? {}", b);
+                    eprintln!("\t[END]");
                     break;
                 }
             }
         }
     }
-
-pgrx::warning!("END -------- {} -------------", msg);
+    eprintln!("END -------- {} -------------", msg);
 }
 
 fn next_chain(
@@ -401,15 +394,18 @@ fn get_chain(
     // rarely have overlap in transaction ids, usually the first block
     // we look at should match
     let mut bno = list;
+eprintln!("get chain: {}", list);
     while bno != pg_sys::InvalidBlockNumber {
         let buf = bman.get_buffer_mut(bno);
         let b = buf.page().contents::<FSMChain>();
         let blk_xid = pg_sys::TransactionId::from(b.xid);
+eprintln!("trying to get blk {}: {} <= {}", bno, blk_xid, xid);
         if crate::postgres::utils::TransactionIdPrecedesOrEquals(blk_xid, xid) {
             return Some(buf);
         }
         bno = next(&buf);
     }
+eprintln!("no block with ok xid");
     None
 }
 

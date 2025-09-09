@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757451029066,
+  "lastUpdate": 1757451034691,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3302,6 +3302,64 @@ window.BENCHMARK_DATA = {
             "value": 163.9765625,
             "unit": "median mem",
             "extra": "avg mem: 155.05324722487208, max mem: 166.21875, count: 57655"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4b08446356edfe8faed3798c0521304b8789d3e5",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3040)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-24T17:46:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4b08446356edfe8faed3798c0521304b8789d3e5"
+        },
+        "date": 1757451030723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.113583476378015, max cpu: 42.64561, count: 57738"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 166.3436605604195, max mem: 169.4296875, count: 57738"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 19326,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17850.31862897918, max block_count: 24141.0, count: 57738"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 36,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 38.82891683120302, max segment_count: 101.0, count: 57738"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 9.329447,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.27529804711544, max cpu: 28.318584, count: 57738"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 150.91783438766498, max mem: 168.5859375, count: 57738"
           }
         ]
       }

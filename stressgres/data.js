@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757444894238,
+  "lastUpdate": 1757445580942,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18112,6 +18112,40 @@ window.BENCHMARK_DATA = {
             "value": 5.3304210071822755,
             "unit": "median tps",
             "extra": "avg tps: 4.81837328459734, max tps: 5.893636338482491, count: 57804"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0544c54d64a963065cefc3a922582cc501a4c90e",
+          "message": "fix: zero worker threads (#2959) (#3139)\n\nWe don't use any of Tantivy's threading features, and as of\nhttps://github.com/paradedb/tantivy/pull/59 it's now possible to set the\nnumber of merge and worker threads to zero.\n\nDoing so saves overhead of making threads that we never use, and joining\non them, for every segment merge operation.\n\n\n🍒 This is a cherry pick of 98d7dcdc33169d31d80e13ef39aa7242e1a09710 from\n`main/0.18.x`",
+          "timestamp": "2025-09-09T18:06:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0544c54d64a963065cefc3a922582cc501a4c90e"
+        },
+        "date": 1757445579414,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.242855190251587,
+            "unit": "median tps",
+            "extra": "avg tps: 7.081587321674854, max tps: 10.970981379924321, count: 57920"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.369893798535446,
+            "unit": "median tps",
+            "extra": "avg tps: 4.844200136508684, max tps: 5.957078782269777, count: 57920"
           }
         ]
       }

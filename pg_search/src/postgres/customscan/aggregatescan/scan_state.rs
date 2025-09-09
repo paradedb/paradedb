@@ -24,6 +24,8 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
 use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
@@ -285,6 +287,17 @@ impl AggregateScanState {
         }
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
+        if rows.len() >= gucs::max_term_agg_buckets() as usize {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+                "maximum number of buckets/groups may have been exceeded",
+                function_name!(),
+            )
+            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` will be truncated")
+            .set_hint("consider adding a lower `LIMIT` to the query or raising `paradedb.max_term_agg_buckets`")
+            .report(PgLogLevel::WARNING);
+        }
+
         rows
     }
 

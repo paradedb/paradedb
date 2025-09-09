@@ -3,7 +3,6 @@ title: Proximity
 ---
 
 Proximity queries are used to match documents containing tokens that are within a certain token distance of one another.
-For example, in the phrase `sleek running shoes`, the tokens `sleek` and `shoes` are `1` token apart.
 
 ## Overview
 
@@ -20,10 +19,32 @@ Like the [term](/v2/full-text/term) query, the query string in a proximity query
 </Note>
 
 <Note>
-The proximity query also assumes that
+Order matters for proximity queries -- the term on the left-hand side must appear before the term on the right-hand side.
 </Note>
 
 ## Proximity Regex
 
-The following query finds all documents where a token matching the regex query `key.*` is at most `1` token away
-from `
+In addition to exact tokens, proximity queries can also match against regex expressions.
+
+The following query finds all documents where any token matching the regex query `sl.*` is at most `1` token away
+from the token `shoes`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
+```
+
+By default, `pdb.prox_regex` will consider the first `50` regex matches in each document. This limit can be overriden
+by providing a second argument:
+
+```sql
+-- Allow up to 100 regex expansions
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
+```
+
+## Proximity Array
+
+`pdb.prox_array` allows an array of terms to be considered.

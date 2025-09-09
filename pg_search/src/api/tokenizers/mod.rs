@@ -1,18 +1,14 @@
-use crate::api::tokenizers::definitions::lookup_generic_typmod;
-use crate::api::tokenizers::ngram::lookup_ngram_typmod;
-use crate::api::tokenizers::regex::lookup_regex_typmod;
-use crate::api::tokenizers::stemmed::lookup_stemmed_typmod;
+use crate::api::tokenizers::typmod::{
+    lookup_generic_typmod, lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod,
+    lookup_stemmed_typmod,
+};
 use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::{Borrow, Cow};
 use std::ptr::addr_of_mut;
-use tantivy::tokenizer::Language;
 use tokenizers::SearchTokenizer;
 
 mod definitions;
-mod ngram;
-mod regex;
-mod stemmed;
 mod typmod;
 
 pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: i32) {
@@ -44,6 +40,14 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: i32) {
             *pattern = regex_typmod.pattern.to_string();
             *filters = regex_typmod.filters;
         }
+
+        SearchTokenizer::Lindera(style, filters) => {
+            let lindera_typmod =
+                lookup_lindera_typmod(typmod).expect("typmod lookup should not fail");
+            *style = lindera_typmod.style;
+            *filters = lindera_typmod.filters;
+        }
+
         SearchTokenizer::Default(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)

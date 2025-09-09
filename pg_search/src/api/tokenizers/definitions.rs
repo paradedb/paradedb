@@ -42,7 +42,11 @@ macro_rules! define_tokenizer_type {
             }
 
             fn type_oid() -> pg_sys::Oid {
-                todo!("get the type oid for $rust_name")
+                use crate::postgres::catalog::*;
+                let name =
+                    CString::new(stringify!($rust_name)).expect("type name should be valid utf8");
+                lookup_typoid(c"paradedb", name.as_c_str())
+                    .expect("should not fail to lookup type oid")
             }
         }
 
@@ -150,7 +154,26 @@ define_tokenizer_type!(
     tokenize_lindera,
     "lindera",
     preferred = false,
-    custom_tymod = true
+    custom_tymod = false
+);
+
+define_tokenizer_type!(
+    Jieba,
+    SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+    tokenize_jieba,
+    "jieba",
+    preferred = false,
+    custom_tymod = false
+);
+
+#[cfg(feature = "icu")]
+define_tokenizer_type!(
+    ICU,
+    SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
+    tokenize_icu,
+    "icu",
+    preferred = false,
+    custom_tymod = false
 );
 
 define_tokenizer_type!(
@@ -164,7 +187,7 @@ define_tokenizer_type!(
     tokenize_ngram,
     "ngram",
     preferred = false,
-    custom_tymod = true
+    custom_tymod = false
 );
 
 define_tokenizer_type!(
@@ -176,7 +199,7 @@ define_tokenizer_type!(
     tokenize_stemmed,
     "stemmed",
     preferred = false,
-    custom_tymod = true
+    custom_tymod = false
 );
 
 define_tokenizer_type!(
@@ -188,7 +211,7 @@ define_tokenizer_type!(
     tokenize_regex,
     "regex",
     preferred = false,
-    custom_tymod = true
+    custom_tymod = false
 );
 
 #[pg_extern(immutable, parallel_safe)]
@@ -200,15 +223,4 @@ fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
 pub fn generic_typmod_out(typmod: i32) -> CString {
     let parsed = load_typmod(typmod).expect("should not fail to load typmod");
     CString::new(format!("({parsed})")).unwrap()
-}
-
-pub struct GenericTypmod {
-    pub filters: SearchTokenizerFilters,
-}
-
-pub fn lookup_generic_typmod(typmod: i32) -> typmod::Result<GenericTypmod> {
-    let parsed = load_typmod(typmod)?;
-    let filters = SearchTokenizerFilters::from(&parsed);
-
-    Ok(GenericTypmod { filters })
 }

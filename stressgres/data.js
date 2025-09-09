@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757440176470,
+  "lastUpdate": 1757440859408,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17708,6 +17708,42 @@ window.BENCHMARK_DATA = {
             "value": 5.373298801882548,
             "unit": "median tps",
             "extra": "avg tps: 4.860413163627663, max tps: 5.958249864427524, count: 57932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4740c201e26fceabbe9fd0871116bcbc8e4078f",
+          "message": "docs: Proximity operator (#3138)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFirst cut of docs for proximity queries. The operator-only version has\nbeen documented, query builder equivalent is a TODO.\n\nAdditionally, per discussion with @eeeebbbbrrrr we decided to make the\noperator-only version not enforce ordering as the default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-09T13:33:19-04:00",
+          "tree_id": "d96d1279b28c02c9d08b44501d0a9e16338f2407",
+          "url": "https://github.com/paradedb/paradedb/commit/d4740c201e26fceabbe9fd0871116bcbc8e4078f"
+        },
+        "date": 1757440857898,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.478267683176655,
+            "unit": "median tps",
+            "extra": "avg tps: 7.257412522535165, max tps: 11.328480470849534, count: 57804"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3304210071822755,
+            "unit": "median tps",
+            "extra": "avg tps: 4.81837328459734, max tps: 5.893636338482491, count: 57804"
           }
         ]
       }

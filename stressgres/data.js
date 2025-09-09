@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757449221307,
+  "lastUpdate": 1757449231701,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1836,6 +1836,40 @@ window.BENCHMARK_DATA = {
             "value": 138.5397352587379,
             "unit": "median tps",
             "extra": "avg tps: 137.89773191316308, max tps: 139.76222000561887, count: 57309"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0544c54d64a963065cefc3a922582cc501a4c90e",
+          "message": "fix: zero worker threads (#2959) (#3139)\n\nWe don't use any of Tantivy's threading features, and as of\nhttps://github.com/paradedb/tantivy/pull/59 it's now possible to set the\nnumber of merge and worker threads to zero.\n\nDoing so saves overhead of making threads that we never use, and joining\non them, for every segment merge operation.\n\n\n🍒 This is a cherry pick of 98d7dcdc33169d31d80e13ef39aa7242e1a09710 from\n`main/0.18.x`",
+          "timestamp": "2025-09-09T18:06:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0544c54d64a963065cefc3a922582cc501a4c90e"
+        },
+        "date": 1757449230161,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 33.08612784754656,
+            "unit": "median tps",
+            "extra": "avg tps: 33.078519693092346, max tps: 33.87998249510987, count: 56745"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 390.19092366255484,
+            "unit": "median tps",
+            "extra": "avg tps: 388.5500916426741, max tps: 403.6978283824243, count: 56745"
           }
         ]
       }

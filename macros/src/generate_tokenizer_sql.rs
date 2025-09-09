@@ -12,6 +12,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let sql_name = args.take_str("sql_name").unwrap();
     let cast_name = args.take_ident("cast_name").unwrap();
     let preferred = args.take_bool("preferred").unwrap();
+    let custom_typmod = args.take_bool("custom_typmod").unwrap().value();
     let pgrx_name = format!("{}_definition", sql_name.value());
 
     let create_type_sql = format!(
@@ -45,6 +46,19 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         cast_name = cast_name.to_string()
     );
 
+    let typmod = if !custom_typmod {
+        let alter_type_sql = format!(
+            "ALTER TYPE {} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
+            sql_name.value()
+        );
+        let alter_type_pgrx_name = format!("{}_alter_type", sql_name.value());
+        quote! {
+            extension_sql!(#alter_type_sql, name = #alter_type_pgrx_name, requires = [generic_typmod_in, generic_typmod_out, #pgrx_name]);
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
         extension_sql!(
             #create_type_sql,
@@ -52,9 +66,11 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
             creates = [Type(#rust_name)],
         );
 
+        #typmod
+
         extension_sql!(#create_cast_sql, name = #pgrx_cast_name, requires = [#pgrx_name, #cast_name]);
     }
-    .into()
+        .into()
 }
 
 struct Kv {

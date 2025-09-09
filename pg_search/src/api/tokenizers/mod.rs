@@ -1,3 +1,7 @@
+use crate::api::tokenizers::definitions::lookup_generic_typmod;
+use crate::api::tokenizers::ngram::lookup_ngram_typmod;
+use crate::api::tokenizers::regex::lookup_regex_typmod;
+use crate::api::tokenizers::stemmed::lookup_stemmed_typmod;
 use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::{Borrow, Cow};
@@ -12,46 +16,46 @@ mod stemmed;
 mod typmod;
 
 pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: i32) {
+    if typmod.is_negative() {
+        return;
+    }
+
     match tokenizer {
         SearchTokenizer::Ngram {
             min_gram,
             max_gram,
             prefix_only,
-            ..
+            filters,
         } => {
-            *prefix_only = ((typmod >> 8) & 0xFF) == 1;
-            *max_gram = ((typmod >> 4) & 0x0F) as usize;
-            *min_gram = (typmod & 0x0F) as usize;
+            let ngram_typmod = lookup_ngram_typmod(typmod).expect("typmod lookup should not fail");
+            *min_gram = ngram_typmod.min_gram;
+            *max_gram = ngram_typmod.max_gram;
+            *prefix_only = ngram_typmod.prefix_only;
+            *filters = ngram_typmod.filters;
         }
-        SearchTokenizer::Stem { language, .. } => {
-            *language = match typmod {
-                0 => Language::Arabic,
-                1 => Language::Danish,
-                2 => Language::Dutch,
-                3 => Language::English,
-                4 => Language::Finnish,
-                5 => Language::French,
-                6 => Language::German,
-                7 => Language::Greek,
-                8 => Language::Hungarian,
-                9 => Language::Italian,
-                10 => Language::Norwegian,
-                11 => Language::Portuguese,
-                12 => Language::Romanian,
-                13 => Language::Russian,
-                14 => Language::Spanish,
-                15 => Language::Swedish,
-                16 => Language::Tamil,
-                17 => Language::Turkish,
-                _ => panic!("Stem tokenizer requires a language"),
-            }
+        SearchTokenizer::Stem { language, filters } => {
+            let stemmed_typmod =
+                lookup_stemmed_typmod(typmod).expect("typmod lookup should not fail");
+            *language = stemmed_typmod.language;
+            *filters = stemmed_typmod.filters;
         }
-        SearchTokenizer::RegexTokenizer { pattern, .. } => {
-            *pattern = regex::lookup_regex_typmod(typmod)
-                .expect("Regex tokenizer requires a pattern")
-                .into_string()
-                .unwrap();
+        SearchTokenizer::RegexTokenizer { pattern, filters } => {
+            let regex_typmod = lookup_regex_typmod(typmod).expect("typmod lookup should not fail");
+            *pattern = regex_typmod.pattern.to_string();
+            *filters = regex_typmod.filters;
         }
+        SearchTokenizer::Default(filters)
+        | SearchTokenizer::WhiteSpace(filters)
+        | SearchTokenizer::ChineseCompatible(filters)
+        | SearchTokenizer::ChineseLindera(filters)
+        | SearchTokenizer::JapaneseLindera(filters)
+        | SearchTokenizer::KoreanLindera(filters)
+        | SearchTokenizer::Jieba(filters) => {
+            let generic_typmod =
+                lookup_generic_typmod(typmod).expect("typmod lookup should not fail");
+            *filters = generic_typmod.filters;
+        }
+
         _ => {}
     }
 }
@@ -121,111 +125,6 @@ impl<T: DatumWrapper> CowString for T {
             }
         }
     }
-}
-
-#[macro_export]
-macro_rules! define_tokenizer_type {
-    ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $sql_name:literal, $preferred:literal) => {
-        pub struct $rust_name(pg_sys::Datum);
-
-        impl DatumWrapper for $rust_name {
-            fn from_datum(datum: pg_sys::Datum) -> Self {
-                $rust_name(datum)
-            }
-
-            fn as_datum(&self) -> pg_sys::Datum {
-                self.0
-            }
-        }
-
-        impl FromDatum for $rust_name {
-            unsafe fn from_polymorphic_datum(
-                datum: pg_sys::Datum,
-                is_null: bool,
-                _typoid: pg_sys::Oid,
-            ) -> Option<Self> {
-                (!is_null).then_some($rust_name(datum))
-            }
-        }
-
-        impl IntoDatum for $rust_name {
-            fn into_datum(self) -> Option<pg_sys::Datum> {
-                Some(self.0)
-            }
-
-            fn type_oid() -> pg_sys::Oid {
-                todo!("get the type oid for $rust_name")
-            }
-        }
-
-        unsafe impl<'fcx> ArgAbi<'fcx> for $rust_name {
-            unsafe fn unbox_arg_unchecked(arg: Arg<'_, 'fcx>) -> Self {
-                let index = arg.index();
-                unsafe {
-                    arg.unbox_arg_using_from_datum()
-                        .unwrap_or_else(|| panic!("argument {index} must not be null"))
-                }
-            }
-
-            unsafe fn unbox_nullable_arg(arg: Arg<'_, 'fcx>) -> Nullable<Self> {
-                unsafe { arg.unbox_arg_using_from_datum().into() }
-            }
-        }
-
-        unsafe impl BoxRet for $rust_name {
-            unsafe fn box_into<'fcx>(self, fcinfo: &mut FcInfo<'fcx>) -> pgrx::datum::Datum<'fcx> {
-                match self.into_datum() {
-                    Some(datum) => unsafe { fcinfo.return_raw_datum(datum) },
-                    None => fcinfo.return_null(),
-                }
-            }
-        }
-
-        unsafe impl SqlTranslatable for $rust_name {
-            fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-                Ok(SqlMapping::As($sql_name.into()))
-            }
-
-            fn return_sql() -> Result<Returns, ReturnsError> {
-                Ok(Returns::One(SqlMapping::As($sql_name.into())))
-            }
-        }
-
-        #[pg_extern(immutable, parallel_safe)]
-        fn $cast_name(s: $rust_name, fcinfo: pg_sys::FunctionCallInfo) -> Vec<String> {
-            let mut tokenizer = $tokenizer_conf;
-
-            unsafe {
-                let func_expr = (*(*fcinfo).flinfo).fn_expr.cast::<pg_sys::FuncExpr>();
-                let args = pgrx::PgList::<pg_sys::Node>::from_pg((*func_expr).args.cast());
-                let first_arg = args.get_ptr(0).unwrap();
-                let typmod = pg_sys::exprTypmod(first_arg);
-
-                super::apply_typmod(&mut tokenizer, typmod);
-            }
-
-            let mut analyzer = tokenizer
-                .to_tantivy_tokenizer()
-                .expect("failed to convert tokenizer to tantivy tokenizer");
-
-            let s = s.to_str();
-            let mut stream = analyzer.token_stream(&s);
-
-            let mut tokens = Vec::new();
-            while stream.advance() {
-                let token = stream.token();
-                tokens.push(token.text.to_string());
-            }
-            tokens
-        }
-
-        generate_tokenizer_sql!(
-            rust_name = $rust_name,
-            sql_name = $sql_name,
-            cast_name = $cast_name,
-            preferred = $preferred
-        );
-    };
 }
 
 //

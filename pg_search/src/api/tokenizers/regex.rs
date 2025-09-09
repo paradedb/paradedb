@@ -1,38 +1,35 @@
-use pgrx::datum::DatumWithOid;
-use pgrx::{extension_sql, pg_extern, pg_sys, Array, Spi};
+use crate::api::tokenizers::typmod;
+use crate::api::tokenizers::typmod::{load_typmod, save_typmod};
+use pgrx::{extension_sql, pg_extern, Array, Spi};
 use std::ffi::{CStr, CString};
+use tokenizers::manager::SearchTokenizerFilters;
 
 #[pg_extern(immutable, parallel_safe)]
 fn regex_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
-    let regex = typmod_parts
-        .get(0)
-        .expect("malformed regex typmod")
-        .unwrap()
-        .to_str()
-        .expect("typmod must be valid utf8");
-
-    Spi::get_one_with_args(
-        "SELECT paradedb._typmod($1)",
-        &[unsafe { DatumWithOid::new(regex, pg_sys::TEXTOID) }],
-    )
-    .expect("SPI lookup to paradedb._typmod should not fail")
-    .expect("paradedb._typmod should return a single row")
+    save_typmod(typmod_parts.iter()).expect("should not fail to save typmod")
 }
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn regex_typmod_out(typmod: i32) -> CString {
-    let regex = lookup_regex_typmod(typmod).expect("typmod not found by paradedb._typmod()");
-    let typmod_str = format!("('{}')", regex.to_str().unwrap().replace("'", "''"));
-    CString::new(typmod_str).unwrap()
+    let parsed = load_typmod(typmod).expect("should not fail to load typmod");
+    CString::new(format!("({parsed})")).unwrap()
 }
 
-pub fn lookup_regex_typmod(typmod: i32) -> Option<CString> {
-    let regex = Spi::get_one_with_args::<String>(
-        "SELECT paradedb._typmod($1)",
-        &[unsafe { DatumWithOid::new(typmod, pg_sys::INT4OID) }],
-    )
-    .expect("SPI lookup to paradedb._typmod should not fail");
-    regex.map(|regex| CString::new(regex).unwrap())
+pub struct RegexTypmod {
+    pub pattern: regex::Regex,
+    pub filters: SearchTokenizerFilters,
+}
+
+pub fn lookup_regex_typmod(typmod: i32) -> typmod::Result<RegexTypmod> {
+    let parsed = load_typmod(typmod)?;
+    let filters = SearchTokenizerFilters::from(&parsed);
+    let pattern = parsed
+        .try_get("pattern", 0)
+        .map(|p| p.as_regex())
+        .flatten()
+        .ok_or(typmod::Error::MissingKey("pattern"))??;
+
+    Ok(RegexTypmod { pattern, filters })
 }
 
 extension_sql!(

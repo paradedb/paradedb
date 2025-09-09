@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757449447021,
+  "lastUpdate": 1757449661705,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -534,6 +534,70 @@ window.BENCHMARK_DATA = {
             "value": 126.88887157970048,
             "unit": "median tps",
             "extra": "avg tps: 133.0880394146037, max tps: 813.9557598765392, count: 55242"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "4b08446356edfe8faed3798c0521304b8789d3e5",
+          "message": "fix: make IndexLayerSizes calculations more accurate (#3040)\n\n## What\n\nThe `From<&PgSearchRelation> for IndexLayerSizes` `from()` ctor was\nimproperly calculating both the total `index_byte_size` and the\n`target_segment_byte_size`.\n\nFor the former, it needs to only consider SegmentMetaEntries that are\nactually visible. In almost every case, at least after a CREATE INDEX of\na large index, the index could actually have 2x+ total segments as there\nare actually visible segments.\n\nSecondly, we need to adjust the `target_segment_byte_size` down by 1/3\nto account for how `LayeredMergePolicy` does the same thing. Failure to\ndo this can cause the background worker to merge segments together that\ndon't actually need to be.\n\n## Why\n\nThese two miscalculations are what contributed to the recent query\nbenchmark regressions we saw after #3031 was merged.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-08-24T17:46:13Z",
+          "url": "https://github.com/paradedb/paradedb/commit/4b08446356edfe8faed3798c0521304b8789d3e5"
+        },
+        "date": 1757449660171,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1180.0214203271923,
+            "unit": "median tps",
+            "extra": "avg tps: 1176.0767980187588, max tps: 1183.743768786506, count: 55327"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2793.147810286606,
+            "unit": "median tps",
+            "extra": "avg tps: 2785.4420762597665, max tps: 2839.016217260532, count: 55327"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1220.9690308473207,
+            "unit": "median tps",
+            "extra": "avg tps: 1215.0927490108131, max tps: 1224.2715878198649, count: 55327"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 966.8583786376862,
+            "unit": "median tps",
+            "extra": "avg tps: 966.4580882580532, max tps: 998.9358259804612, count: 55327"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 173.95875174820912,
+            "unit": "median tps",
+            "extra": "avg tps: 179.38478277040537, max tps: 188.8999478715099, count: 110654"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 151.57107576346408,
+            "unit": "median tps",
+            "extra": "avg tps: 150.79367813642259, max tps: 152.1667896254459, count: 55327"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 43.280328066742605,
+            "unit": "median tps",
+            "extra": "avg tps: 46.03327070212798, max tps: 815.3361467865972, count: 55327"
           }
         ]
       }

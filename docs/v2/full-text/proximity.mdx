@@ -37,7 +37,7 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
-By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overriden
+By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
 by providing a second argument:
 
 ```sql

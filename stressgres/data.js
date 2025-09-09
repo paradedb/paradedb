@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757441522286,
+  "lastUpdate": 1757441525509,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23786,6 +23786,66 @@ window.BENCHMARK_DATA = {
             "value": 166.23046875,
             "unit": "median mem",
             "extra": "avg mem: 156.02115880818266, max mem: 167.046875, count: 56632"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4740c201e26fceabbe9fd0871116bcbc8e4078f",
+          "message": "docs: Proximity operator (#3138)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFirst cut of docs for proximity queries. The operator-only version has\nbeen documented, query builder equivalent is a TODO.\n\nAdditionally, per discussion with @eeeebbbbrrrr we decided to make the\noperator-only version not enforce ordering as the default.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-09T13:33:19-04:00",
+          "tree_id": "d96d1279b28c02c9d08b44501d0a9e16338f2407",
+          "url": "https://github.com/paradedb/paradedb/commit/d4740c201e26fceabbe9fd0871116bcbc8e4078f"
+        },
+        "date": 1757441523932,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.913061176417887, max cpu: 48.241207, count: 57667"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 169.6058856099459, max mem: 173.45703125, count: 57667"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21403,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19299.445055230895, max block_count: 22972.0, count: 57667"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 49,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.39655262108312, max segment_count: 131.0, count: 57667"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.655636973718819, max cpu: 28.543112, count: 57667"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 156.65419713072467, max mem: 170.0859375, count: 57667"
           }
         ]
       }

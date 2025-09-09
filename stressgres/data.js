@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757442190109,
+  "lastUpdate": 1757444891270,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5848,6 +5848,70 @@ window.BENCHMARK_DATA = {
             "value": 29.311102821395536,
             "unit": "median tps",
             "extra": "avg tps: 33.027264266025526, max tps: 949.7803632909889, count: 55266"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0544c54d64a963065cefc3a922582cc501a4c90e",
+          "message": "fix: zero worker threads (#2959) (#3139)\n\nWe don't use any of Tantivy's threading features, and as of\nhttps://github.com/paradedb/tantivy/pull/59 it's now possible to set the\nnumber of merge and worker threads to zero.\n\nDoing so saves overhead of making threads that we never use, and joining\non them, for every segment merge operation.\n\n\n🍒 This is a cherry pick of 98d7dcdc33169d31d80e13ef39aa7242e1a09710 from\n`main/0.18.x`",
+          "timestamp": "2025-09-09T18:06:14Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0544c54d64a963065cefc3a922582cc501a4c90e"
+        },
+        "date": 1757444889713,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 1235.0729200191745,
+            "unit": "median tps",
+            "extra": "avg tps: 1231.5088489031973, max tps: 1246.93595795803, count: 55164"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2819.6249415327793,
+            "unit": "median tps",
+            "extra": "avg tps: 2802.92354027425, max tps: 2840.092971583302, count: 55164"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 1191.738604374806,
+            "unit": "median tps",
+            "extra": "avg tps: 1190.089982231173, max tps: 1221.582106411895, count: 55164"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 1027.5591864731148,
+            "unit": "median tps",
+            "extra": "avg tps: 1025.971383694966, max tps: 1041.2551150722156, count: 55164"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 552.9721196890748,
+            "unit": "median tps",
+            "extra": "avg tps: 551.8922415961152, max tps: 560.4840932268468, count: 110328"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 480.3602317687932,
+            "unit": "median tps",
+            "extra": "avg tps: 468.0215917720466, max tps: 497.88806476100433, count: 55164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 110.7531373205019,
+            "unit": "median tps",
+            "extra": "avg tps: 113.01074861593133, max tps: 755.7447940519861, count: 55164"
           }
         ]
       }

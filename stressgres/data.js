@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757449912593,
+  "lastUpdate": 1757449915751,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -200,6 +200,100 @@ window.BENCHMARK_DATA = {
             "value": 200.5234375,
             "unit": "median mem",
             "extra": "avg mem: 197.4519551783023, max mem: 231.1328125, count: 55741"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48",
+          "message": "ci: fix benchmark links in slack messages (#2875)",
+          "timestamp": "2025-07-17T12:13:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48"
+        },
+        "date": 1757449914230,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.614108289411669, max cpu: 32.71665, count: 55469"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 205.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 204.35682649035948, max mem: 205.98828125, count: 55469"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.320388,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.035495212142893, max cpu: 23.346306, count: 55469"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 164.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 160.27758149540733, max mem: 172.6171875, count: 55469"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 39298,
+            "unit": "median block_count",
+            "extra": "avg block_count: 40514.28520434837, max block_count: 57558.0, count: 55469"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.581360806301311, max cpu: 4.669261, count: 55469"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 116.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 105.34452922184013, max mem: 136.25390625, count: 55469"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.93836196794606, max segment_count: 54.0, count: 55469"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 23.099133,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.2987849109009, max cpu: 32.876713, count: 166407"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 220.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.90730476050436, max mem: 449.1171875, count: 166407"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.776143115991996, max cpu: 32.684826, count: 55469"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 193.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 192.5084291873614, max mem: 224.66015625, count: 55469"
           }
         ]
       }

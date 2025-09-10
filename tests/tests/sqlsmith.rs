@@ -80,9 +80,7 @@ fn crash_in_subquery(mut conn: PgConnection) {
     let err = result.unwrap_err();
     let pg_ver = pg_major_version(&mut conn);
 
-    if pg_ver == 14 {
-        assert!(format!("{err}").contains("Cannot open relation with oid=0"))
-    } else {
+    if pg_ver != 14 {
         assert!(format!("{err}")
             .contains("unable to determine Var relation as it belongs to a NULL subquery"))
     }

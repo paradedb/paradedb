@@ -15,14 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
-use pgrx::*;
-use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 use std::hash::Hash;
 use std::mem::{offset_of, size_of};
 use std::path::{Path, PathBuf};
 use std::slice::from_raw_parts;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+use crate::postgres::storage::buffer::{Buffer, BufferManager, BufferMut};
+use crate::postgres::storage::LinkedBytesList;
+use crate::postgres::PgSearchRelation;
+
+use pgrx::*;
+use serde::{Deserialize, Serialize};
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
@@ -131,6 +137,57 @@ pub trait LinkedList {
 // Linked list entry structs
 // ---------------------------------------------------------
 
+/// Prior to https://github.com/paradedb/paradedb/pull/2487, the field storing this tag contained
+/// either A. FrozenTransactionId, or B. GetCurrentTransactionId(). After #2487 and before #3203,
+/// the field contained `InvalidTransactionId`. We treat all such tags as representing an
+/// `Immutable` segment in `impl From<u32> for Self`.
+///
+/// New tags added here must therefore _not_ be valid transaction ids. At some point in the future,
+/// if we decide to drop compatibility with indexes created before #2487, then we could begin to
+/// use valid transaction ids as tags.
+#[repr(u32)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(from = "u32", into = "u32")]
+enum SegmentMetaEntryTag {
+    /// Tag for an immutable segment (reserved due to `FrozenTransactionId`).
+    Immutable = 2,
+}
+
+impl From<u32> for SegmentMetaEntryTag {
+    fn from(value: u32) -> Self {
+        // See the `SegmentMetaEntryTag` docs.
+        let txnid_value: pg_sys::TransactionId = value.into();
+        if value == SegmentMetaEntryTag::Immutable as u32
+            || txnid_value == pg_sys::InvalidTransactionId
+            || txnid_value >= pg_sys::FirstNormalTransactionId
+        {
+            SegmentMetaEntryTag::Immutable
+        } else {
+            panic!("Expected a SegmentMetaEntryTag, got: {value}");
+        }
+    }
+}
+
+impl From<SegmentMetaEntryTag> for u32 {
+    fn from(value: SegmentMetaEntryTag) -> Self {
+        value as u32
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct SegmentMetaEntryHeader {
+    segment_id: SegmentId,
+    max_doc: u32,
+
+    /// Previously known as `xmin` and `_unused`: now used to store a tag which differentiates the
+    /// type of SegmentMetaEntry this is. See the method doc.
+    tag: SegmentMetaEntryTag,
+
+    /// If set to [`pg_sys::FrozenTransactionId`] then this entry has been deleted via a Tantivy merge
+    /// and a) is no longer visible to any transaction and b) is subject to being garbage collected
+    xmax: pg_sys::TransactionId,
+}
+
 /// Metadata for tracking where to find a file
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct FileEntry {
@@ -145,21 +202,8 @@ pub struct DeleteEntry {
     pub num_deleted_docs: u32,
 }
 
-/// Metadata for tracking alive segments
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SegmentMetaEntry {
-    pub segment_id: SegmentId,
-    pub max_doc: u32,
-
-    /// this is the unused space that was once where we stored the `xmin` transaction id that created this entry
-    #[doc(hidden)]
-    #[serde(alias = "xmin")]
-    pub _unused: pg_sys::TransactionId,
-
-    /// If set to [`pg_sys::FrozenTransactionId`] then this entry has been deleted via a Tantivy merge
-    /// and a) is no longer visible to any transaction and b) is subject to being garbage collected
-    pub xmax: pg_sys::TransactionId,
-
+#[derive(Copy, Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SegmentMetaEntryImmutable {
     pub postings: Option<FileEntry>,
     pub positions: Option<FileEntry>,
     pub fast_fields: Option<FileEntry>,
@@ -170,28 +214,57 @@ pub struct SegmentMetaEntry {
     pub delete: Option<DeleteEntry>,
 }
 
-impl Default for SegmentMetaEntry {
-    fn default() -> Self {
-        Self {
-            segment_id: SegmentId::generate_random(),
-            max_doc: Default::default(),
-            _unused: pg_sys::InvalidTransactionId,
-            xmax: pg_sys::InvalidTransactionId,
-            postings: None,
-            positions: None,
-            fast_fields: None,
-            field_norms: None,
-            terms: None,
-            store: None,
-            temp_store: None,
-            delete: None,
-        }
-    }
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+pub enum SegmentMetaEntryContent {
+    Immutable(SegmentMetaEntryImmutable),
+}
+
+/// Metadata for tracking alive segments
+///
+/// NOTE: Implements Serialize for output-only use in the admin APIs: for internal storage, is
+/// serialized/deserialized via `Into/From<PgItem>`.
+#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+pub struct SegmentMetaEntry {
+    header: SegmentMetaEntryHeader,
+    pub content: SegmentMetaEntryContent,
 }
 
 impl SegmentMetaEntry {
+    pub fn new_immutable(
+        segment_id: SegmentId,
+        max_doc: u32,
+        xmax: pg_sys::TransactionId,
+        content: SegmentMetaEntryImmutable,
+    ) -> Self {
+        Self {
+            header: SegmentMetaEntryHeader {
+                segment_id,
+                max_doc,
+                tag: SegmentMetaEntryTag::Immutable,
+                xmax,
+            },
+            content: SegmentMetaEntryContent::Immutable(content),
+        }
+    }
+
+    pub fn segment_id(&self) -> SegmentId {
+        self.header.segment_id
+    }
+
+    pub fn max_doc(&self) -> u32 {
+        self.header.max_doc
+    }
+
+    pub fn xmax(&self) -> pg_sys::TransactionId {
+        self.header.xmax
+    }
+
+    pub fn set_xmax(&mut self, xmax: pg_sys::TransactionId) {
+        self.header.xmax = xmax;
+    }
+
     pub fn is_deleted(&self) -> bool {
-        self.xmax == pg_sys::FrozenTransactionId
+        self.xmax() == pg_sys::FrozenTransactionId
     }
 
     /// In `save_new_metas`, if a new `DeleteEntry` is created and there was already a `DeleteEntry`,
@@ -200,7 +273,8 @@ impl SegmentMetaEntry {
     ///
     /// This function returns true if the `SegmentMetaEntry` is a "fake" `DeleteEntry`
     pub fn is_orphaned_delete(&self) -> bool {
-        self.segment_id == SegmentId::from_bytes([0; 16])
+        // TODO: Stop using this value for mutable segments.
+        self.segment_id() == SegmentId::from_bytes([0; 16])
     }
 
     /// Fake an `Opstamp` that's always zero
@@ -209,13 +283,53 @@ impl SegmentMetaEntry {
     }
 
     pub fn num_docs(&self) -> usize {
-        self.max_doc as usize - self.num_deleted_docs()
+        self.max_doc() as usize - self.num_deleted_docs()
     }
 
     pub fn num_deleted_docs(&self) -> usize {
-        self.delete
-            .map(|entry| entry.num_deleted_docs as usize)
-            .unwrap_or(0)
+        match self.content {
+            SegmentMetaEntryContent::Immutable(content) => content
+                .delete
+                .map(|entry| entry.num_deleted_docs as usize)
+                .unwrap_or(0),
+        }
+    }
+
+    pub fn as_tantivy(&self) -> tantivy::index::InnerSegmentMeta {
+        let deletes = match self.content {
+            SegmentMetaEntryContent::Immutable(content) => {
+                content
+                    .delete
+                    .map(|delete_entry| tantivy::index::DeleteMeta {
+                        num_deleted_docs: delete_entry.num_deleted_docs,
+                        opstamp: 0, // hardcode zero as the entry's opstamp as it's not used
+                    })
+            }
+        };
+
+        tantivy::index::InnerSegmentMeta {
+            segment_id: self.segment_id(),
+            max_doc: self.max_doc(),
+            deletes,
+            include_temp_doc_store: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// If this entry already has DeleteEntry, clone the entire entry and return it. Finally,
+    /// replace the deletes with the given DeleteEntry.
+    pub fn replace_deletes(&mut self, delete: DeleteEntry) -> Option<Self> {
+        let cloned = *self;
+        match &mut self.content {
+            SegmentMetaEntryContent::Immutable(content) => {
+                let result = if content.delete.is_some() {
+                    Some(cloned)
+                } else {
+                    None
+                };
+                content.delete = Some(delete);
+                result
+            }
+        }
     }
 
     pub fn file_entry(&self, path: &Path) -> Option<FileEntry> {
@@ -228,76 +342,86 @@ impl SegmentMetaEntry {
     }
 
     pub fn file_entries(&self) -> impl Iterator<Item = (&FileEntry, SegmentComponent)> {
-        self.postings
+        let SegmentMetaEntryContent::Immutable(ref content) = self.content;
+
+        content
+            .postings
             .iter()
             .map(|fe| (fe, SegmentComponent::Postings))
             .chain(
-                self.positions
+                content
+                    .positions
                     .iter()
                     .map(|fe| (fe, SegmentComponent::Positions)),
             )
             .chain(
-                self.fast_fields
+                content
+                    .fast_fields
                     .iter()
                     .map(|fe| (fe, SegmentComponent::FastFields)),
             )
             .chain(
-                self.field_norms
+                content
+                    .field_norms
                     .iter()
                     .map(|fe| (fe, SegmentComponent::FieldNorms)),
             )
-            .chain(self.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
+            .chain(content.terms.iter().map(|fe| (fe, SegmentComponent::Terms)))
             .chain(
-                self.temp_store
+                content
+                    .temp_store
                     .iter()
                     .map(|fe| (fe, SegmentComponent::TempStore)),
             )
             .chain(
-                self.delete
+                content
+                    .delete
                     .as_ref()
                     .map(|d| (&d.file_entry, SegmentComponent::Delete)),
             )
     }
 
     pub fn byte_size(&self) -> u64 {
+        let SegmentMetaEntryContent::Immutable(ref content) = self.content;
+
         let mut size = 0;
 
-        size += self
+        size += content
             .postings
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .positions
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .fast_fields
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .field_norms
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .terms
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .store
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .temp_store
             .as_ref()
             .map(|entry| entry.total_bytes as u64)
             .unwrap_or(0);
-        size += self
+        size += content
             .delete
             .as_ref()
             .map(|entry| entry.file_entry.total_bytes as u64)
@@ -306,7 +430,7 @@ impl SegmentMetaEntry {
     }
 
     pub fn get_component_paths(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        let uuid = self.segment_id.uuid_string();
+        let uuid = self.segment_id().uuid_string();
         self.file_entries().map(move |(_, component)| {
             if matches!(component, SegmentComponent::Delete) {
                 PathBuf::from(format!(
@@ -318,6 +442,27 @@ impl SegmentMetaEntry {
                 PathBuf::from(format!("{uuid}.{component}"))
             }
         })
+    }
+
+    pub fn freeable_blocks<'a>(
+        &'a self,
+        indexrel: &'a PgSearchRelation,
+    ) -> impl Iterator<Item = pg_sys::BlockNumber> + 'a {
+        let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if self.is_orphaned_delete() {
+            match self.content {
+                SegmentMetaEntryContent::Immutable(content) => {
+                    // This is a "fake" `DeleteEntry`: free the blocks for the old `DeleteEntry` only
+                    let block = content.delete.as_ref().unwrap().file_entry.starting_block;
+                    Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
+                }
+            }
+        } else {
+            // Otherwise, we need to free the blocks for all the files.
+            Box::new(self.file_entries().flat_map(move |(file_entry, _)| {
+                LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
+            }))
+        };
+        iter
     }
 }
 
@@ -332,8 +477,18 @@ pub struct PgItem(pub pg_sys::Item, pub pg_sys::Size);
 impl From<SegmentMetaEntry> for PgItem {
     fn from(val: SegmentMetaEntry) -> Self {
         let mut buf = pgrx::StringInfo::new();
-        let len = bincode::serde::encode_into_std_write(val, &mut buf, bincode::config::legacy())
-            .expect("expected to serialize valid SegmentMetaEntry");
+
+        let mut len =
+            bincode::serde::encode_into_std_write(val.header, &mut buf, bincode::config::legacy())
+                .expect("expected to serialize valid SegmentMetaEntryHeader");
+
+        len += match &val.content {
+            SegmentMetaEntryContent::Immutable(content) => {
+                bincode::serde::encode_into_std_write(content, &mut buf, bincode::config::legacy())
+                    .expect("expected to serialize valid SegmentMetaEntryContent")
+            }
+        };
+
         PgItem(buf.into_char_ptr() as pg_sys::Item, len as pg_sys::Size)
     }
 }
@@ -341,12 +496,25 @@ impl From<SegmentMetaEntry> for PgItem {
 impl From<PgItem> for SegmentMetaEntry {
     fn from(pg_item: PgItem) -> Self {
         let PgItem(item, size) = pg_item;
-        let (decoded, _) = bincode::serde::decode_from_slice(
-            unsafe { from_raw_parts(item as *const u8, size) },
-            bincode::config::legacy(),
-        )
-        .expect("expected to deserialize valid SegmentMetaEntry");
-        decoded
+        let bytes = unsafe { from_raw_parts(item as *const u8, size) };
+
+        let (header, bytes_read): (SegmentMetaEntryHeader, _) =
+            bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+                .expect("expected to deserialize valid SegmentMetaEntryHeader");
+
+        let content = match header.tag {
+            SegmentMetaEntryTag::Immutable => {
+                let (content, _): (SegmentMetaEntryImmutable, _) =
+                    bincode::serde::decode_from_slice(
+                        &bytes[bytes_read..],
+                        bincode::config::legacy(),
+                    )
+                    .expect("expected to deserialize valid SegmentMetaEntryContent");
+                SegmentMetaEntryContent::Immutable(content)
+            }
+        };
+
+        SegmentMetaEntry { header, content }
     }
 }
 
@@ -391,7 +559,7 @@ pub trait MVCCEntry {
 impl MVCCEntry for SegmentMetaEntry {
     fn pintest_blockno(&self) -> pg_sys::BlockNumber {
         match self.file_entries().next() {
-            None => panic!("SegmentMetaEntry for `{}` has no files", self.segment_id),
+            None => panic!("SegmentMetaEntry for `{}` has no files", self.segment_id()),
             Some((file_entry, _)) => file_entry.starting_block,
         }
     }

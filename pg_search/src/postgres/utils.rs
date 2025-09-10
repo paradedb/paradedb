@@ -94,14 +94,12 @@ mod tests {
 
     #[pg_test]
     fn xid_precedes_or_equals_test() {
-        use proptest::proptest;
+        use proptest::prelude::*;
 
         proptest!(|(xid1 in 0..u32::MAX, xid2 in 0..u32::MAX)| {
-            if xid1 <= xid2 {
-                let us = TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2));
-                let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
-                assert_eq!(us, pg);
-            }
+            let us = TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2));
+            let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
+            prop_assert_eq!(us, pg);
         });
     }
 }

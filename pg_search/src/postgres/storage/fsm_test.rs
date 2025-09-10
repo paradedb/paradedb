@@ -32,6 +32,21 @@ mod tests {
     #[pg_test] fn fsm_pushpop_large() { pushpop_n(1000, 125) }
     #[pg_test] fn fsm_pushpop_huge() { pushpop_n(10000, 126) }
 
+    #[pg_test]
+    fn fsm_big() {
+        let (mut bman, mut fsm) = init();
+
+        let extend_when = pg_sys::TransactionId::from(100);
+        fsm.extend_with_when_recyclable(&mut bman, extend_when, 0..100_000);
+
+        let drain_when = pg_sys::TransactionId::from(101);
+        let drained: Vec<BlockNumber> =
+            crate::postgres::storage::fsm::FSMDrainIter::new(&fsm, &bman, drain_when)
+                .take(100_000)
+                .collect();
+        assert_eq!(drained.len(), 100_000);
+    }
+
     fn pushpop_n(n : usize, xid_n : u32) {
         let (mut bman, mut fsm) = init();
         let xid = pg_sys::TransactionId::from(xid_n);

@@ -153,7 +153,6 @@ impl CustomScan for AggregateScan {
         if limit.is_none() || (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets) {
             return None;
         }
-
         // Can we handle all of the quals?
         let query = unsafe {
             let result = extract_quals(
@@ -233,7 +232,7 @@ impl CustomScan for AggregateScan {
             orderby_info,
             target_list_mapping,
             has_order_by: false, // Will be set in plan_custom_path
-            limit,
+            limit: limit.unwrap(),
             offset,
         }))
     }

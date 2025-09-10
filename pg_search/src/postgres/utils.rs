@@ -15,11 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::lookup_generic_typmod;
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
+use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use crate::PG_SEARCH_PREFIX;
 use anyhow::{anyhow, Result};
@@ -175,30 +177,55 @@ pub unsafe fn extract_field_attributes(
     let index_info = pg_sys::BuildIndexInfo(indexrel);
     let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
     let mut expressions_iter = expressions.iter_ptr();
-
+    let mut heap_relation = None;
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
-        let (attname, attribute_type_oid) = if heap_attno == 0 {
+        let (attname, attribute_type_oid, att_typmod) = if heap_attno == 0 {
             // Is an expression.
             let Some(expression) = expressions_iter.next() else {
                 panic!("Expected expression for index attribute {attno}.");
             };
             let node = expression.cast();
-            (
-                format!("{PG_SEARCH_PREFIX}{attno}").into(),
-                pg_sys::exprType(node),
-            )
+
+            let typmod = pg_sys::exprTypmod(node);
+            let parsed_typmod = lookup_generic_typmod(typmod).expect("typmod should be valid");
+            let vars = find_vars(node);
+            let mut attname = parsed_typmod.alias();
+
+            if attname.is_none() && vars.len() == 1 {
+                let heap_relation = heap_relation.get_or_insert_with(|| {
+                    PgSearchRelation::from_pg(indexrel).heap_relation().unwrap()
+                });
+                let var = vars[0];
+                let heap_attname = heap_relation
+                    .tuple_desc()
+                    .get((*var).varattno as usize - 1)
+                    .unwrap()
+                    .name()
+                    .to_string();
+
+                attname = Some(heap_attname);
+            }
+
+            let attname = attname.unwrap_or_else(|| format!("{PG_SEARCH_PREFIX}{attno}"));
+
+            (attname, pg_sys::exprType(node), typmod)
         } else {
             // Is a field.
             let att = tupdesc.get(attno as usize).expect("attribute should exist");
-            (att.name().to_owned().into(), att.type_oid().value())
+            (att.name().to_owned().into(), att.type_oid().value(), -1)
         };
 
+        if field_attributes.contains_key(&FieldName::from(&attname)) {
+            panic!("indexed attribute {attname} defined more than once");
+        }
+
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from(pg_type).unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type =
+            SearchFieldType::try_from((pg_type, att_typmod)).unwrap_or_else(|e| panic!("{e}"));
         field_attributes.insert(
-            attname,
+            attname.into(),
             ExtractedFieldAttribute {
                 attno: attno as usize,
                 pg_type,

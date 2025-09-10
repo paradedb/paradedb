@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::{pg_sys, IntoDatum};
+use pgrx::{pg_sys, FromDatum, IntoDatum};
 use std::ffi::CStr;
 
 /// Helper function to lookup a namespace's [`pg_sys::Oid`] (SQL schema) by name
@@ -23,6 +23,55 @@ pub fn lookup_namespace(namespace: &CStr) -> Option<pg_sys::Oid> {
     unsafe {
         let namespace_oid = pg_sys::get_namespace_oid(namespace.as_ptr(), true);
         (namespace_oid != pg_sys::InvalidOid).then_some(namespace_oid)
+    }
+}
+
+/// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
+pub fn lookup_type_category(typoid: pg_sys::Oid) -> Option<u8> {
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::TYPEOID as _,
+            typoid.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+
+        let mut is_null = false;
+        let category_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::TYPEOID as _,
+            entry,
+            pg_sys::Anum_pg_type_typcategory as _,
+            &mut is_null,
+        );
+        let category = i8::from_datum(category_datum, is_null);
+        pg_sys::ReleaseSysCache(entry);
+        category.map(|c| c as u8)
+    }
+}
+
+/// Helper function to lookup a type's assigned `typcategory` attribute from `pg_catalog.pg_type`
+pub fn lookup_type_name(typoid: pg_sys::Oid) -> Option<String> {
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::TYPEOID as _,
+            typoid.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+
+        let mut is_null = false;
+        let name_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::TYPEOID as _,
+            entry,
+            pg_sys::Anum_pg_type_typname as _,
+            &mut is_null,
+        );
+        let name =
+            <&CStr>::from_datum(name_datum, is_null).map(|s| s.to_string_lossy().to_string());
+        pg_sys::ReleaseSysCache(entry);
+        name
     }
 }
 

@@ -1,17 +1,26 @@
 use crate::api::tokenizers::typmod;
-use crate::api::tokenizers::typmod::load_typmod;
+use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod};
 use tantivy::tokenizer::Language;
 use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
 
 pub struct GenericTypmod {
+    parsed: ParsedTypmod,
     pub filters: SearchTokenizerFilters,
+}
+
+impl GenericTypmod {
+    pub fn alias(&self) -> Option<String> {
+        self.parsed
+            .get("alias")
+            .map(|p| p.as_str().unwrap().to_string())
+    }
 }
 
 pub fn lookup_generic_typmod(typmod: i32) -> typmod::Result<GenericTypmod> {
     let parsed = load_typmod(typmod)?;
     let filters = SearchTokenizerFilters::from(&parsed);
 
-    Ok(GenericTypmod { filters })
+    Ok(GenericTypmod { parsed, filters })
 }
 
 pub struct NgramTypmod {

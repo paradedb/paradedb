@@ -259,6 +259,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
 
         match tantivy_type {
             SearchFieldType::Text(_) => builder.add_text_field(name.as_ref(), config.clone()),
+            SearchFieldType::CustomText(..) => {
+                builder.add_text_field(name.as_ref(), config.clone())
+            }
             SearchFieldType::Uuid(_) => builder.add_text_field(name.as_ref(), config.clone()),
             SearchFieldType::Inet(_) => builder.add_ip_addr_field(name.as_ref(), config.clone()),
             SearchFieldType::I64(_) => builder.add_i64_field(name.as_ref(), config.clone()),

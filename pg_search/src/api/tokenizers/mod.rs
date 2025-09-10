@@ -1,21 +1,74 @@
 use crate::api::tokenizers::typmod::{
-    lookup_generic_typmod, lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod,
-    lookup_stemmed_typmod,
+    lookup_lindera_typmod, lookup_ngram_typmod, lookup_regex_typmod, lookup_stemmed_typmod,
 };
+use crate::postgres::catalog::{lookup_type_category, lookup_type_name};
 use once_cell::sync::Lazy;
 use pgrx::{pg_sys, set_varsize_4b};
 use std::borrow::Cow;
 use std::ptr::addr_of_mut;
-use tokenizers::SearchTokenizer;
+use tantivy::tokenizer::Language;
+use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
+use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 mod definitions;
 mod typmod;
 
-pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: i32) {
-    if typmod.is_negative() {
-        return;
-    }
+use crate::schema::{IndexRecordOption, SearchFieldConfig};
+pub use typmod::{lookup_generic_typmod, Typmod};
 
+#[inline]
+pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
+    // TODO:  could this benefit from a local cache?
+    lookup_type_category(oid)
+        .map(|c| c == b'S')
+        .unwrap_or(false)
+}
+
+pub fn search_field_config_from_type(
+    oid: pg_sys::Oid,
+    typmod: Typmod,
+) -> Option<SearchFieldConfig> {
+    let type_name = lookup_type_name(oid)?;
+
+    let mut tokenizer = match type_name.as_str() {
+        "simple" => SearchTokenizer::Default(SearchTokenizerFilters::default()),
+        "lindera" => {
+            SearchTokenizer::Lindera(LinderaStyle::default(), SearchTokenizerFilters::default())
+        }
+        #[cfg(feature = "icu")]
+        "icu" => SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
+        "jieba" => SearchTokenizer::Jieba(SearchTokenizerFilters::default()),
+        "ngram" => SearchTokenizer::Ngram {
+            min_gram: 0,
+            max_gram: 0,
+            prefix_only: false,
+            filters: SearchTokenizerFilters::default(),
+        },
+        "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
+        "stemmed" => SearchTokenizer::Stem {
+            language: Language::English,
+            filters: SearchTokenizerFilters::default(),
+        },
+        "chinese_compatible" => {
+            SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
+        }
+        _ => return None,
+    };
+
+    apply_typmod(&mut tokenizer, typmod);
+
+    Some(SearchFieldConfig::Text {
+        indexed: true,
+        fast: false,
+        fieldnorms: true,
+        tokenizer,
+        record: IndexRecordOption::WithFreqsAndPositions,
+        normalizer: SearchNormalizer::default(),
+        column: None,
+    })
+}
+
+pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
     match tokenizer {
         SearchTokenizer::Ngram {
             min_gram,

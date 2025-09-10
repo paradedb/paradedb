@@ -249,8 +249,10 @@ pub enum SearchTokenizer {
     Lindera(LinderaStyle, SearchTokenizerFilters),
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
+#[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
 pub enum LinderaStyle {
+    #[default]
+    Unspecified,
     Chinese,
     Japanese,
     Korean,
@@ -302,6 +304,7 @@ impl SearchTokenizer {
             SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
             SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
             SearchTokenizer::Lindera(style, _filters) => match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
                 LinderaStyle::Chinese => json!({ "type": "chinese_lindera" }),
                 LinderaStyle::Japanese => json!({ "type": "japanese_lindera" }),
                 LinderaStyle::Korean => json!({ "type": "korean_lindera" }),
@@ -506,6 +509,7 @@ impl SearchTokenizer {
                     .build(),
             ),
             SearchTokenizer::Lindera(style, filters) => Some(match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
                 LinderaStyle::Chinese => TextAnalyzer::builder(LinderaChineseTokenizer::default())
                     .filter(filters.remove_long_filter())
                     .filter(filters.lower_caser())
@@ -656,6 +660,7 @@ impl SearchTokenizer {
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
             SearchTokenizer::Lindera(style, _filters) => match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
                 LinderaStyle::Chinese => format!("chinese_lindera{filters_suffix}"),
                 LinderaStyle::Japanese => format!("japanese_lindera{filters_suffix}"),
                 LinderaStyle::Korean => format!("korean_lindera{filters_suffix}"),

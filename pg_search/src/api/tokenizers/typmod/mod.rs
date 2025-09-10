@@ -1,11 +1,14 @@
 mod definitions;
 
+use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::{extension_sql, pg_sys, Array, Spi};
+use std::collections::hash_map::Entry;
 use std::ffi::CStr;
 use std::fmt::Display;
 use std::ops::Index;
 use std::str::FromStr;
+use std::sync::OnceLock;
 use tantivy::tokenizer::Language;
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
@@ -173,7 +176,7 @@ impl Property {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedTypmod {
     properties: Vec<Property>,
 }
@@ -328,24 +331,51 @@ impl ParsedTypmod {
 }
 
 pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
-    ParsedTypmod::try_from(
-        Spi::get_one_with_args::<Vec<String>>("SELECT paradedb._typmod($1)", unsafe {
-            &[DatumWithOid::new(typmod, pg_sys::INT4OID)]
-        })?
-        .ok_or_else(|| Error::TypmodNotFound(typmod))?,
-    )
+    static CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+
+    let cache = CACHE.get_or_init(Default::default);
+    let mut locked = cache.lock();
+
+    match locked.entry(typmod) {
+        Entry::Occupied(e) => Ok(e.get().clone()),
+        Entry::Vacant(e) => {
+            let typmod = ParsedTypmod::try_from(
+                Spi::get_one_with_args::<Vec<String>>("SELECT paradedb._typmod($1)", unsafe {
+                    &[DatumWithOid::new(typmod, pg_sys::INT4OID)]
+                })?
+                .ok_or_else(|| Error::TypmodNotFound(typmod))?,
+            )?;
+
+            e.insert(typmod.clone());
+            Ok(typmod)
+        }
+    }
 }
 
 pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result<i32> {
+    static CACHE: OnceLock<Mutex<crate::api::HashMap<Vec<String>, i32>>> = OnceLock::new();
+
     let as_text = typmod
-        .map(|e| e.ok_or(Error::EmptyProperty).map(|e| e.to_str().unwrap()))
+        .map(|e| {
+            e.ok_or(Error::EmptyProperty)
+                .map(|e| e.to_str().unwrap().to_string())
+        })
         .collect::<Result<Vec<_>>>()?;
 
-    let id = Spi::get_one_with_args::<i32>("SELECT paradedb._typmod($1)", unsafe {
-        &[DatumWithOid::new(as_text, pg_sys::TEXTARRAYOID)]
-    })?
-    .ok_or(Error::NullTypmodEntry)?;
-    Ok(id)
+    let cache = CACHE.get_or_init(Default::default);
+    let mut locked = cache.lock();
+
+    match locked.entry(as_text) {
+        Entry::Occupied(e) => Ok(*e.get()),
+        Entry::Vacant(e) => {
+            let id = Spi::get_one_with_args::<i32>("SELECT paradedb._typmod($1)", unsafe {
+                &[DatumWithOid::new(e.key().clone(), pg_sys::TEXTARRAYOID)]
+            })?
+            .ok_or(Error::NullTypmodEntry)?;
+            e.insert(id);
+            Ok(id)
+        }
+    }
 }
 
 extension_sql!(

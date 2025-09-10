@@ -77,7 +77,7 @@ pub struct AggregateScanState {
     // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
     // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub limit: Option<u32>,
+    pub limit: u32,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
 }
@@ -147,13 +147,7 @@ impl AggregateScanState {
                 }
             }) {
                 terms.insert(orderby_info.key(), orderby_info.json_value());
-                let mut size = match (self.limit, self.offset) {
-                    (Some(limit), Some(offset)) => limit + offset,
-                    (Some(limit), None) => limit,
-                    (None, Some(offset)) => offset,
-                    (None, None) => max_term_agg_buckets,
-                };
-                size = size.min(max_term_agg_buckets);
+                let size = (self.limit + self.offset.unwrap_or(0)).min(max_term_agg_buckets);
                 terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
                 // because we currently support ordering only by the grouping columns, the Top N
                 // of all segments is guaranteed to contain the global Top N
@@ -287,15 +281,15 @@ impl AggregateScanState {
         }
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
-        if rows.len() >= gucs::max_term_agg_buckets() as usize {
+        if rows.len() == gucs::max_term_agg_buckets() as usize && self.limit.is_none() {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-                "maximum number of buckets/groups may have been exceeded",
+                "more than `paradedb.max_term_agg_buckets` buckets/groups were returned",
                 function_name!(),
             )
             .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` were truncated")
             .set_hint("consider adding a lower `LIMIT` to the query or raising `paradedb.max_term_agg_buckets`")
-            .report(PgLogLevel::WARNING);
+            .report(PgLogLevel::ERROR);
         }
 
         rows

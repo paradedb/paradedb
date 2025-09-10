@@ -30,13 +30,14 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
                 SEND = {sql_name}_send,
                 RECEIVE = {sql_name}_recv,
                 COLLATABLE = true,
-                CATEGORY = 't', -- 't' for tokenizer
-                PREFERRED = {preferred},
-                LIKE = text
+                CATEGORY = 'S', -- 'S' is for Postgres' built-in category of String
+                PREFERRED = false,
+                INTERNALLENGTH = VARIABLE,
+                ALIGNMENT = int4,
+                STORAGE = extended
             );
          "#,
         sql_name = sql_name.value(),
-        preferred = preferred.value(),
     );
 
     let pgrx_cast_name = format!("{}_cast", sql_name.value());

@@ -2,7 +2,9 @@ mod definitions;
 
 use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
-use pgrx::{extension_sql, pg_sys, Array, Spi};
+use pgrx::pg_sys::BuiltinOid;
+use pgrx::spi::{OwnedPreparedStatement, Query};
+use pgrx::{extension_sql, pg_sys, Array, PgOid, Spi};
 use std::collections::hash_map::Entry;
 use std::ffi::CStr;
 use std::fmt::Display;
@@ -13,7 +15,10 @@ use tantivy::tokenizer::Language;
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
 
+pub use definitions::lookup_generic_typmod;
 pub use definitions::*;
+
+pub type Typmod = i32;
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -43,6 +48,9 @@ pub enum Error {
 
     #[error("null typmod entry")]
     NullTypmodEntry,
+
+    #[error("paradedb._typmod_cache table is missing")]
+    MissingTypmodCache,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -330,8 +338,19 @@ impl ParsedTypmod {
     }
 }
 
+#[repr(transparent)]
+struct StmtHolder(OwnedPreparedStatement);
+
+// SAFETY:  we don't do threads in postgres
+unsafe impl Send for StmtHolder {}
+unsafe impl Sync for StmtHolder {}
+
 pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
     static CACHE: OnceLock<Mutex<crate::api::HashMap<i32, ParsedTypmod>>> = OnceLock::new();
+
+    if typmod == -1 {
+        return Ok(ParsedTypmod::new());
+    }
 
     let cache = CACHE.get_or_init(Default::default);
     let mut locked = cache.lock();
@@ -340,8 +359,26 @@ pub fn load_typmod(typmod: i32) -> Result<ParsedTypmod> {
         Entry::Occupied(e) => Ok(e.get().clone()),
         Entry::Vacant(e) => {
             let typmod = ParsedTypmod::try_from(
-                Spi::get_one_with_args::<Vec<String>>("SELECT paradedb._typmod($1)", unsafe {
-                    &[DatumWithOid::new(typmod, pg_sys::INT4OID)]
+                Spi::connect(|client| {
+                    static STMT: OnceLock<Mutex<StmtHolder>> = OnceLock::new();
+
+                    let prepared = STMT.get_or_init(|| {
+                        Mutex::new(StmtHolder(
+                            client
+                                .prepare(
+                                    "SELECT typmod FROM paradedb._typmod_cache WHERE id = $1",
+                                    &[PgOid::BuiltIn(BuiltinOid::INT4OID)],
+                                )
+                                .expect("failed to prepare statement")
+                                .keep(),
+                        ))
+                    });
+
+                    let datum = unsafe { [DatumWithOid::new(typmod, pg_sys::INT4OID)] };
+                    (&prepared.lock().0)
+                        .execute(client, None, &datum)?
+                        .first()
+                        .get::<Vec<String>>(1)
                 })?
                 .ok_or_else(|| Error::TypmodNotFound(typmod))?,
             )?;
@@ -365,13 +402,40 @@ pub fn save_typmod<'a>(typmod: impl Iterator<Item = Option<&'a CStr>>) -> Result
     let cache = CACHE.get_or_init(Default::default);
     let mut locked = cache.lock();
 
-    match locked.entry(as_text) {
+    match locked.entry(as_text.clone()) {
         Entry::Occupied(e) => Ok(*e.get()),
         Entry::Vacant(e) => {
-            let id = Spi::get_one_with_args::<i32>("SELECT paradedb._typmod($1)", unsafe {
-                &[DatumWithOid::new(e.key().clone(), pg_sys::TEXTARRAYOID)]
-            })?
-            .ok_or(Error::NullTypmodEntry)?;
+            let datum = unsafe { [DatumWithOid::new(e.key().clone(), pg_sys::TEXTARRAYOID)] };
+
+            let id = Spi::connect(|client| {
+                static STMT: OnceLock<Mutex<StmtHolder>> = OnceLock::new();
+
+                let prepared = STMT.get_or_init(|| {
+                    Mutex::new(StmtHolder(
+                        client
+                            .prepare(
+                                "SELECT id FROM paradedb._typmod_cache WHERE typmod = $1",
+                                &[PgOid::BuiltIn(BuiltinOid::TEXTARRAYOID)],
+                            )
+                            .expect("failed to prepare statement")
+                            .keep(),
+                    ))
+                });
+
+                let datum = unsafe { [DatumWithOid::new(as_text, pg_sys::TEXTARRAYOID)] };
+                (&prepared.lock().0)
+                    .execute(client, None, &datum)?
+                    .first()
+                    .get::<i32>(1)
+            })
+            .ok()
+            .flatten();
+
+            let id = match id {
+                Some(id) => id,
+                None => Spi::get_one_with_args::<i32>("SELECT paradedb._save_typmod($1)", &datum)?
+                    .ok_or(Error::NullTypmodEntry)?,
+            };
             e.insert(id);
             Ok(id)
         }
@@ -386,21 +450,12 @@ SELECT pg_catalog.pg_extension_config_dump('paradedb._typmod_cache_id_seq', '');
 GRANT ALL ON TABLE paradedb._typmod_cache TO PUBLIC;
 GRANT ALL ON SEQUENCE paradedb._typmod_cache_id_seq TO PUBLIC;
 
-CREATE OR REPLACE FUNCTION paradedb._typmod(typmod_in text[])
+CREATE OR REPLACE FUNCTION paradedb._save_typmod(typmod_in text[])
 RETURNS integer SECURITY DEFINER STRICT VOLATILE PARALLEL UNSAFE
 LANGUAGE plpgsql AS $$
 DECLARE
     v_id integer;
 BEGIN
-    SELECT id INTO v_id
-    FROM paradedb._typmod_cache
-    WHERE typmod = typmod_in;
-
-    IF v_id IS NOT NULL THEN
-        RETURN v_id;
-    END IF;
-
-    -- not been inserted yet
     INSERT INTO paradedb._typmod_cache (typmod)
     VALUES (typmod_in)
     ON CONFLICT (typmod) DO NOTHING
@@ -422,13 +477,6 @@ BEGIN
     RETURN v_id;
 END;
 $$;
-
-CREATE OR REPLACE FUNCTION paradedb._typmod(int)
-RETURNS text[]
-SECURITY DEFINER PARALLEL SAFE STRICT LANGUAGE SQL AS $$
-    SELECT typmod FROM paradedb._typmod_cache WHERE id = $1;
-$$;
-
 "#,
     name = "typmod_cache"
 );

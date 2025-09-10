@@ -29,13 +29,14 @@ mod slop;
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
 use crate::api::operator::slop::{slop_to_slop, SlopType};
+use crate::api::tokenizers::lookup_generic_typmod;
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
-use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, find_vars, VarContext};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -255,6 +256,21 @@ pub unsafe fn tantivy_field_name_from_node(
                 Some((oid, Some(fieldname)))
             }
         },
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let typmod = pg_sys::exprTypmod(node);
+            pgrx::warning!("{}", pgrx::node_to_string(node).unwrap());
+            let parsed = lookup_generic_typmod(typmod).expect("could not parse typmod");
+            let vars = find_vars(node);
+            let var = vars.get(0)?;
+            let (oid, _) = VarContext::from_planner(root).var_relation(*var);
+            if let Some(alias) = parsed.alias() {
+                Some((oid, Some(alias.into())))
+            } else {
+                let (_, fieldname) =
+                    find_one_var_and_fieldname(VarContext::from_planner(root), node)?;
+                Some((oid, Some(fieldname)))
+            }
+        }
         pg_sys::NodeTag::T_Var => {
             let var = nodecast!(Var, T_Var, node).expect("node is not a Var");
             let (oid, attname) = attname_from_var(root, var);
@@ -588,6 +604,12 @@ unsafe fn find_node_relation(
         pg_sys::NodeTag::T_OpExpr => {
             let opexpr: *mut pg_sys::OpExpr = node.cast();
             PgList::<pg_sys::Node>::from_pg((*opexpr).args)
+        }
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let coercexpr: *mut pg_sys::CoerceViaIO = node.cast();
+            let mut list = PgList::<pg_sys::Node>::new();
+            list.push((*coercexpr).arg.cast());
+            list
         }
         _ => return (pg_sys::Oid::INVALID, 0, None),
     };

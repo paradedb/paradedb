@@ -80,6 +80,7 @@ pub struct AggregateScanState {
     pub limit: u32,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
+    pub maybe_lossy: bool
 }
 
 impl AggregateScanState {
@@ -281,7 +282,7 @@ impl AggregateScanState {
         }
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
-        if rows.len() == gucs::max_term_agg_buckets() as usize && self.limit.is_none() {
+        if rows.len() == gucs::max_term_agg_buckets() as usize && self.maybe_lossy {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
                 "more than `paradedb.max_term_agg_buckets` buckets/groups were returned",

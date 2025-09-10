@@ -6,8 +6,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use pgrx::pg_sys;
 use std::cmp::Reverse;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use tantivy::index::{DeleteMeta, InnerSegmentMeta, SegmentId};
+use tantivy::index::SegmentId;
 use tantivy::indexer::{MergeCandidate, MergePolicy};
 use tantivy::{Directory, Inventory, SegmentMeta};
 
@@ -217,15 +216,7 @@ impl LayeredMergePolicy {
         impl From<SegmentMetaEntry> for SegmentMeta {
             fn from(value: SegmentMetaEntry) -> Self {
                 Self {
-                    tracked: Inventory::new().track(InnerSegmentMeta {
-                        segment_id: value.segment_id,
-                        max_doc: value.max_doc,
-                        deletes: value.delete.map(|delete_entry| DeleteMeta {
-                            num_deleted_docs: delete_entry.num_deleted_docs,
-                            opstamp: 0,
-                        }),
-                        include_temp_doc_store: Arc::new(Default::default()),
-                    }),
+                    tracked: Inventory::new().track(value.as_tantivy()),
                 }
             }
         }

@@ -24,7 +24,6 @@ use crate::postgres::storage::buffer::{Buffer, BufferManager};
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::MergeLock;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::LinkedBytesList;
 use crate::postgres::PgSearchRelation;
 
 use pgrx::bgworkers::*;
@@ -452,6 +451,7 @@ pub unsafe fn garbage_collect_index(
     segment_metas.commit();
     free_entries(indexrel, entries, current_xid);
 }
+
 /// Chase down all the files in a segment and return them to the FSM
 pub fn free_entries(
     indexrel: &PgSearchRelation,
@@ -462,20 +462,9 @@ pub fn free_entries(
     bman.fsm().extend_with_when_recyclable(
         &mut bman,
         current_xid,
-        freeable_entries.iter().flat_map(move |entry| {
-            // if the entry is a "fake" `DeleteEntry`, we need to free the blocks for the old `DeleteEntry` only
-            let iter: Box<dyn Iterator<Item = pg_sys::BlockNumber>> = if entry.is_orphaned_delete()
-            {
-                let block = entry.delete.as_ref().unwrap().file_entry.starting_block;
-                Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
-            // otherwise, we need to free the blocks for all the files in the `SegmentMetaEntry`
-            } else {
-                Box::new(entry.file_entries().flat_map(move |(file_entry, _)| {
-                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                }))
-            };
-            iter
-        }),
+        freeable_entries
+            .iter()
+            .flat_map(move |entry| entry.freeable_blocks(indexrel)),
     );
 }
 

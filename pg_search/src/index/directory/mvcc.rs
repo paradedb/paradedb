@@ -368,7 +368,7 @@ impl Directory for MVCCDirectory {
                     *self.all_entries.lock() = loaded
                         .entries
                         .into_iter()
-                        .map(|entry| (entry.segment_id, entry))
+                        .map(|entry| (entry.segment_id(), entry))
                         .collect();
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
@@ -465,7 +465,10 @@ impl PinCushion {
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
+
     use crate::postgres::rel::PgSearchRelation;
+    use crate::postgres::storage::block::SegmentMetaEntryContent;
+
     use pgrx::prelude::*;
 
     #[pg_test]
@@ -482,6 +485,7 @@ mod tests {
         let mut listed_files = unsafe { linked_list.list() };
         assert_eq!(listed_files.len(), 1);
         let entry = listed_files.pop().unwrap();
+        let SegmentMetaEntryContent::Immutable(entry) = entry.content;
         assert!(entry.store.is_some());
         assert!(entry.field_norms.is_some());
         assert!(entry.fast_fields.is_some());

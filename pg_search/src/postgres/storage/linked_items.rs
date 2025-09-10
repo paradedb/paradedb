@@ -557,7 +557,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::postgres::rel::PgSearchRelation;
-    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry};
+    use crate::postgres::storage::block::{FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable};
 
     fn random_segment_id() -> SegmentId {
         SegmentId::from_uuid_string(&Uuid::new_v4().to_string()).unwrap()
@@ -586,18 +586,24 @@ mod tests {
         let delete_xid = pg_sys::FrozenTransactionId;
 
         let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
-        let entries_to_delete = vec![SegmentMetaEntry {
-            segment_id: random_segment_id(),
-            xmax: delete_xid,
-            postings: Some(make_fake_postings(&indexrel)),
-            ..Default::default()
-        }];
-        let entries_to_keep = vec![SegmentMetaEntry {
-            segment_id: random_segment_id(),
-            xmax: pg_sys::InvalidTransactionId,
-            postings: Some(make_fake_postings(&indexrel)),
-            ..Default::default()
-        }];
+        let entries_to_delete = vec![SegmentMetaEntry::new_immutable(
+            random_segment_id(),
+            0,
+            delete_xid,
+            SegmentMetaEntryImmutable {
+                postings: Some(make_fake_postings(&indexrel)),
+                ..Default::default()
+            },
+        )];
+        let entries_to_keep = vec![SegmentMetaEntry::new_immutable(
+            random_segment_id(),
+            0,
+            pg_sys::InvalidTransactionId,
+            SegmentMetaEntryImmutable {
+                postings: Some(make_fake_postings(&indexrel)),
+                ..Default::default()
+            },
+        )];
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
@@ -606,10 +612,10 @@ mod tests {
         });
 
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
+            .lookup(|entry| entry.segment_id() == entries_to_delete[0].segment_id())
             .is_err());
         assert!(list
-            .lookup(|entry| entry.segment_id == entries_to_keep[0].segment_id)
+            .lookup(|entry| entry.segment_id() == entries_to_keep[0].segment_id())
             .is_ok());
     }
 
@@ -625,15 +631,20 @@ mod tests {
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries = (1..2000)
-                .map(|i| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: if i % 10 == 0 {
-                        deleted_xid
-                    } else {
-                        not_deleted_xid
-                    },
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|i| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        if i % 10 == 0 {
+                            deleted_xid
+                        } else {
+                            not_deleted_xid
+                        },
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
 
@@ -643,11 +654,13 @@ mod tests {
             });
 
             for entry in entries {
-                if entry.xmax == not_deleted_xid {
-                    assert!(list.lookup(|el| el.segment_id == entry.segment_id).is_ok());
+                if entry.xmax() == not_deleted_xid {
+                    assert!(list
+                        .lookup(|el| el.segment_id() == entry.segment_id())
+                        .is_ok());
                 } else {
                     assert!(list
-                        .lookup_ex(|el| el.segment_id == entry.segment_id)
+                        .lookup_ex(|el| el.segment_id() == entry.segment_id())
                         .is_err());
                 }
             }
@@ -656,31 +669,46 @@ mod tests {
         {
             let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
             let entries_1 = (1..500)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        not_deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
             list.add_items(&entries_1, None);
 
             let entries_2 = (1..1000)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
             list.add_items(&entries_2, None);
 
             let entries_3 = (1..500)
-                .map(|_| SegmentMetaEntry {
-                    segment_id: random_segment_id(),
-                    xmax: not_deleted_xid,
-                    postings: Some(make_fake_postings(&indexrel)),
-                    ..Default::default()
+                .map(|_| {
+                    SegmentMetaEntry::new_immutable(
+                        random_segment_id(),
+                        0,
+                        not_deleted_xid,
+                        SegmentMetaEntryImmutable {
+                            postings: Some(make_fake_postings(&indexrel)),
+                            ..Default::default()
+                        },
+                    )
                 })
                 .collect::<Vec<_>>();
 
@@ -693,13 +721,13 @@ mod tests {
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {
-                    if entry.xmax == not_deleted_xid {
+                    if entry.xmax() == not_deleted_xid {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
                             .is_ok());
                     } else {
                         assert!(list
-                            .lookup_ex(|el| el.segment_id == entry.segment_id)
+                            .lookup_ex(|el| el.segment_id() == entry.segment_id())
                             .is_err());
                     }
                 }
@@ -719,11 +747,16 @@ mod tests {
         // Add 2000 entries.
         let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
         let entries = (1..2000)
-            .map(|_| SegmentMetaEntry {
-                segment_id: random_segment_id(),
-                xmax: pg_sys::InvalidTransactionId,
-                postings: Some(make_fake_postings(&indexrel)),
-                ..Default::default()
+            .map(|_| {
+                SegmentMetaEntry::new_immutable(
+                    random_segment_id(),
+                    0,
+                    pg_sys::InvalidTransactionId,
+                    SegmentMetaEntryImmutable {
+                        postings: Some(make_fake_postings(&indexrel)),
+                        ..Default::default()
+                    },
+                )
             })
             .collect::<Vec<_>>();
 

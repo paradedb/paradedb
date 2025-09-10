@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757514402680,
+  "lastUpdate": 1757515075349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3438,6 +3438,42 @@ window.BENCHMARK_DATA = {
             "value": 154.91712976755116,
             "unit": "median tps",
             "extra": "avg tps: 154.66043276460658, max tps: 157.41341693390456, count: 57738"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "125c2366536d456d1e0df1222b61accfdec48abc",
+          "message": "chore: proptest for our pg_sys::TransactionIdPrecedesOrEquals function (#3140)\n\n## What\n\nAdd a proptest for our port of\n`pg_sys::TransactionIdPrecedesOrEquals()`.\n\n## Why\n\nThere was a moment of internal confusion around if it was actually\ncorrect or not.\n\n## How\n\n## Tests\n\nThis is a test.",
+          "timestamp": "2025-09-10T09:58:41-04:00",
+          "tree_id": "e61581d3b8eee310986ffc3e57941a858ac39e0a",
+          "url": "https://github.com/paradedb/paradedb/commit/125c2366536d456d1e0df1222b61accfdec48abc"
+        },
+        "date": 1757515073810,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 32.506184298652265,
+            "unit": "median tps",
+            "extra": "avg tps: 32.53592117222024, max tps: 33.315249014975045, count: 56690"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 404.39042565872126,
+            "unit": "median tps",
+            "extra": "avg tps: 402.2585638700203, max tps: 427.6332108544414, count: 56690"
           }
         ]
       }

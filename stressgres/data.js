@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757515078220,
+  "lastUpdate": 1757515752462,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -364,6 +364,60 @@ window.BENCHMARK_DATA = {
             "value": 1.2199328067018052,
             "unit": "median tps",
             "extra": "avg tps: 1.4014335255228976, max tps: 4.8123952788198245, count: 55468"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "125c2366536d456d1e0df1222b61accfdec48abc",
+          "message": "chore: proptest for our pg_sys::TransactionIdPrecedesOrEquals function (#3140)\n\n## What\n\nAdd a proptest for our port of\n`pg_sys::TransactionIdPrecedesOrEquals()`.\n\n## Why\n\nThere was a moment of internal confusion around if it was actually\ncorrect or not.\n\n## How\n\n## Tests\n\nThis is a test.",
+          "timestamp": "2025-09-10T09:58:41-04:00",
+          "tree_id": "e61581d3b8eee310986ffc3e57941a858ac39e0a",
+          "url": "https://github.com/paradedb/paradedb/commit/125c2366536d456d1e0df1222b61accfdec48abc"
+        },
+        "date": 1757515750920,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.54246386863071,
+            "unit": "median tps",
+            "extra": "avg tps: 37.885353004582385, max tps: 39.38566011730856, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.1134918286282,
+            "unit": "median tps",
+            "extra": "avg tps: 274.39032486847645, max tps: 2556.1389438063748, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 420.0138677708742,
+            "unit": "median tps",
+            "extra": "avg tps: 414.5298004028997, max tps: 432.06765043493664, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 105.47070614434679,
+            "unit": "median tps",
+            "extra": "avg tps: 106.94031220453634, max tps: 246.7988379050868, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.34857021481398,
+            "unit": "median tps",
+            "extra": "avg tps: 15.714950328197167, max tps: 19.189934894499782, count: 55541"
           }
         ]
       }

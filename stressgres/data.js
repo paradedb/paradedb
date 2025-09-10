@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757513702010,
+  "lastUpdate": 1757514400143,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2728,6 +2728,42 @@ window.BENCHMARK_DATA = {
             "value": 5.64359594119954,
             "unit": "median tps",
             "extra": "avg tps: 5.072704011201073, max tps: 6.295684443590618, count: 57307"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "125c2366536d456d1e0df1222b61accfdec48abc",
+          "message": "chore: proptest for our pg_sys::TransactionIdPrecedesOrEquals function (#3140)\n\n## What\n\nAdd a proptest for our port of\n`pg_sys::TransactionIdPrecedesOrEquals()`.\n\n## Why\n\nThere was a moment of internal confusion around if it was actually\ncorrect or not.\n\n## How\n\n## Tests\n\nThis is a test.",
+          "timestamp": "2025-09-10T09:58:41-04:00",
+          "tree_id": "e61581d3b8eee310986ffc3e57941a858ac39e0a",
+          "url": "https://github.com/paradedb/paradedb/commit/125c2366536d456d1e0df1222b61accfdec48abc"
+        },
+        "date": 1757514398617,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.135857355843761,
+            "unit": "median tps",
+            "extra": "avg tps: 6.968269342554377, max tps: 10.850643344735662, count: 57384"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.424470534289824,
+            "unit": "median tps",
+            "extra": "avg tps: 4.880357916063021, max tps: 6.0403099185790055, count: 57384"
           }
         ]
       }

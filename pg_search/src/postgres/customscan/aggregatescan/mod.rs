@@ -150,7 +150,7 @@ impl CustomScan for AggregateScan {
             (extract_const(limit_count), extract_const(offset_count))
         };
 
-        if offset.unwrap_or_default() > max_term_agg_buckets {
+        if limit.is_none() || (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets) {
             return None;
         }
 

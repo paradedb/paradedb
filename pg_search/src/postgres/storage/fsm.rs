@@ -136,14 +136,19 @@ impl FreeSpaceManager {
     ) {
         let slot = (xid.into_inner() as usize) % NLIST;
         let mut rbuf = load_root(self.root, bman);
-        let root = rbuf.page_mut().contents_mut::<FSMRoot>();
         let mut iter = extend_with.peekable();
-        let mut list = root.partial[slot];
+        let mut list = {
+            let root = rbuf.page().contents::<FSMRoot>();
+            root.partial[slot]
+        };
         'l: loop {
             if iter.peek().is_none() {
                 break;
             }
-            let mut buf = next_chain(bman, &mut root.partial[slot], list, xid);
+            let mut buf = {
+                let root = rbuf.page_mut().contents_mut::<FSMRoot>();
+                next_chain(bman, &mut root.partial[slot], list, xid)
+            };
             let b = buf.page_mut().contents_mut::<FSMChain>();
             if b.xid != xid.into_inner() {
                 list = next(&buf);
@@ -158,8 +163,11 @@ impl FreeSpaceManager {
                         b.entries[b.count as usize] = bno;
                         b.count += 1;
                         if b.count as usize == NENT {
-                            move_block(root, bman, &mut buf, slot, true);
-                            list = root.partial[slot];
+                            {
+                                let root = rbuf.page_mut().contents_mut::<FSMRoot>();
+                                move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
+                                list =  root.partial[slot];
+                            };
                             continue 'l;
                         }
                     }
@@ -193,8 +201,9 @@ impl Iterator for FSMDrainIter {
     type Item = pg_sys::BlockNumber;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut rbuf = load_root(self.root, &mut self.bman);
-        let root = rbuf.page_mut().contents_mut::<FSMRoot>();
+        let rbuf = self.bman.get_buffer(self.root);
+        let pg = rbuf.page();
+        let root = pg.contents::<FSMRoot>();
         for i in 0..NLIST {
             let slot = (self.last_slot + i) % NLIST;
             if let Some(mut buf) = get_chain(&mut self.bman, root.partial[slot], self.horizon, false) {
@@ -203,10 +212,13 @@ impl Iterator for FSMDrainIter {
                 b.count -= 1;
                 self.last_slot = slot;
                 if b.count == 0 {
+
 //                    drop(buf);
 //                    drop(rbuf);
 //                    self.fsm.extend(root.partials[slot]);
-//                    root.partial[slot] = next(&buf);
+                    let mut mbuf = rbuf.upgrade(&mut self.bman);
+                    let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
+                    mroot.partial[slot] = next(&buf);
                 }
                 return Some(ret)
             }
@@ -214,7 +226,10 @@ impl Iterator for FSMDrainIter {
                 let b = buf.page_mut().contents_mut::<FSMChain>();
                 let ret = b.entries[(b.count-1) as usize];
                 b.count -= 1;
-                move_block(root, &mut self.bman, &mut buf, slot, false);
+
+                let mut mbuf = rbuf.upgrade(&mut self.bman);
+                let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
+                move_block(&mut mroot.filled[slot], &mut mroot.partial[slot], &mut self.bman, &mut buf);
                 self.last_slot = slot;
                 return Some(ret)
             } 
@@ -340,42 +355,26 @@ fn get_chain(
 }
 
 fn move_block(
-    root: &mut FSMRoot,
+    src: &mut pg_sys::BlockNumber,
+    dst: &mut pg_sys::BlockNumber,
     bman: &mut BufferManager,
     mv : &mut BufferMut,
-    slot : usize,
-    partial_to_filled : bool
 ) {
     // list block may have been modified, so we need to walk it again.
     let mut prev : Option<BufferMut> = None;
-    let mut bno = if partial_to_filled {
-        root.partial[slot]
-    } else {
-        root.filled[slot]
-    };
+    let mut bno = *src;
     loop {
         if bno == mv.number() {
             match prev {
                 None => {
-                    if partial_to_filled {
-                        root.partial[slot] = next(mv);
-                        mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = root.filled[slot];
-                        root.filled[slot] = mv.number();
-                    } else {
-                        root.filled[slot] = next(mv);
-                        mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = root.partial[slot];
-                        root.partial[slot] = mv.number();
-                    }
+                    *src = next(mv);
+                    mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = *dst;
+                    *dst = mv.number();
                 }
                 Some(mut b) =>  {
                     b.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = next(mv);
-                    if partial_to_filled {
-                        mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = root.filled[slot];
-                        root.filled[slot] = mv.number();
-                    } else {
-                        mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = root.partial[slot];
-                        root.partial[slot] = mv.number();
-                    }
+                    mv.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = *dst;
+                    *dst = mv.number();
                 }
             }
             return;

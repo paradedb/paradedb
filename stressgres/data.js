@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757514400143,
+  "lastUpdate": 1757514402680,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3172,6 +3172,66 @@ window.BENCHMARK_DATA = {
             "value": 50,
             "unit": "median segment_count",
             "extra": "avg segment_count: 48.79885528818469, max segment_count: 70.0, count: 57307"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "125c2366536d456d1e0df1222b61accfdec48abc",
+          "message": "chore: proptest for our pg_sys::TransactionIdPrecedesOrEquals function (#3140)\n\n## What\n\nAdd a proptest for our port of\n`pg_sys::TransactionIdPrecedesOrEquals()`.\n\n## Why\n\nThere was a moment of internal confusion around if it was actually\ncorrect or not.\n\n## How\n\n## Tests\n\nThis is a test.",
+          "timestamp": "2025-09-10T09:58:41-04:00",
+          "tree_id": "e61581d3b8eee310986ffc3e57941a858ac39e0a",
+          "url": "https://github.com/paradedb/paradedb/commit/125c2366536d456d1e0df1222b61accfdec48abc"
+        },
+        "date": 1757514401205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.972332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.841786622203816, max cpu: 42.687748, count: 57384"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 229.44987421635386, max mem: 230.65625, count: 57384"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.341425294769977, max cpu: 33.267326, count: 57384"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.9087016851387, max mem: 164.56640625, count: 57384"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24099,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22860.479123100515, max block_count: 25753.0, count: 57384"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.4560330405688, max segment_count: 105.0, count: 57384"
           }
         ]
       }

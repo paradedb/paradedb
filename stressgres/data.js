@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757451733037,
+  "lastUpdate": 1757513698934,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1474,6 +1474,72 @@ window.BENCHMARK_DATA = {
             "value": 43.280328066742605,
             "unit": "median tps",
             "extra": "avg tps: 46.03327070212798, max tps: 815.3361467865972, count: 55327"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "125c2366536d456d1e0df1222b61accfdec48abc",
+          "message": "chore: proptest for our pg_sys::TransactionIdPrecedesOrEquals function (#3140)\n\n## What\n\nAdd a proptest for our port of\n`pg_sys::TransactionIdPrecedesOrEquals()`.\n\n## Why\n\nThere was a moment of internal confusion around if it was actually\ncorrect or not.\n\n## How\n\n## Tests\n\nThis is a test.",
+          "timestamp": "2025-09-10T09:58:41-04:00",
+          "tree_id": "e61581d3b8eee310986ffc3e57941a858ac39e0a",
+          "url": "https://github.com/paradedb/paradedb/commit/125c2366536d456d1e0df1222b61accfdec48abc"
+        },
+        "date": 1757513697404,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 706.4953127713309,
+            "unit": "median tps",
+            "extra": "avg tps: 707.4539530885796, max tps: 809.8993706973903, count: 55068"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2607.5203088097196,
+            "unit": "median tps",
+            "extra": "avg tps: 2594.4173165575808, max tps: 2615.4853241440437, count: 55068"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 765.8565673213077,
+            "unit": "median tps",
+            "extra": "avg tps: 765.1143092906575, max tps: 829.8917606755375, count: 55068"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 622.570919137133,
+            "unit": "median tps",
+            "extra": "avg tps: 624.476962276826, max tps: 688.6067235615577, count: 55068"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 505.58392348496136,
+            "unit": "median tps",
+            "extra": "avg tps: 520.1207673613534, max tps: 613.2207338400345, count: 110136"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 379.54908966990433,
+            "unit": "median tps",
+            "extra": "avg tps: 378.34324315159466, max tps: 417.124687790536, count: 55068"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 32.97180504703129,
+            "unit": "median tps",
+            "extra": "avg tps: 34.404727724605145, max tps: 812.7563738386727, count: 55068"
           }
         ]
       }

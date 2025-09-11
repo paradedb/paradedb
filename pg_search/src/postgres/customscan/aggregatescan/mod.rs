@@ -22,7 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{FieldName, HashSet, OrderByFeature};
+use crate::api::{HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -292,7 +292,8 @@ impl CustomScan for AggregateScan {
 
         // If there are more sort fields than what we're able to push down, the GROUP BY could be lossy
         builder.custom_private_mut().maybe_lossy =
-            !builder.custom_private().grouping_columns.is_empty() && orderby_info.len() != sort_clause.len();
+            !builder.custom_private().grouping_columns.is_empty()
+                && orderby_info.len() != sort_clause.len();
 
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()

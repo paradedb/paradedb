@@ -52,7 +52,23 @@ pub unsafe fn find_var_relation(
     Option<PgList<pg_sys::TargetEntry>>,
 ) {
     let query = (*root).parse;
-    let rte = pg_sys::rt_fetch((*var).varno as pg_sys::Index, (*query).rtable);
+    let varno = (*var).varno as pg_sys::Index;
+    let rtable = (*query).rtable;
+    let rtable_size = if !rtable.is_null() {
+        pgrx::PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
+    } else {
+        0
+    };
+
+    // Bounds check: varno is 1-indexed, so it must be between 1 and rtable_size
+    if varno == 0 || varno as usize > rtable_size {
+        // This Var references an RTE that doesn't exist in the current context
+        // This can happen with OR EXISTS subqueries where the Var comes from a subquery context
+        // Return invalid values to signal this var cannot be processed
+        return (pg_sys::InvalidOid, 0, None);
+    }
+
+    let rte = pg_sys::rt_fetch(varno, rtable);
 
     match (*rte).rtekind {
         // the Var comes from a relation
@@ -174,6 +190,10 @@ pub unsafe fn fieldname_from_var(
     if (*var).varattno == 0 {
         return None;
     }
+    // Check for InvalidOid before trying to open the relation
+    if heaprelid == pg_sys::InvalidOid {
+        return None;
+    }
     let heaprel = PgRelation::open(heaprelid);
     let tupdesc = heaprel.tuple_desc();
     if varattno == pg_sys::SelfItemPointerAttributeNumber as pg_sys::AttrNumber {
@@ -245,9 +265,10 @@ unsafe fn find_json_path(context: &VarContext, node: *mut pg_sys::Node) -> Vec<S
     if is_a(node, T_Var) {
         let node = node as *mut Var;
         let (heaprelid, varattno) = context.var_relation(node);
-        let field_name = fieldname_from_var(heaprelid, node, varattno)
-            .expect("find_json_path: var should have a valid FieldName");
-        path.push(field_name.root());
+        // Return empty path if we can't get a valid field name (e.g., due to out-of-bounds varno)
+        if let Some(field_name) = fieldname_from_var(heaprelid, node, varattno) {
+            path.push(field_name.root());
+        }
         return path;
     } else if is_a(node, T_Const) {
         let node = node as *mut Const;

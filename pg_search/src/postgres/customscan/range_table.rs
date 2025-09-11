@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use pgrx::pg_sys;
+use pgrx::{pg_sys, PgList};
 
 /// If the given Bitmapset has exactly one member, return it.
 pub unsafe fn bms_exactly_one_member(bms: *mut pg_sys::Bitmapset) -> Option<pg_sys::Index> {
@@ -61,11 +61,13 @@ pub unsafe fn is_partitioned_table_setup(
 
     // Get the rtable for relkind checks
     let rtable = (*(*root).parse).rtable;
+    let rtable_list = PgList::<pg_sys::RangeTblEntry>::from_pg(rtable);
 
     // For each relation in baserels
     for baserel_idx in bms_iter(baserels) {
         // Skip invalid indices
-        if baserel_idx == 0 || baserel_idx >= (*root).simple_rel_array_size as pg_sys::Index {
+        if baserel_idx == 0 || baserel_idx as usize > rtable_list.len() {
+            // Out of bounds, skip this entry
             continue;
         }
 

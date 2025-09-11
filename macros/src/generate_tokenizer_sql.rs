@@ -30,18 +30,17 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
                 SEND = {sql_name}_send,
                 RECEIVE = {sql_name}_recv,
                 COLLATABLE = true,
-                CATEGORY = 'S', -- 'S' is for Postgres' built-in category of String
-                PREFERRED = false,
-                INTERNALLENGTH = VARIABLE,
-                ALIGNMENT = int4,
-                STORAGE = extended
+                CATEGORY = 't', -- 't' is for tokenizer
+                PREFERRED = {preferred},
+                LIKE = text
             );
          "#,
         sql_name = sql_name.value(),
+        preferred = preferred.value()
     );
 
-    let pgrx_cast_name = format!("{}_cast", sql_name.value());
-    let create_cast_sql = format!(
+    let pgrx_cast_to_text_array_name = format!("{}_cast_to_text_array", sql_name.value());
+    let create_cast_to_text_array = format!(
         "CREATE CAST ({sql_name} AS TEXT[]) WITH FUNCTION {cast_name} AS ASSIGNMENT;",
         sql_name = sql_name.value(),
         cast_name = cast_name
@@ -69,7 +68,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
 
         #typmod
 
-        extension_sql!(#create_cast_sql, name = #pgrx_cast_name, requires = [#pgrx_name, #cast_name]);
+        extension_sql!(#create_cast_to_text_array, name = #pgrx_cast_to_text_array_name, requires = [#pgrx_name, #cast_name]);
     }
         .into()
 }

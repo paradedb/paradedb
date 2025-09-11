@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::tokenizers::lookup_generic_typmod;
+use crate::api::tokenizers::{lookup_generic_typmod, type_is_tokenizer};
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::postgres::build::is_bm25_index;
@@ -188,33 +188,40 @@ pub unsafe fn extract_field_attributes(
             };
             let node = expression.cast();
 
-            let typmod = pg_sys::exprTypmod(node);
-            let parsed_typmod = lookup_generic_typmod(typmod).expect("typmod should be valid");
-            let vars = find_vars(node);
-            let mut attname = parsed_typmod.alias();
+            let mut attname = None;
+            let typoid = pg_sys::exprType(node);
+            let mut typmod = -1;
 
-            if attname.is_none() && vars.len() == 1 {
-                let heap_relation = heap_relation.get_or_insert_with(|| {
-                    PgSearchRelation::from_pg(indexrel).heap_relation().unwrap()
-                });
-                let var = vars[0];
-                let heap_attname = heap_relation
-                    .tuple_desc()
-                    .get((*var).varattno as usize - 1)
-                    .unwrap()
-                    .name()
-                    .to_string();
+            if type_is_tokenizer(typoid) {
+                typmod = pg_sys::exprTypmod(node);
 
-                attname = Some(heap_attname);
+                let parsed_typmod = lookup_generic_typmod(typmod).expect("typmod should be valid");
+                let vars = find_vars(node);
+
+                attname = parsed_typmod.alias();
+                if attname.is_none() && vars.len() == 1 {
+                    let heap_relation = heap_relation.get_or_insert_with(|| {
+                        PgSearchRelation::from_pg(indexrel).heap_relation().unwrap()
+                    });
+                    let var = vars[0];
+                    let heap_attname = heap_relation
+                        .tuple_desc()
+                        .get((*var).varattno as usize - 1)
+                        .unwrap()
+                        .name()
+                        .to_string();
+
+                    attname = Some(heap_attname);
+                }
             }
 
             let attname = attname.unwrap_or_else(|| format!("{PG_SEARCH_PREFIX}{attno}"));
 
-            (attname, pg_sys::exprType(node), typmod)
+            (attname, typoid, typmod)
         } else {
             // Is a field.
             let att = tupdesc.get(attno as usize).expect("attribute should exist");
-            (att.name().to_owned().into(), att.type_oid().value(), -1)
+            (att.name().to_owned(), att.type_oid().value(), -1)
         };
 
         if field_attributes.contains_key(&FieldName::from(&attname)) {

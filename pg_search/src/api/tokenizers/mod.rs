@@ -20,7 +20,7 @@ pub use typmod::{lookup_generic_typmod, Typmod};
 pub fn type_is_tokenizer(oid: pg_sys::Oid) -> bool {
     // TODO:  could this benefit from a local cache?
     lookup_type_category(oid)
-        .map(|c| c == b'S')
+        .map(|c| c == b't')
         .unwrap_or(false)
 }
 

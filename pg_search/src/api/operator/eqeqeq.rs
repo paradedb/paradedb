@@ -22,37 +22,37 @@ use crate::api::operator::{
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
-    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
-    IntoDatum, PgList,
+    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
+    Internal, IntoDatum, PgList,
 };
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term(_field: &str, term: &str) -> bool {
+fn search_with_term(_field: AnyElement, term: &str) -> bool {
     panic!("query is incompatible with pg_search's `===(field, TEXT)` operator: `{term}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_array(_field: &str, terms: Vec<String>) -> bool {
+fn search_with_term_array(_field: AnyElement, terms: Vec<String>) -> bool {
     panic!("query is incompatible with pg_search's `===(field, TEXT[])` operator: `{terms:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_pdb_query(_field: &str, term: pdb::Query) -> bool {
+fn search_with_term_pdb_query(_field: AnyElement, term: pdb::Query) -> bool {
     panic!("query is incompatible with pg_search's `===(field, pdb.query)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_boost(_field: &str, term: BoostType) -> bool {
+fn search_with_term_boost(_field: AnyElement, term: BoostType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, boost)` operator: `{term:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.===)]
-fn search_with_term_fuzzy(_field: &str, term: FuzzyType) -> bool {
+fn search_with_term_fuzzy(_field: AnyElement, term: FuzzyType) -> bool {
     panic!("query is incompatible with pg_search's `===(field, fuzzy)` operator: `{term:?}`")
 }
 

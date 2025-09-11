@@ -80,7 +80,7 @@ pub struct AggregateScanState {
     pub limit: u32,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
-    pub maybe_lossy: bool
+    pub maybe_lossy: bool,
 }
 
 impl AggregateScanState {

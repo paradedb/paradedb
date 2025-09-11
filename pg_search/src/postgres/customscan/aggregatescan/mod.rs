@@ -22,7 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{HashSet, OrderByFeature};
+use crate::api::{FieldName, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -234,6 +234,7 @@ impl CustomScan for AggregateScan {
             has_order_by: false, // Will be set in plan_custom_path
             limit: limit.unwrap(),
             offset,
+            maybe_lossy: false, // Will be set in plan_custom_path
         }))
     }
 
@@ -249,8 +250,9 @@ impl CustomScan for AggregateScan {
             !parse.is_null() && !(*parse).sortClause.is_null()
         };
         let parse = unsafe { (*builder.args().root).parse };
+        let sort_clause =
+            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
         let sort_fields = unsafe {
-            let sort_clause = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);
             sort_clause
                 .iter_ptr()
                 .filter_map(|sort_clause| {
@@ -273,7 +275,7 @@ impl CustomScan for AggregateScan {
 
         // Override orderby_info
         // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if the ORDER BY fields are indexed
-        builder.custom_private_mut().orderby_info = builder
+        let orderby_info = builder
             .custom_private()
             .orderby_info
             .clone()
@@ -286,6 +288,11 @@ impl CustomScan for AggregateScan {
                 }
             })
             .collect::<Vec<_>>();
+        builder.custom_private_mut().orderby_info = orderby_info.clone();
+
+        // If there are more sort fields than what we're able to push down, the GROUP BY could be lossy
+        builder.custom_private_mut().maybe_lossy =
+            !builder.custom_private().grouping_columns.is_empty() && orderby_info.len() != sort_clause.len();
 
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
@@ -330,6 +337,7 @@ impl CustomScan for AggregateScan {
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.custom_state().limit = builder.custom_private().limit;
         builder.custom_state().offset = builder.custom_private().offset;
+        builder.custom_state().maybe_lossy = builder.custom_private().maybe_lossy;
         builder.build()
     }
 

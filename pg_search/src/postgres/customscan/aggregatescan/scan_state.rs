@@ -80,6 +80,7 @@ pub struct AggregateScanState {
     pub limit: u32,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
+    // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
     pub maybe_lossy: bool,
 }
 

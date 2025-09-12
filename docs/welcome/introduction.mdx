@@ -6,11 +6,10 @@ title: The Transactional Elasticsearch Alternative
 
 ParadeDB is an open source, ACID-compliant search and analytics database. Built on Postgres for update-heavy workloads.
 
-
 ## Why ParadeDB?
 
 There are many search engines in the world, but they are mostly built for static datasets and eventual consistency. ParadeDB is for users who
-want a first-class search experience, but frequently update data and value consistency between their source and their indexes. 
+want a first-class search experience, but frequently update data and value consistency between their source and their indexes.
 
 ParadeDB may be a good fit for your stack if:
 
@@ -25,20 +24,17 @@ ParadeDB may be a good fit for your stack if:
 
 People usually compare ParadeDB to two other types of systems: OLTP databases and search engines.
 
-
-|                    | **OLTP databases** | **Search engines** | **ParadeDB** |
-|--------------------|--------------------|--------------------|--------------|
-| **Primary role**   | System of record | Search and retrieval engine | System of record **and** search in one |
-| **Examples**       | Postgres, MySQL | Elasticsearch, OpenSearch | |
-| **Update & delete support**  | Handles updates and deletes easily | Struggles with updates/deletes (immutable segment design) | Handles updates and deletes easily |
-| **ACID guarantees**| Full ACID compliance | No transcations, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance |
-| **Search features**| Basic FTS (no BM25, weak ranking) | Rich search features (BM25, fuzzy matching, synonyms, geo, hybrid search) | Advanced ranking (BM25), hybrid search, improving breadth |
-| **Lag**            | None in a single cluster | At least network + index creation time | None in a single cluster |
-| **Operational complexity** | Simple (single datastore) | Complex (ETL pipelines, managing multiple systems) | Simple (single datastore) |
-| **Scalability**    | Vertical scaling | Horizontal scaling through sharding | Vertical scaling |
-| **Language**       | SQL | Custom DSL | Standard SQL with search extensions |
-
-
+|                             | **OLTP databases**                 | **Search engines**                                                                                     | **ParadeDB**                                              |
+| --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| **Primary role**            | System of record                   | Search and retrieval engine                                                                            | System of record **and** search in one                    |
+| **Examples**                | Postgres, MySQL                    | Elasticsearch, OpenSearch                                                                              |                                                           |
+| **Update & delete support** | Handles updates and deletes easily | Struggles with updates/deletes (immutable segment design)                                              | Handles updates and deletes easily                        |
+| **ACID guarantees**         | Full ACID compliance               | No transactions, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance                                      |
+| **Search features**         | Basic FTS (no BM25, weak ranking)  | Rich search features (BM25, fuzzy matching, synonyms, geo, hybrid search)                              | Advanced ranking (BM25), hybrid search, improving breadth |
+| **Lag**                     | None in a single cluster           | At least network + index creation time                                                                 | None in a single cluster                                  |
+| **Operational complexity**  | Simple (single datastore)          | Complex (ETL pipelines, managing multiple systems)                                                     | Simple (single datastore)                                 |
+| **Scalability**             | Vertical scaling                   | Horizontal scaling through sharding                                                                    | Vertical scaling                                          |
+| **Language**                | SQL                                | Custom DSL                                                                                             | Standard SQL with search extensions                       |
 
 ## Production Readiness
 

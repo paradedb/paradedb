@@ -73,14 +73,16 @@ struct FSMChain {
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-struct FSMRoot {
+pub struct FSMRoot {
     kind:       FSMBlockKind,
-    partial:    [pg_sys::BlockNumber; NLIST],
-    filled:     [pg_sys::BlockNumber; NLIST],
+    version:    u64,
+    pub partial:    [pg_sys::BlockNumber; NLIST],
+    pub filled:     [pg_sys::BlockNumber; NLIST],
 }
 
 #[derive(Debug)]
 pub struct FreeSpaceManager {
+    last_slot : usize,
     root: pg_sys::BlockNumber,
 }
 
@@ -91,6 +93,7 @@ impl FreeSpaceManager {
         let mut page = buf.page_mut();
         *page.contents_mut::<FSMRoot>() = FSMRoot{
             kind    : FSMBlockKind::v2_root,
+            version : 0,
             partial : [pg_sys::InvalidBlockNumber; 32],
             filled  : [pg_sys::InvalidBlockNumber; 32],
         };
@@ -99,7 +102,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self { root, }
+        Self { last_slot: 0, root: root, }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
@@ -114,8 +117,87 @@ impl FreeSpaceManager {
         let horizon =
             unsafe { pg_sys::GetCurrentTransactionIdIfAny().max(pg_sys::FirstNormalTransactionId)
         };
-        FSMDrainIter::new(self, bman, horizon).take(n)
+        self.drain_at(bman, horizon, n)
     }
+
+    pub fn drain_at(
+        &mut self,
+        bman: &mut BufferManager,
+        horizon : pg_sys::TransactionId,
+        n: usize,
+    ) -> impl Iterator<Item = pg_sys::BlockNumber> {
+        let mut v : Vec<pg_sys::BlockNumber> = Vec::new();
+        while v.len() < n {
+            if !self.drain1(bman, horizon, n, &mut v) {
+                break;
+            }
+        }
+        v.into_iter()
+    }
+
+    pub fn drain1(
+        &mut self,
+        bman : &mut BufferManager,
+        horizon : pg_sys::TransactionId,
+        limit : usize, 
+        v : &mut Vec<pg_sys::BlockNumber>,
+    ) -> bool {
+
+        let rbuf = bman.get_buffer(self.root);
+        let pg = rbuf.page();
+        let root = pg.contents::<FSMRoot>();
+        let mut n = limit as i32;
+        for i in 0..NLIST {
+            let slot = (self.last_slot + i) % NLIST;
+            if let Some(mut buf) = get_chain(bman, root.partial[slot], horizon, false) {
+                let mut pg = buf.page_mut();
+                let b = pg.contents_mut::<FSMChain>();
+                self.last_slot = slot;
+                if n >= b.count {
+//                    drop(buf);
+//                    drop(rbuf);
+//                    self.fsm.extend(root.partials[slot]);
+                    let vers = root.version;
+                    let mut mbuf = rbuf.upgrade(bman);
+                    let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
+                    if mroot.version != vers {
+                        return true;
+                    }
+                    n = b.count;
+                    mroot.version += 1;
+                    mroot.partial[slot] = pg.special_mut::<BM25PageSpecialData>().next_blockno;
+                }
+                for i in 1..n+1 {
+                    v.push(b.entries[(b.count-i) as usize]);
+                }
+                b.count -= n;
+                return true;
+            }
+            if let Some(mut buf) = get_chain(bman, root.filled[slot], horizon, false) {
+               let b = buf.page_mut().contents_mut::<FSMChain>();
+
+                let vers = root.version;
+                let mut mbuf = rbuf.upgrade(bman);
+                let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
+                if mroot.version != vers {
+                    return true;
+                }
+                if n > b.count {
+                    n = b.count;
+                }
+                for i in 1..n+1 {
+                    v.push(b.entries[(b.count-i) as usize]);
+                }
+                b.count -= n;
+                move_block(&mut mroot.filled[slot], &mut mroot.partial[slot], bman, &mut buf);
+                mroot.version += 1;
+                self.last_slot = slot;
+                return true;
+            } 
+        }
+        false
+    }
+    
 
     pub fn extend(
         &self,
@@ -149,6 +231,7 @@ impl FreeSpaceManager {
                 let root = rbuf.page_mut().contents_mut::<FSMRoot>();
                 next_chain(bman, &mut root.partial[slot], list, xid)
             };
+let num = buf.number();
             let b = buf.page_mut().contents_mut::<FSMChain>();
             if b.xid != xid.into_inner() {
                 list = next(&buf);
@@ -160,14 +243,15 @@ impl FreeSpaceManager {
                         return;
                     }
                     Some(bno) => {
+let cnt = b.count;
+pgrx::warning!("extending {}[{}] = {}", num, cnt, bno);
                         b.entries[b.count as usize] = bno;
                         b.count += 1;
                         if b.count as usize == NENT {
-                            {
-                                let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-                                move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
-                                list =  root.partial[slot];
-                            };
+                            let root = rbuf.page_mut().contents_mut::<FSMRoot>();
+                            root.version += 1;
+                            move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
+                            list =  root.partial[slot];
                             continue 'l;
                         }
                     }
@@ -177,68 +261,6 @@ impl FreeSpaceManager {
     }
 }
 
-/// Draining iterator over FSM entries. As entries are yielded, they are
-/// removed from the FSM (on-disk)
-pub struct FSMDrainIter {
-    bman    : BufferManager,
-    root    : pg_sys::BlockNumber,
-    horizon : pg_sys::TransactionId,
-    last_slot : usize,
-}
-
-impl FSMDrainIter {
-    pub fn new(fsm: &FreeSpaceManager, bman: &BufferManager, horizon : pg_sys::TransactionId) -> Self {
-        Self {
-            bman    : bman.clone(),
-            root    : fsm.root,
-            horizon,
-            last_slot: 0,
-        }
-    }
-}
-
-impl Iterator for FSMDrainIter {
-    type Item = pg_sys::BlockNumber;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let rbuf = self.bman.get_buffer(self.root);
-        let pg = rbuf.page();
-        let root = pg.contents::<FSMRoot>();
-        for i in 0..NLIST {
-            let slot = (self.last_slot + i) % NLIST;
-            if let Some(mut buf) = get_chain(&mut self.bman, root.partial[slot], self.horizon, false) {
-                let b = buf.page_mut().contents_mut::<FSMChain>();
-                let ret = b.entries[(b.count-1) as usize];
-                b.count -= 1;
-                self.last_slot = slot;
-                if b.count == 0 {
-
-//                    drop(buf);
-//                    drop(rbuf);
-//                    self.fsm.extend(root.partials[slot]);
-                    let mut mbuf = rbuf.upgrade(&mut self.bman);
-                    let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
-                    mroot.partial[slot] = next(&buf);
-                }
-                return Some(ret)
-            }
-            if let Some(mut buf) = get_chain(&mut self.bman, root.filled[slot], self.horizon, false) {
-                let b = buf.page_mut().contents_mut::<FSMChain>();
-                let ret = b.entries[(b.count-1) as usize];
-                b.count -= 1;
-
-                let mut mbuf = rbuf.upgrade(&mut self.bman);
-                let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
-                move_block(&mut mroot.filled[slot], &mut mroot.partial[slot], &mut self.bman, &mut buf);
-                self.last_slot = slot;
-                return Some(ret)
-            } 
-        }
-        None
-    }
-}
-
-// this is useful for debugging, shut up about unused code.
 
 #[pg_extern]
 unsafe fn fsm_info(
@@ -397,6 +419,7 @@ fn load_root(root : pg_sys::BlockNumber, bman : &mut BufferManager) -> BufferMut
     } else {
         *r = FSMRoot{
             kind    : FSMBlockKind::v2_root,
+            version : 0,
             partial : [pg_sys::InvalidBlockNumber; 32],
             filled  : [pg_sys::InvalidBlockNumber; 32],
         };

@@ -40,10 +40,7 @@ mod tests {
         fsm.extend_with_when_recyclable(&mut bman, extend_when, 0..100_000);
 
         let drain_when = pg_sys::TransactionId::from(101);
-        let drained: Vec<BlockNumber> =
-            crate::postgres::storage::fsm::FSMDrainIter::new(&fsm, &bman, drain_when)
-                .take(100_000)
-                .collect();
+        let drained : Vec<_> = fsm.drain_at(&mut bman, drain_when, 100_000).collect();
         assert_eq!(drained.len(), 100_000);
     }
 
@@ -52,7 +49,7 @@ mod tests {
         let xid = pg_sys::TransactionId::from(xid_n);
 
         let blocks: Vec<BlockNumber> = (1..=n as BlockNumber).collect();
-       fsm.extend_with_when_recyclable(&mut bman, xid, blocks.clone().into_iter());
+        fsm.extend_with_when_recyclable(&mut bman, xid, blocks.clone().into_iter());
         let mut drained: Vec<BlockNumber> = fsm.drain(&mut bman, n + 10).collect();
         drained.sort();
 
@@ -144,7 +141,7 @@ mod tests {
     // Tests XID ordering with out-of-order inserts and varying horizons
     #[pg_test]
     fn fsm_xid_ordering() {
-        let (mut bman, fsm) = init();
+        let (mut bman, mut fsm) = init();
 
         let xid1 = pg_sys::TransactionId::from(105);
         let xid2 = pg_sys::TransactionId::from(102);
@@ -157,18 +154,15 @@ mod tests {
         fsm.extend_with_when_recyclable(&mut bman, xid4, vec![40, 41].into_iter());
 
         let horizon1 = pg_sys::TransactionId::from(104);
-        let iter1 = crate::postgres::storage::fsm::FSMDrainIter::new(&fsm, &bman, horizon1);
-        let drained1: Vec<BlockNumber> = iter1.take(10).collect();
+        let drained1 : Vec<_> = fsm.drain_at(&mut bman, horizon1, 10).collect();
         assert_eq!(drained1.len(), 4);
 
         let horizon2 = pg_sys::TransactionId::from(106);
-        let iter2 = crate::postgres::storage::fsm::FSMDrainIter::new(&fsm, &bman, horizon2);
-        let drained2: Vec<BlockNumber> = iter2.take(10).collect();
+        let drained2 : Vec<_> = fsm.drain_at(&mut bman, horizon2, 10).collect();
         assert_eq!(drained2.len(), 2);
 
         let horizon3 = pg_sys::TransactionId::from(110);
-        let iter3 = crate::postgres::storage::fsm::FSMDrainIter::new(&fsm, &bman, horizon3);
-        let drained3: Vec<BlockNumber> = iter3.take(10).collect();
+        let drained3 : Vec<_> = fsm.drain_at(&mut bman, horizon3, 10).collect();
         assert_eq!(drained3.len(), 2);
 
         let mut all_drained = drained1;

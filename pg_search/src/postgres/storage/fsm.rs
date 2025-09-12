@@ -136,7 +136,7 @@ impl FreeSpaceManager {
     }
 
     pub fn drain1(
-        &mut self,
+        &self,
         bman : &mut BufferManager,
         horizon : pg_sys::TransactionId,
         limit : usize, 
@@ -226,12 +226,11 @@ impl FreeSpaceManager {
         'l: loop {
             if iter.peek().is_none() {
                 break;
-            }
+            } 
             let mut buf = {
                 let root = rbuf.page_mut().contents_mut::<FSMRoot>();
                 next_chain(bman, &mut root.partial[slot], list, xid)
             };
-let num = buf.number();
             let b = buf.page_mut().contents_mut::<FSMChain>();
             if b.xid != xid.into_inner() {
                 list = next(&buf);
@@ -243,8 +242,6 @@ let num = buf.number();
                         return;
                     }
                     Some(bno) => {
-let cnt = b.count;
-pgrx::warning!("extending {}[{}] = {}", num, cnt, bno);
                         b.entries[b.count as usize] = bno;
                         b.count += 1;
                         if b.count as usize == NENT {
@@ -287,7 +284,6 @@ unsafe fn fsm_info(
     )>::default();
     let xid = pg_sys::TransactionId::from((i32::MAX-1) as u32);
 
-    // TODO: remove these
     for i in 0..NLIST {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {

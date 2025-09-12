@@ -87,8 +87,8 @@ struct VacuumListData {
 
 pub struct VacuumList {
     indexrel: PgSearchRelation,
-    start_block_number: pg_sys::BlockNumber,
-    ambulkdelete_sentinel: pg_sys::BlockNumber,
+    pub start_block_number: pg_sys::BlockNumber,
+    pub ambulkdelete_sentinel: pg_sys::BlockNumber,
 }
 
 impl VacuumList {
@@ -273,7 +273,7 @@ impl MergeEntry {
 }
 
 pub struct MergeList {
-    entries: LinkedItemList<MergeEntry>,
+    pub entries: LinkedItemList<MergeEntry>,
     bman: BufferManager,
 }
 

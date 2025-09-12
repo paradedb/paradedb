@@ -23,6 +23,7 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::block::{SegmentMetaEntry, FileEntry, BM25PageSpecialData, LinkedList};
 use crate::postgres::storage::fsm::FSMRoot;
+use crate::postgres::storage::{LinkedBytesList};
 
 #[pg_extern]
 unsafe fn used_blocks(
@@ -36,6 +37,8 @@ unsafe fn used_blocks(
     name!(segmeta, AnyNumeric),
     name!(garbage, AnyNumeric),
     name!(segfile, AnyNumeric),
+    name!(vaclist, AnyNumeric),
+    name!(mergelist, AnyNumeric),
 )> {
     let index = PgSearchRelation::from_pg(index.as_ptr());
     let mut bman = BufferManager::new(&index);
@@ -49,11 +52,22 @@ unsafe fn used_blocks(
     let mut segmeta = HashSet::<pg_sys::BlockNumber>::new();
     let mut garbage = HashSet::<pg_sys::BlockNumber>::new();
     let mut segfile = HashSet::<pg_sys::BlockNumber>::new();
+    let mut vaclist = HashSet::<pg_sys::BlockNumber>::new();
+    let mut mergelist = HashSet::<pg_sys::BlockNumber>::new();
 
     scan_fsm(&mut bman, mp.fsm(), &mut fsm);
-    scan_chain(&mut bman, mp.schema_bytes().get_header_blockno(), &mut schema);
-    scan_chain(&mut bman, mp.settings_bytes().get_header_blockno(), &mut settings);
+    schema.extend(mp.schema_bytes().freeable_blocks());
+    settings.extend(mp.settings_bytes().freeable_blocks());
     scan_chain(&mut bman, mp.segment_metas().get_header_blockno(), &mut segmeta);
+    let vacuum_list = LinkedBytesList::open(&index, mp.vacuum_list().start_block_number);
+    vaclist.extend(vacuum_list.freeable_blocks());
+    vaclist.insert(mp.vacuum_list().ambulkdelete_sentinel);
+
+    let merge_lock = mp.acquire_merge_lock();
+    let merge_list = LinkedBytesList::open(&index, merge_lock.merge_list().entries.get_header_blockno());
+    mergelist.extend(merge_list.freeable_blocks());
+    drop(merge_lock);
+
     if let Some(g) = mp.segment_metas_garbage() {
         scan_chain(&mut bman, g.get_header_blockno(), &mut garbage);
     }
@@ -70,6 +84,8 @@ unsafe fn used_blocks(
         (segmeta.len() as i64).into(),
         (garbage.len() as i64).into(),
         (segfile.len() as i64).into(),
+        (vaclist.len() as i64).into(),
+        (mergelist.len() as i64).into(),
     )].into_iter())
 }
 
@@ -118,7 +134,7 @@ fn scan_fsm(
     let buf = bman.get_buffer(fsm_root);
     let pg = buf.page();
     let root = pg.contents::<FSMRoot>();
-    
+
     for i in 0..32 {
         scan_chain(bman, root.partial[i], live);
         scan_chain(bman, root.filled[i], live);
@@ -137,4 +153,5 @@ fn scan_chain(
         b = pg.special::<BM25PageSpecialData>().next_blockno;
     }
 }
+
 

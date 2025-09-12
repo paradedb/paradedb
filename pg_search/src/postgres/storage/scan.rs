@@ -59,14 +59,14 @@ unsafe fn used_blocks(
     schema.extend(mp.schema_bytes().freeable_blocks());
     settings.extend(mp.settings_bytes().freeable_blocks());
     scan_chain(&mut bman, mp.segment_metas().get_header_blockno(), &mut segmeta);
-    let vacuum_list = LinkedBytesList::open(&index, mp.vacuum_list().start_block_number);
-    vaclist.extend(vacuum_list.freeable_blocks());
-    vaclist.insert(mp.vacuum_list().ambulkdelete_sentinel);
+//    let vacuum_list = LinkedBytesList::open(&index, mp.vacuum_list().start_block_number);
+//    vaclist.extend(vacuum_list.freeable_blocks());
+//    vaclist.insert(mp.vacuum_list().ambulkdelete_sentinel);
 
-    let merge_lock = mp.acquire_merge_lock();
-    let merge_list = LinkedBytesList::open(&index, merge_lock.merge_list().entries.get_header_blockno());
-    mergelist.extend(merge_list.freeable_blocks());
-    drop(merge_lock);
+//    let merge_lock = mp.acquire_merge_lock();
+//    let merge_list = LinkedBytesList::open(&index, merge_lock.merge_list().entries.get_header_blockno());
+//    mergelist.extend(merge_list.freeable_blocks());
+//    drop(merge_lock);
 
     if let Some(g) = mp.segment_metas_garbage() {
         scan_chain(&mut bman, g.get_header_blockno(), &mut garbage);

@@ -22,6 +22,7 @@ use pgrx::{
 };
 use std::ffi::CStr;
 use std::num::NonZeroUsize;
+use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 
 /// Allows the user to toggle the use of our "ParadeDB Scan".
 static ENABLE_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(true);
@@ -47,7 +48,7 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
 /// The maximum number of buckets that can be returned by a TermsAggregation
-static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(10000);
+static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
 /// The number of fast-field columns below-which the MixedFastFieldExecState will be used, rather
 /// than the NormalExecState. The Mixed execution mode fetches data as column-oriented, whereas
@@ -174,7 +175,7 @@ pub fn init() {
         c"Maximum number of buckets/groups that can be returned by a terms aggregation",
         &MAX_TERM_AGG_BUCKETS,
         1,
-        tantivy::aggregation::DEFAULT_BUCKET_LIMIT as i32,
+        DEFAULT_BUCKET_LIMIT as i32,
         GucContext::Userset,
         GucFlags::default(),
     );

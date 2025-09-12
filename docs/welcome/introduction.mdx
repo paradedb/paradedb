@@ -4,23 +4,22 @@ title: The Transactional Elasticsearch Alternative
 
 ![ParadeDB Banner](/images/paradedb_banner.png)
 
-ParadeDB is an open-source, ACID-compliant full-text search and analytics database, built for speed and reliability under update-heavy workloads.
+ParadeDB is an open source, ACID-compliant search and analytics database. Built on Postgres for update-heavy workloads.
 
-ParadeDB is built on top of Postgres. It provides battle-tested reliability and consistency for the most demanding workloads, now with state-of-the-art search. 
 
 ## Why ParadeDB?
 
 There are many search engines in the world, but they are mostly built for static datasets and eventual consistency. ParadeDB is for users who
-want a first-class full-text search experience, but frequently update data and value consistency between their source and their indexes. 
+want a first-class search experience, but frequently update data and value consistency between their source and their indexes. 
 
 ParadeDB may be a good fit for your stack if:
 
-- **You frequently update** the data you want to run full-text search queries over
+- **You frequently update** the data you want to run search queries over
 - **Elasticsearch lag, shard loss, or stale indexes** keep you up at night
 - You spend more time **babysitting ETL processes** than doing things that matter
-- It feels counterintuative to **seperate search from source**
 - You **enjoy using Postgres**, you **hate using Elasticsearch**, or something in between
-- You **value simplicity** when designing systems
+- **You have tried tsvector and the GIN index for Postgres text search**, but lack of fuzzy matching, BM25 relevance scoring, advanced query types, etc. leads to low-quality results.
+- You **value simplicity** when designing systems, and would prefer to search directly rather than on a remote index.
 
 ## ParadeDB vs. Alternatives
 
@@ -28,14 +27,16 @@ People usually compare ParadeDB to two other types of systems: OLTP databases an
 
 
 |                    | **OLTP databases** | **Search engines** | **ParadeDB** |
-|--------------------|------------------------------------------------|------------------------------------------------------|--------------|
-| **Primary role**   | System of record                               | Search and retrieval engine                          | System of record **and** search engine in one |
-| **Examples**   | Postgres, MySQL                               | Elasticsearch, OpenSearch |
-| **ACID guarantees**| ✅ Full ACID compliance                        | ❌ Limited (atomicity only per-document, weak isolation, not guaranteed durable) | ✅ Full ACID compliance |
-| **Search features**| Basic FTS, limited ranking/relevance           | Advanced ranking (BM25), hybrid search           | Advanced ranking (BM25), hybrid search** |
-| **Lag**    | None in a single cluster                    | At **least** network plus index creation time                    | None in a single cluster
-| **Operational cost**| Simple (single datastore)                     | Complex (ETL pipelines, running two systems)         | Simple (single datastore) |
-| **Language**      | SQL   | Custom DSL           | SQL extended for full-text-search
+|--------------------|--------------------|--------------------|--------------|
+| **Primary role**   | System of record | Search and retrieval engine | System of record **and** search in one |
+| **Examples**       | Postgres, MySQL | Elasticsearch, OpenSearch | |
+| **Update & delete support**  | Handles updates and deletes easily | Struggles with updates/deletes (immutable segment design) | Handles updates and deletes easily |
+| **ACID guarantees**| Full ACID compliance | No transcations, atomic only per-document, eventual consistency, durability not guaranteed until flush | Full ACID compliance |
+| **Search features**| Basic FTS (no BM25, weak ranking) | Rich search features (BM25, fuzzy matching, synonyms, geo, hybrid search) | Advanced ranking (BM25), hybrid search, improving breadth |
+| **Lag**            | None in a single cluster | At least network + index creation time | None in a single cluster |
+| **Operational complexity** | Simple (single datastore) | Complex (ETL pipelines, managing multiple systems) | Simple (single datastore) |
+| **Scalability**    | Vertical scaling | Horizontal scaling through sharding | Vertical scaling |
+| **Language**       | SQL | Custom DSL | Standard SQL with search extensions |
 
 
 

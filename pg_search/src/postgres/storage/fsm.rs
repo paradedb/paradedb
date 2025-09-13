@@ -44,12 +44,6 @@ enum FSMBlockKind {
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
-struct RootHeader {
-    kind:   FSMBlockKind,
-}
-
-#[derive(Debug, Copy, Clone)]
-#[repr(C)]
 struct ChainHeader {
     kind:   FSMBlockKind,
     maxtx:  pg_sys::TransactionId,
@@ -113,7 +107,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self { last_slot: 0, root, }
+        Self { last_slot: 0, root: root, }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
@@ -154,14 +148,12 @@ impl FreeSpaceManager {
         v : &mut Vec<pg_sys::BlockNumber>,
     ) -> bool {
 
-        let rbuf = bman.get_buffer(self.root);
+        let mut rbuf = bman.get_buffer(self.root);
         let root = rbuf.page().contents_ref::<FSMRoot>();
         let mut n = limit as i32;
-        let killed = pg_sys::InvalidBlockNumber;
         for i in 0..NLIST {
             let slot = (self.last_slot + i) % NLIST;
             if let Some(mut buf) = get_chain(bman, root.partial[slot], horizon, false) {
-                let bno = buf.number();
                 let mut pg = buf.page_mut();
                 let b = pg.contents_mut::<FSMChain>();
                 self.last_slot = slot;
@@ -237,14 +229,14 @@ impl FreeSpaceManager {
             if iter.peek().is_none() {
                 break;
             } 
-            let mut buf = {
+            let (mut buf, vers) = {
                 if let XBuf::Ro(b) = rbuf {
                     rbuf = XBuf::Rw(b.upgrade(bman));
                 }
                 if let XBuf::Rw(b) = &mut rbuf {
                     let root = b.page_mut().contents_mut::<FSMRoot>();
-                    
-                    next_chain(bman, &mut root.partial[slot], &mut root.grow, list, xid)
+                    let n = next_chain(bman, &mut root.partial[slot], &mut root.grow, list, xid);
+                    (n, root.version)
                 } else {
                     panic!("unreachable");
                 }
@@ -255,24 +247,34 @@ impl FreeSpaceManager {
                 continue;
             }
             loop {
-                match iter.next() {
+                match iter.peek() {
                     None => {
                         return;
                     }
                     Some(bno) => {
-                        b.entries[b.count as usize] = bno;
-                        b.count += 1;
-                        if b.count as usize == NENT {
+                        if b.count as usize + 1 <  NENT {
+                            b.entries[b.count as usize] = *bno;
+                            b.count += 1;
+                            iter.next();
+                        } else {
                             if let XBuf::Ro(b) = rbuf {
                                 rbuf = XBuf::Rw(b.upgrade(bman));
                             }
-                            if let XBuf::Rw(b) = &mut rbuf {
-                                let root = b.page_mut().contents_mut::<FSMRoot>();
+                            if let XBuf::Rw(m) = &mut rbuf {
+                                let root = m.page_mut().contents_mut::<FSMRoot>();
+                                if vers != root.version {
+                                    list = root.partial[slot];
+                                    continue 'l;
+                                }
+                                b.entries[b.count as usize] = *bno;
+                                b.count += 1;
+                                iter.next();
                                 root.version += 1;
                                 move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
                                 list = root.partial[slot];
+                                continue 'l; 
                             }
-                            continue 'l; 
+                            panic!("unreachable");
                         }
                     }
                 }
@@ -297,7 +299,7 @@ unsafe fn fsm_info(
     let meta = MetaPage::open(&index);
     let fsm = meta.fsm();
     let mut bman = BufferManager::new(&index);
-    let rbuf = load_root(fsm, &mut bman);
+    let mut rbuf = load_root(fsm, &mut bman);
     let root = rbuf.page().contents_ref::<FSMRoot>();
     let mut mapping = Vec::<(
         u32,
@@ -349,52 +351,20 @@ unsafe fn fsm_info(
     TableIterator::new(mapping.into_iter().map(|(a, b, c)| (a.into(), b.into(), c.into())))
 }
 
-fn fsm_size(root : &FSMRoot, bman : &mut BufferManager) -> usize {
-    let xid = pg_sys::TransactionId::from((i32::MAX-1) as u32);
-    let mut count = 0;
-    for i in 0..NLIST {
-        let mut b = root.partial[i];
-        loop {
-            match get_chain(bman, b, xid, true){
-                Some(buf) => {
-                    count += 1;
-                    b = next(&buf);
-                }
-                None	=> {
-                    break;
-                }
-            }
-        }
-        b = root.filled[i];
-        loop {
-            match get_chain(bman, b, xid, true){
-                Some(buf) => {
-                    count += 1;
-                    b = next(&buf);
-                }
-                None	=> {
-                    break;
-                }
-            }
-        }
-    }
-    count
-}
-
 fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
     let xid = pg_sys::TransactionId::from((i32::MAX-1) as u32);
     let mut count = 0;
     let mut rbuf = bman.get_buffer_mut(root);
 
     let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-    eprintln!("---- BEGIN {msg} --------------------------");
+    eprintln!("---- BEGIN {} --------------------------", msg);
     for i in 0..NLIST {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {
             continue;
         }
         let mut b = root.partial[i];
-        eprintln!("partial[{i}]");
+        eprintln!("partial[{}]", i);
         loop {
             match get_chain(bman, b, xid, true){
                 Some(buf) => {
@@ -408,7 +378,7 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
                 }
             }
         }
-        eprintln!("filled[{i}]");
+        eprintln!("filled[{}]", i);
         b = root.filled[i];
         loop {
             match get_chain(bman, b, xid, true){
@@ -424,8 +394,8 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
             }
         }
     }
-    eprintln!("total size: {count}");
-    eprintln!("---- END {msg} --------------------------");
+    eprintln!("total size: {}", count);
+    eprintln!("---- END {} --------------------------", msg);
 }
 
 fn next_chain(
@@ -441,7 +411,7 @@ fn next_chain(
     let mut bno = list;
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
-        let b = buf.page_mut().contents_mut::<FSMChain>();
+        let mut b = buf.page_mut().contents_mut::<FSMChain>();
         if b.xid == xid.into_inner() || b.count == 0 {
             b.xid = xid.into_inner();
             return buf;
@@ -514,14 +484,14 @@ fn move_block(
 }
 
 fn load_root(root : pg_sys::BlockNumber, bman : &mut BufferManager) -> Buffer {
-    let buf = bman.get_buffer(root);
+    let mut buf = bman.get_buffer(root);
     let r = buf.page().contents_ref::<FSMRoot>();
     if FSMBlockKind::v2_root == r.kind {
         return buf;
     }
 
     let mut mbuf = buf.upgrade(bman);
-    let mr = mbuf.page_mut().contents_mut::<FSMRoot>();
+    let mut mr = mbuf.page_mut().contents_mut::<FSMRoot>();
     *mr = FSMRoot{
         kind    : FSMBlockKind::v2_root,
         version : 0,

@@ -84,7 +84,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           path: actions-temp
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
           ref: main
 
@@ -101,7 +101,7 @@ jobs:
         if: github.event.label.name != 'benchmark' && github.event.label.name != 'benchmark-stressgres'
         uses: ./.github/actions/benchmarks-from-main
         with:
-          github-token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Resolve git ref to PR
         id: pr_label
@@ -114,7 +114,7 @@ jobs:
           # • a PR number:      e.g. “123”
           TARGET_REF: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
         with:
-          github-token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           result-encoding: string
           script: |
             const { owner, repo } = context.repo;

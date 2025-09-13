@@ -179,7 +179,6 @@ mod tests {
         let root = unsafe { FreeSpaceManager::create(&idxrel) };
         let bman = BufferManager::new(&idxrel);
         let mut fsm = FreeSpaceManager::open(root);
-        fsm.recycle_chains = false;
         (bman, fsm)
     }
 

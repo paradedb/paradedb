@@ -85,7 +85,6 @@ pub struct FSMRoot {
 
 #[derive(Debug)]
 pub struct FreeSpaceManager {
-    pub recycle_chains : bool,
     last_slot : usize,
     root: pg_sys::BlockNumber,
 }
@@ -109,7 +108,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self { recycle_chains: true, last_slot: 0, root: root, }
+        Self { last_slot: 0, root: root, }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
@@ -135,11 +134,7 @@ impl FreeSpaceManager {
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
         let mut v : Vec<pg_sys::BlockNumber> = Vec::new();
         while v.len() < n {
-            let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
-            if killed != pg_sys::InvalidBlockNumber {
-                self.extend(bman, std::iter::once(killed));
-            }
-            if !retry {
+            if !self.drain1(bman, horizon, n, &mut v) {
                 break;
             }
         }
@@ -152,10 +147,10 @@ impl FreeSpaceManager {
         horizon : pg_sys::TransactionId,
         limit : usize, 
         v : &mut Vec<pg_sys::BlockNumber>,
-    ) -> (bool, pg_sys::BlockNumber) {
+    ) -> bool {
 
         let mut rbuf = bman.get_buffer(self.root);
-        let root = rbuf.page().contents::<FSMRoot>();
+        let root = rbuf.page().contents_ref::<FSMRoot>();
         let mut n = limit as i32;
         let mut killed = pg_sys::InvalidBlockNumber;
         for i in 0..NLIST {
@@ -170,12 +165,7 @@ impl FreeSpaceManager {
                     let mut mbuf = rbuf.upgrade(bman);
                     let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
                     if mroot.version != vers {
-                        return (true, killed);
-                    }
-                    if self.recycle_chains {
-                        mroot.partial[slot] = pg.special_mut::<BM25PageSpecialData>().next_blockno;
-                        mroot.version += 1;
-                        killed = bno;
+                        return true;
                     }
                     n = b.count;
                 }
@@ -183,7 +173,7 @@ impl FreeSpaceManager {
                     v.push(b.entries[(b.count-i) as usize]);
                 }
                 b.count -= n;
-                return (true, killed);
+                return true;
             }
             if let Some(mut buf) = get_chain(bman, root.filled[slot], horizon, false) {
                let b = buf.page_mut().contents_mut::<FSMChain>();
@@ -192,7 +182,7 @@ impl FreeSpaceManager {
                 let mut mbuf = rbuf.upgrade(bman);
                 let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
                 if mroot.version != vers {
-                    return (true, killed);
+                    return true;
                 }
                 if n > b.count {
                     n = b.count;
@@ -205,10 +195,10 @@ impl FreeSpaceManager {
                 mroot.version += 1;
                 mroot.drain += n as usize;
                 self.last_slot = slot;
-                return (true, killed);
+                return true
             } 
         }
-        (false, killed)
+        false
     }
     
 

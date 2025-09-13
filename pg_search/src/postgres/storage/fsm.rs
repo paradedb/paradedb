@@ -46,11 +46,10 @@ enum FSMBlockKind {
 #[repr(C)]
 struct ChainHeader {
     kind:   FSMBlockKind,
-    maxtx:  pg_sys::TransactionId,
-    count:   i32,
+    xid:    u32,
+    count:  i32,
 }
 
-const ROOT_SPACE: usize = bm25_max_free_space() - size_of::<RootHeader>();
 const CHAIN_SPACE: usize = bm25_max_free_space() - size_of::<ChainHeader>();
 const NENT: usize = CHAIN_SPACE / size_of::<pg_sys::BlockNumber>();
 const NLIST: usize = 32;
@@ -59,9 +58,7 @@ const NLIST: usize = 32;
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 struct FSMChain {
-    kind:    FSMBlockKind,
-    xid:     u32,
-    count:   i32,
+    h      : ChainHeader,
     entries: [pg_sys::BlockNumber; NENT],
 }
 
@@ -148,7 +145,7 @@ impl FreeSpaceManager {
         v : &mut Vec<pg_sys::BlockNumber>,
     ) -> bool {
 
-        let mut rbuf = bman.get_buffer(self.root);
+        let rbuf = bman.get_buffer(self.root);
         let root = rbuf.page().contents_ref::<FSMRoot>();
         let mut n = limit as i32;
         for i in 0..NLIST {
@@ -157,19 +154,19 @@ impl FreeSpaceManager {
                 let mut pg = buf.page_mut();
                 let b = pg.contents_mut::<FSMChain>();
                 self.last_slot = slot;
-                if n >= b.count {
+                if n >= b.h.count {
                     let vers = root.version;
                     let mut mbuf = rbuf.upgrade(bman);
                     let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
                     if mroot.version != vers {
                         return true;
                     }
-                    n = b.count;
+                    n = b.h.count;
                 }
                 for i in 1..n+1 {
-                    v.push(b.entries[(b.count-i) as usize]);
+                    v.push(b.entries[(b.h.count-i) as usize]);
                 }
-                b.count -= n;
+                b.h.count -= n;
                 return true;
             }
             if let Some(mut buf) = get_chain(bman, root.filled[slot], horizon, false) {
@@ -181,13 +178,13 @@ impl FreeSpaceManager {
                 if mroot.version != vers {
                     return true;
                 }
-                if n > b.count {
-                    n = b.count;
+                if n > b.h.count {
+                    n = b.h.count;
                 }
                 for i in 1..n+1 {
-                    v.push(b.entries[(b.count-i) as usize]);
+                    v.push(b.entries[(b.h.count-i) as usize]);
                 }
-                b.count -= n;
+                b.h.count -= n;
                 move_block(&mut mroot.filled[slot], &mut mroot.partial[slot], bman, &mut buf);
                 mroot.version += 1;
                 mroot.drain += n as usize;
@@ -242,7 +239,7 @@ impl FreeSpaceManager {
                 }
             };
             let b = buf.page_mut().contents_mut::<FSMChain>();
-            if b.xid != xid.into_inner() {
+            if b.h.xid != xid.into_inner() {
                 list = next(&buf);
                 continue;
             }
@@ -252,9 +249,9 @@ impl FreeSpaceManager {
                         return;
                     }
                     Some(bno) => {
-                        if b.count as usize + 1 <  NENT {
-                            b.entries[b.count as usize] = *bno;
-                            b.count += 1;
+                        if b.h.count as usize + 1 <  NENT {
+                            b.entries[b.h.count as usize] = *bno;
+                            b.h.count += 1;
                             iter.next();
                         } else {
                             if let XBuf::Ro(b) = rbuf {
@@ -266,8 +263,8 @@ impl FreeSpaceManager {
                                     list = root.partial[slot];
                                     continue 'l;
                                 }
-                                b.entries[b.count as usize] = *bno;
-                                b.count += 1;
+                                b.entries[b.h.count as usize] = *bno;
+                                b.h.count += 1;
                                 iter.next();
                                 root.version += 1;
                                 move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
@@ -299,7 +296,7 @@ unsafe fn fsm_info(
     let meta = MetaPage::open(&index);
     let fsm = meta.fsm();
     let mut bman = BufferManager::new(&index);
-    let mut rbuf = load_root(fsm, &mut bman);
+    let rbuf = load_root(fsm, &mut bman);
     let root = rbuf.page().contents_ref::<FSMRoot>();
     let mut mapping = Vec::<(
         u32,
@@ -321,8 +318,8 @@ unsafe fn fsm_info(
             match get_chain(&mut bman, b, xid, true){
                 Some(buf) => {
                     let node = buf.page().contents_ref::<FSMChain>();
-                    for i in 0..node.count {
-                        mapping.push((b, node.entries[i as usize], node.xid))
+                    for i in 0..node.h.count {
+                        mapping.push((b, node.entries[i as usize], node.h.xid))
                     }
                     b = next(&buf);
                 }
@@ -336,8 +333,8 @@ unsafe fn fsm_info(
             match get_chain(&mut bman, b, xid, true){
                 Some(buf) => {
                     let node = buf.page().contents_ref::<FSMChain>();
-                    for i in 0..node.count {
-                        mapping.push((b, node.entries[i as usize], node.xid))
+                    for i in 0..node.h.count {
+                        mapping.push((b, node.entries[i as usize], node.h.xid))
                     }
                     b = next(&buf);
                 }
@@ -351,6 +348,7 @@ unsafe fn fsm_info(
     TableIterator::new(mapping.into_iter().map(|(a, b, c)| (a.into(), b.into(), c.into())))
 }
 
+#[allow(dead_code)]
 fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
     let xid = pg_sys::TransactionId::from((i32::MAX-1) as u32);
     let mut count = 0;
@@ -369,7 +367,7 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
             match get_chain(bman, b, xid, true){
                 Some(buf) => {
                     let c = buf.page().contents_ref::<FSMChain>();
-                    eprintln!("\t{}@{} [{}/{}]", b, c.xid, c.count, c.entries.len());
+                    eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
                     count += 1;
                     b = next(&buf);
                 }
@@ -384,7 +382,7 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
             match get_chain(bman, b, xid, true){
                Some(buf) => {
                     let c = buf.page().contents_ref::<FSMChain>();
-                    eprintln!("\t{}@{} [{}/{}]", b, c.xid, c.count, c.entries.len());
+                    eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
                     count += 1;
                     b = next(&buf);
                 }
@@ -411,9 +409,9 @@ fn next_chain(
     let mut bno = list;
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
-        let mut b = buf.page_mut().contents_mut::<FSMChain>();
-        if b.xid == xid.into_inner() || b.count == 0 {
-            b.xid = xid.into_inner();
+        let b = buf.page_mut().contents_mut::<FSMChain>();
+        if b.h.xid == xid.into_inner() || b.h.count == 0 {
+            b.h.xid = xid.into_inner();
             return buf;
         }
         bno = next(&buf);
@@ -439,9 +437,9 @@ fn get_chain(
     while bno != pg_sys::InvalidBlockNumber {
         let buf = bman.get_buffer_mut(bno);
         let b = buf.page().contents_ref::<FSMChain>();
-        let blk_xid = pg_sys::TransactionId::from(b.xid);
+        let blk_xid = pg_sys::TransactionId::from(b.h.xid);
         if crate::postgres::utils::TransactionIdPrecedesOrEquals(blk_xid, xid)
-        && (empty_ok || b.count != 0) {
+        && (empty_ok || b.h.count != 0) {
             return Some(buf);
         }
         bno = next(&buf);
@@ -484,14 +482,14 @@ fn move_block(
 }
 
 fn load_root(root : pg_sys::BlockNumber, bman : &mut BufferManager) -> Buffer {
-    let mut buf = bman.get_buffer(root);
+    let buf = bman.get_buffer(root);
     let r = buf.page().contents_ref::<FSMRoot>();
     if FSMBlockKind::v2_root == r.kind {
         return buf;
     }
 
     let mut mbuf = buf.upgrade(bman);
-    let mut mr = mbuf.page_mut().contents_mut::<FSMRoot>();
+    let mr = mbuf.page_mut().contents_mut::<FSMRoot>();
     *mr = FSMRoot{
         kind    : FSMBlockKind::v2_root,
         version : 0,
@@ -509,10 +507,12 @@ fn new_chain(bman : &mut BufferManager, xid : pg_sys::TransactionId) -> BufferMu
     let mut buf = init_new_buffer(bman.buffer_access().rel());
     let mut pg = buf.page_mut();
     let chain = pg.contents_mut::<FSMChain>();
-    *chain = FSMChain { 
-        kind: FSMBlockKind::v2_ent,
-        xid: xid.into_inner(),
-        count: 0,
+    *chain = FSMChain {
+        h: ChainHeader {
+            kind: FSMBlockKind::v2_ent,
+            xid: xid.into_inner(),
+            count: 0,
+        },
         entries: [pg_sys::InvalidBlockNumber; NENT]
     };
     buf

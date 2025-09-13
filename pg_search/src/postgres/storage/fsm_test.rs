@@ -178,7 +178,7 @@ mod tests {
         let idxrel = PgSearchRelation::open(relation_oid);
         let root = unsafe { FreeSpaceManager::create(&idxrel) };
         let bman = BufferManager::new(&idxrel);
-        let mut fsm = FreeSpaceManager::open(root);
+        let fsm = FreeSpaceManager::open(root);
         (bman, fsm)
     }
 

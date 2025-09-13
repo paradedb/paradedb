@@ -113,7 +113,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self { last_slot: 0, root: root, }
+        Self { last_slot: 0, root, }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
@@ -154,10 +154,10 @@ impl FreeSpaceManager {
         v : &mut Vec<pg_sys::BlockNumber>,
     ) -> bool {
 
-        let mut rbuf = bman.get_buffer(self.root);
+        let rbuf = bman.get_buffer(self.root);
         let root = rbuf.page().contents_ref::<FSMRoot>();
         let mut n = limit as i32;
-        let mut killed = pg_sys::InvalidBlockNumber;
+        let killed = pg_sys::InvalidBlockNumber;
         for i in 0..NLIST {
             let slot = (self.last_slot + i) % NLIST;
             if let Some(mut buf) = get_chain(bman, root.partial[slot], horizon, false) {
@@ -243,8 +243,8 @@ impl FreeSpaceManager {
                 }
                 if let XBuf::Rw(b) = &mut rbuf {
                     let root = b.page_mut().contents_mut::<FSMRoot>();
-                    let n = next_chain(bman, &mut root.partial[slot], &mut root.grow, list, xid);
-                    n
+                    
+                    next_chain(bman, &mut root.partial[slot], &mut root.grow, list, xid)
                 } else {
                     panic!("unreachable");
                 }
@@ -297,7 +297,7 @@ unsafe fn fsm_info(
     let meta = MetaPage::open(&index);
     let fsm = meta.fsm();
     let mut bman = BufferManager::new(&index);
-    let mut rbuf = load_root(fsm, &mut bman);
+    let rbuf = load_root(fsm, &mut bman);
     let root = rbuf.page().contents_ref::<FSMRoot>();
     let mut mapping = Vec::<(
         u32,
@@ -387,14 +387,14 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
     let mut rbuf = bman.get_buffer_mut(root);
 
     let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-    eprintln!("---- BEGIN {} --------------------------", msg);
+    eprintln!("---- BEGIN {msg} --------------------------");
     for i in 0..NLIST {
         if root.partial[i] == pg_sys::InvalidBlockNumber
         && root.filled[i] == pg_sys::InvalidBlockNumber {
             continue;
         }
         let mut b = root.partial[i];
-        eprintln!("partial[{}]", i);
+        eprintln!("partial[{i}]");
         loop {
             match get_chain(bman, b, xid, true){
                 Some(buf) => {
@@ -408,7 +408,7 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
                 }
             }
         }
-        eprintln!("filled[{}]", i);
+        eprintln!("filled[{i}]");
         b = root.filled[i];
         loop {
             match get_chain(bman, b, xid, true){
@@ -424,8 +424,8 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
             }
         }
     }
-    eprintln!("total size: {}", count);
-    eprintln!("---- END {} --------------------------", msg);
+    eprintln!("total size: {count}");
+    eprintln!("---- END {msg} --------------------------");
 }
 
 fn next_chain(
@@ -441,7 +441,7 @@ fn next_chain(
     let mut bno = list;
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
-        let mut b = buf.page_mut().contents_mut::<FSMChain>();
+        let b = buf.page_mut().contents_mut::<FSMChain>();
         if b.xid == xid.into_inner() || b.count == 0 {
             b.xid = xid.into_inner();
             return buf;
@@ -514,14 +514,14 @@ fn move_block(
 }
 
 fn load_root(root : pg_sys::BlockNumber, bman : &mut BufferManager) -> Buffer {
-    let mut buf = bman.get_buffer(root);
+    let buf = bman.get_buffer(root);
     let r = buf.page().contents_ref::<FSMRoot>();
     if FSMBlockKind::v2_root == r.kind {
         return buf;
     }
 
     let mut mbuf = buf.upgrade(bman);
-    let mut mr = mbuf.page_mut().contents_mut::<FSMRoot>();
+    let mr = mbuf.page_mut().contents_mut::<FSMRoot>();
     *mr = FSMRoot{
         kind    : FSMBlockKind::v2_root,
         version : 0,

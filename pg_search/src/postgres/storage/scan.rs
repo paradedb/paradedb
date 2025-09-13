@@ -23,7 +23,6 @@ use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::block::{SegmentMetaEntry, FileEntry, BM25PageSpecialData, LinkedList};
 use crate::postgres::storage::fsm::FSMRoot;
-use crate::postgres::storage::{LinkedBytesList};
 
 #[pg_extern]
 unsafe fn used_blocks(
@@ -44,16 +43,16 @@ unsafe fn used_blocks(
     let mut bman = BufferManager::new(&index);
     let mp = MetaPage::open(&index);
 
-    let mut meta = HashSet::<pg_sys::BlockNumber>::new();
-    let mut fixed = HashSet::<pg_sys::BlockNumber>::new();
+    let meta = HashSet::<pg_sys::BlockNumber>::new();
+    let fixed = HashSet::<pg_sys::BlockNumber>::new();
     let mut fsm = HashSet::<pg_sys::BlockNumber>::new();
     let mut schema = HashSet::<pg_sys::BlockNumber>::new();
     let mut settings = HashSet::<pg_sys::BlockNumber>::new();
     let mut segmeta = HashSet::<pg_sys::BlockNumber>::new();
     let mut garbage = HashSet::<pg_sys::BlockNumber>::new();
     let mut segfile = HashSet::<pg_sys::BlockNumber>::new();
-    let mut vaclist = HashSet::<pg_sys::BlockNumber>::new();
-    let mut mergelist = HashSet::<pg_sys::BlockNumber>::new();
+    let vaclist = HashSet::<pg_sys::BlockNumber>::new();
+    let mergelist = HashSet::<pg_sys::BlockNumber>::new();
 
     scan_fsm(&mut bman, mp.fsm(), &mut fsm);
     schema.extend(mp.schema_bytes().freeable_blocks());
@@ -86,7 +85,7 @@ unsafe fn used_blocks(
         (segfile.len() as i64).into(),
         (vaclist.len() as i64).into(),
         (mergelist.len() as i64).into(),
-    )].into_iter())
+    )])
 }
 
 fn scan_meta(

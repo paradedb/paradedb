@@ -633,8 +633,8 @@ impl BufferManager {
                 )
             })
             .unwrap_or_else(|| {
-                let buf = self.rbufacc.new_buffer();
-                buf
+                
+                self.rbufacc.new_buffer()
             });
         block_tracker::track!(Write, pg_buffer);
         BufferMut {

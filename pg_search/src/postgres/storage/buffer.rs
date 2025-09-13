@@ -632,8 +632,10 @@ impl BufferManager {
                     None,
                 )
             })
-            .unwrap_or_else(|| self.rbufacc.new_buffer());
-
+            .unwrap_or_else(|| {
+                let buf = self.rbufacc.new_buffer();
+                buf
+            });
         block_tracker::track!(Write, pg_buffer);
         BufferMut {
             dirty: false,
@@ -702,8 +704,9 @@ impl BufferManager {
     }
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
+	let pg_buffer = self.rbufacc.get_buffer(blockno, None);
         block_tracker::track!(Pinned, pg_buffer);
-        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
+        PinnedBuffer::new(pg_buffer)
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
@@ -728,13 +731,11 @@ impl BufferManager {
     }
 
     pub fn get_buffer_mut(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
+	let pg_buffer = self.rbufacc.get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
         block_tracker::track!(Write, pg_buffer);
         BufferMut {
             dirty: false,
-            inner: Buffer::new(
-                self.rbufacc
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-            ),
+            inner: Buffer::new(pg_buffer),
         }
     }
 

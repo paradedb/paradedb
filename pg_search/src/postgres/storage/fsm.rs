@@ -85,6 +85,7 @@ pub struct FSMRoot {
 
 #[derive(Debug)]
 pub struct FreeSpaceManager {
+    pub recycle_chains : bool,
     last_slot : usize,
     root: pg_sys::BlockNumber,
 }
@@ -108,7 +109,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self { last_slot: 0, root: root, }
+        Self { recycle_chains: true, last_slot: 0, root: root, }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {
@@ -171,9 +172,11 @@ impl FreeSpaceManager {
                     if mroot.version != vers {
                         return (true, killed);
                     }
-                    mroot.partial[slot] = pg.special_mut::<BM25PageSpecialData>().next_blockno;
-                    mroot.version += 1;
-                    //killed = bno;
+                    if self.recycle_chains {
+                        mroot.partial[slot] = pg.special_mut::<BM25PageSpecialData>().next_blockno;
+                        mroot.version += 1;
+                        killed = bno;
+                    }
                     n = b.count;
                 }
                 for i in 1..n+1 {

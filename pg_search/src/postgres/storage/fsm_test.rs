@@ -29,7 +29,7 @@ mod tests {
 
     #[pg_test] fn fsm_pushpop_small() { pushpop_n(10, 123) }
     #[pg_test] fn fsm_pushpop_medium() { pushpop_n(500, 124) }
-    #[pg_test] fn fsm_pushpop_large() { pushpop_n(1000, 125) }
+    #[pg_test] fn fsm_pushpop_large() { pushpop_n(3000, 125) }
     #[pg_test] fn fsm_pushpop_huge() { pushpop_n(10000, 126) }
 
     #[pg_test]
@@ -178,7 +178,8 @@ mod tests {
         let idxrel = PgSearchRelation::open(relation_oid);
         let root = unsafe { FreeSpaceManager::create(&idxrel) };
         let bman = BufferManager::new(&idxrel);
-        let fsm = FreeSpaceManager::open(root);
+        let mut fsm = FreeSpaceManager::open(root);
+        fsm.recycle_chains = false;
         (bman, fsm)
     }
 

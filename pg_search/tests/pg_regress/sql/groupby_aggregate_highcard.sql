@@ -17,31 +17,30 @@ CREATE INDEX products_idx ON products
 USING bm25 (id, rating)
 WITH (key_field='id');
 
--- This should show a warning about the maximum number of buckets/groups being exceeded
+-- These should not be pushed down
+
+-- No LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating;
 
-SELECT rating, COUNT(*) FROM products
-WHERE id @@@ paradedb.all()
-GROUP BY rating
-ORDER BY rating
-OFFSET 50;
-
--- This should not be pushed down
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+-- Limit + offset exceeds max_term_agg_buckets
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
 
+-- Ordering on a non-grouping column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
-ORDER BY rating
-LIMIT 5 OFFSET 6;
+ORDER BY 2
+LIMIT 5;
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

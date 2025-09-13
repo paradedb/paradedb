@@ -234,7 +234,7 @@ impl CustomScan for AggregateScan {
             has_order_by: false, // Will be set in plan_custom_path
             limit: limit.unwrap(),
             offset,
-            maybe_lossy: false, // Will be set in plan_custom_path
+            maybe_truncated: false, // Will be set in plan_custom_path
         }))
     }
 
@@ -291,7 +291,7 @@ impl CustomScan for AggregateScan {
         builder.custom_private_mut().orderby_info = orderby_info.clone();
 
         // If there are more sort fields than what we're able to push down, the GROUP BY could be lossy
-        builder.custom_private_mut().maybe_lossy =
+        builder.custom_private_mut().maybe_truncated =
             !builder.custom_private().grouping_columns.is_empty()
                 && orderby_info.len() != sort_clause.len();
 
@@ -338,7 +338,7 @@ impl CustomScan for AggregateScan {
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
         builder.custom_state().limit = builder.custom_private().limit;
         builder.custom_state().offset = builder.custom_private().offset;
-        builder.custom_state().maybe_lossy = builder.custom_private().maybe_lossy;
+        builder.custom_state().maybe_truncated = builder.custom_private().maybe_truncated;
         builder.build()
     }
 

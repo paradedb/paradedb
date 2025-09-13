@@ -634,7 +634,6 @@ impl BufferManager {
             })
             .unwrap_or_else(|| {
                 let buf = self.rbufacc.new_buffer();
-                eprintln!("newbuf {}", buf);
                 buf
             });
         block_tracker::track!(Write, pg_buffer);
@@ -689,7 +688,6 @@ impl BufferManager {
                 // by extending the relation with brand new buffers
                 new_buffers = Some(bman.buffer_access().new_buffers(remaining_from_fsm).map(
                     move |pg_buffer| {
-                        eprintln!("newbuf {}", pg_buffer);
                         block_tracker::track!(Write, pg_buffer);
                         BufferMut {
                             dirty: false,
@@ -821,6 +819,5 @@ pub fn init_new_buffer(rel: &PgSearchRelation) -> BufferMut {
     let special = page.special_mut::<BM25PageSpecialData>();
     special.next_blockno = pg_sys::InvalidBlockNumber;
     special.xmax = pg_sys::InvalidTransactionId;
-eprintln!("init_new {}", pg_buffer);
     buffer
 }

@@ -195,7 +195,6 @@ impl RelationBufferAccess {
                 pg_sys::LockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
                 let buffer = extend_by_one_buffer(self.rel.as_ptr(), strategy);
                 pg_sys::UnlockRelationForExtension(self.rel.as_ptr(), pg_sys::ExclusiveLock as i32);
-eprintln!("extend1: {}", buffer);
                 buffer
             } else {
                 pg_sys::ReadBufferExtended(

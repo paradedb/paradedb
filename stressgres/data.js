@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757890009974,
+  "lastUpdate": 1757890012333,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1402,6 +1402,114 @@ window.BENCHMARK_DATA = {
             "value": 157.58984375,
             "unit": "median mem",
             "extra": "avg mem: 155.71522421150445, max mem: 159.2578125, count: 55422"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c",
+          "message": "fix: `GROUP BY` doesn't panic when Postgres eliminates group pathkeys (#3152)\n\n# Ticket(s) Closed\n\n- Closes #3050 \n\n## What\n\nIt's possible for Postgres to eliminate group pathkeys if it realizes\nthat one of the pathkeys is unique, making the other ones unnecessary.\n\nWe need to handle this case/not panic.\n\n## Why\n\nSee issue.\n\n## How\n\nInject the dropped group pathkeys back into our list of grouping\ncolumns.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-14T17:56:19-04:00",
+          "tree_id": "a41824569d62cfd5dbe40884e6ead540d3b1bd88",
+          "url": "https://github.com/paradedb/paradedb/commit/1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c"
+        },
+        "date": 1757890010852,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.83990470505555, max cpu: 46.421665, count: 55536"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 146.61008315552075, max mem: 157.6171875, count: 55536"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.6334098713584675, max cpu: 27.988338, count: 55536"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 145.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.6637110247182, max mem: 145.5625, count: 55536"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0948126255658375, max cpu: 14.201183, count: 55536"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 131.04260538772147, max mem: 152.32421875, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 27273.5,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27734.424301354076, max block_count: 56266.0, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8158430491407134, max cpu: 4.660194, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.2734375,
+            "unit": "median mem",
+            "extra": "avg mem: 91.32901666542872, max mem: 128.41015625, count: 55536"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 32.172140593488905, max segment_count: 57.0, count: 55536"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.528874143997058, max cpu: 28.374382, count: 111072"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 147.34497988213727, max mem: 161.9375, count: 111072"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.353769863653847, max cpu: 28.015566, count: 55536"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 154.29842002822494, max mem: 157.53515625, count: 55536"
           }
         ]
       }

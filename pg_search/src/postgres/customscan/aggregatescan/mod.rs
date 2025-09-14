@@ -190,47 +190,43 @@ impl CustomScan for AggregateScan {
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
+        // If grouping by a key that Postgres knows is unique, Postgres will eliminate other grouping columns as they are unnecessary
+        // However, we need to bring them back in order to send the correct values to the target list
+        let mut num_grouping_columns = grouping_columns.len();
+        let mut additional_grouping_columns = Vec::new();
+
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
             unsafe {
-                if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
+                let var_context = VarContext::from_planner(builder.args().root);
+
+                if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
+                {
                     // This is a Var - it should be a grouping column
                     // Find which grouping column this is
                     let mut found = false;
                     for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno {
+                        if (*var).varattno == gc.attno
+                            && gc.field_name == field_name.clone().into_inner()
+                        {
                             target_list_mapping.push(TargetListEntry::GroupingColumn(i));
                             found = true;
                             break;
                         }
                     }
+                    // Postgres eliminated a grouping column, add it back
                     if !found {
-                        panic!("Var in target list not found in grouping columns");
+                        target_list_mapping
+                            .push(TargetListEntry::GroupingColumn(num_grouping_columns));
+                        num_grouping_columns += 1;
+                        additional_grouping_columns.push(GroupingColumn {
+                            field_name: field_name.into_inner(),
+                            attno: (*var).varattno,
+                        });
                     }
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
                     agg_idx += 1;
-                } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
-                    // This might be a JSON operator expression - verify and find matching grouping column
-                    let var_context = VarContext::from_planner(builder.args().root);
-                    let (var, field_name) = find_one_var_and_fieldname(
-                        var_context,
-                        (*input_te).expr as *mut pg_sys::Node,
-                    )
-                    .expect("OpExpr in target list is not a recognized JSON operator expression");
-
-                    // Find which grouping column this expression matches
-                    let mut found_idx = None;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno && gc.field_name == field_name.to_string() {
-                            found_idx = Some(i);
-                            break;
-                        }
-                    }
-
-                    let idx = found_idx.expect(
-                        "OpExpr in target list does not match any detected grouping column",
-                    );
-                    target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
                 } else {
                     // Other expression types we don't support yet
                     panic!(
@@ -239,6 +235,13 @@ impl CustomScan for AggregateScan {
                     );
                 }
             };
+        }
+
+        if !additional_grouping_columns.is_empty() {
+            builder
+                .custom_private_mut()
+                .grouping_columns
+                .extend(additional_grouping_columns);
         }
 
         // Update the private data with the target list mapping

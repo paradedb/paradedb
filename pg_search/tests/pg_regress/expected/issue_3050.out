@@ -17,17 +17,22 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, rating
 ORDER BY id, rating
 LIMIT 5;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
  Limit
-   ->  Incremental Sort
+   ->  Sort
          Sort Key: id, rating
-         Presorted Key: id
-         ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
-               Index: mock_items_id_description_rating_category_metadata_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"id","size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000}}}}}
-(8 rows)
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: mock_items_id_description_rating_category_metadata_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: id, rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
 
 SELECT id, rating, COUNT(*)
 FROM mock_items

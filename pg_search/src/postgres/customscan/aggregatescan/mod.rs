@@ -46,7 +46,6 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState}
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
@@ -67,6 +66,7 @@ impl CustomScan for AggregateScan {
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
+        let parse = args.root().parse;
 
         // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
@@ -90,18 +90,10 @@ impl CustomScan for AggregateScan {
 
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
-            let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
                 return None;
             }
         }
-
-        // Extract grouping columns if present
-        let group_pathkeys = if args.root().group_pathkeys.is_null() {
-            None
-        } else {
-            Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
-        };
 
         // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
@@ -124,12 +116,13 @@ impl CustomScan for AggregateScan {
             .expect("aggregate_custom_scan: should have a schema");
 
         // Extract grouping columns and validate they are fast fields
-        let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
-            // This will return None if any grouping column is not a fast field
-            extract_grouping_columns(pathkeys, args.root, heap_rti, &schema)?
+        let group_pathkeys = if args.root().group_pathkeys.is_null() {
+            PgList::<pg_sys::PathKey>::new()
         } else {
-            vec![]
+            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
         };
+        let grouping_columns =
+            extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
 
         // Extract and validate aggregates - must have schema for field validation
         let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
@@ -190,11 +183,6 @@ impl CustomScan for AggregateScan {
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
-        // If grouping by a key that Postgres knows is unique, Postgres will eliminate other grouping columns as they are unnecessary
-        // However, we need to bring them back in order to send the correct values to the target list
-        let mut num_grouping_columns = grouping_columns.len();
-        let mut additional_grouping_columns = Vec::new();
-
         for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
             unsafe {
                 let var_context = VarContext::from_planner(builder.args().root);
@@ -214,15 +202,8 @@ impl CustomScan for AggregateScan {
                             break;
                         }
                     }
-                    // Postgres eliminated a grouping column, add it back
                     if !found {
-                        target_list_mapping
-                            .push(TargetListEntry::GroupingColumn(num_grouping_columns));
-                        num_grouping_columns += 1;
-                        additional_grouping_columns.push(GroupingColumn {
-                            field_name: field_name.into_inner(),
-                            attno: (*var).varattno,
-                        });
+                        panic!("Var in target list not found in grouping columns");
                     }
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
@@ -235,13 +216,6 @@ impl CustomScan for AggregateScan {
                     );
                 }
             };
-        }
-
-        if !additional_grouping_columns.is_empty() {
-            builder
-                .custom_private_mut()
-                .grouping_columns
-                .extend(additional_grouping_columns);
         }
 
         // Update the private data with the target list mapping
@@ -507,21 +481,6 @@ fn extract_grouping_columns(
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    // Simple Var - extract field name from attribute
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
-                        continue;
-                    }
-
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        (att.name().to_string(), attno)
-                    } else {
-                        continue;
-                    }
                 } else {
                     continue;
                 };
@@ -540,6 +499,20 @@ fn extract_grouping_columns(
                 return None;
             }
         }
+    }
+
+    // We can only handle GROUP BY clauses if all of them can be pushed down to Tantivy
+    let groupby_clauses = unsafe {
+        let parse = (*root).parse;
+        if !parse.is_null() && !(*parse).groupClause.is_null() {
+            PgList::<pg_sys::Node>::from_pg((*parse).groupClause).len()
+        } else {
+            0
+        }
+    };
+
+    if grouping_columns.len() != groupby_clauses {
+        return None;
     }
 
     Some(grouping_columns)

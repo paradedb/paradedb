@@ -370,10 +370,6 @@ impl CustomScan for AggregateScan {
                         datums[i] = datum;
                         isnull[i] = is_null;
                     }
-                    TargetListEntry::ElidedGroupingColumn(attno) => {
-                        datums[i] = pg_sys::Datum::null();
-                        isnull[i] = true;
-                    }
                 }
             }
 

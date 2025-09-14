@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757625498786,
+  "lastUpdate": 1757887953378,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2062,6 +2062,72 @@ window.BENCHMARK_DATA = {
             "value": 28.63947027605233,
             "unit": "median tps",
             "extra": "avg tps: 33.62961904138893, max tps: 908.6209042776964, count: 55201"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c",
+          "message": "fix: `GROUP BY` doesn't panic when Postgres eliminates group pathkeys (#3152)\n\n# Ticket(s) Closed\n\n- Closes #3050 \n\n## What\n\nIt's possible for Postgres to eliminate group pathkeys if it realizes\nthat one of the pathkeys is unique, making the other ones unnecessary.\n\nWe need to handle this case/not panic.\n\n## Why\n\nSee issue.\n\n## How\n\nInject the dropped group pathkeys back into our list of grouping\ncolumns.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-14T17:56:19-04:00",
+          "tree_id": "a41824569d62cfd5dbe40884e6ead540d3b1bd88",
+          "url": "https://github.com/paradedb/paradedb/commit/1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c"
+        },
+        "date": 1757887951841,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 762.8537314260527,
+            "unit": "median tps",
+            "extra": "avg tps: 762.8312879137642, max tps: 828.0112774492874, count: 55135"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2763.218217546463,
+            "unit": "median tps",
+            "extra": "avg tps: 2741.0457021362236, max tps: 2772.062958991789, count: 55135"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 761.0120474812861,
+            "unit": "median tps",
+            "extra": "avg tps: 762.2405535804423, max tps: 849.4352635829478, count: 55135"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 619.5486196460236,
+            "unit": "median tps",
+            "extra": "avg tps: 620.7802872777763, max tps: 685.3672203614054, count: 55135"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 563.4228422521315,
+            "unit": "median tps",
+            "extra": "avg tps: 568.8334873225288, max tps: 603.0823544702331, count: 110270"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 480.48017540354704,
+            "unit": "median tps",
+            "extra": "avg tps: 476.17913128854144, max tps: 484.51780814409295, count: 55135"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 34.062701063910566,
+            "unit": "median tps",
+            "extra": "avg tps: 37.13342029853091, max tps: 934.3654957509729, count: 55135"
           }
         ]
       }

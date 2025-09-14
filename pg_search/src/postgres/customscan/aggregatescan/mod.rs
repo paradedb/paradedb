@@ -66,7 +66,6 @@ impl CustomScan for AggregateScan {
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
-        let parse = args.root().parse;
 
         // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
@@ -90,6 +89,7 @@ impl CustomScan for AggregateScan {
 
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
+            let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
                 return None;
             }

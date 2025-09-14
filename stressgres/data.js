@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757888652222,
+  "lastUpdate": 1757888654657,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -4432,6 +4432,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 73.08663605606573, max segment_count: 108.0, count: 57932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c",
+          "message": "fix: `GROUP BY` doesn't panic when Postgres eliminates group pathkeys (#3152)\n\n# Ticket(s) Closed\n\n- Closes #3050 \n\n## What\n\nIt's possible for Postgres to eliminate group pathkeys if it realizes\nthat one of the pathkeys is unique, making the other ones unnecessary.\n\nWe need to handle this case/not panic.\n\n## Why\n\nSee issue.\n\n## How\n\nInject the dropped group pathkeys back into our list of grouping\ncolumns.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-14T17:56:19-04:00",
+          "tree_id": "a41824569d62cfd5dbe40884e6ead540d3b1bd88",
+          "url": "https://github.com/paradedb/paradedb/commit/1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c"
+        },
+        "date": 1757888653201,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.044698999680225, max cpu: 42.436146, count: 57538"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 230.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 230.3417119447148, max mem: 233.1875, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.316380309836063, max cpu: 33.333336, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.78393979848101, max mem: 163.3984375, count: 57538"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24407,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23127.570753241336, max block_count: 26169.0, count: 57538"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 73.34844798220307, max segment_count: 108.0, count: 57538"
           }
         ]
       }

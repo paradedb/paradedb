@@ -1,0 +1,86 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, rating, COUNT(*)
+FROM mock_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, rating
+ORDER BY id, rating
+LIMIT 5;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: id, rating
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Scan) on mock_items
+                     Table: mock_items
+                     Index: mock_items_id_description_rating_category_metadata_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: id, rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+SELECT id, rating, COUNT(*)
+FROM mock_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, rating
+ORDER BY id, rating
+LIMIT 5;
+ id | rating | count 
+----+--------+-------
+  1 |      4 |     1
+  2 |      4 |     1
+  3 |      5 |     1
+  4 |      3 |     1
+  5 |      4 |     1
+(5 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, metadata->>'color' AS color, COUNT(*)
+FROM mock_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, metadata->>'color'
+ORDER BY id, metadata->>'color'
+LIMIT 5;
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Incremental Sort
+         Sort Key: id, ((metadata ->> 'color'::text))
+         Presorted Key: id
+         ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
+               Index: mock_items_id_description_rating_category_metadata_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"id","size":10000},"aggs":{"group_1":{"terms":{"field":"metadata.color","size":10000}}}}}
+(8 rows)
+
+SELECT id, metadata->>'color' AS color, COUNT(*)
+FROM mock_items
+WHERE id @@@ paradedb.all()
+GROUP BY id, metadata->>'color'
+ORDER BY id, metadata->>'color'
+LIMIT 5;
+ id | color  | count 
+----+--------+-------
+  1 | Silver |     1
+  2 | Black  |     1
+  3 | Blue   |     1
+  4 | White  |     1
+  5 | Brown  |     1
+(5 rows)
+
+DROP TABLE mock_items;

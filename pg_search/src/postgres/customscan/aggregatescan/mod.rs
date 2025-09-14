@@ -46,7 +46,6 @@ use crate::postgres::customscan::qual_inspect::{extract_quals, QualExtractState}
 use crate::postgres::customscan::{
     range_table, CreateUpperPathsHookArgs, CustomScan, ExecMethod, PlainExecCapable,
 };
-use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
@@ -67,6 +66,7 @@ impl CustomScan for AggregateScan {
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
+        let parse = args.root().parse;
 
         // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
@@ -90,18 +90,10 @@ impl CustomScan for AggregateScan {
 
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
-            let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
                 return None;
             }
         }
-
-        // Extract grouping columns if present
-        let group_pathkeys = if args.root().group_pathkeys.is_null() {
-            None
-        } else {
-            Some(unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) })
-        };
 
         // Is there a single relation with a bm25 index?
         let parent_relids = args.input_rel().relids;
@@ -124,12 +116,13 @@ impl CustomScan for AggregateScan {
             .expect("aggregate_custom_scan: should have a schema");
 
         // Extract grouping columns and validate they are fast fields
-        let grouping_columns = if let Some(ref pathkeys) = group_pathkeys {
-            // This will return None if any grouping column is not a fast field
-            extract_grouping_columns(pathkeys, args.root, heap_rti, &schema)?
+        let group_pathkeys = if args.root().group_pathkeys.is_null() {
+            PgList::<pg_sys::PathKey>::new()
         } else {
-            vec![]
+            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
         };
+        let grouping_columns =
+            extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
 
         // Extract and validate aggregates - must have schema for field validation
         let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
@@ -160,6 +153,46 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
+        // Create a new target list which includes grouping columns and replaces aggregates
+        // with FuncExprs which will be produced by our CustomScan.
+        //
+        // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
+        // them with.
+        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
+        let mut target_list_mapping = Vec::new();
+        let mut agg_idx = 0;
+
+        for (te_idx, input_te) in target_list.iter_ptr().enumerate() {
+            unsafe {
+                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
+
+                if let Some((var, field_name)) =
+                    find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
+                {
+                    // This is a Var - it should be a grouping column
+                    // Find which grouping column this is
+                    let mut found = false;
+                    for (i, gc) in grouping_columns.iter().enumerate() {
+                        if (*var).varattno == gc.attno
+                            && gc.field_name == field_name.clone().into_inner()
+                        {
+                            target_list_mapping.push(TargetListEntry::GroupingColumn(i));
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        return None;
+                    }
+                } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
+                    target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
+                    agg_idx += 1;
+                } else {
+                    return None;
+                }
+            };
+        }
+
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
         if let Some(pathkeys) = order_pathkey_info.pathkeys() {
@@ -175,75 +208,12 @@ impl CustomScan for AggregateScan {
             query,
             grouping_columns,
             orderby_info,
-            target_list_mapping: vec![], // Will be filled in plan_custom_path
-            has_order_by: false,         // Will be set in plan_custom_path
+            target_list_mapping,
+            has_order_by: false, // Will be set in plan_custom_path
         }))
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
-        // Create a new target list which includes grouping columns and replaces aggregates
-        // with FuncExprs which will be produced by our CustomScan.
-        //
-        // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
-        // them with.
-        let grouping_columns = &builder.custom_private().grouping_columns;
-        let mut target_list_mapping = Vec::new();
-        let mut agg_idx = 0;
-
-        for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
-            unsafe {
-                if let Some(var) = nodecast!(Var, T_Var, (*input_te).expr) {
-                    // This is a Var - it should be a grouping column
-                    // Find which grouping column this is
-                    let mut found = false;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno {
-                            target_list_mapping.push(TargetListEntry::GroupingColumn(i));
-                            found = true;
-                            break;
-                        }
-                    }
-                    if !found {
-                        panic!("Var in target list not found in grouping columns");
-                    }
-                } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
-                    target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
-                    agg_idx += 1;
-                } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, (*input_te).expr) {
-                    // This might be a JSON operator expression - verify and find matching grouping column
-                    let var_context = VarContext::from_planner(builder.args().root);
-                    let (var, field_name) = find_one_var_and_fieldname(
-                        var_context,
-                        (*input_te).expr as *mut pg_sys::Node,
-                    )
-                    .expect("OpExpr in target list is not a recognized JSON operator expression");
-
-                    // Find which grouping column this expression matches
-                    let mut found_idx = None;
-                    for (i, gc) in grouping_columns.iter().enumerate() {
-                        if (*var).varattno == gc.attno && gc.field_name == field_name.to_string() {
-                            found_idx = Some(i);
-                            break;
-                        }
-                    }
-
-                    let idx = found_idx.expect(
-                        "OpExpr in target list does not match any detected grouping column",
-                    );
-                    target_list_mapping.push(TargetListEntry::GroupingColumn(idx));
-                } else {
-                    // Other expression types we don't support yet
-                    panic!(
-                        "Unsupported target list entry type: node tag {:?}",
-                        (*(*input_te).expr).type_
-                    );
-                }
-            };
-        }
-
-        // Update the private data with the target list mapping
-        builder.custom_private_mut().target_list_mapping = target_list_mapping;
-
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
         // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
@@ -504,21 +474,6 @@ fn extract_grouping_columns(
                         continue;
                     }
                     (field_name.to_string(), attno)
-                } else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                    // Simple Var - extract field name from attribute
-                    let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
-                        continue;
-                    }
-
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        (att.name().to_string(), attno)
-                    } else {
-                        continue;
-                    }
                 } else {
                     continue;
                 };

@@ -37,15 +37,11 @@ const COLUMNS: &[Column] = &[
     Column::new("id", "SERIAL8", "'4'")
         .primary_key()
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         }),
     Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         })
         .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
         .random_generator_sql("gen_random_uuid()"),
@@ -93,9 +89,7 @@ const COLUMNS: &[Column] = &[
             false
         })
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),

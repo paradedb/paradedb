@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757887955884,
+  "lastUpdate": 1757888652222,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3868,6 +3868,42 @@ window.BENCHMARK_DATA = {
             "value": 5.316855698673045,
             "unit": "median tps",
             "extra": "avg tps: 4.812278058497864, max tps: 5.89220997396712, count: 57932"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c",
+          "message": "fix: `GROUP BY` doesn't panic when Postgres eliminates group pathkeys (#3152)\n\n# Ticket(s) Closed\n\n- Closes #3050 \n\n## What\n\nIt's possible for Postgres to eliminate group pathkeys if it realizes\nthat one of the pathkeys is unique, making the other ones unnecessary.\n\nWe need to handle this case/not panic.\n\n## Why\n\nSee issue.\n\n## How\n\nInject the dropped group pathkeys back into our list of grouping\ncolumns.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-14T17:56:19-04:00",
+          "tree_id": "a41824569d62cfd5dbe40884e6ead540d3b1bd88",
+          "url": "https://github.com/paradedb/paradedb/commit/1cfaa7b311ca8b7ee91491411c8dfecd2ce5619c"
+        },
+        "date": 1757888650715,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.566089790031889,
+            "unit": "median tps",
+            "extra": "avg tps: 7.325540152417709, max tps: 11.449210198558303, count: 57538"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.353641849881095,
+            "unit": "median tps",
+            "extra": "avg tps: 4.839541471600935, max tps: 5.9207229733359075, count: 57538"
           }
         ]
       }

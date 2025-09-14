@@ -66,6 +66,7 @@ impl CustomScan for AggregateScan {
 
     fn create_custom_path(mut builder: CustomPathBuilder<Self>) -> Option<pg_sys::CustomPath> {
         let args = builder.args();
+        let parse = args.root().parse;
 
         // We can only handle single base relations as input
         if args.input_rel().reloptkind != pg_sys::RelOptKind::RELOPT_BASEREL {
@@ -89,7 +90,6 @@ impl CustomScan for AggregateScan {
 
         // Check for DISTINCT - we can't handle DISTINCT queries
         unsafe {
-            let parse = args.root().parse;
             if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
                 return None;
             }
@@ -153,39 +153,18 @@ impl CustomScan for AggregateScan {
             return None;
         }
 
-        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
-        // To do this, we set pathkeys for ORDER BY if present.
-        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
-            for pathkey_style in pathkeys {
-                builder = builder.add_path_key(pathkey_style);
-            }
-        };
-
-        Some(builder.build(PrivateData {
-            aggregate_types,
-            indexrelid: bm25_index.oid(),
-            heap_rti,
-            query,
-            grouping_columns,
-            orderby_info,
-            target_list_mapping: vec![], // Will be filled in plan_custom_path
-            has_order_by: false,         // Will be set in plan_custom_path
-        }))
-    }
-
-    fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
         //
         // We don't use Vars here, because there doesn't seem to be a reasonable RTE to associate
         // them with.
-        let grouping_columns = &builder.custom_private().grouping_columns;
+        let target_list = unsafe { PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList) };
         let mut target_list_mapping = Vec::new();
         let mut agg_idx = 0;
 
-        for (te_idx, input_te) in builder.args().tlist.iter_ptr().enumerate() {
+        for (te_idx, input_te) in target_list.iter_ptr().enumerate() {
             unsafe {
-                let var_context = VarContext::from_planner(builder.args().root);
+                let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 
                 if let Some((var, field_name)) =
                     find_one_var_and_fieldname(var_context, (*input_te).expr as *mut pg_sys::Node)
@@ -203,24 +182,38 @@ impl CustomScan for AggregateScan {
                         }
                     }
                     if !found {
-                        panic!("Var in target list not found in grouping columns");
+                        return None;
                     }
                 } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, (*input_te).expr) {
                     target_list_mapping.push(TargetListEntry::Aggregate(agg_idx));
                     agg_idx += 1;
                 } else {
-                    // Other expression types we don't support yet
-                    panic!(
-                        "Unsupported target list entry type: node tag {:?}",
-                        (*(*input_te).expr).type_
-                    );
+                    return None;
                 }
             };
         }
 
-        // Update the private data with the target list mapping
-        builder.custom_private_mut().target_list_mapping = target_list_mapping;
+        // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
+        // To do this, we set pathkeys for ORDER BY if present.
+        if let Some(pathkeys) = order_pathkey_info.pathkeys() {
+            for pathkey_style in pathkeys {
+                builder = builder.add_path_key(pathkey_style);
+            }
+        };
 
+        Some(builder.build(PrivateData {
+            aggregate_types,
+            indexrelid: bm25_index.oid(),
+            heap_rti,
+            query,
+            grouping_columns,
+            orderby_info,
+            target_list_mapping,
+            has_order_by: false, // Will be set in plan_custom_path
+        }))
+    }
+
+    fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
         // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
@@ -377,6 +370,10 @@ impl CustomScan for AggregateScan {
                         datums[i] = datum;
                         isnull[i] = is_null;
                     }
+                    TargetListEntry::ElidedGroupingColumn(attno) => {
+                        datums[i] = pg_sys::Datum::null();
+                        isnull[i] = true;
+                    }
                 }
             }
 
@@ -499,20 +496,6 @@ fn extract_grouping_columns(
                 return None;
             }
         }
-    }
-
-    // We can only handle GROUP BY clauses if all of them can be pushed down to Tantivy
-    let groupby_clauses = unsafe {
-        let parse = (*root).parse;
-        if !parse.is_null() && !(*parse).groupClause.is_null() {
-            PgList::<pg_sys::Node>::from_pg((*parse).groupClause).len()
-        } else {
-            0
-        }
-    };
-
-    if grouping_columns.len() != groupby_clauses {
-        return None;
     }
 
     Some(grouping_columns)

@@ -256,6 +256,7 @@ pub struct GroupingColumn {
 pub enum TargetListEntry {
     GroupingColumn(usize), // Index into grouping_columns vec
     Aggregate(usize),      // Index into aggregate_types vec
+    ElidedGroupingColumn(pg_sys::AttrNumber),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

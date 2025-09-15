@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757969673942,
+  "lastUpdate": 1757969676505,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6676,6 +6676,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 73.26847646393458, max segment_count: 108.0, count: 57465"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af5bea23effe976b411147e259e53afad947a393",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3159)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-15T16:26:19-04:00",
+          "tree_id": "cbc00b9a93c129255360f60e5a70904e87f1e8c1",
+          "url": "https://github.com/paradedb/paradedb/commit/af5bea23effe976b411147e259e53afad947a393"
+        },
+        "date": 1757969674952,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.146202775262218, max cpu: 42.064266, count: 57547"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 229.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 228.70742549296662, max mem: 232.33984375, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.487249513209278, max cpu: 33.23442, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.07629259833266, max mem: 163.7421875, count: 57547"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24248,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23008.704589292232, max block_count: 26061.0, count: 57547"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.7096807826646, max segment_count: 106.0, count: 57547"
           }
         ]
       }

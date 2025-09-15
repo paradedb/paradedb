@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968258357,
+  "lastUpdate": 1757968260951,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6824,6 +6824,66 @@ window.BENCHMARK_DATA = {
             "value": 165.76953125,
             "unit": "median mem",
             "extra": "avg mem: 154.96212454181742, max mem: 169.19921875, count: 57769"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b37fc5af676e3438c051381414d81996ed0fb8f6",
+          "message": "feat: push down `group by ... order by ... limit` (#3134)\n\n# Ticket(s) Closed\n\n- Closes #3131 \n- Opens #3156 #3155 \n\n## What\n\nPushes down `group by ... order by ... limit` to Tantivy\n\n## Why\n\nBy pushing down the sort/limit to Tantivy, we can significantly speed up\n`group by` queries over high cardinality columns.\n\n## How\n\n- Before we were hard-coding a bucket size and sorting the results\nourselves, now the bucket size is set to the limit and we push the sort\ndown to the Tantivy term agg\n\n## Tests",
+          "timestamp": "2025-09-15T15:51:50-04:00",
+          "tree_id": "e58df02d60abc13101aaae8ef6333a9afafbcd78",
+          "url": "https://github.com/paradedb/paradedb/commit/b37fc5af676e3438c051381414d81996ed0fb8f6"
+        },
+        "date": 1757968259364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.42680839529542, max cpu: 46.64723, count: 57653"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.4668376970843, max mem: 171.28515625, count: 57653"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21713,
+            "unit": "median block_count",
+            "extra": "avg block_count: 19583.645430419925, max block_count: 23039.0, count: 57653"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 49,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 53.50299203857561, max segment_count: 132.0, count: 57653"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.740415907011352, max cpu: 28.458496, count: 57653"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 157.20094377948675, max mem: 169.6171875, count: 57653"
           }
         ]
       }

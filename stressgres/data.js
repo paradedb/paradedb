@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968501803,
+  "lastUpdate": 1757968504729,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6920,6 +6920,66 @@ window.BENCHMARK_DATA = {
             "value": 166.74609375,
             "unit": "median mem",
             "extra": "avg mem: 157.20094377948675, max mem: 169.6171875, count: 57653"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8211eef7a0dd34237afebfa91364fb66c65a4906",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3158)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass",
+          "timestamp": "2025-09-15T15:55:52-04:00",
+          "tree_id": "4ddf140542c5525034023441aadac4b634c90fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/8211eef7a0dd34237afebfa91364fb66c65a4906"
+        },
+        "date": 1757968503172,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.700043565182213, max cpu: 53.118713, count: 57572"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 163.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 162.6317740584616, max mem: 166.2265625, count: 57572"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22483,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20250.06720280692, max block_count: 24632.0, count: 57572"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.59125964010283, max segment_count: 136.0, count: 57572"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4410108164948525, max cpu: 27.799229, count: 57572"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 149.96735894293232, max mem: 162.04296875, count: 57572"
           }
         ]
       }

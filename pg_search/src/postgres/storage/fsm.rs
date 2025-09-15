@@ -238,40 +238,36 @@ impl FreeSpaceManager {
             if iter.peek().is_none() {
                 break;
             } 
-            let (mut buf, vers) = {
-                if let XBuf::Ro(b) = rbuf {
-                    rbuf = XBuf::Rw(b.upgrade(bman));
-                }
-                if let XBuf::Rw(b) = &mut rbuf {
-                    let root = b.page_mut().contents_mut::<FSMRoot>();
-                    let n = next_chain(bman, &mut root.partial[slot], &mut root.grow, list, xid);
-                    (n, root.version)
-                } else {
-                    panic!("unreachable");
-                }
-            };
-            let b = buf.page_mut().contents_mut::<FSMChain>();
+            let (mut buf, vers);
+            (buf, vers, rbuf) = next_chain(bman, rbuf, slot, list, xid);
+            let chainno = buf.number();
+            let mut b = buf.page_mut().contents_mut::<FSMChain>();
             if b.h.xid != xid.into_inner() {
                 list = next(&buf);
                 continue;
             }
+            let cvers = b.h.version;
             loop {
                 match iter.peek() {
                     None => {
                         return;
                     }
                     Some(bno) => {
-                        if b.h.count as usize + 1 <  NENT {
+                        if (b.h.count as usize) + 1 < NENT {
                             b.entries[b.h.count as usize] = *bno;
                             b.h.count += 1;
+                            b.h.version += 1;
                             iter.next();
                         } else {
-                            if let XBuf::Ro(b) = rbuf {
-                                rbuf = XBuf::Rw(b.upgrade(bman));
+                            if let XBuf::Ro(r) = rbuf {
+                                drop(buf);
+                                rbuf = XBuf::Rw(r.upgrade(bman));
+                                buf = bman.get_buffer_mut(chainno);
+                                b = buf.page_mut().contents_mut::<FSMChain>();
                             }
                             if let XBuf::Rw(m) = &mut rbuf {
                                 let root = m.page_mut().contents_mut::<FSMRoot>();
-                                if vers != root.version {
+                                if vers != root.version || cvers != b.h.version {
                                     list = root.partial[slot];
                                     continue 'l;
                                 }
@@ -411,11 +407,11 @@ fn fsm_dump(root : pg_sys::BlockNumber, bman : &mut BufferManager, msg : &str) {
 
 fn next_chain(
     bman: &mut BufferManager,
-    pslot : &mut pg_sys::BlockNumber,
-    pgrown : &mut usize,
+    rbuf: XBuf,
+    slot: usize,
     list : pg_sys::BlockNumber,
     xid : pg_sys::TransactionId
-) -> BufferMut {
+) -> (BufferMut, u64, XBuf) {
     // technically, a list scan, but we shard things so that we should
     // rarely have overlap in transaction ids, usually the first block
     // we look at should match
@@ -425,15 +421,30 @@ fn next_chain(
         let b = buf.page_mut().contents_mut::<FSMChain>();
         if b.h.xid == xid.into_inner() || b.h.count == 0 {
             b.h.xid = xid.into_inner();
-            return buf;
+            let vers = match &rbuf {
+                XBuf::Ro(b) => b.page().contents_ref::<FSMRoot>().version,
+                XBuf::Rw(b) => b.page().contents_ref::<FSMRoot>().version,
+            };
+            return (buf, vers, rbuf);
         }
         bno = next(&buf);
     }
+    
+    let mut rbuf = match rbuf {
+        XBuf::Ro(b) => XBuf::Rw(b.upgrade(bman)),
+        XBuf::Rw(b) => XBuf::Rw(b),
+    };
+    
     let mut buf = new_chain(bman, xid);
-    buf.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = *pslot;
-    *pslot = buf.number();
-    *pgrown += 1;
-    buf
+    if let XBuf::Rw(ref mut b) = rbuf {
+        let root = b.page_mut().contents_mut::<FSMRoot>();
+        buf.page_mut().special_mut::<BM25PageSpecialData>().next_blockno = root.partial[slot];
+        root.partial[slot] = buf.number();
+        root.grow += 1;
+        (buf, root.version, rbuf)
+    } else {
+        panic!("unreachable");
+    }
 }
 
 // Gets a block containing entries for the current transaction number,

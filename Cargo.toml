@@ -8,7 +8,7 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [profile.dev]
- wanpanic = "abort"
+panic = "abort"
 
 [profile.release]
 lto = "fat"

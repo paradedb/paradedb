@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757967822050,
+  "lastUpdate": 1757967824580,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -5602,6 +5602,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.61799340555817, max segment_count: 107.0, count: 57321"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8211eef7a0dd34237afebfa91364fb66c65a4906",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3158)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass",
+          "timestamp": "2025-09-15T15:55:52-04:00",
+          "tree_id": "4ddf140542c5525034023441aadac4b634c90fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/8211eef7a0dd34237afebfa91364fb66c65a4906"
+        },
+        "date": 1757967823031,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.677044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.159818446081964, max cpu: 42.687748, count: 57546"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 233.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 230.8696391392321, max mem: 236.46484375, count: 57546"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.48369651186787, max cpu: 33.300297, count: 57546"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.4528762180473, max mem: 167.796875, count: 57546"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24294,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23129.672227435443, max block_count: 26114.0, count: 57546"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.98224029472074, max segment_count: 109.0, count: 57546"
           }
         ]
       }

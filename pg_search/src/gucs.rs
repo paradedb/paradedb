@@ -172,7 +172,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.max_term_agg_buckets",
         c"Maximum number of buckets/groups that can be returned by a terms aggregation",
-        c"Maximum number of buckets/groups that can be returned by a terms aggregation",
+        c"Mostly used for testing. If this number is exceeded, that means the result could be truncated and the query will be cancelled.",
         &MAX_TERM_AGG_BUCKETS,
         1,
         DEFAULT_BUCKET_LIMIT as i32,

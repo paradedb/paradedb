@@ -1049,8 +1049,6 @@ fn non_partitioned_no_order_by_limit_pushdown(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[should_panic]
-// This test is broken until issue #2441 is fixed
 fn view_no_order_by_limit_pushdown(mut conn: PgConnection) {
     setup_view_for_order_by_limit_test(&mut conn);
 

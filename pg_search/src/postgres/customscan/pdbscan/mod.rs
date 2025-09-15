@@ -60,7 +60,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::var::find_var_relation;
+use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
@@ -262,9 +262,21 @@ impl PdbScan {
 
         // Apply HeapExpr optimization to the base relation quals
         if let Some(ref mut q) = quals {
-            let rte = pg_sys::rt_fetch(rti, (*(*root).parse).rtable);
-            let relation_oid = (*rte).relid;
-            optimize_quals_with_heap_expr(q);
+            let rtable = (*(*root).parse).rtable;
+            let rtable_size = if !rtable.is_null() {
+                PgList::<pg_sys::RangeTblEntry>::from_pg(rtable).len()
+            } else {
+                0
+            };
+
+            // Bounds check: rti is 1-indexed, so it must be between 1 and rtable_size
+            if rti > 0 && (rti as usize) <= rtable_size {
+                let rte = pg_sys::rt_fetch(rti, rtable);
+                let relation_oid = (*rte).relid;
+                optimize_quals_with_heap_expr(q);
+            }
+            // Skip optimization silently if RTE is out of bounds
+            // This can happen with OR EXISTS subqueries where variables reference RTEs from different contexts
         }
 
         quals.clone()
@@ -1372,7 +1384,7 @@ where
             // Check if this is a lower function
             else if let Some(var) = is_lower_func(expr.cast(), rti) {
                 let (heaprelid, attno, _) = find_var_relation(var, root);
-                if heaprelid != pg_sys::Oid::INVALID {
+                if heaprelid != pg_sys::InvalidOid {
                     let heaprel =
                         PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                     let tupdesc = heaprel.tuple_desc();
@@ -1392,7 +1404,7 @@ where
             else if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, expr) {
                 if let Some(var) = nodecast!(Var, T_Var, (*relabel).arg) {
                     let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid != pg_sys::Oid::INVALID {
+                    if heaprelid != pg_sys::InvalidOid {
                         let heaprel =
                             PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
                         let tupdesc = heaprel.tuple_desc();
@@ -1410,20 +1422,17 @@ where
                 }
             }
             // Check if this is a regular Var (column reference)
-            else if let Some(var) = nodecast!(Var, T_Var, expr) {
-                let (heaprelid, attno, _) = find_var_relation(var, root);
+            else if let Some((var, field_name)) = find_one_var_and_fieldname(
+                VarContext::from_planner(root),
+                expr as *mut pg_sys::Node,
+            ) {
+                let (heaprelid, _, _) = find_var_relation(var, root);
                 if heaprelid != pg_sys::Oid::INVALID {
-                    let heaprel =
-                        PgSearchRelation::with_lock(heaprelid, pg_sys::AccessShareLock as _);
-                    let tupdesc = heaprel.tuple_desc();
-                    if let Some(att) = tupdesc.get(attno as usize - 1) {
-                        if let Some(search_field) = schema.search_field(att.name()) {
-                            if regular_sortability_check(&search_field) {
-                                pathkey_styles
-                                    .push(OrderByStyle::Field(pathkey, att.name().into()));
-                                found_valid_member = true;
-                                break;
-                            }
+                    if let Some(search_field) = schema.search_field(field_name.root()) {
+                        if regular_sortability_check(&search_field) {
+                            pathkey_styles.push(OrderByStyle::Field(pathkey, field_name));
+                            found_valid_member = true;
+                            break;
                         }
                     }
                 }

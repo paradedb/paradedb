@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968935314,
+  "lastUpdate": 1757968938072,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -580,6 +580,60 @@ window.BENCHMARK_DATA = {
             "value": 15.97137660706832,
             "unit": "median tps",
             "extra": "avg tps: 16.371886049012378, max tps: 20.28039265273823, count: 55560"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b37fc5af676e3438c051381414d81996ed0fb8f6",
+          "message": "feat: push down `group by ... order by ... limit` (#3134)\n\n# Ticket(s) Closed\n\n- Closes #3131 \n- Opens #3156 #3155 \n\n## What\n\nPushes down `group by ... order by ... limit` to Tantivy\n\n## Why\n\nBy pushing down the sort/limit to Tantivy, we can significantly speed up\n`group by` queries over high cardinality columns.\n\n## How\n\n- Before we were hard-coding a bucket size and sorting the results\nourselves, now the bucket size is set to the limit and we push the sort\ndown to the Tantivy term agg\n\n## Tests",
+          "timestamp": "2025-09-15T15:51:50-04:00",
+          "tree_id": "e58df02d60abc13101aaae8ef6333a9afafbcd78",
+          "url": "https://github.com/paradedb/paradedb/commit/b37fc5af676e3438c051381414d81996ed0fb8f6"
+        },
+        "date": 1757968934684,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.540743068599305,
+            "unit": "median tps",
+            "extra": "avg tps: 36.616326111556525, max tps: 38.46376404209758, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.38450706339748,
+            "unit": "median tps",
+            "extra": "avg tps: 269.62671228412296, max tps: 2335.1367166635882, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 507.7066997459737,
+            "unit": "median tps",
+            "extra": "avg tps: 502.46290185201804, max tps: 512.6172444366305, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 104.04811570643962,
+            "unit": "median tps",
+            "extra": "avg tps: 106.03177414926351, max tps: 285.4828970184683, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.944331237945248,
+            "unit": "median tps",
+            "extra": "avg tps: 16.02396216361999, max tps: 18.90535248906831, count: 55541"
           }
         ]
       }

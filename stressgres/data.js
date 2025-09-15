@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757931341721,
+  "lastUpdate": 1757931344235,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -4876,6 +4876,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 73.34844798220307, max segment_count: 108.0, count: 57538"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a521487756693e82c46bfe2f1a2f2fd3aded0136",
+          "message": "fix: fixed `rt_fetch out-of-bounds` error (#3141)\n\n# Ticket(s) Closed\n\n- Closes #3135\n\n## What\n\nFixed `rt_fetch used out-of-bounds` and `Cannot open relation with\noid=0` errors that occurred in complex SQL queries with nested `OR\nEXISTS` clauses, multiple `JOIN`s.\n\n## Why\n\nThe issue occurred when PostgreSQL's query planner generated `Var` nodes\nreferencing Range Table Entries (RTEs) that were valid in outer planning\ncontexts but didn't exist in inner execution contexts. This happened\nspecifically with:\n- `OR EXISTS` subqueries (not `AND EXISTS`)  \n- Multiple `JOIN`s within the `EXISTS` clause\n- ParadeDB functions applied to joined tables\n\nWhen ParadeDB's custom scan tried to access these out-of-bounds RTEs\nusing `rt_fetch`, it caused crashes.\n\n## How\n\nImplemented bounds checking across the codebase:\n\n1. **Early detection**: Added bounds checking in `find_var_relation()`\nto detect invalid `varno` values and return `pg_sys::InvalidOid`. This\nwas the main fix for the issue.\n2. **Graceful handling**: Modified all functions that receive relation\nOIDs to check for `InvalidOid` before attempting to open relations\n3. **Safe fallbacks**: Updated query optimization logic to skip\noptimizations when relation information is unavailable rather than\ncrashing\n\n## Tests\n\nAdded regression test `or_exists_join_bug.sql` covering:\n- Simple queries (baseline functionality)\n- `AND EXISTS` with multiple `JOIN`s (should work)  \n- `OR EXISTS` with multiple `JOIN`s (the problematic case, now fixed)\n- Various edge cases and workarounds\n- Minimal reproduction cases\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-09-15T02:47:52-07:00",
+          "tree_id": "4a0b5db116e0263111295cc53d05810e093ce68c",
+          "url": "https://github.com/paradedb/paradedb/commit/a521487756693e82c46bfe2f1a2f2fd3aded0136"
+        },
+        "date": 1757931342738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 19.028742,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.873728535788707, max cpu: 42.72997, count: 57898"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 230.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 230.2874957630229, max mem: 232.7265625, count: 57898"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.396449032213006, max cpu: 33.267326, count: 57898"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.3680008241865, max mem: 163.92578125, count: 57898"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23848,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22826.815537669696, max block_count: 25645.0, count: 57898"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.28013057445852, max segment_count: 107.0, count: 57898"
           }
         ]
       }

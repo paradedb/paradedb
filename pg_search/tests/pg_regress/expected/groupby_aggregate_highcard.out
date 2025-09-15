@@ -116,23 +116,37 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                            QUERY PLAN                             
+-------------------------------------------------------------------
  Limit
    ->  Sort
-         Sort Key: (now())
-         ->  Custom Scan (ParadeDB Aggregate Scan) on products
-               Index: products_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10,"segment_size":10}}}
-(7 rows)
+         Sort Key: (count(*))
+         ->  HashAggregate
+               Group Key: rating
+               ->  Custom Scan (ParadeDB Scan) on products
+                     Table: products
+                     Index: products_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-ERROR:  query cancelled because result was truncated due to more than 10 groups being returned
+ rating | count 
+--------+-------
+      1 |     1
+        |     1
+      2 |     2
+      3 |     3
+      4 |     4
+(5 rows)
+
 -- Limit 0
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT rating, COUNT(*) FROM products

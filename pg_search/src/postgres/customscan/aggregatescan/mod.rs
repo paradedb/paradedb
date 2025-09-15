@@ -129,8 +129,35 @@ impl CustomScan for AggregateScan {
         let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
 
         // Extract ORDER BY pathkeys if present
+        let sort_clause =
+            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
+        let sort_fields = unsafe {
+            sort_clause
+                .iter_ptr()
+                .filter_map(|sort_clause| {
+                    let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
+                        Some(field_name)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<HashSet<_>>()
+        };
         let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
+        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys())
+            .into_iter()
+            .filter(|info| {
+                if let OrderByFeature::Field(field_name) = &info.feature {
+                    sort_fields.contains(field_name)
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
         let (limit, offset) = unsafe {
@@ -149,8 +176,11 @@ impl CustomScan for AggregateScan {
             (extract_const(limit_count), extract_const(offset_count))
         };
 
+        // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
+        // or if it orders by columns that we cannot push down
         if unsafe { !(*parse).groupClause.is_null() }
-            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets)
+            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
+                || orderby_info.len() != sort_clause.len())
         {
             return None;
         }
@@ -217,6 +247,12 @@ impl CustomScan for AggregateScan {
             };
         }
 
+        // Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
+        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
+        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
+        // the aggregate_custom_scan/test_count test failure
+        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
+
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
         if let Some(pathkeys) = order_pathkey_info.pathkeys() {
@@ -224,6 +260,12 @@ impl CustomScan for AggregateScan {
                 builder = builder.add_path_key(pathkey_style);
             }
         };
+
+        // A GROUP BY...ORDER BY query could have some results truncated
+        let maybe_truncated = !parse.is_null()
+            && unsafe { !(*parse).groupClause.is_null() }
+            && unsafe { !(*parse).sortClause.is_null() }
+            && limit.is_none();
 
         Some(builder.build(PrivateData {
             aggregate_types,
@@ -233,80 +275,19 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             orderby_info,
             target_list_mapping,
-            has_order_by: false, // Will be set in plan_custom_path
+            has_order_by,
             limit,
             offset,
-            maybe_truncated: false, // Will be set in plan_custom_path
+            maybe_truncated,
         }))
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
-        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
-        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
-        // the aggregate_custom_scan/test_count test failure
-        let has_order_by = unsafe {
-            let parse = (*builder.args().root).parse;
-            !parse.is_null() && !(*parse).sortClause.is_null()
-        };
-        let parse = unsafe { (*builder.args().root).parse };
-        let sort_clause =
-            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
-        let sort_fields = unsafe {
-            sort_clause
-                .iter_ptr()
-                .filter_map(|sort_clause| {
-                    let expr = pg_sys::get_sortgroupclause_expr(
-                        sort_clause,
-                        builder.args().tlist.as_ptr(),
-                    );
-                    let var_context = VarContext::from_planner(builder.args().root);
-                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
-                        Some(field_name)
-                    } else {
-                        None
-                    }
-                })
-                .collect::<HashSet<_>>()
-        };
-
-        // Store ORDER BY information in private data for execution time
-        builder.custom_private_mut().has_order_by = has_order_by;
-
-        // Override orderby_info
-        // We are only able to handle GROUP BY ... ORDER BY ... LIMIT if the ORDER BY fields are indexed
-        let orderby_info = builder
-            .custom_private()
-            .orderby_info
-            .clone()
-            .into_iter()
-            .filter(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
-                    sort_fields.contains(field_name)
-                } else {
-                    false
-                }
-            })
-            .collect::<Vec<_>>();
-        builder.custom_private_mut().orderby_info = orderby_info.clone();
-
-        // GROUP BY...ORDER BY could have some results truncated if we are ordering by clauses that can't be pushed down
-        // or if there is no limit and max_term_agg_buckets is exceeded
-        let maybe_truncated = unsafe { !(*parse).groupClause.is_null() }
-            && (orderby_info.len() != sort_clause.len()
-                || builder.custom_private().limit.is_none());
-
-        if maybe_truncated {
-            builder.custom_private_mut().limit = None;
-        }
-
-        builder.custom_private_mut().maybe_truncated = maybe_truncated;
-
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
-            && !has_order_by
+            && !builder.custom_private().has_order_by
         {
             unsafe {
                 let mut cscan = builder.build();

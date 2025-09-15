@@ -69,19 +69,27 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
  Limit
-   Output: ((metadata ->> 'category'::text)), (now())
+   Output: ((metadata ->> 'category'::text)), (count(*))
    ->  Sort
-         Output: ((metadata ->> 'category'::text)), (now())
-         Sort Key: (now())
-         ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
-               Output: (metadata ->> 'category'::text), now()
-               Index: idx_json_single
-               Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":65000,"segment_size":65000}}}
-(10 rows)
+         Output: ((metadata ->> 'category'::text)), (count(*))
+         Sort Key: (count(*))
+         ->  GroupAggregate
+               Output: ((metadata ->> 'category'::text)), count(*)
+               Group Key: ((json_test_single.metadata ->> 'category'::text))
+               ->  Sort
+                     Output: ((metadata ->> 'category'::text))
+                     Sort Key: ((json_test_single.metadata ->> 'category'::text))
+                     ->  Custom Scan (ParadeDB Scan) on public.json_test_single
+                           Output: (metadata ->> 'category'::text)
+                           Table: json_test_single
+                           Index: idx_json_single
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
+(18 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single
@@ -91,8 +99,8 @@ ORDER BY 2
 LIMIT 5;
   category   | count 
 -------------+-------
- electronics |     3
  clothing    |     3
+ electronics |     3
 (2 rows)
 
 DROP TABLE json_test_single CASCADE;

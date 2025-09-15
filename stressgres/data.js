@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968943099,
+  "lastUpdate": 1757969181283,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -634,6 +634,60 @@ window.BENCHMARK_DATA = {
             "value": 15.944331237945248,
             "unit": "median tps",
             "extra": "avg tps: 16.02396216361999, max tps: 18.90535248906831, count: 55541"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8211eef7a0dd34237afebfa91364fb66c65a4906",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3158)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass",
+          "timestamp": "2025-09-15T15:55:52-04:00",
+          "tree_id": "4ddf140542c5525034023441aadac4b634c90fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/8211eef7a0dd34237afebfa91364fb66c65a4906"
+        },
+        "date": 1757969179715,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.84843585751081,
+            "unit": "median tps",
+            "extra": "avg tps: 37.10151801267816, max tps: 41.10375511065311, count: 55824"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 128.36000809151764,
+            "unit": "median tps",
+            "extra": "avg tps: 166.04608877906875, max tps: 2323.2528365740613, count: 55824"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.091452698935,
+            "unit": "median tps",
+            "extra": "avg tps: 1024.1227714695146, max tps: 1041.5447502461018, count: 55824"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 114.10223744169525,
+            "unit": "median tps",
+            "extra": "avg tps: 118.94875281059258, max tps: 779.5955051906514, count: 111648"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.623675155732993,
+            "unit": "median tps",
+            "extra": "avg tps: 18.678151477698776, max tps: 21.761777033054305, count: 55824"
           }
         ]
       }

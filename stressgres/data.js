@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968852102,
+  "lastUpdate": 1757968935314,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2716,6 +2716,72 @@ window.BENCHMARK_DATA = {
             "value": 44.97214597671429,
             "unit": "median tps",
             "extra": "avg tps: 58.371324324546386, max tps: 962.0083656247475, count: 54748"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af5bea23effe976b411147e259e53afad947a393",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3159)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-15T16:26:19-04:00",
+          "tree_id": "cbc00b9a93c129255360f60e5a70904e87f1e8c1",
+          "url": "https://github.com/paradedb/paradedb/commit/af5bea23effe976b411147e259e53afad947a393"
+        },
+        "date": 1757968933783,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 790.1583011008929,
+            "unit": "median tps",
+            "extra": "avg tps: 792.9538890402961, max tps: 858.7894594915847, count: 55374"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2784.5684994069625,
+            "unit": "median tps",
+            "extra": "avg tps: 2761.832361142758, max tps: 2791.0968994067907, count: 55374"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 779.5997671835739,
+            "unit": "median tps",
+            "extra": "avg tps: 780.0088625672128, max tps: 811.5576484665061, count: 55374"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 690.4710444669197,
+            "unit": "median tps",
+            "extra": "avg tps: 690.1958653571413, max tps: 698.9127690509614, count: 55374"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1654.8910393175106,
+            "unit": "median tps",
+            "extra": "avg tps: 1650.4881955145875, max tps: 1684.1349350303165, count: 110748"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1190.4038904061076,
+            "unit": "median tps",
+            "extra": "avg tps: 1185.8308558151043, max tps: 1204.6756387801856, count: 55374"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 38.14879266103322,
+            "unit": "median tps",
+            "extra": "avg tps: 46.5598963742497, max tps: 914.622713557544, count: 55374"
           }
         ]
       }

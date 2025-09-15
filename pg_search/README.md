@@ -69,7 +69,7 @@ dnf install pig
 pig install pg_search
 ```
 
-You should then be able to run `CREATE EXTENSION pg_search;` as superuser is PostgreSQL.
+You should then be able to run `CREATE EXTENSION pg_search;` as superuser in PostgreSQL.
 
 #### macOS
 

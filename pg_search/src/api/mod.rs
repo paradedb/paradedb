@@ -298,7 +298,7 @@ pub struct OrderByInfo {
 
 pub trait ToTantivyJson {
     fn key(&self) -> String;
-    fn json_value(&self) -> serde_json::Value;
+    fn json_value(&self) -> Option<serde_json::Value>;
 }
 
 impl ToTantivyJson for OrderByInfo {
@@ -306,14 +306,14 @@ impl ToTantivyJson for OrderByInfo {
         "order".to_string()
     }
 
-    fn json_value(&self) -> serde_json::Value {
+    fn json_value(&self) -> Option<serde_json::Value> {
         match self.feature {
             OrderByFeature::Field(_) => match self.direction {
-                SortDirection::Asc => serde_json::json!({ "_key": "asc" }),
-                SortDirection::Desc => serde_json::json!({ "_key": "desc" }),
+                SortDirection::Asc => Some(serde_json::json!({ "_key": "asc" })),
+                SortDirection::Desc => Some(serde_json::json!({ "_key": "desc" })),
             },
             // it is the caller's responsibility to make sure that order by score is not pushed down
-            OrderByFeature::Score => panic!("order by score is not supported"),
+            OrderByFeature::Score => None,
         }
     }
 }

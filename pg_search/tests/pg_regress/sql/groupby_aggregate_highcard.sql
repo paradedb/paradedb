@@ -13,6 +13,9 @@ INSERT INTO products (rating)
 SELECT rating
 FROM generate_series(1, 100) rating, generate_series(1, rating);
 
+INSERT INTO products (rating)
+VALUES (null);
+
 CREATE INDEX products_idx ON products
 USING bm25 (id, rating)
 WITH (key_field='id');
@@ -69,3 +72,31 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
+
+-- Limit 0
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 0;
+
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 0;
+
+-- High limit
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 10000;
+
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 10000;

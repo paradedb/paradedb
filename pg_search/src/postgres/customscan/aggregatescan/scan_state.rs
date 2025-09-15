@@ -149,7 +149,12 @@ impl AggregateScanState {
             });
 
             if let Some(orderby_info) = orderby_info {
-                terms.insert(orderby_info.key(), orderby_info.json_value());
+                terms.insert(
+                    orderby_info.key(),
+                    orderby_info
+                        .json_value()
+                        .expect("ordering by score is not supported"),
+                );
             }
 
             if let Some(limit) = self.limit {

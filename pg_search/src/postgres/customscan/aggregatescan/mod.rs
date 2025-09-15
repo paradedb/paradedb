@@ -22,6 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
+use crate::api::{HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -51,7 +52,7 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
-use pgrx::{pg_sys, IntoDatum, PgList, PgTupleDesc};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
@@ -128,8 +129,61 @@ impl CustomScan for AggregateScan {
         let aggregate_types = extract_and_validate_aggregates(args, &schema, &grouping_columns)?;
 
         // Extract ORDER BY pathkeys if present
+        let sort_clause =
+            unsafe { PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause) };
+        let sort_fields = unsafe {
+            sort_clause
+                .iter_ptr()
+                .filter_map(|sort_clause| {
+                    let expr = pg_sys::get_sortgroupclause_expr(sort_clause, (*parse).targetList);
+                    let var_context = VarContext::from_planner(builder.args().root);
+                    if let Some((_, field_name)) = find_one_var_and_fieldname(var_context, expr) {
+                        Some(field_name)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<HashSet<_>>()
+        };
         let order_pathkey_info = extract_order_by_pathkeys(args.root, heap_rti, &schema);
-        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys());
+        let orderby_info = OrderByStyle::extract_orderby_info(order_pathkey_info.pathkeys())
+            .into_iter()
+            .filter(|info| {
+                if let OrderByFeature::Field(field_name) = &info.feature {
+                    sort_fields.contains(field_name)
+                } else {
+                    false
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // Extract LIMIT/OFFSET if it's a GROUP BY...ORDER BY...LIMIT query
+        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
+
+        let (limit, offset) = unsafe {
+            let limit_count = (*parse).limitCount;
+            let offset_count = (*parse).limitOffset;
+
+            let extract_const = |node: *mut pg_sys::Node| -> Option<u32> {
+                let const_node = nodecast!(Const, T_Const, node);
+                if let Some(const_node) = const_node {
+                    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
+                } else {
+                    None
+                }
+            };
+
+            (extract_const(limit_count), extract_const(offset_count))
+        };
+
+        // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
+        // or if it orders by columns that we cannot push down
+        if unsafe { !(*parse).groupClause.is_null() }
+            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
+                || orderby_info.len() != sort_clause.len())
+        {
+            return None;
+        }
 
         // Can we handle all of the quals?
         let query = unsafe {
@@ -193,6 +247,12 @@ impl CustomScan for AggregateScan {
             };
         }
 
+        // Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
+        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
+        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
+        // the aggregate_custom_scan/test_count test failure
+        let has_order_by = unsafe { !parse.is_null() && !(*parse).sortClause.is_null() };
+
         // If we're handling ORDER BY, we need to inform PostgreSQL that our output is sorted.
         // To do this, we set pathkeys for ORDER BY if present.
         if let Some(pathkeys) = order_pathkey_info.pathkeys() {
@@ -200,6 +260,12 @@ impl CustomScan for AggregateScan {
                 builder = builder.add_path_key(pathkey_style);
             }
         };
+
+        // A GROUP BY...ORDER BY query could have some results truncated
+        let maybe_truncated = !parse.is_null()
+            && unsafe { !(*parse).groupClause.is_null() }
+            && unsafe { !(*parse).sortClause.is_null() }
+            && limit.is_none();
 
         Some(builder.build(PrivateData {
             aggregate_types,
@@ -209,28 +275,19 @@ impl CustomScan for AggregateScan {
             grouping_columns,
             orderby_info,
             target_list_mapping,
-            has_order_by: false, // Will be set in plan_custom_path
+            has_order_by,
+            limit,
+            offset,
+            maybe_truncated,
         }))
     }
 
     fn plan_custom_path(mut builder: CustomScanBuilder<Self>) -> pg_sys::CustomScan {
         builder.set_scanrelid(builder.custom_private().heap_rti);
 
-        // PLANNING-TIME REPLACEMENT: Replace T_Aggref for simple aggregations without GROUP BY or ORDER BY
-        // For queries with GROUP BY or ORDER BY, we keep T_Aggref during planning for pathkey matching
-        // TODO(mdashti): remove the planning time replacement once we figured the reason behind
-        // the aggregate_custom_scan/test_count test failure
-        let has_order_by = unsafe {
-            let parse = (*builder.args().root).parse;
-            !parse.is_null() && !(*parse).sortClause.is_null()
-        };
-
-        // Store ORDER BY information in private data for execution time
-        builder.custom_private_mut().has_order_by = has_order_by;
-
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()
-            && !has_order_by
+            && !builder.custom_private().has_order_by
         {
             unsafe {
                 let mut cscan = builder.build();
@@ -269,6 +326,9 @@ impl CustomScan for AggregateScan {
         builder.custom_state().query = builder.custom_private().query.clone();
         builder.custom_state().execution_rti =
             unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
+        builder.custom_state().limit = builder.custom_private().limit;
+        builder.custom_state().offset = builder.custom_private().offset;
+        builder.custom_state().maybe_truncated = builder.custom_private().maybe_truncated;
         builder.build()
     }
 

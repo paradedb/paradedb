@@ -267,7 +267,10 @@ pub struct PrivateData {
     pub grouping_columns: Vec<GroupingColumn>,
     pub orderby_info: Vec<OrderByInfo>,
     pub target_list_mapping: Vec<TargetListEntry>, // Maps target list position to data type
-    pub has_order_by: bool,                        // Whether the original query has ORDER BY clause
+    pub has_order_by: bool,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub maybe_truncated: bool,
 }
 
 impl From<*mut pg_sys::List> for PrivateData {

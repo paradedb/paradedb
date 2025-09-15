@@ -187,7 +187,7 @@ pub unsafe fn fieldname_from_var(
     var: *mut pg_sys::Var,
     varattno: pg_sys::AttrNumber,
 ) -> Option<FieldName> {
-    if (*var).varattno == 0 {
+    if (*var).varattno == 0 || heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
     // Check for InvalidOid before trying to open the relation

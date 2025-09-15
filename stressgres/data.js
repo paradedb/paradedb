@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757968938072,
+  "lastUpdate": 1757968940603,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1726,6 +1726,114 @@ window.BENCHMARK_DATA = {
             "value": 156.34765625,
             "unit": "median mem",
             "extra": "avg mem: 154.77168953046257, max mem: 158.13671875, count: 55560"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b37fc5af676e3438c051381414d81996ed0fb8f6",
+          "message": "feat: push down `group by ... order by ... limit` (#3134)\n\n# Ticket(s) Closed\n\n- Closes #3131 \n- Opens #3156 #3155 \n\n## What\n\nPushes down `group by ... order by ... limit` to Tantivy\n\n## Why\n\nBy pushing down the sort/limit to Tantivy, we can significantly speed up\n`group by` queries over high cardinality columns.\n\n## How\n\n- Before we were hard-coding a bucket size and sorting the results\nourselves, now the bucket size is set to the limit and we push the sort\ndown to the Tantivy term agg\n\n## Tests",
+          "timestamp": "2025-09-15T15:51:50-04:00",
+          "tree_id": "e58df02d60abc13101aaae8ef6333a9afafbcd78",
+          "url": "https://github.com/paradedb/paradedb/commit/b37fc5af676e3438c051381414d81996ed0fb8f6"
+        },
+        "date": 1757968939055,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.782012664813266, max cpu: 45.78696, count: 55541"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 143.01004578824652, max mem: 155.6328125, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.706363112918955, max cpu: 37.75811, count: 55541"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 148.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 143.9787061866459, max mem: 148.18359375, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.058363384824364, max cpu: 14.201183, count: 55541"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 147.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 125.24185596001152, max mem: 147.80859375, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 26335,
+            "unit": "median block_count",
+            "extra": "avg block_count: 26672.57164977224, max block_count: 53479.0, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8675566515064728, max cpu: 4.660194, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 100.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 90.77358617957906, max mem: 129.2734375, count: 55541"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 32.367908391998704, max segment_count: 54.0, count: 55541"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.311348,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.385908776043095, max cpu: 42.477875, count: 111082"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 158.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.55136327358392, max mem: 165.3125, count: 111082"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.9265,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.556140222954502, max cpu: 28.042841, count: 55541"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.40345251705946, max mem: 156.1328125, count: 55541"
           }
         ]
       }

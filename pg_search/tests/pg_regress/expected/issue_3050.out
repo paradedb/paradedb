@@ -56,17 +56,14 @@ WHERE id @@@ paradedb.all()
 GROUP BY id, metadata->>'color'
 ORDER BY id, metadata->>'color'
 LIMIT 5;
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                          
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Incremental Sort
-         Sort Key: id, ((metadata ->> 'color'::text))
-         Presorted Key: id
-         ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
-               Index: mock_items_id_description_rating_category_metadata_idx
-               Tantivy Query: {"with_index":{"query":"all"}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"id","size":10000},"aggs":{"group_1":{"terms":{"field":"metadata.color","size":10000}}}}}
-(8 rows)
+   ->  Custom Scan (ParadeDB Aggregate Scan) on mock_items
+         Index: mock_items_id_description_rating_category_metadata_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"id","order":{"_key":"asc"},"size":5,"segment_size":5},"aggs":{"group_1":{"terms":{"field":"metadata.color","order":{"_key":"asc"},"size":5,"segment_size":5}}}}}
+(5 rows)
 
 SELECT id, metadata->>'color' AS color, COUNT(*)
 FROM mock_items

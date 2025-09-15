@@ -49,7 +49,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT category, COUNT(*)
@@ -76,7 +76,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, SUM(price) AS total_price
@@ -103,7 +103,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, AVG(price) AS avg_price
@@ -130,7 +130,7 @@ ORDER BY category;
    Output: category, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, MIN(price) AS min_price, MAX(price) AS max_price
@@ -162,7 +162,7 @@ ORDER BY category;
    Output: category, now(), now(), now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"price"}},"agg_4":{"max":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category,
@@ -194,7 +194,7 @@ ORDER BY rating;
    Output: rating, now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT rating, COUNT(*), SUM(price), AVG(price)
@@ -224,7 +224,7 @@ ORDER BY category, rating;
    Output: category, rating, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT category, rating, COUNT(*), AVG(price)
@@ -248,7 +248,7 @@ SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: now(), category
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT COUNT(*), category FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
@@ -266,7 +266,7 @@ SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY 
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT category, COUNT(*) FROM products WHERE description @@@ 'laptop' GROUP BY category ORDER BY category;
@@ -285,13 +285,13 @@ SELECT category, COUNT(*), SUM(price), AVG(price)
 FROM products
 WHERE description @@@ 'nonexistent'
 GROUP BY category;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, now(), now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"nonexistent","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(price)
@@ -315,7 +315,7 @@ ORDER BY category, rating;
    Output: now(), category, now(), rating, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_2":{"sum":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"rating","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_2":{"sum":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT COUNT(*), category, AVG(price) , rating, SUM(price)
@@ -342,7 +342,7 @@ GROUP BY category;
    Output: category, now(), now(), now()
    Index: products_idx
    Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
@@ -367,7 +367,7 @@ GROUP BY category;
    Output: category, now(), now(), now()
    Index: products_idx
    Tantivy Query: {"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*), SUM(price), AVG(rating)
@@ -574,7 +574,7 @@ ORDER BY category;
    Output: category, now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (5 rows)
 
 SELECT category, SUM(price) as total_price
@@ -595,13 +595,13 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category, rating
 ORDER BY category;
-                                                                                                             QUERY PLAN                                                                                                              
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                        QUERY PLAN                                                                                                                        
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.products
    Output: category, rating, now(), now()
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"rating","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"rating","size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}}}
 (5 rows)
 
 SELECT category, rating, COUNT(*) as cnt, AVG(price) as avg_price
@@ -713,7 +713,7 @@ LIMIT 10;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (10 rows)
 
 SELECT category
@@ -744,7 +744,7 @@ ORDER BY COUNT(category) DESC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (8 rows)
 
 SELECT category
@@ -774,7 +774,7 @@ ORDER BY SUM(price) DESC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, SUM(price) as total_price
@@ -804,7 +804,7 @@ ORDER BY AVG(price) ASC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_0":{"avg":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, AVG(price) as avg_price
@@ -825,8 +825,8 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY MIN(price) DESC;
-                                                                               QUERY PLAN                                                                                
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                        
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: category, (now()), (now())
    Sort Key: (now()) DESC
@@ -834,7 +834,7 @@ ORDER BY MIN(price) DESC;
          Output: category, now(), now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_0":{"min":{"field":"price"}},"agg_1":{"max":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, MIN(price) as min_price, MAX(price) as max_price
@@ -864,7 +864,7 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: category, now(), now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"sum":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, COUNT(*) as cnt, SUM(price) as total
@@ -897,7 +897,7 @@ LIMIT 2;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard OR jacket","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (10 rows)
 
 SELECT category, COUNT(*) as product_count
@@ -934,7 +934,7 @@ LIMIT 10;
                Output: category, now()
                Index: products_idx
                Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (10 rows)
 
 SELECT category, COUNT(*) as pcount
@@ -965,7 +965,7 @@ ORDER BY COUNT(category) DESC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (8 rows)
 
 SELECT category
@@ -995,7 +995,7 @@ ORDER BY SUM(price) DESC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, SUM(price) as total_price
@@ -1025,7 +1025,7 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: category, now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (8 rows)
 
 SELECT category, COUNT(*) as cnt
@@ -1055,7 +1055,7 @@ ORDER BY COUNT(*) DESC, category ASC;
          Output: now(), category
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (8 rows)
 
 SELECT COUNT(*) as cnt
@@ -1085,7 +1085,7 @@ ORDER BY cnt DESC, avg_price ASC;
          Output: category, now(), now()
          Index: products_idx
          Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"price"}}}}}
 (8 rows)
 
 SELECT category, COUNT(*) as cnt, AVG(price) as avg_price
@@ -1112,7 +1112,7 @@ ORDER BY category ASC;
    Output: category
    Index: products_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT category

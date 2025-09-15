@@ -180,13 +180,13 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT category, COUNT(*) FROM empty_test 
 WHERE id @@@ paradedb.all() 
 GROUP BY category;
-                                   QUERY PLAN                                    
----------------------------------------------------------------------------------
+                                              QUERY PLAN                                              
+------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: category, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT category, COUNT(*) FROM empty_test 
@@ -209,7 +209,7 @@ ORDER BY category;
    Output: category, now(), now(), now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"agg_1":{"sum":{"field":"value"}},"agg_2":{"avg":{"field":"value"}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"value"}},"agg_2":{"avg":{"field":"value"}}}}}
 (5 rows)
 
 SELECT category, COUNT(*), SUM(value), AVG(value) 
@@ -242,7 +242,7 @@ ORDER BY category, value;
    Output: category, value, now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"value","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"value","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 SELECT category, value, COUNT(*) FROM empty_test 

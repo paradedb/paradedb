@@ -43,7 +43,7 @@ ORDER BY category;
    Output: (metadata ->> 'category'::text), now()
    Index: idx_json_single
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -96,7 +96,7 @@ ORDER BY category, brand;
    Output: (metadata ->> 'category'::text), (metadata ->> 'brand'::text), now()
    Index: idx_json_multiple
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"metadata.category"}}}},{"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -151,7 +151,7 @@ ORDER BY brand;
    Output: (metadata ->> 'brand'::text), now()
    Index: idx_json_aggregates
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.brand"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.brand","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -368,7 +368,7 @@ ORDER BY category NULLS FIRST;
    Output: (metadata ->> 'category'::text), now()
    Index: idx_json_nulls
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
@@ -419,7 +419,7 @@ ORDER BY txn_key_value;
    Output: (metadata_json ->> 'reservation_id'::text), now()
    Index: idx_ledger_json
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata_json.reservation_id"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"metadata_json.reservation_id","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the original example query
@@ -475,7 +475,7 @@ ORDER BY theme, region;
    Output: ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'theme'::text), ((((config -> 'user'::text) -> 'profile'::text) -> 'settings'::text) ->> 'region'::text), now()
    Index: idx_json_deep
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.theme"}}}},{"with_index":{"query":{"exists":{"field":"config.user.profile.settings.region"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"config.user.profile.settings.theme","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"config.user.profile.settings.region","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -541,7 +541,7 @@ ORDER BY object_type;
    Output: (data ->> 'type'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.type"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"data.type","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"data.type","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -572,7 +572,7 @@ ORDER BY category, brand;
    Output: (data ->> 'category'::text), (data ->> 'brand'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"data.category","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"data.brand","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"data.category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"data.brand","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -605,7 +605,7 @@ ORDER BY country;
    Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), now()
    Index: idx_json_mixed
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -658,7 +658,7 @@ ORDER BY priority_text;
    Output: ((payload -> 'metadata'::text) ->> 'priority'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -689,7 +689,7 @@ ORDER BY team;
    Output: (payload ->> 'team'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"payload.team"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"payload.team","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"payload.team","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -720,7 +720,7 @@ ORDER BY priority_text, team;
    Output: ((payload -> 'metadata'::text) ->> 'priority'::text), (((payload -> 'metadata'::text) -> 'assignee'::text) ->> 'team'::text), now()
    Index: idx_json_operators
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"payload.metadata.priority"}}}},{"with_index":{"query":{"exists":{"field":"payload.metadata.assignee.team"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"payload.metadata.priority","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"payload.metadata.assignee.team","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -892,7 +892,7 @@ ORDER BY api_version;
    Output: ((config -> 'api'::text) ->> 'version'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"config.api.version"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query
@@ -926,7 +926,7 @@ ORDER BY db_host, api_version;
    Output: ((config -> 'database'::text) ->> 'host'::text), ((config -> 'api'::text) ->> 'version'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.database.host"}}}},{"with_index":{"query":{"exists":{"field":"config.api.version"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"config.database.host","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"config.database.host","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"config.api.version","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -963,7 +963,7 @@ ORDER BY users_endpoint, db_port;
    Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), now()
    Index: idx_json_reconstruction
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.api.endpoints.users"}}}},{"with_index":{"query":{"exists":{"field":"config.database.port"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query  
@@ -1029,7 +1029,7 @@ ORDER BY department, role;
    Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), now()
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"user_profile.department","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"user_profile.department","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}
 (5 rows)
 
 -- Execute the query
@@ -1071,7 +1071,7 @@ ORDER BY department, role, location;
    Output: (user_profile ->> 'department'::text), (user_profile ->> 'role'::text), (user_profile ->> 'location'::text), now()
    Index: idx_json_multi_subfields
    Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"user_profile.department"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.role"}}}},{"with_index":{"query":{"exists":{"field":"user_profile.location"}}}}]}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"user_profile.department","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_1":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"size":10000,"segment_size":10000},"aggs":{"group_2":{"terms":{"field":"user_profile.location","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}}}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"user_profile.department","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"user_profile.role","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_2":{"terms":{"field":"user_profile.location","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}}}}}
 (5 rows)
 
 -- Execute the query
@@ -1241,7 +1241,7 @@ ORDER BY email_type;
    Output: ((content -> 'user-info'::text) ->> 'email@domain'::text), now()
    Index: idx_json_special
    Tantivy Query: {"with_index":{"query":{"exists":{"field":"content.user-info.email@domain"}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"size":10000,"segment_size":10000}}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"content.user-info.email@domain","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
 (5 rows)
 
 -- Execute the query

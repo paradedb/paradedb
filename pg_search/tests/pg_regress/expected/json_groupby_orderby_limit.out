@@ -69,8 +69,8 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 2
 LIMIT 5;
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (now())
    ->  Sort
@@ -80,7 +80,7 @@ LIMIT 5;
                Output: (metadata ->> 'category'::text), now()
                Index: idx_json_single
                Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-               Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":10000}}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","size":65000,"segment_size":65000}}}
 (10 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count

@@ -77,7 +77,7 @@ pub struct AggregateScanState {
     // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
     // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
-    pub limit: u32,
+    pub limit: Option<u32>,
     // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
     pub offset: Option<u32>,
     // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
@@ -140,16 +140,20 @@ impl AggregateScanState {
                 serde_json::Value::String(group_col.field_name.clone()),
             );
 
-            // if we are ordering, push down the limit and orderby info
-            if let Some(orderby_info) = self.orderby_info.iter().find(|info| {
+            let orderby_info = self.orderby_info.iter().find(|info| {
                 if let OrderByFeature::Field(field_name) = &info.feature {
                     *field_name == FieldName::from(group_col.field_name.clone())
                 } else {
                     false
                 }
-            }) {
+            });
+
+            if let Some(orderby_info) = orderby_info {
                 terms.insert(orderby_info.key(), orderby_info.json_value());
-                let size = (self.limit + self.offset.unwrap_or(0)).min(max_term_agg_buckets);
+            }
+
+            if let Some(limit) = self.limit {
+                let size = (limit + self.offset.unwrap_or(0)).min(max_term_agg_buckets);
                 terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
                 // because we currently support ordering only by the grouping columns, the Top N
                 // of all segments is guaranteed to contain the global Top N
@@ -159,10 +163,13 @@ impl AggregateScanState {
                     "segment_size".to_string(),
                     serde_json::Value::Number(size.into()),
                 );
-            // otherwise, we have to return all the results so that Postgres can sort them
             } else {
                 terms.insert(
                     "size".to_string(),
+                    serde_json::Value::Number(max_term_agg_buckets.into()),
+                );
+                terms.insert(
+                    "segment_size".to_string(),
                     serde_json::Value::Number(max_term_agg_buckets.into()),
                 );
             }

@@ -1,0 +1,133 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.max_term_agg_buckets TO 10;
+DROP TABLE IF EXISTS products CASCADE;
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    rating INTEGER
+);
+INSERT INTO products (rating)
+SELECT rating
+FROM generate_series(1, 100) rating, generate_series(1, rating);
+CREATE INDEX products_idx ON products
+USING bm25 (id, rating)
+WITH (key_field='id');
+-- These should not be pushed down
+-- No LIMIT
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating;
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10,"segment_size":10}}}
+(4 rows)
+
+-- Limit + offset exceeds max_term_agg_buckets
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 5 OFFSET 6;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: rating
+         ->  HashAggregate
+               Group Key: rating
+               ->  Custom Scan (ParadeDB Scan) on products
+                     Table: products
+                     Index: products_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+-- Ordering on a non grouping column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating, id
+ORDER BY rating, id
+LIMIT 5 OFFSET 5;
+                            QUERY PLAN                             
+-------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: rating, id
+         ->  HashAggregate
+               Group Key: id
+               ->  Custom Scan (ParadeDB Scan) on products
+                     Table: products
+                     Index: products_idx
+                     Exec Method: MixedFastFieldExecState
+                     Fast Fields: id, rating
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+(13 rows)
+
+-- This should be pushed down
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 5 OFFSET 5;
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: rating, (now())
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.products
+         Output: rating, now()
+         Index: products_idx
+         Tantivy Query: {"with_index":{"query":"all"}}
+         Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":10,"segment_size":10}}}
+(7 rows)
+
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY rating
+LIMIT 5 OFFSET 5;
+ rating | count 
+--------+-------
+      6 |     6
+      7 |     7
+      8 |     8
+      9 |     9
+     10 |    10
+(5 rows)
+
+-- Ordering on a non-grouping column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY 2
+LIMIT 5;
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: (now())
+         ->  Custom Scan (ParadeDB Aggregate Scan) on products
+               Index: products_idx
+               Tantivy Query: {"with_index":{"query":"all"}}
+               Aggregate Definition: {"group_0":{"terms":{"field":"rating","size":10,"segment_size":10}}}
+(7 rows)
+
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY 2
+LIMIT 5;
+ERROR:  query cancelled because result was truncated due to more than 10 groups being returned

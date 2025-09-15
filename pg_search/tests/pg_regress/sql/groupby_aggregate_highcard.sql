@@ -34,13 +34,13 @@ GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 6;
 
--- Ordering on a non-grouping column
+-- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
-GROUP BY rating
-ORDER BY 2
-LIMIT 5;
+GROUP BY rating, id
+ORDER BY rating, id
+LIMIT 5 OFFSET 5;
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -55,3 +55,17 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 5 OFFSET 5;
+
+-- Ordering on a non-grouping column
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY 2
+LIMIT 5;
+
+SELECT rating, COUNT(*) FROM products
+WHERE id @@@ paradedb.all()
+GROUP BY rating
+ORDER BY 2
+LIMIT 5;

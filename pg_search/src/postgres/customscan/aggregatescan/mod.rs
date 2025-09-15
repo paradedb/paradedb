@@ -134,7 +134,6 @@ impl CustomScan for AggregateScan {
         let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
         let (limit, offset) = unsafe {
-            let parse = (*builder.args().root).parse;
             let limit_count = (*parse).limitCount;
             let offset_count = (*parse).limitOffset;
 
@@ -150,9 +149,12 @@ impl CustomScan for AggregateScan {
             (extract_const(limit_count), extract_const(offset_count))
         };
 
-        if limit.is_none() || (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets) {
+        if unsafe { !(*parse).groupClause.is_null() }
+            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets)
+        {
             return None;
         }
+
         // Can we handle all of the quals?
         let query = unsafe {
             let result = extract_quals(
@@ -232,7 +234,7 @@ impl CustomScan for AggregateScan {
             orderby_info,
             target_list_mapping,
             has_order_by: false, // Will be set in plan_custom_path
-            limit: limit.unwrap(),
+            limit,
             offset,
             maybe_truncated: false, // Will be set in plan_custom_path
         }))
@@ -290,10 +292,17 @@ impl CustomScan for AggregateScan {
             .collect::<Vec<_>>();
         builder.custom_private_mut().orderby_info = orderby_info.clone();
 
-        // If there are more sort fields than what we're able to push down, the GROUP BY could be lossy
-        builder.custom_private_mut().maybe_truncated =
-            !builder.custom_private().grouping_columns.is_empty()
-                && orderby_info.len() != sort_clause.len();
+        // GROUP BY...ORDER BY could have some results truncated if we are ordering by clauses that can't be pushed down
+        // or if there is no limit and max_term_agg_buckets is exceeded
+        let maybe_truncated = unsafe { !(*parse).groupClause.is_null() }
+            && (orderby_info.len() != sort_clause.len()
+                || builder.custom_private().limit.is_none());
+
+        if maybe_truncated {
+            builder.custom_private_mut().limit = None;
+        }
+
+        builder.custom_private_mut().maybe_truncated = maybe_truncated;
 
         if builder.custom_private().grouping_columns.is_empty()
             && builder.custom_private().orderby_info.is_empty()

@@ -46,6 +46,7 @@ enum FSMBlockKind {
 #[repr(C)]
 struct ChainHeader {
     kind:   FSMBlockKind,
+    version: u64,
     xid:    u32,
     count:  i32,
 }
@@ -151,14 +152,18 @@ impl FreeSpaceManager {
         for i in 0..NLIST {
             let slot = (self.last_slot + i) % NLIST;
             if let Some(mut buf) = get_chain(bman, root.partial[slot], horizon, false) {
-                let mut pg = buf.page_mut();
-                let b = pg.contents_mut::<FSMChain>();
+                let bno = buf.number();
+                let mut b = buf.page_mut().contents_mut::<FSMChain>();
                 self.last_slot = slot;
                 if n >= b.h.count {
-                    let vers = root.version;
+                    let rvers = root.version;
+                    let bvers = b.h.version;
+                    drop(buf);
                     let mut mbuf = rbuf.upgrade(bman);
                     let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
-                    if mroot.version != vers {
+                    buf = bman.get_buffer_mut(bno);
+                    b = buf.page_mut().contents_mut::<FSMChain>();
+                    if mroot.version != rvers || b.h.version != bvers {
                         return true;
                     }
                     n = b.h.count;
@@ -167,15 +172,21 @@ impl FreeSpaceManager {
                     v.push(b.entries[(b.h.count-i) as usize]);
                 }
                 b.h.count -= n;
+                b.h.version += 1;
                 return true;
             }
             if let Some(mut buf) = get_chain(bman, root.filled[slot], horizon, false) {
-               let b = buf.page_mut().contents_mut::<FSMChain>();
+                let bno = buf.number();
+                let mut b = buf.page_mut().contents_mut::<FSMChain>();
+                let rvers = root.version;
+                let bvers = b.h.version;
+                drop(buf);
 
-                let vers = root.version;
                 let mut mbuf = rbuf.upgrade(bman);
                 let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
-                if mroot.version != vers {
+                buf = bman.get_buffer_mut(bno);
+                b = buf.page_mut().contents_mut::<FSMChain>();
+                if mroot.version != rvers || b.h.version != bvers{
                     return true;
                 }
                 if n > b.h.count {
@@ -185,6 +196,7 @@ impl FreeSpaceManager {
                     v.push(b.entries[(b.h.count-i) as usize]);
                 }
                 b.h.count -= n;
+                b.h.version += 1;
                 move_block(&mut mroot.filled[slot], &mut mroot.partial[slot], bman, &mut buf);
                 mroot.version += 1;
                 mroot.drain += n as usize;
@@ -265,6 +277,7 @@ impl FreeSpaceManager {
                                 }
                                 b.entries[b.h.count as usize] = *bno;
                                 b.h.count += 1;
+                                b.h.version += 1;
                                 iter.next();
                                 root.version += 1;
                                 move_block(&mut root.partial[slot], &mut root.filled[slot], bman, &mut buf);
@@ -510,6 +523,7 @@ fn new_chain(bman : &mut BufferManager, xid : pg_sys::TransactionId) -> BufferMu
     *chain = FSMChain {
         h: ChainHeader {
             kind: FSMBlockKind::v2_ent,
+            version: 0,
             xid: xid.into_inner(),
             count: 0,
         },

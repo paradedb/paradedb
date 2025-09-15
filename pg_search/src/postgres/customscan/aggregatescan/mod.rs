@@ -470,7 +470,7 @@ fn extract_grouping_columns(
                 {
                     // JSON operator expression or complex field access
                     let (heaprelid, attno, _) = find_var_relation(var, root);
-                    if heaprelid == pg_sys::Oid::INVALID {
+                    if heaprelid == pg_sys::InvalidOid {
                         continue;
                     }
                     (field_name.to_string(), attno)

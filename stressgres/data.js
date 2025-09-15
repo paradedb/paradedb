@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757932027106,
+  "lastUpdate": 1757932707480,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -526,6 +526,60 @@ window.BENCHMARK_DATA = {
             "value": 15.749388543460382,
             "unit": "median tps",
             "extra": "avg tps: 15.956376359022904, max tps: 18.862092227029876, count: 55536"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a521487756693e82c46bfe2f1a2f2fd3aded0136",
+          "message": "fix: fixed `rt_fetch out-of-bounds` error (#3141)\n\n# Ticket(s) Closed\n\n- Closes #3135\n\n## What\n\nFixed `rt_fetch used out-of-bounds` and `Cannot open relation with\noid=0` errors that occurred in complex SQL queries with nested `OR\nEXISTS` clauses, multiple `JOIN`s.\n\n## Why\n\nThe issue occurred when PostgreSQL's query planner generated `Var` nodes\nreferencing Range Table Entries (RTEs) that were valid in outer planning\ncontexts but didn't exist in inner execution contexts. This happened\nspecifically with:\n- `OR EXISTS` subqueries (not `AND EXISTS`)  \n- Multiple `JOIN`s within the `EXISTS` clause\n- ParadeDB functions applied to joined tables\n\nWhen ParadeDB's custom scan tried to access these out-of-bounds RTEs\nusing `rt_fetch`, it caused crashes.\n\n## How\n\nImplemented bounds checking across the codebase:\n\n1. **Early detection**: Added bounds checking in `find_var_relation()`\nto detect invalid `varno` values and return `pg_sys::InvalidOid`. This\nwas the main fix for the issue.\n2. **Graceful handling**: Modified all functions that receive relation\nOIDs to check for `InvalidOid` before attempting to open relations\n3. **Safe fallbacks**: Updated query optimization logic to skip\noptimizations when relation information is unavailable rather than\ncrashing\n\n## Tests\n\nAdded regression test `or_exists_join_bug.sql` covering:\n- Simple queries (baseline functionality)\n- `AND EXISTS` with multiple `JOIN`s (should work)  \n- `OR EXISTS` with multiple `JOIN`s (the problematic case, now fixed)\n- Various edge cases and workarounds\n- Minimal reproduction cases\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-09-15T02:47:52-07:00",
+          "tree_id": "4a0b5db116e0263111295cc53d05810e093ce68c",
+          "url": "https://github.com/paradedb/paradedb/commit/a521487756693e82c46bfe2f1a2f2fd3aded0136"
+        },
+        "date": 1757932705957,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.89020302753164,
+            "unit": "median tps",
+            "extra": "avg tps: 38.188917156569836, max tps: 39.9097463625174, count: 55560"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 246.89006209904443,
+            "unit": "median tps",
+            "extra": "avg tps: 274.4227896748501, max tps: 2345.8986239887086, count: 55560"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 502.00118009048856,
+            "unit": "median tps",
+            "extra": "avg tps: 496.95802995720453, max tps: 503.62166452353097, count: 55560"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 103.08895022611539,
+            "unit": "median tps",
+            "extra": "avg tps: 106.10379856060364, max tps: 343.6267995529278, count: 111120"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.97137660706832,
+            "unit": "median tps",
+            "extra": "avg tps: 16.371886049012378, max tps: 20.28039265273823, count: 55560"
           }
         ]
       }

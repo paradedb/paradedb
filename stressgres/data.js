@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757930637873,
+  "lastUpdate": 1757930641054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3784,6 +3784,126 @@ window.BENCHMARK_DATA = {
             "value": 155.1640625,
             "unit": "median mem",
             "extra": "avg mem: 139.3788320712796, max mem: 158.01171875, count: 55135"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a521487756693e82c46bfe2f1a2f2fd3aded0136",
+          "message": "fix: fixed `rt_fetch out-of-bounds` error (#3141)\n\n# Ticket(s) Closed\n\n- Closes #3135\n\n## What\n\nFixed `rt_fetch used out-of-bounds` and `Cannot open relation with\noid=0` errors that occurred in complex SQL queries with nested `OR\nEXISTS` clauses, multiple `JOIN`s.\n\n## Why\n\nThe issue occurred when PostgreSQL's query planner generated `Var` nodes\nreferencing Range Table Entries (RTEs) that were valid in outer planning\ncontexts but didn't exist in inner execution contexts. This happened\nspecifically with:\n- `OR EXISTS` subqueries (not `AND EXISTS`)  \n- Multiple `JOIN`s within the `EXISTS` clause\n- ParadeDB functions applied to joined tables\n\nWhen ParadeDB's custom scan tried to access these out-of-bounds RTEs\nusing `rt_fetch`, it caused crashes.\n\n## How\n\nImplemented bounds checking across the codebase:\n\n1. **Early detection**: Added bounds checking in `find_var_relation()`\nto detect invalid `varno` values and return `pg_sys::InvalidOid`. This\nwas the main fix for the issue.\n2. **Graceful handling**: Modified all functions that receive relation\nOIDs to check for `InvalidOid` before attempting to open relations\n3. **Safe fallbacks**: Updated query optimization logic to skip\noptimizations when relation information is unavailable rather than\ncrashing\n\n## Tests\n\nAdded regression test `or_exists_join_bug.sql` covering:\n- Simple queries (baseline functionality)\n- `AND EXISTS` with multiple `JOIN`s (should work)  \n- `OR EXISTS` with multiple `JOIN`s (the problematic case, now fixed)\n- Various edge cases and workarounds\n- Minimal reproduction cases\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2025-09-15T02:47:52-07:00",
+          "tree_id": "4a0b5db116e0263111295cc53d05810e093ce68c",
+          "url": "https://github.com/paradedb/paradedb/commit/a521487756693e82c46bfe2f1a2f2fd3aded0136"
+        },
+        "date": 1757930639512,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9293424784242985, max cpu: 14.34263, count: 55076"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 142.26910492149483, max mem: 154.05078125, count: 55076"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.598644897786393, max cpu: 9.266409, count: 55076"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 147.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 135.47450405178753, max mem: 147.85546875, count: 55076"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.859046745113744, max cpu: 14.356929, count: 55076"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 142.90890215906202, max mem: 154.3984375, count: 55076"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.487845991617897, max cpu: 4.729064, count: 55076"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 143.71444515306123, max mem: 155.2578125, count: 55076"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.086688657340288, max cpu: 14.34263, count: 110152"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 161.5,
+            "unit": "median mem",
+            "extra": "avg mem: 153.33502367041677, max mem: 171.40625, count: 110152"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 37952,
+            "unit": "median block_count",
+            "extra": "avg block_count: 38680.033626261895, max block_count: 77698.0, count: 55076"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 32.22240177209674, max segment_count: 77.0, count: 55076"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.879687660381722, max cpu: 9.561753, count: 55076"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 164.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.427877855713, max mem: 166.06640625, count: 55076"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.806998711418643, max cpu: 18.640776, count: 55076"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 153.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.37679794170782, max mem: 158.1015625, count: 55076"
           }
         ]
       }

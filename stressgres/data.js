@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757970331141,
+  "lastUpdate": 1757970391588,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -7452,6 +7452,42 @@ window.BENCHMARK_DATA = {
             "value": 596.626991647523,
             "unit": "median tps",
             "extra": "avg tps: 595.3690060155251, max tps: 676.5761235998564, count: 57386"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af5bea23effe976b411147e259e53afad947a393",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3159)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-15T16:26:19-04:00",
+          "tree_id": "cbc00b9a93c129255360f60e5a70904e87f1e8c1",
+          "url": "https://github.com/paradedb/paradedb/commit/af5bea23effe976b411147e259e53afad947a393"
+        },
+        "date": 1757970390026,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 35.95522645010718,
+            "unit": "median tps",
+            "extra": "avg tps: 35.82258573832357, max tps: 36.15931436402156, count: 57694"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 586.8842735930652,
+            "unit": "median tps",
+            "extra": "avg tps: 585.5378976855646, max tps: 666.6814121580074, count: 57694"
           }
         ]
       }

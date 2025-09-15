@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757969181283,
+  "lastUpdate": 1757969184738,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1888,6 +1888,114 @@ window.BENCHMARK_DATA = {
             "value": 155.26953125,
             "unit": "median mem",
             "extra": "avg mem: 153.40345251705946, max mem: 156.1328125, count: 55541"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8211eef7a0dd34237afebfa91364fb66c65a4906",
+          "message": "perf: remove `ExactBuffer` in favor of a regular rust `BufWriter` (#3158)\n\n# Ticket(s) Closed\n\n- Closes #2981  (/cc @yjhjstz)\n\nWhile #2981 wasn't the impetus for this, it addresses the complaint made\nthere just the same.\n\n## What\n\nIn profiling, our `ExactBuffer` was a large percentage of certain\nprofiles. This replaces it, and its complexity, with a standard Rust\n`BufWriter`.\n\n## Why\n\nImproves performance of (at least) our `wide-table.toml` test's \"Single\nUpdate\" job by quite a bit.\n\n<img width=\"720\" height=\"141\" alt=\"screenshot_2025-09-15_at_3 28\n33___pm_720\"\nsrc=\"https://github.com/user-attachments/assets/a373a7ae-df38-4691-980a-d6843f073d26\"\n/>\n\n\n## How\n\n## Tests\n\nExisting tests pass",
+          "timestamp": "2025-09-15T15:55:52-04:00",
+          "tree_id": "4ddf140542c5525034023441aadac4b634c90fc6",
+          "url": "https://github.com/paradedb/paradedb/commit/8211eef7a0dd34237afebfa91364fb66c65a4906"
+        },
+        "date": 1757969183181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.79692076709724, max cpu: 41.618496, count: 55824"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.68226983465894, max mem: 155.85546875, count: 55824"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.357564449372935, max cpu: 36.958614, count: 55824"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 147.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 143.17162001334552, max mem: 147.25390625, count: 55824"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.950889861523378, max cpu: 13.88621, count: 55824"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 142.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 115.01307989171325, max mem: 143.53125, count: 55824"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 28148,
+            "unit": "median block_count",
+            "extra": "avg block_count: 29388.566781312697, max block_count: 61826.0, count: 55824"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4701049478208486, max cpu: 4.6647234, count: 55824"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 86.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 83.81838372608556, max mem: 125.1640625, count: 55824"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.382022069360847, max segment_count: 56.0, count: 55824"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.905319486411264, max cpu: 36.958614, count: 111648"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 151.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 137.66774976516598, max mem: 155.97265625, count: 111648"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.832853,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.174375921219589, max cpu: 32.18391, count: 55824"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 153.90153988427917, max mem: 158.25390625, count: 55824"
           }
         ]
       }

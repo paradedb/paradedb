@@ -61,26 +61,15 @@ Or, you can compile the extension from source without `--features icu` to build 
 
 #### RHEL/Rocky and Other Linux Distributions Using Pigsty
 
-`pg_search` can also be installed using the Pigsty extension repository.
-
-To install `pig` for EL 8/9 and compatible systems follow the instructions to get the `pigsty` repo https://pigsty.io/ext/repo/yum/
-
-Then:
+* `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
+* To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
 
 ```bash
-yum install pig
-```
-
-For alternate ways to install pig / Pigsty or for other Linux distributions see: https://pigsty.io/ext/repo/
-
-
-Once `pig` is installed then use it to install `pg_search`:
-```bash
+dnf install pig
 pig install pg_search
 ```
 
-
-
+You should then be able to run `CREATE EXTENSION pg_search;` as superuser is PostgreSQL.
 
 #### macOS
 

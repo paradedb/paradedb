@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758034515268,
+  "lastUpdate": 1758035201261,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -8610,6 +8610,42 @@ window.BENCHMARK_DATA = {
             "value": 605.1762258618348,
             "unit": "median tps",
             "extra": "avg tps: 610.104344592047, max tps: 744.8357525616824, count: 57364"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "878c50feef96d61785ad711ebe46250c920bed70",
+          "message": "fix: sequential scan segfault (#3163)\n\n# Ticket(s) Closed\n\n- Closes #3151 \n\n## What\n\nThe `@@@` return type should be `bool`, not `SearchQueryInput`.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-09-16T10:27:13-04:00",
+          "tree_id": "6859469869310b79c8c32af68b3ed77dfb787362",
+          "url": "https://github.com/paradedb/paradedb/commit/878c50feef96d61785ad711ebe46250c920bed70"
+        },
+        "date": 1758035199614,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 36.186798585532955,
+            "unit": "median tps",
+            "extra": "avg tps: 36.090589625470614, max tps: 36.41734847805764, count: 57647"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 595.1052289756238,
+            "unit": "median tps",
+            "extra": "avg tps: 596.0051258480202, max tps: 705.350721282946, count: 57647"
           }
         ]
       }

@@ -208,17 +208,17 @@ impl Buffer {
         }
     }
 
-    pub fn upgrade_conditional(self, bman: &mut BufferManager) -> Option<BufferMut> {
-        let blockno = self.number();
-        drop(self);
-
-        let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
-        block_tracker::track!(Write, pg_buffer);
-        Some(BufferMut {
-            dirty: false,
-            inner: Buffer::new(pg_buffer),
-        })
-    }
+//    pub fn upgrade_conditional(self, bman: &mut BufferManager) -> Option<BufferMut> {
+//        let blockno = self.number();
+//        drop(self);
+//
+//        let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
+//        block_tracker::track!(Write, pg_buffer);
+//        Some(BufferMut {
+//            dirty: false,
+//            inner: Buffer::new(pg_buffer),
+//        })
+//    }
 }
 
 #[derive(Debug)]
@@ -275,10 +275,6 @@ impl BufferMut {
             buffer: self,
             pg_page,
         }
-    }
-
-    pub fn set_dirty(&mut self, is_dirty: bool) {
-        self.dirty = is_dirty
     }
 
     pub fn number(&self) -> pg_sys::BlockNumber {

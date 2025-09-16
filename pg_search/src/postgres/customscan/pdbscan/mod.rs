@@ -182,6 +182,7 @@ impl PdbScan {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     unsafe fn extract_all_possible_quals(
         builder: &mut CustomPathBuilder<PdbScan>,
         root: *mut pg_sys::PlannerInfo,
@@ -190,6 +191,7 @@ impl PdbScan {
         ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
         uses_score_or_snippet: bool,
+        attempt_pushdown: bool,
     ) -> (Option<Qual>, RestrictInfoType, PgList<pg_sys::RestrictInfo>) {
         let mut state = QualExtractState::default();
         let mut quals = extract_quals(
@@ -201,6 +203,7 @@ impl PdbScan {
             indexrel,
             false, // Base relation quals should not convert external to all
             &mut state,
+            attempt_pushdown,
         );
 
         // If we couldn't push down quals, try to push down quals from the join
@@ -217,6 +220,7 @@ impl PdbScan {
                 indexrel,
                 true, // Join quals should convert external to all
                 &mut state,
+                attempt_pushdown,
             );
 
             let quals = Self::handle_heap_expr_optimization(&state, &mut quals, root, rti);
@@ -341,6 +345,8 @@ impl CustomScan for PdbScan {
             // Opening the Directory and Index down below is expensive, so if we can avoid it,
             // especially for non-SELECT (ie, UPDATE) statements, that's good
             //
+            let is_select =
+                (*(*builder.args().root).parse).commandType == pg_sys::CmdType::CMD_SELECT;
             let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
                 &mut builder,
                 root,
@@ -349,6 +355,7 @@ impl CustomScan for PdbScan {
                 ri_type,
                 &bm25_index,
                 maybe_needs_const_projections,
+                is_select,
             );
 
             let Some(quals) = quals else {
@@ -637,6 +644,7 @@ impl CustomScan for PdbScan {
                 anyelement_query_input_opoid(),
                 &indexrel,
                 &base_query,
+                true,
             );
 
             builder

@@ -15,30 +15,35 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
-use std::cmp::min;
-use pgrx::{pg_extern, pg_sys, name, AnyNumeric, PgRelation, iter::TableIterator};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::block::{
+    BM25PageSpecialData, FileEntry, LinkedList, SegmentMetaEntry,
+};
 use crate::postgres::storage::buffer::BufferManager;
-use crate::postgres::storage::block::{SegmentMetaEntry, FileEntry, BM25PageSpecialData, LinkedList};
 use crate::postgres::storage::fsm::FSMRoot;
+use crate::postgres::storage::metadata::MetaPage;
+use pgrx::{iter::TableIterator, name, pg_extern, pg_sys, AnyNumeric, PgRelation};
+use std::cmp::min;
+use std::collections::HashSet;
 
 #[pg_extern]
 unsafe fn used_blocks(
     index: PgRelation,
-) -> TableIterator<'static, (
-    name!(meta, AnyNumeric),
-    name!(fixed, AnyNumeric),
-    name!(fsm, AnyNumeric),
-    name!(schema, AnyNumeric),
-    name!(settings, AnyNumeric),
-    name!(segmeta, AnyNumeric),
-    name!(garbage, AnyNumeric),
-    name!(segfile, AnyNumeric),
-    name!(vaclist, AnyNumeric),
-    name!(mergelist, AnyNumeric),
-)> {
+) -> TableIterator<
+    'static,
+    (
+        name!(meta, AnyNumeric),
+        name!(fixed, AnyNumeric),
+        name!(fsm, AnyNumeric),
+        name!(schema, AnyNumeric),
+        name!(settings, AnyNumeric),
+        name!(segmeta, AnyNumeric),
+        name!(garbage, AnyNumeric),
+        name!(segfile, AnyNumeric),
+        name!(vaclist, AnyNumeric),
+        name!(mergelist, AnyNumeric),
+    ),
+> {
     let index = PgSearchRelation::from_pg(index.as_ptr());
     let mut bman = BufferManager::new(&index);
     let mp = MetaPage::open(&index);
@@ -57,15 +62,19 @@ unsafe fn used_blocks(
     scan_fsm(&mut bman, mp.fsm(), &mut fsm);
     schema.extend(mp.schema_bytes().freeable_blocks());
     settings.extend(mp.settings_bytes().freeable_blocks());
-    scan_chain(&mut bman, mp.segment_metas().get_header_blockno(), &mut segmeta);
-//    let vacuum_list = LinkedBytesList::open(&index, mp.vacuum_list().start_block_number);
-//    vaclist.extend(vacuum_list.freeable_blocks());
-//    vaclist.insert(mp.vacuum_list().ambulkdelete_sentinel);
+    scan_chain(
+        &mut bman,
+        mp.segment_metas().get_header_blockno(),
+        &mut segmeta,
+    );
+    //    let vacuum_list = LinkedBytesList::open(&index, mp.vacuum_list().start_block_number);
+    //    vaclist.extend(vacuum_list.freeable_blocks());
+    //    vaclist.insert(mp.vacuum_list().ambulkdelete_sentinel);
 
-//    let merge_lock = mp.acquire_merge_lock();
-//    let merge_list = LinkedBytesList::open(&index, merge_lock.merge_list().entries.get_header_blockno());
-//    mergelist.extend(merge_list.freeable_blocks());
-//    drop(merge_lock);
+    //    let merge_lock = mp.acquire_merge_lock();
+    //    let merge_list = LinkedBytesList::open(&index, merge_lock.merge_list().entries.get_header_blockno());
+    //    mergelist.extend(merge_list.freeable_blocks());
+    //    drop(merge_lock);
 
     if let Some(g) = mp.segment_metas_garbage() {
         scan_chain(&mut bman, g.get_header_blockno(), &mut garbage);
@@ -91,7 +100,7 @@ unsafe fn used_blocks(
 fn scan_meta(
     bman: &mut BufferManager,
     m: &SegmentMetaEntry,
-    live: &mut HashSet<pg_sys::BlockNumber>
+    live: &mut HashSet<pg_sys::BlockNumber>,
 ) {
     scan_file(bman, &m.postings, live);
     scan_file(bman, &m.positions, live);
@@ -108,7 +117,7 @@ fn scan_meta(
 fn scan_file(
     bman: &mut BufferManager,
     file: &Option<FileEntry>,
-    live: &mut HashSet<pg_sys::BlockNumber>
+    live: &mut HashSet<pg_sys::BlockNumber>,
 ) {
     if let Some(e) = file {
         let mut b = e.starting_block;
@@ -127,7 +136,7 @@ fn scan_file(
 fn scan_fsm(
     bman: &mut BufferManager,
     fsm_root: pg_sys::BlockNumber,
-    live: &mut HashSet<pg_sys::BlockNumber>
+    live: &mut HashSet<pg_sys::BlockNumber>,
 ) {
     live.insert(fsm_root);
     let buf = bman.get_buffer(fsm_root);
@@ -143,7 +152,7 @@ fn scan_fsm(
 fn scan_chain(
     bman: &mut BufferManager,
     mut b: pg_sys::BlockNumber,
-    live: &mut HashSet<pg_sys::BlockNumber>
+    live: &mut HashSet<pg_sys::BlockNumber>,
 ) {
     while b != pg_sys::InvalidBlockNumber {
         live.insert(b);
@@ -152,5 +161,3 @@ fn scan_chain(
         b = pg.special::<BM25PageSpecialData>().next_blockno;
     }
 }
-
-

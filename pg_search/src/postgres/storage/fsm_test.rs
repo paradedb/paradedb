@@ -15,22 +15,34 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use super::buffer::BufferManager;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
-use super::buffer::BufferManager;
 use crate::Spi;
-use pgrx::pg_test;
 use pgrx::pg_sys;
 use pgrx::pg_sys::BlockNumber;
+use pgrx::pg_test;
 
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
 
-    #[pg_test] fn fsm_pushpop_small() { pushpop_n(10, 123) }
-    #[pg_test] fn fsm_pushpop_medium() { pushpop_n(500, 124) }
-    #[pg_test] fn fsm_pushpop_large() { pushpop_n(3000, 125) }
-    #[pg_test] fn fsm_pushpop_huge() { pushpop_n(10000, 126) }
+    #[pg_test]
+    fn fsm_pushpop_small() {
+        pushpop_n(10, 123)
+    }
+    #[pg_test]
+    fn fsm_pushpop_medium() {
+        pushpop_n(500, 124)
+    }
+    #[pg_test]
+    fn fsm_pushpop_large() {
+        pushpop_n(3000, 125)
+    }
+    #[pg_test]
+    fn fsm_pushpop_huge() {
+        pushpop_n(10000, 126)
+    }
 
     #[pg_test]
     fn fsm_big() {
@@ -40,11 +52,11 @@ mod tests {
         fsm.extend_with_when_recyclable(&mut bman, extend_when, 0..100_000);
 
         let drain_when = pg_sys::TransactionId::from(101);
-        let drained : Vec<_> = fsm.drain_at(&mut bman, drain_when, 100_000).collect();
+        let drained: Vec<_> = fsm.drain_at(&mut bman, drain_when, 100_000).collect();
         assert_eq!(drained.len(), 100_000);
     }
 
-    fn pushpop_n(n : usize, xid_n : u32) {
+    fn pushpop_n(n: usize, xid_n: u32) {
         let (mut bman, mut fsm) = init();
         let xid = pg_sys::TransactionId::from(xid_n);
 
@@ -154,15 +166,15 @@ mod tests {
         fsm.extend_with_when_recyclable(&mut bman, xid4, vec![40, 41].into_iter());
 
         let horizon1 = pg_sys::TransactionId::from(104);
-        let drained1 : Vec<_> = fsm.drain_at(&mut bman, horizon1, 10).collect();
+        let drained1: Vec<_> = fsm.drain_at(&mut bman, horizon1, 10).collect();
         assert_eq!(drained1.len(), 4);
 
         let horizon2 = pg_sys::TransactionId::from(106);
-        let drained2 : Vec<_> = fsm.drain_at(&mut bman, horizon2, 10).collect();
+        let drained2: Vec<_> = fsm.drain_at(&mut bman, horizon2, 10).collect();
         assert_eq!(drained2.len(), 2);
 
         let horizon3 = pg_sys::TransactionId::from(110);
-        let drained3 : Vec<_> = fsm.drain_at(&mut bman, horizon3, 10).collect();
+        let drained3: Vec<_> = fsm.drain_at(&mut bman, horizon3, 10).collect();
         assert_eq!(drained3.len(), 2);
 
         let mut all_drained = drained1;

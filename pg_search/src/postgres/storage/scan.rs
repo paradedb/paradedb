@@ -21,6 +21,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FSMRoot;
+use crate::postgres::storage::fsm::fsm_dump;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{iter::TableIterator, name, pg_extern, pg_sys, AnyNumeric, PgRelation};
 use std::cmp::min;
@@ -59,6 +60,7 @@ unsafe fn used_blocks(
     let vaclist = HashSet::<pg_sys::BlockNumber>::new();
     let mergelist = HashSet::<pg_sys::BlockNumber>::new();
 
+    fsm_dump(mp.fsm(), &mut bman, "scan used");
     scan_fsm(&mut bman, mp.fsm(), &mut fsm);
     schema.extend(mp.schema_bytes().freeable_blocks());
     settings.extend(mp.settings_bytes().freeable_blocks());

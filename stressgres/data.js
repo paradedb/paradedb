@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758035203961,
+  "lastUpdate": 1758035883013,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -904,6 +904,60 @@ window.BENCHMARK_DATA = {
             "value": 17.885206238211765,
             "unit": "median tps",
             "extra": "avg tps: 17.95055923787478, max tps: 19.910899521079152, count: 55471"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "878c50feef96d61785ad711ebe46250c920bed70",
+          "message": "fix: sequential scan segfault (#3163)\n\n# Ticket(s) Closed\n\n- Closes #3151 \n\n## What\n\nThe `@@@` return type should be `bool`, not `SearchQueryInput`.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-09-16T10:27:13-04:00",
+          "tree_id": "6859469869310b79c8c32af68b3ed77dfb787362",
+          "url": "https://github.com/paradedb/paradedb/commit/878c50feef96d61785ad711ebe46250c920bed70"
+        },
+        "date": 1758035881379,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 35.68983408121335,
+            "unit": "median tps",
+            "extra": "avg tps: 35.92672362716859, max tps: 38.61083840037252, count: 55379"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.0953256847614,
+            "unit": "median tps",
+            "extra": "avg tps: 263.33284583797746, max tps: 2295.562906458107, count: 55379"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1016.2932991821962,
+            "unit": "median tps",
+            "extra": "avg tps: 1003.1550984464978, max tps: 1039.8838633985426, count: 55379"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 125.1904824360289,
+            "unit": "median tps",
+            "extra": "avg tps: 158.44750772346242, max tps: 773.0410951776693, count: 110758"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.115447530727703,
+            "unit": "median tps",
+            "extra": "avg tps: 18.003853335820224, max tps: 20.747306786919165, count: 55379"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758059757701,
+  "lastUpdate": 1758059760366,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6916,6 +6916,126 @@ window.BENCHMARK_DATA = {
             "value": 149.38671875,
             "unit": "median mem",
             "extra": "avg mem: 129.4262843860284, max mem: 150.2109375, count: 55255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "489eb48583040067612195f9e1406d5e31a1599f",
+          "message": "perf: teach custom scan callback to exit early if it can (#3168)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2025-09-16T17:39:51-04:00",
+          "tree_id": "0ebcd01c6225cbb43b199470f7f78bd694493ed7",
+          "url": "https://github.com/paradedb/paradedb/commit/489eb48583040067612195f9e1406d5e31a1599f"
+        },
+        "date": 1758059758790,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.883834192076605, max cpu: 14.530776, count: 55419"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.67235775692905, max mem: 154.22265625, count: 55419"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.594653734173677, max cpu: 9.347614, count: 55419"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 27.118226882928237, max mem: 32.2109375, count: 55419"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.952076620445947, max cpu: 19.6319, count: 55419"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.0659485859994, max mem: 154.8046875, count: 55419"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.620663263379893, max cpu: 9.275363, count: 55419"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2575285128972, max mem: 155.640625, count: 55419"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.669754555009268, max cpu: 9.458128, count: 110838"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.76265226332575, max mem: 157.5078125, count: 110838"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34017,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34679.66628773525, max block_count: 72636.0, count: 55419"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.375322542810228, max segment_count: 75.0, count: 55419"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.678658780926449, max cpu: 9.257474, count: 55419"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.05923763736263, max mem: 158.4296875, count: 55419"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.175743032691384, max cpu: 9.402546, count: 55419"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 149.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 132.25896691567874, max mem: 151.328125, count: 55419"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758035201261,
+  "lastUpdate": 1758035203961,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -9596,6 +9596,66 @@ window.BENCHMARK_DATA = {
             "value": 163.98046875,
             "unit": "median mem",
             "extra": "avg mem: 152.79084885827783, max mem: 165.140625, count: 57364"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "878c50feef96d61785ad711ebe46250c920bed70",
+          "message": "fix: sequential scan segfault (#3163)\n\n# Ticket(s) Closed\n\n- Closes #3151 \n\n## What\n\nThe `@@@` return type should be `bool`, not `SearchQueryInput`.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-09-16T10:27:13-04:00",
+          "tree_id": "6859469869310b79c8c32af68b3ed77dfb787362",
+          "url": "https://github.com/paradedb/paradedb/commit/878c50feef96d61785ad711ebe46250c920bed70"
+        },
+        "date": 1758035202339,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.668706285312755, max cpu: 52.64207, count: 57647"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.68359375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.42489343818846, max mem: 168.97265625, count: 57647"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22433,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20241.412545318923, max block_count: 24227.0, count: 57647"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 49,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.189688969070374, max segment_count: 137.0, count: 57647"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.419130669108517, max cpu: 27.988338, count: 57647"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 161.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.91435556869828, max mem: 164.0546875, count: 57647"
           }
         ]
       }

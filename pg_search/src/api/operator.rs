@@ -374,7 +374,7 @@ unsafe fn rewrite_to_search_query_input_opexpr(
     opexpr.args = args.into_pg();
     opexpr.opno = anyelement_query_input_opoid();
     opexpr.opfuncid = anyelement_query_input_procoid();
-    opexpr.opresulttype = searchqueryinput_typoid();
+    opexpr.opresulttype = pg_sys::BOOLOID;
     opexpr.opretset = false;
     opexpr.opcollid = pg_sys::Oid::INVALID;
     opexpr.inputcollid = pg_sys::DEFAULT_COLLATION_OID;

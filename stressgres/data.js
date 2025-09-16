@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758043616471,
+  "lastUpdate": 1758043619530,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6568,6 +6568,126 @@ window.BENCHMARK_DATA = {
             "value": 149.00390625,
             "unit": "median mem",
             "extra": "avg mem: 129.49249634092186, max mem: 151.05078125, count: 55171"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2a0c9c43e4385628cc7b828a8ed12c30e55050e",
+          "message": "chore: don't warn about `raw` tokenizer on UUID key fields (#3166)\n\n## What\n\nRemove the warning about using the `raw` tokenizer when the `key_field`\nis a UUID field.\n\nThe drama here is that we (pg_search) assign the `raw` tokenizer to UUID\nfields used as the key_field so there's nothing a user can do about it.\nWarning about our own bad decisions is not cool.\n\n## Why\n\nMany user and customer complaints.\n\n## How\n\n## Tests\n\nExisting tests pass but a couple of the regression test expected output\nis now different.",
+          "timestamp": "2025-09-16T13:10:47-04:00",
+          "tree_id": "2b24aea6e3a0645c584d8ebb8ce7465c8c90f904",
+          "url": "https://github.com/paradedb/paradedb/commit/f2a0c9c43e4385628cc7b828a8ed12c30e55050e"
+        },
+        "date": 1758043617972,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.881946526645582, max cpu: 13.953489, count: 55255"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.25382926318886, max mem: 154.84375, count: 55255"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.62871916223159, max cpu: 9.4395275, count: 55255"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 147.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 132.9837637006832, max mem: 147.59375, count: 55255"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.918860509560344, max cpu: 18.805092, count: 55255"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 153.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.76668952470365, max mem: 153.60546875, count: 55255"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.443454457171822, max cpu: 4.7477746, count: 55255"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 140.44754660211746, max mem: 154.63671875, count: 55255"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.671894871528699, max cpu: 9.486166, count: 110510"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 155.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.3321462706995, max mem: 156.50390625, count: 110510"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34165,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34452.66688987422, max block_count: 69678.0, count: 55255"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.56583114650258, max segment_count: 76.0, count: 55255"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.480399434123086, max cpu: 9.458128, count: 55255"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.41209364537147, max mem: 155.86328125, count: 55255"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9130436124718155, max cpu: 9.311348, count: 55255"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 149.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 129.4262843860284, max mem: 150.2109375, count: 55255"
           }
         ]
       }

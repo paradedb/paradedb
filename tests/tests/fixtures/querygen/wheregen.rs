@@ -64,6 +64,7 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         .collect::<Vec<_>>();
     let columns = columns
         .iter()
+        .filter(|c| c.is_whereable)
         .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
         .collect::<Vec<_>>();
 

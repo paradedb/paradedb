@@ -66,7 +66,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # We force reinstall icu4c to make sure it is in PATH
       - name: Install Dependencies
@@ -193,7 +193,7 @@ jobs:
                   pg_search@${{ matrix.pg_version }}--${tag_version}.arm64_${{ steps.version.outputs.os_version }}.pkg
 
       - name: Sign and Attest Build Provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
 

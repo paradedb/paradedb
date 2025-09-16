@@ -61,7 +61,7 @@ SELECT
     ),
     CASE WHEN i % 7 = 0 THEN '2023-06-01'::timestamp + ((i % 30) || ' days')::interval ELSE NULL END,
     CASE WHEN i % 4 = 0 THEN 'USD' WHEN i % 4 = 1 THEN 'EUR' WHEN i % 4 = 2 THEN 'GBP' ELSE 'JPY' END,
-    CASE WHEN i % 3 = 0 THEN 'pending' WHEN i % 3 = 1 THEN 'completed' ELSE 'failed' END,
+    CASE WHEN i % 4 = 0 THEN 'pending' WHEN i % 4 = 1 THEN 'completed' WHEN i % 4 = 2 THEN 'failed' ELSE NULL END,
     CASE WHEN i % 2 = 0 THEN 'inbound' ELSE 'outbound' END
 FROM generate_series(1, 10000) i;
 
@@ -215,6 +215,16 @@ WHERE tenant_id = 'tenant-1'
   AND (id @@@ paradedb.match('notes', 'check'))
 ORDER BY time_period DESC
 LIMIT 25;
+
+-- Test 11: ORDER BY on column containing NULL.
+\echo 'Test 11: ORDER BY on column containing NULL.'
+EXPLAIN (ANALYZE, COSTS OFF, BUFFERS OFF, TIMING OFF, SUMMARY OFF)
+SELECT state, id
+FROM records
+WHERE id @@@ paradedb.all()
+  AND state IS NULL
+ORDER BY state, id
+LIMIT 10000;
 
 -- Cleanup
 DROP INDEX IF EXISTS records_search_idx;

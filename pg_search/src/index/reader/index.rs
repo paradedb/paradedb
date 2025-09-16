@@ -71,7 +71,7 @@ impl PartialOrd for SearchIndexScore {
 pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 
 /// See `SearchIndexReader::erased_features`.
-type ErasedFeature = Arc<dyn Feature<Output = OwnedValue, SegmentOutput = u64>>;
+type ErasedFeature = Arc<dyn Feature<Output = OwnedValue, SegmentOutput = Option<u64>>>;
 
 /// A known-size iterator of results for Top-N.
 pub struct TopNSearchResults {

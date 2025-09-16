@@ -77,7 +77,7 @@ impl ParallelQueryCapable for PdbScan {
         unsafe {
             match (*pscan_state)
                 .query()
-                .expect("should be able to serialize the query from the ParallelScanState")
+                .expect("should be able to deserialize the query from the ParallelScanState")
             {
                 Some(query) => state.custom_state_mut().set_base_search_query_input(query),
                 None => panic!("no query in ParallelScanState"),
@@ -140,39 +140,7 @@ pub fn compute_nworkers(
 }
 
 pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
-    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
-
-    loop {
-        let mutex = (*pscan_state).acquire_mutex();
-        let remaining_segments = (*pscan_state).remaining_segments();
-        if remaining_segments == 0 {
-            break None;
-        }
-
-        // If debug_parallel_query is enabled and we're the leader, then do not take the first
-        // segment (unless a deadline has passed, since in some cases we may not have any workers:
-        // e.g. UNIONS under a Gather node, etc).
-        //
-        // This significantly improves the reproducibility of parallel worker issues with small
-        // datasets, since it means that unlike in the non-parallel case, the leader will be
-        // unlikely to emit all of the segments before the workers have had a chance to start up.
-        #[cfg(not(any(feature = "pg14", feature = "pg15")))]
-        if pg_sys::debug_parallel_query != 0
-            && pg_sys::ParallelWorkerNumber == -1
-            && remaining_segments == (*pscan_state).nsegments()
-            && std::time::Instant::now() < deadline
-        {
-            continue;
-        }
-
-        // segments are claimed back-to-front and they were already organized smallest-to-largest
-        // by num_docs over in [`ParallelScanPayload::init()`].
-        //
-        // this means we're purposely checking out documents from largest-to-smallest.
-        let claimed_segment = (*pscan_state).decrement_remaining_segments();
-        break Some((*pscan_state).segment_id(claimed_segment));
-    }
+    (*pscan_state).checkout_segment()
 }
 
 pub unsafe fn list_segment_ids(pscan_state: *mut ParallelScanState) -> HashSet<SegmentId> {

@@ -102,16 +102,26 @@ impl From<&PgSearchRelation> for IndexLayerSizes {
     fn from(index: &PgSearchRelation) -> Self {
         let index_options = index.options();
 
+        let mut segment_cnt = 0;
         let mut index_byte_size = 0;
         unsafe {
             MetaPage::open(index).segment_metas().for_each(|_, entry| {
                 if entry.visible() {
-                    index_byte_size += entry.byte_size()
+                    index_byte_size += entry.byte_size();
+                    segment_cnt += 1;
                 }
             });
         }
 
         let target_segment_count = index_options.target_segment_count();
+        if segment_cnt <= target_segment_count {
+            return Self {
+                user_configured_bg_layers: false,
+                foreground_layer_sizes: Vec::new(),
+                background_layer_sizes: Vec::new(),
+            };
+        }
+
         let mut target_segment_byte_size = index_byte_size / target_segment_count as u64;
 
         // reduce by a third, which is what the LayeredMergePolicy does
@@ -194,27 +204,21 @@ pub unsafe fn do_merge(
     current_xid: Option<pg_sys::TransactionId>,
 ) -> anyhow::Result<()> {
     let layer_sizes = IndexLayerSizes::from(index);
-
     let metadata = MetaPage::open(index);
     let cleanup_lock = metadata.cleanup_lock_shared();
     let merge_lock = metadata.acquire_merge_lock();
 
-    let needs_background_merge = style == MergeStyle::Vacuum
-        || (layer_sizes.user_configured_background_layers()
-            && { merge_lock.merge_list().is_empty() }
-            && {
-                let combined_layers = layer_sizes.combined();
-                let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
-                let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let needs_background_merge = layer_sizes.user_configured_background_layers()
+        && { merge_lock.merge_list().is_empty() }
+        && {
+            let combined_layers = layer_sizes.combined();
+            let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
+            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-                background_merge_policy.set_mergeable_segment_entries(
-                    &metadata,
-                    &merge_lock,
-                    &merger,
-                );
-                let merge_candidates = background_merge_policy.simulate();
-                !merge_candidates.is_empty()
-            });
+            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+            let merge_candidates = background_merge_policy.simulate();
+            !merge_candidates.is_empty()
+        };
 
     if needs_background_merge {
         // if we need (and think we can do) a background merge then we prefer to do that

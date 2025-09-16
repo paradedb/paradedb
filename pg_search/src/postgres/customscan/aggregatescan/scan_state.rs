@@ -15,7 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{FieldName, OrderByFeature, OrderByInfo, ToTantivyJson};
+use crate::gucs;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
 };
@@ -23,6 +24,8 @@ use crate::postgres::customscan::CustomScanState;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{function_name, PgLogLevel, PgSqlErrorCode};
 use tantivy::schema::OwnedValue;
 
 use pgrx::pg_sys;
@@ -73,6 +76,12 @@ pub struct AggregateScanState {
     pub indexrel: Option<(pg_sys::LOCKMODE, PgSearchRelation)>,
     // The execution time RTI (note: potentially different from the planning-time RTI).
     pub execution_rti: pg_sys::Index,
+    // The LIMIT, if GROUP BY ... ORDER BY ... LIMIT is present
+    pub limit: Option<u32>,
+    // The OFFSET, if GROUP BY ... ORDER BY ... LIMIT is present
+    pub offset: Option<u32>,
+    // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
+    pub maybe_truncated: bool,
 }
 
 impl AggregateScanState {
@@ -122,6 +131,7 @@ impl AggregateScanState {
         // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
         // We build the JSON bottom-up so that each grouping column nests the next one.
         let mut current_aggs: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
         for (i, group_col) in self.grouping_columns.iter().enumerate().rev() {
             let mut terms = serde_json::Map::new();
@@ -129,9 +139,45 @@ impl AggregateScanState {
                 "field".to_string(),
                 serde_json::Value::String(group_col.field_name.clone()),
             );
-            // if we remove this, we'd get the default size of 10, which means we receive 10 groups max from tantivy
-            // TODO: make configurable via issue ##2964
-            terms.insert("size".to_string(), serde_json::Value::Number(10000.into()));
+
+            let orderby_info = self.orderby_info.iter().find(|info| {
+                if let OrderByFeature::Field(field_name) = &info.feature {
+                    *field_name == FieldName::from(group_col.field_name.clone())
+                } else {
+                    false
+                }
+            });
+
+            if let Some(orderby_info) = orderby_info {
+                terms.insert(
+                    orderby_info.key(),
+                    orderby_info
+                        .json_value()
+                        .expect("ordering by score is not supported"),
+                );
+            }
+
+            if let Some(limit) = self.limit {
+                let size = (limit + self.offset.unwrap_or(0)).min(max_term_agg_buckets);
+                terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
+                // because we currently support ordering only by the grouping columns, the Top N
+                // of all segments is guaranteed to contain the global Top N
+                // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
+                // and we can no longer set segment_size (per segment top N) = size (global top N)
+                terms.insert(
+                    "segment_size".to_string(),
+                    serde_json::Value::Number(size.into()),
+                );
+            } else {
+                terms.insert(
+                    "size".to_string(),
+                    serde_json::Value::Number(max_term_agg_buckets.into()),
+                );
+                terms.insert(
+                    "segment_size".to_string(),
+                    serde_json::Value::Number(max_term_agg_buckets.into()),
+                );
+            }
 
             let mut terms_agg = serde_json::Map::new();
             terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
@@ -250,8 +296,17 @@ impl AggregateScanState {
 
         self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
 
-        // Sort according to ORDER BY
-        self.sort_rows(&mut rows);
+        if self.maybe_truncated && self.was_truncated(&result) {
+            ErrorReport::new(
+                PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+                format!("query cancelled because result was truncated due to more than {} groups being returned", gucs::max_term_agg_buckets()),
+                function_name!(),
+            )
+            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` were truncated")
+            .set_hint("consider lowering the query's `LIMIT` or `OFFSET`")
+            .report(PgLogLevel::ERROR);
+        }
+
         rows
     }
 
@@ -376,49 +431,25 @@ impl AggregateScanState {
         }
     }
 
-    fn sort_rows(&self, rows: &mut [GroupedAggregateRow]) {
-        if self.orderby_info.is_empty() {
-            return;
-        }
-
-        rows.sort_by(|a, b| {
-            for order_info in &self.orderby_info {
-                // Find the index of this grouping column
-                let col_index = self
-                    .grouping_columns
-                    .iter()
-                    .position(|gc| matches!(&order_info.feature, OrderByFeature::Field(field_name) if gc.field_name == **field_name));
-
-                let cmp = if let Some(idx) = col_index {
-                    let val_a = a.group_keys.get(idx);
-                    let val_b = b.group_keys.get(idx);
-
-                    // Wrap in TantivyValue for comparison since OwnedValue doesn't implement Ord
-                    let tantivy_a = val_a.map(|v| TantivyValue(v.clone()));
-                    let tantivy_b = val_b.map(|v| TantivyValue(v.clone()));
-                    let base_cmp = tantivy_a.partial_cmp(&tantivy_b);
-
-                    if let Some(base_cmp) = base_cmp {
-                        if matches!(order_info.direction, SortDirection::Desc) {
-                            base_cmp.reverse()
+    fn was_truncated(&self, result: &serde_json::Value) -> bool {
+        result
+            .as_object()
+            .map(|obj| {
+                obj.iter()
+                    .filter_map(|(key, value)| {
+                        if key.starts_with("group_") {
+                            value
+                                .as_object()
+                                .and_then(|group_obj| group_obj.get("sum_other_doc_count"))
+                                .and_then(|v| v.as_i64())
                         } else {
-                            base_cmp
+                            None
                         }
-                    } else {
-                        panic!(
-                            "Cannot ORDER BY {order_info:?} for {tantivy_a:?} and {tantivy_b:?}."
-                        );
-                    }
-                } else {
-                    std::cmp::Ordering::Equal
-                };
-
-                if cmp != std::cmp::Ordering::Equal {
-                    return cmp;
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
+                    })
+                    .sum::<i64>()
+            })
+            .unwrap_or(0)
+            > 0
     }
 }
 

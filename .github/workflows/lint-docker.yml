@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Run Hadolint
         uses: jbergstroem/hadolint-gh-action@v1

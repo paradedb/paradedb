@@ -6,7 +6,7 @@ use pgrx::{opname, pg_operator};
 fn lhs_prox(left: ProximityClause, distance: i32) -> ProximityClause {
     ProximityClause::Proximity {
         left: Box::new(left),
-        distance: ProximityDistance::InOrder(
+        distance: ProximityDistance::AnyOrder(
             distance
                 .try_into()
                 .expect("distance should not be out of bounds `[0..]`"),

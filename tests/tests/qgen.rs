@@ -37,31 +37,42 @@ const COLUMNS: &[Column] = &[
     Column::new("id", "SERIAL8", "'4'")
         .primary_key()
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         }),
     Column::new("uuid", "UUID", "'550e8400-e29b-41d4-a716-446655440000'")
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         })
         .bm25_text_field(r#""uuid": { "tokenizer": { "type": "keyword" } , "fast": true }"#)
         .random_generator_sql("gen_random_uuid()"),
     Column::new("name", "TEXT", "'bob'")
         .bm25_text_field(r#""name": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql(
-            "(ARRAY ['alice','bob','cloe', 'sally','brandy','brisket','anchovy']::text[])[(floor(random() * 7) + 1)::int]"
+            "(ARRAY ['alice', 'bob', 'cloe', 'sally', 'brandy', 'brisket', 'anchovy']::text[])[(floor(random() * 7) + 1)::int]"
         ),
     Column::new("color", "VARCHAR", "'blue'")
+        .whereable({
+            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
+            // provide coverage for ORDER BY on a column containing NULL.
+            // https://github.com/paradedb/paradedb/issues/3111
+            false
+        })
         .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql(
-            "(ARRAY ['red','green','blue', 'orange','purple','pink','yellow']::text[])[(floor(random() * 7) + 1)::int]"
+            "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
         ),
     Column::new("age", "INTEGER", "'20'")
         .bm25_numeric_field(r#""age": { "fast": true }"#)
-        .random_generator_sql("(floor(random() * 100) + 1)::int"),
+        .random_generator_sql("(floor(random() * 100) + 1)"),
+    Column::new("quantity", "INTEGER", "'7'")
+        .whereable({
+            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
+            // provide coverage for ORDER BY on a column containing NULL.
+            // https://github.com/paradedb/paradedb/issues/3111
+            false
+        })
+        .bm25_numeric_field(r#""quantity": { "fast": true }"#)
+        .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
         .groupable({
             // TODO: Grouping on a float fails to ORDER BY (even in cases without an ORDER BY):
@@ -78,9 +89,7 @@ const COLUMNS: &[Column] = &[
             false
         })
         .groupable({
-            // TODO: Grouping on id/uuid/rating causes an error:
-            // https://github.com/paradedb/paradedb/issues/3050
-            false
+            true
         })
         .bm25_numeric_field(r#""rating": { "fast": true }"#)
         .random_generator_sql("(floor(random() * 5) + 1)::int"),
@@ -267,22 +276,18 @@ async fn generated_group_by_aggregates(database: Db) {
     eprintln!("{setup_sql}");
 
     // Columns that can be used for grouping (must have fast: true in index)
-    let grouping_columns: Vec<_> = COLUMNS
+    let columns: Vec<_> = COLUMNS
         .iter()
-        .filter(|col| col.is_groupable)
-        .map(|col| col.name)
-        .collect();
-
-    let where_columns: Vec<_> = COLUMNS
-        .iter()
-        .filter(|col| col.is_groupable)
+        .filter(|col| col.is_groupable && col.is_whereable)
         .cloned()
         .collect();
+
+    let grouping_columns: Vec<_> = columns.iter().map(|col| col.name).collect();
 
     proptest!(|(
         text_where_expr in arb_wheres(
             vec![table_name],
-            &where_columns,
+            &columns,
         ),
         numeric_where_expr in arb_wheres(
             vec![table_name],
@@ -376,7 +381,7 @@ async fn generated_paging_small(database: Db) {
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
-        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age"], vec!["id", "uuid"]),
+        paging_exprs in arb_paging_exprs(table_name, vec!["name", "color", "age", "quantity"], vec!["id", "uuid"]),
         gucs in any::<PgGucs>(),
     )| {
         compare(

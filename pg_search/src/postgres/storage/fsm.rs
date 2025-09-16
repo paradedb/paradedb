@@ -105,7 +105,7 @@ impl FreeSpaceManager {
     pub fn open(root: pg_sys::BlockNumber) -> Self {
         Self {
             last_slot: 0,
-            root: root,
+            root,
         }
     }
 
@@ -372,7 +372,7 @@ fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) {
     let mut rbuf = bman.get_buffer_mut(root);
 
     let root = rbuf.page_mut().contents_mut::<FSMRoot>();
-    eprintln!("---- BEGIN {} --------------------------", msg);
+    eprintln!("---- BEGIN {msg} --------------------------");
     for i in 0..NLIST {
         if root.partial[i] == pg_sys::InvalidBlockNumber
             && root.filled[i] == pg_sys::InvalidBlockNumber
@@ -380,7 +380,7 @@ fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) {
             continue;
         }
         let mut b = root.partial[i];
-        eprintln!("partial[{}]", i);
+        eprintln!("partial[{i}]");
         loop {
             match get_chain(bman, b, xid, true) {
                 Some(buf) => {
@@ -394,7 +394,7 @@ fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) {
                 }
             }
         }
-        eprintln!("filled[{}]", i);
+        eprintln!("filled[{i}]");
         b = root.filled[i];
         loop {
             match get_chain(bman, b, xid, true) {
@@ -410,8 +410,8 @@ fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) {
             }
         }
     }
-    eprintln!("total size: {}", count);
-    eprintln!("---- END {} --------------------------", msg);
+    eprintln!("total size: {count}");
+    eprintln!("---- END {msg} --------------------------");
 }
 
 fn next_chain(

@@ -330,6 +330,49 @@ impl CustomScan for PdbScan {
             let root = builder.args().root;
             let rel = builder.args().rel;
 
+            // quick look at the target list to see if we might need to do our const projections
+            let target_list = (*(*builder.args().root).parse).targetList;
+            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
+
+            //
+            // look for quals we can support.  we do this first so that we can get out early if this
+            // isn't a query we can support.
+            //
+            // Opening the Directory and Index down below is expensive, so if we can avoid it,
+            // especially for non-SELECT (ie, UPDATE) statements, that's good
+            //
+            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
+                &mut builder,
+                root,
+                rti,
+                restrict_info,
+                ri_type,
+                &bm25_index,
+                maybe_needs_const_projections,
+            );
+
+            let Some(quals) = quals else {
+                // if we are not able to push down all of the quals, then do not propose the custom
+                // scan, as that would mean executing filtering against heap tuples (which amounts
+                // to a join, and would require more planning).
+                return None;
+            };
+
+            // Check if this is a partial index and if the query is compatible with it
+            if !bm25_index.rd_indpred.is_null() {
+                // This is a partial index - we need to check if the query can be satisfied by it
+                if !quals.is_query_compatible_with_partial_index() {
+                    // The query cannot be satisfied by this partial index, fall back to heap scan
+                    return None;
+                }
+            }
+
+            //
+            // ===================
+            // If we make it this far, we're going to submit a path... it better be a good one!
+            // ====================
+            //
+
             // TODO: `impl Default for PrivateData` requires that many fields are in invalid
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
@@ -369,10 +412,6 @@ impl CustomScan for PdbScan {
                 None
             };
 
-            // quick look at the target list to see if we might need to do our const projections
-            let target_list = (*(*builder.args().root).parse).targetList;
-            let maybe_needs_const_projections = maybe_needs_const_projections(target_list.cast());
-
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
 
@@ -398,35 +437,6 @@ impl CustomScan for PdbScan {
                 .collect(),
             );
             let maybe_ff = custom_private.maybe_ff();
-
-            //
-            // look for quals we can support
-            //
-            let (quals, ri_type, restrict_info) = Self::extract_all_possible_quals(
-                &mut builder,
-                root,
-                rti,
-                restrict_info,
-                ri_type,
-                &bm25_index,
-                maybe_needs_const_projections,
-            );
-
-            let Some(quals) = quals else {
-                // if we are not able to push down all of the quals, then do not propose the custom
-                // scan, as that would mean executing filtering against heap tuples (which amounts
-                // to a join, and would require more planning).
-                return None;
-            };
-
-            // Check if this is a partial index and if the query is compatible with it
-            if !bm25_index.rd_indpred.is_null() {
-                // This is a partial index - we need to check if the query can be satisfied by it
-                if !quals.is_query_compatible_with_partial_index() {
-                    // The query cannot be satisfied by this partial index, fall back to heap scan
-                    return None;
-                }
-            }
 
             let query = SearchQueryInput::from(&quals);
             let norm_selec = if restrict_info.len() == 1 {

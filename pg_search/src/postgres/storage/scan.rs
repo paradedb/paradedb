@@ -21,6 +21,7 @@ use crate::postgres::storage::block::{
 };
 use crate::postgres::storage::buffer::BufferManager;
 use crate::postgres::storage::fsm::FSMRoot;
+use crate::postgres::storage::fsm::NLIST;
 use crate::postgres::storage::fsm::fsm_dump;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{iter::TableIterator, name, pg_extern, pg_sys, AnyNumeric, PgRelation};
@@ -145,7 +146,7 @@ fn scan_fsm(
     let pg = buf.page();
     let root = pg.contents::<FSMRoot>();
 
-    for i in 0..32 {
+    for i in 0..NLIST {
         scan_chain(bman, root.partial[i], live);
         scan_chain(bman, root.filled[i], live);
     }

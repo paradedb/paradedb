@@ -268,7 +268,7 @@ impl FreeSpaceManager {
 
             blockno = page.special::<BM25PageSpecialData>().next_blockno;
 
-            if matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v0) {
+            if !matches!(page.contents::<FSMBlockHeader>().kind, FSMBlockKind::v1_uncompressed) {
                 // skip v0 blocks
                 continue;
             }
@@ -348,9 +348,9 @@ impl FreeSpaceManager {
             let buffer = bman.get_buffer(blockno);
 
             let need_v0_upgrade = |buffer: &Buffer| {
-                matches!(
+                !matches!(
                     buffer.page().contents::<FSMBlockHeader>().kind,
-                    FSMBlockKind::v0
+                    FSMBlockKind::v1_uncompressed
                 )
             };
             let space_available = |buffer: &Buffer| {

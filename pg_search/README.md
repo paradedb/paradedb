@@ -61,8 +61,8 @@ Or, you can compile the extension from source without `--features icu` to build 
 
 #### RHEL/Rocky and Other Linux Distributions Using Pigsty
 
-* `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
-* To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
+- `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
+- To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
 
 ```bash
 dnf install pig

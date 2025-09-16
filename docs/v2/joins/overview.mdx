@@ -25,10 +25,7 @@ When using `paradedb.score()` or `paradedb.snippet()` inside JOINs:
 - Scores and snippets are computed **before the JOIN** at the base table level.
 - JOIN conditions never change the score, they only determine which rows are combined.
 
-<Note>
-This design keeps scores predictable and consistent across queries.
-</Note>
-
+<Note>This design keeps scores predictable and consistent across queries.</Note>
 
 ## Performance Characteristics
 
@@ -49,7 +46,7 @@ The planner runs efficient index scans on each table and then joins the results.
 SELECT a.name, b.title, paradedb.score(a.id)
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE 
+WHERE
     a.bio @@@ 'science fiction'
     AND b.content @@@ 'space travel';
 ```
@@ -57,8 +54,8 @@ WHERE
 The plan will have this shape:
 
 ```
-Gather 
-  -> Parallel Hash Join 
+Gather
+  -> Parallel Hash Join
        Hash Cond: (b.id = a.id)
        -> Parallel ParadeDB Scan on authors a
        -> Parallel Hash
@@ -74,7 +71,7 @@ Queries become slower when search conditions span multiple tables in a way that 
 SELECT a.name, b.title
 FROM authors a
 JOIN books b ON a.id = b.author_id
-WHERE 
+WHERE
     a.bio @@@ 'science'
     OR b.content @@@ 'artificial';
 ```
@@ -93,8 +90,7 @@ Gather
             -> Parallel Seq Scan on books b
 ```
 
-Note that the `@@@` query is in the *Join Filter*, not in the scan.
-
+Note that the `@@@` query is in the _Join Filter_, not in the scan.
 
 ## Diagnosing Performance
 
@@ -115,13 +111,11 @@ Watch for:
 - `@@@` operators inside JOIN conditions
 - `Tantivy Query: all` (full index scan)
 
-
 ## Writing Faster JOIN Queries
 
 ### 1. Replace Cross-Table OR with UNION
 
-If you don’t need scores/snippets, express the OR as a UNION of two separately filtered joins. This lets PostgreSQL push each search predicate down to a Custom Index Scan and avoid a join-time filter.
-
+If you don’t need scores/snippets and have a simple JOIN, express the OR as a UNION of two separately filtered joins. This lets PostgreSQL push each search predicate down to a Custom Index Scan and avoid a join-time filter.
 
 ```sql
 SELECT a.name, b.title
@@ -136,6 +130,8 @@ WHERE b.content @@@ 'artificial';
 ```
 
 ### 2. Use CTEs for Complex Queries
+
+<to be completed>
 
 ```sql
 WITH matching_authors AS (
@@ -162,5 +158,5 @@ LEFT JOIN books b ON ma.id = b.author_id AND mb.id IS NULL;
 
 We really want to remove the need to think about the way to do `JOIN`s in ParadeDB. At the moment we are actively working on:
 
-- A `CustomScan Join API` for native join handling  
-- Smarter cost estimation for the PostgreSQL planner  
+- A `CustomScan Join API` for native join handling
+- Smarter cost estimation for the PostgreSQL planner

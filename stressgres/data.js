@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758060463160,
+  "lastUpdate": 1758060465817,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -8872,6 +8872,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.63817451801599, max segment_count: 107.0, count: 57782"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "489eb48583040067612195f9e1406d5e31a1599f",
+          "message": "perf: teach custom scan callback to exit early if it can (#3168)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2025-09-16T17:39:51-04:00",
+          "tree_id": "0ebcd01c6225cbb43b199470f7f78bd694493ed7",
+          "url": "https://github.com/paradedb/paradedb/commit/489eb48583040067612195f9e1406d5e31a1599f"
+        },
+        "date": 1758060464209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.842003,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.44328226473803, max cpu: 42.857143, count: 57582"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.42321941427008, max mem: 229.37109375, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.339219698783868, max cpu: 33.300297, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.3148476710387, max mem: 163.8515625, count: 57582"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24144,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22986.621148970164, max block_count: 25794.0, count: 57582"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.54484040151436, max segment_count: 105.0, count: 57582"
           }
         ]
       }

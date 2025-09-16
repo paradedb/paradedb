@@ -446,7 +446,7 @@ fn next_chain(
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
         let b = buf.page_mut().contents_mut::<FSMChain>();
-        if b.h.xid >= xid.into_inner() || b.h.count == 0 {
+        if b.h.xid == xid.into_inner() || b.h.count == 0 {
             b.h.xid = xid.into_inner();
             let vers = match &rbuf {
                 XBuf::Ro(b) => b.page().contents_ref::<FSMRoot>().version,

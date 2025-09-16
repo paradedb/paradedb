@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758045696044,
+  "lastUpdate": 1758059757701,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -4342,6 +4342,72 @@ window.BENCHMARK_DATA = {
             "value": 47.63271206841265,
             "unit": "median tps",
             "extra": "avg tps: 64.81404693026934, max tps: 1046.1060793408694, count: 55255"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "489eb48583040067612195f9e1406d5e31a1599f",
+          "message": "perf: teach custom scan callback to exit early if it can (#3168)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2025-09-16T17:39:51-04:00",
+          "tree_id": "0ebcd01c6225cbb43b199470f7f78bd694493ed7",
+          "url": "https://github.com/paradedb/paradedb/commit/489eb48583040067612195f9e1406d5e31a1599f"
+        },
+        "date": 1758059756090,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 806.0336550104148,
+            "unit": "median tps",
+            "extra": "avg tps: 806.1063183205249, max tps: 822.4021557726397, count: 55419"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3164.9789828148246,
+            "unit": "median tps",
+            "extra": "avg tps: 3162.8361739204975, max tps: 3307.2535630073467, count: 55419"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 758.9357070980343,
+            "unit": "median tps",
+            "extra": "avg tps: 760.4287041814945, max tps: 842.383499925791, count: 55419"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 665.5676070892193,
+            "unit": "median tps",
+            "extra": "avg tps: 664.366087358773, max tps: 671.288462155715, count: 55419"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1664.9681249819546,
+            "unit": "median tps",
+            "extra": "avg tps: 1661.1135462893596, max tps: 1687.606917944214, count: 110838"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1252.5021019795429,
+            "unit": "median tps",
+            "extra": "avg tps: 1248.1540263964848, max tps: 1263.256921365826, count: 55419"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 53.58778601742059,
+            "unit": "median tps",
+            "extra": "avg tps: 69.86918061388074, max tps: 572.8784449329188, count: 55419"
           }
         ]
       }

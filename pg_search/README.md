@@ -59,6 +59,18 @@ sudo apt-get install -y libicu74
 
 Or, you can compile the extension from source without `--features icu` to build without the ICU tokenizer.
 
+#### RHEL/Rocky and Other Linux Distributions Using Pigsty
+
+- `pg_search` can also be installed for various Linux distributions (using `apt` and `infra`) with the [Pigsty extension repository](https://pigsty.io/ext/repo/).
+- To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
+
+```bash
+dnf install pig
+pig install pg_search
+```
+
+You should then be able to run `CREATE EXTENSION pg_search;` as superuser in PostgreSQL.
+
 #### macOS
 
 We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_search`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.

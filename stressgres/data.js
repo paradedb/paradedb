@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1757973743105,
+  "lastUpdate": 1758033800847,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3886,6 +3886,72 @@ window.BENCHMARK_DATA = {
             "value": 55.50543611502157,
             "unit": "median tps",
             "extra": "avg tps: 83.48466357797707, max tps: 927.8882377175433, count: 55284"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "878c50feef96d61785ad711ebe46250c920bed70",
+          "message": "fix: sequential scan segfault (#3163)\n\n# Ticket(s) Closed\n\n- Closes #3151 \n\n## What\n\nThe `@@@` return type should be `bool`, not `SearchQueryInput`.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test.",
+          "timestamp": "2025-09-16T10:27:13-04:00",
+          "tree_id": "6859469869310b79c8c32af68b3ed77dfb787362",
+          "url": "https://github.com/paradedb/paradedb/commit/878c50feef96d61785ad711ebe46250c920bed70"
+        },
+        "date": 1758033799315,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 797.3675978022522,
+            "unit": "median tps",
+            "extra": "avg tps: 797.6847403600094, max tps: 870.1296157625586, count: 55171"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2765.189783369289,
+            "unit": "median tps",
+            "extra": "avg tps: 2750.54731688714, max tps: 2770.9693496992895, count: 55171"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 782.5882299984638,
+            "unit": "median tps",
+            "extra": "avg tps: 781.7753118443845, max tps: 820.3794923175269, count: 55171"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 679.7327612744666,
+            "unit": "median tps",
+            "extra": "avg tps: 677.8147367553728, max tps: 697.5362828253441, count: 55171"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1654.8602244282442,
+            "unit": "median tps",
+            "extra": "avg tps: 1650.7242531684508, max tps: 1675.5981273308585, count: 110342"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1199.893962802415,
+            "unit": "median tps",
+            "extra": "avg tps: 1192.4071111359256, max tps: 1206.8330955849226, count: 55171"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 65.90708817354783,
+            "unit": "median tps",
+            "extra": "avg tps: 84.66300895513895, max tps: 561.5125801278451, count: 55171"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758043619530,
+  "lastUpdate": 1758044327010,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -7324,6 +7324,42 @@ window.BENCHMARK_DATA = {
             "value": 5.48267321443019,
             "unit": "median tps",
             "extra": "avg tps: 4.957614929086508, max tps: 6.0797712605609915, count: 57326"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f2a0c9c43e4385628cc7b828a8ed12c30e55050e",
+          "message": "chore: don't warn about `raw` tokenizer on UUID key fields (#3166)\n\n## What\n\nRemove the warning about using the `raw` tokenizer when the `key_field`\nis a UUID field.\n\nThe drama here is that we (pg_search) assign the `raw` tokenizer to UUID\nfields used as the key_field so there's nothing a user can do about it.\nWarning about our own bad decisions is not cool.\n\n## Why\n\nMany user and customer complaints.\n\n## How\n\n## Tests\n\nExisting tests pass but a couple of the regression test expected output\nis now different.",
+          "timestamp": "2025-09-16T13:10:47-04:00",
+          "tree_id": "2b24aea6e3a0645c584d8ebb8ce7465c8c90f904",
+          "url": "https://github.com/paradedb/paradedb/commit/f2a0c9c43e4385628cc7b828a8ed12c30e55050e"
+        },
+        "date": 1758044325413,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.403449452706825,
+            "unit": "median tps",
+            "extra": "avg tps: 7.159291246498125, max tps: 11.125077637052089, count: 57782"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.423501363533868,
+            "unit": "median tps",
+            "extra": "avg tps: 4.910939270009515, max tps: 6.043305385902253, count: 57782"
           }
         ]
       }

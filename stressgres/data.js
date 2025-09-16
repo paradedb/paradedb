@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758059760366,
+  "lastUpdate": 1758060463160,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -7708,6 +7708,42 @@ window.BENCHMARK_DATA = {
             "value": 5.423501363533868,
             "unit": "median tps",
             "extra": "avg tps: 4.910939270009515, max tps: 6.043305385902253, count: 57782"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "489eb48583040067612195f9e1406d5e31a1599f",
+          "message": "perf: teach custom scan callback to exit early if it can (#3168)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.",
+          "timestamp": "2025-09-16T17:39:51-04:00",
+          "tree_id": "0ebcd01c6225cbb43b199470f7f78bd694493ed7",
+          "url": "https://github.com/paradedb/paradedb/commit/489eb48583040067612195f9e1406d5e31a1599f"
+        },
+        "date": 1758060461591,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.350612443072883,
+            "unit": "median tps",
+            "extra": "avg tps: 7.1372907535498324, max tps: 11.122249685434666, count: 57582"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.430722813933305,
+            "unit": "median tps",
+            "extra": "avg tps: 4.904515655349498, max tps: 6.033848801649281, count: 57582"
           }
         ]
       }

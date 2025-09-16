@@ -103,10 +103,7 @@ impl FreeSpaceManager {
 
     /// Open an existing [`FreeSpaceManager`] which is rooted at the specified blocks
     pub fn open(root: pg_sys::BlockNumber) -> Self {
-        Self {
-            last_slot: 0,
-            root,
-        }
+        Self { last_slot: 0, root }
     }
 
     pub fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber> {

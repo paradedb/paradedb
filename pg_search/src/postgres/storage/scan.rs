@@ -20,9 +20,9 @@ use crate::postgres::storage::block::{
     BM25PageSpecialData, FileEntry, LinkedList, SegmentMetaEntry,
 };
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::fsm::fsm_dump;
 use crate::postgres::storage::fsm::FSMRoot;
 use crate::postgres::storage::fsm::NLIST;
-use crate::postgres::storage::fsm::fsm_dump;
 use crate::postgres::storage::metadata::MetaPage;
 use pgrx::{iter::TableIterator, name, pg_extern, pg_sys, AnyNumeric, PgRelation};
 use std::cmp::min;

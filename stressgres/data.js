@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758138215249,
+  "lastUpdate": 1758138218494,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -7798,6 +7798,126 @@ window.BENCHMARK_DATA = {
             "value": 150.42578125,
             "unit": "median mem",
             "extra": "avg mem: 133.71967641598127, max mem: 152.3671875, count: 55443"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb456f8c97d99e92e2795d88dd2c1082c13c83a6",
+          "message": "perf: optimize `Timestamp` and `JsonB` datum decoding (#3171)\n\n## What\n\nOptimize `Timestamp` and `JsonB` to `TantivyValue` datum conversions.\n\nThese two show up quite high in profiles. The `JsonB` conversion in\nparticular has been bad due to how pgrx stupidly (I can say it) handles\n`JsonB` values by converting them to strings and then asking serde to\nparse the strings.\n\n## Why\n\nTrying to make things faster.\n\n## How\n\nFor the `Timestamp` conversion we memoize Postgres' understanding of the\ncurrent EPOCH and do the same math that it does to calculate a time\nvalue.\n\nFor the `JsonB` conversion we implement our own deserializer routine\nusing Postgres' internal `JsonbIteratorInit()` and `JsonbIteratorNext()`\nfunctions, building up a `serde_json::Value` structure as it goes.\n\n\n## Tests\n\nA new `#[pg_test]`-based proptest has been added to test our custom\njsonb deserializer against normal serde.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-17T15:26:06-04:00",
+          "tree_id": "702cea735a514e9b33d6c1ee785606d39d4f705c",
+          "url": "https://github.com/paradedb/paradedb/commit/eb456f8c97d99e92e2795d88dd2c1082c13c83a6"
+        },
+        "date": 1758138216850,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.943780256670326, max cpu: 14.271556, count: 55401"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 152.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 138.8553739158589, max mem: 152.76953125, count: 55401"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708450455009531, max cpu: 9.311348, count: 55401"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.49723542614303, max mem: 30.97265625, count: 55401"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.845575118983158, max cpu: 14.159292, count: 55401"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.62730697268552, max mem: 154.09765625, count: 55401"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.404668758997092, max cpu: 9.284333, count: 55401"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.80648730392954, max mem: 154.34375, count: 55401"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701240382525659, max cpu: 9.628887, count: 110802"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.0387328720375, max mem: 156.5390625, count: 110802"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35154,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35305.42988393711, max block_count: 72270.0, count: 55401"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.431761159545857, max segment_count: 76.0, count: 55401"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5074127516125815, max cpu: 9.248554, count: 55401"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.57328740117507, max mem: 156.98046875, count: 55401"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.561227510922781, max cpu: 9.430255, count: 55401"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 130.70168246342575, max mem: 150.69140625, count: 55401"
           }
         ]
       }

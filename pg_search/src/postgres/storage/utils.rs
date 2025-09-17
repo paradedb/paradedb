@@ -174,7 +174,6 @@ impl RelationBufferAccess {
     //            }
     //        }
     //    }
-
     pub fn get_buffer_extended(
         &self,
         blockno: pg_sys::BlockNumber,

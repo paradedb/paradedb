@@ -336,34 +336,20 @@ unsafe fn fsm_info(
             continue;
         }
         let mut b = root.partial[i];
-        loop {
-            match get_chain(&mut bman, b, xid, true) {
-                Some(buf) => {
-                    let node = buf.page().contents_ref::<FSMChain>();
-                    for i in 0..node.h.count {
-                        mapping.push((b, node.entries[i as usize], node.h.xid))
-                    }
-                    b = next(&buf);
-                }
-                None => {
-                    break;
-                }
+        while let Some(buf) = get_chain(&mut bman, b, xid, true) {
+            let node = buf.page().contents_ref::<FSMChain>();
+            for i in 0..node.h.count {
+                mapping.push((b, node.entries[i as usize], node.h.xid))
             }
+            b = next(&buf);
         }
         b = root.filled[i];
-        loop {
-            match get_chain(&mut bman, b, xid, true) {
-                Some(buf) => {
-                    let node = buf.page().contents_ref::<FSMChain>();
-                    for i in 0..node.h.count {
-                        mapping.push((b, node.entries[i as usize], node.h.xid))
-                    }
-                    b = next(&buf);
-                }
-                None => {
-                    break;
-                }
+        while let Some(buf) = get_chain(&mut bman, b, xid, true) {
+            let node = buf.page().contents_ref::<FSMChain>();
+            for i in 0..node.h.count {
+                mapping.push((b, node.entries[i as usize], node.h.xid))
             }
+            b = next(&buf);
         }
     }
 
@@ -390,33 +376,19 @@ pub fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) 
         }
         let mut b = root.partial[i];
         eprintln!("partial[{i}]");
-        loop {
-            match get_chain(bman, b, xid, true) {
-                Some(buf) => {
-                    let c = buf.page().contents_ref::<FSMChain>();
-                    eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
-                    count += 1;
-                    b = next(&buf);
-                }
-                None => {
-                    break;
-                }
-            }
+        while let Some(buf) = get_chain(bman, b, xid, true) {
+            let c = buf.page().contents_ref::<FSMChain>();
+            eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
+            count += 1;
+            b = next(&buf);
         }
         eprintln!("filled[{i}]");
         b = root.filled[i];
-        loop {
-            match get_chain(bman, b, xid, true) {
-                Some(buf) => {
-                    let c = buf.page().contents_ref::<FSMChain>();
-                    eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
-                    count += 1;
-                    b = next(&buf);
-                }
-                None => {
-                    break;
-                }
-            }
+        while let Some(buf) = get_chain(bman, b, xid, true) {
+            let c = buf.page().contents_ref::<FSMChain>();
+            eprintln!("\t{}@{} [{}/{}]", b, c.h.xid, c.h.count, c.entries.len());
+            count += 1;
+            b = next(&buf);
         }
     }
     eprintln!("total size: {count}");

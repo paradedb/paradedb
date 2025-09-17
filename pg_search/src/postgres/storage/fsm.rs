@@ -159,7 +159,9 @@ impl FreeSpaceManager {
                     let mut mbuf = rbuf.upgrade(bman);
                     let mroot = mbuf.page().contents_ref::<FSMRoot>();
                     buf = bman.get_buffer_mut(bno);
-                    if mroot.version != rvers || buf.page().contents_ref::<FSMChain>().h.version != bvers {
+                    if mroot.version != rvers
+                        || buf.page().contents_ref::<FSMChain>().h.version != bvers
+                    {
                         return (true, pg_sys::InvalidBlockNumber);
                     }
                     b = buf.page_mut().contents_mut::<FSMChain>();
@@ -192,7 +194,9 @@ impl FreeSpaceManager {
                 let mut mbuf = rbuf.upgrade(bman);
                 let mroot = mbuf.page().contents_ref::<FSMRoot>();
                 buf = bman.get_buffer_mut(bno);
-                if mroot.version != rvers || buf.page_mut().contents_mut::<FSMChain>().h.version != bvers {
+                if mroot.version != rvers
+                    || buf.page_mut().contents_mut::<FSMChain>().h.version != bvers
+                {
                     return (true, pg_sys::InvalidBlockNumber);
                 }
                 b = buf.page_mut().contents_mut::<FSMChain>();
@@ -207,12 +211,7 @@ impl FreeSpaceManager {
                 b.h.version += 1;
                 if bno == mroot.filled[slot] {
                     let m = mbuf.page_mut().contents_mut::<FSMRoot>();
-                    move_block(
-                        &mut m.filled[slot],
-                        &mut m.partial[slot],
-                        bman,
-                        &mut buf,
-                    );
+                    move_block(&mut m.filled[slot], &mut m.partial[slot], bman, &mut buf);
                 }
                 self.last_slot = slot;
                 return (true, pg_sys::InvalidBlockNumber);
@@ -379,7 +378,7 @@ unsafe fn fsm_info(
 pub fn fsm_dump(root: pg_sys::BlockNumber, bman: &mut BufferManager, msg: &str) {
     let xid = pg_sys::TransactionId::from((i32::MAX - 1) as u32);
     let mut count = 0;
-    let mut rbuf = bman.get_buffer_mut(root);
+    let rbuf = bman.get_buffer_mut(root);
 
     let root = rbuf.page().contents_ref::<FSMRoot>();
     eprintln!("---- BEGIN {msg} --------------------------");
@@ -442,9 +441,10 @@ fn next_chain(
             continue;
         }
         let b = buf.page_mut().contents_mut::<FSMChain>();
-        if b.h.xid == xid.into_inner() || b.h.count == 0
+        if b.h.xid == xid.into_inner()
+            || b.h.count == 0
             || (bno == pg_sys::InvalidBlockNumber && (b.h.count as usize) < b.entries.len())
-         {
+        {
             b.h.xid = xid.into_inner();
             let vers = match &rbuf {
                 XBuf::Ro(b) => b.page().contents_ref::<FSMRoot>().version,

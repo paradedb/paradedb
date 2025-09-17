@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758140296542,
+  "lastUpdate": 1758140299318,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3346,6 +3346,114 @@ window.BENCHMARK_DATA = {
             "value": 156.57421875,
             "unit": "median mem",
             "extra": "avg mem: 155.05422408720784, max mem: 157.81640625, count: 55448"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb456f8c97d99e92e2795d88dd2c1082c13c83a6",
+          "message": "perf: optimize `Timestamp` and `JsonB` datum decoding (#3171)\n\n## What\n\nOptimize `Timestamp` and `JsonB` to `TantivyValue` datum conversions.\n\nThese two show up quite high in profiles. The `JsonB` conversion in\nparticular has been bad due to how pgrx stupidly (I can say it) handles\n`JsonB` values by converting them to strings and then asking serde to\nparse the strings.\n\n## Why\n\nTrying to make things faster.\n\n## How\n\nFor the `Timestamp` conversion we memoize Postgres' understanding of the\ncurrent EPOCH and do the same math that it does to calculate a time\nvalue.\n\nFor the `JsonB` conversion we implement our own deserializer routine\nusing Postgres' internal `JsonbIteratorInit()` and `JsonbIteratorNext()`\nfunctions, building up a `serde_json::Value` structure as it goes.\n\n\n## Tests\n\nA new `#[pg_test]`-based proptest has been added to test our custom\njsonb deserializer against normal serde.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-17T15:26:06-04:00",
+          "tree_id": "702cea735a514e9b33d6c1ee785606d39d4f705c",
+          "url": "https://github.com/paradedb/paradedb/commit/eb456f8c97d99e92e2795d88dd2c1082c13c83a6"
+        },
+        "date": 1758140297695,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.532818,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.344393928501177, max cpu: 41.819942, count: 55485"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.96029022483555, max mem: 156.59375, count: 55485"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.611721705255461, max cpu: 28.042841, count: 55485"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.60546875,
+            "unit": "median mem",
+            "extra": "avg mem: 110.20275116585563, max mem: 111.60546875, count: 55485"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.998385932474398, max cpu: 13.967022, count: 55485"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 145.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 123.90991906596378, max mem: 145.98828125, count: 55485"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30440,
+            "unit": "median block_count",
+            "extra": "avg block_count: 30983.565269892762, max block_count: 63333.0, count: 55485"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.57601869010603, max cpu: 4.7151275, count: 55485"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 88.76499602933225, max mem: 126.01171875, count: 55485"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.72648463548707, max segment_count: 56.0, count: 55485"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.98672353937364, max cpu: 34.015747, count: 110970"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 147.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.49671761652925, max mem: 156.109375, count: 110970"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.885058295043974, max cpu: 33.23442, count: 55485"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.08578029253403, max mem: 158.41796875, count: 55485"
           }
         ]
       }

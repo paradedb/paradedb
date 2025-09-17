@@ -30,7 +30,6 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::{ParallelExplainData, ParallelScanState};
 use crate::query::SearchQueryInput;
 
-use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
@@ -421,16 +420,14 @@ impl PdbScanState {
                             json_value.pointer(&pointer).cloned()?
                         }
                         pg_sys::JSONBOID => {
-                            let datum = heap_tuple
-                                .get_by_name::<pg_sys::Datum>(&root)
+                            let json_value = heap_tuple
+                                .get_by_name::<pgrx::datum::JsonB>(&root)
                                 .unwrap_or_else(|_| {
                                     panic!(
                                         "doc_from_heap: should be able to read jsonb field {root}"
                                     )
-                                })?;
-                            let json_value = jsonb_datum_to_serde_json_value(datum)
-                                .expect("doc_from_heap: jsonb datum should not be null")
-                                .expect("doc_from_heap: jsonb datum should be valid");
+                                })?
+                                .0;
                             json_value.pointer(&pointer).cloned()?
                         }
                         unsupported => {

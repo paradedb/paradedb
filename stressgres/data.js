@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758138926594,
+  "lastUpdate": 1758139611938,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -10716,6 +10716,42 @@ window.BENCHMARK_DATA = {
             "value": 642.8602759024426,
             "unit": "median tps",
             "extra": "avg tps: 643.0030063266685, max tps: 767.9910179815552, count: 56889"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb456f8c97d99e92e2795d88dd2c1082c13c83a6",
+          "message": "perf: optimize `Timestamp` and `JsonB` datum decoding (#3171)\n\n## What\n\nOptimize `Timestamp` and `JsonB` to `TantivyValue` datum conversions.\n\nThese two show up quite high in profiles. The `JsonB` conversion in\nparticular has been bad due to how pgrx stupidly (I can say it) handles\n`JsonB` values by converting them to strings and then asking serde to\nparse the strings.\n\n## Why\n\nTrying to make things faster.\n\n## How\n\nFor the `Timestamp` conversion we memoize Postgres' understanding of the\ncurrent EPOCH and do the same math that it does to calculate a time\nvalue.\n\nFor the `JsonB` conversion we implement our own deserializer routine\nusing Postgres' internal `JsonbIteratorInit()` and `JsonbIteratorNext()`\nfunctions, building up a `serde_json::Value` structure as it goes.\n\n\n## Tests\n\nA new `#[pg_test]`-based proptest has been added to test our custom\njsonb deserializer against normal serde.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-17T15:26:06-04:00",
+          "tree_id": "702cea735a514e9b33d6c1ee785606d39d4f705c",
+          "url": "https://github.com/paradedb/paradedb/commit/eb456f8c97d99e92e2795d88dd2c1082c13c83a6"
+        },
+        "date": 1758139610277,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.658012563405215,
+            "unit": "median tps",
+            "extra": "avg tps: 46.52160190762914, max tps: 47.9320351582405, count: 57411"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 574.6651352524582,
+            "unit": "median tps",
+            "extra": "avg tps: 578.2519836690008, max tps: 688.5202054461437, count: 57411"
           }
         ]
       }

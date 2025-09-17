@@ -49,9 +49,8 @@ LIMIT 5 OFFSET 6;
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: rating
                      Scores: false
-                     Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+(12 rows)
 
 -- Ordering on a non grouping column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -73,9 +72,8 @@ LIMIT 5 OFFSET 5;
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: id, rating
                      Scores: false
-                     Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+(12 rows)
 
 -- This should be pushed down
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
@@ -129,9 +127,8 @@ LIMIT 5;
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: rating
                      Scores: false
-                     Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+(12 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()
@@ -198,9 +195,8 @@ LIMIT 10000;
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: rating
                      Scores: false
-                     Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}
-(17 rows)
+(16 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

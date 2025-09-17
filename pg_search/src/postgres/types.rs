@@ -198,6 +198,7 @@ impl TantivyValue {
                 // individually before converting them into Tantivy values.
                 PgBuiltInOids::JSONBOID => {
                     let serde_json_value = jsonb_datum_to_serde_json_value(datum)
+                        .ok_or(TantivyValueError::DatumDeref)?
                         .map_err(TantivyValueError::Utf8ConversionError)?;
                     Ok(Self::json_value_to_tantivy_value(serde_json_value))
                 }
@@ -297,9 +298,10 @@ impl TantivyValue {
                     )
                     .ok_or(TantivyValueError::DatumDeref)?,
                 ),
-                PgBuiltInOids::JSONBOID => {
-                    TantivyValue::try_from(jsonb_datum_to_serde_json_value(datum)?)
-                }
+                PgBuiltInOids::JSONBOID => TantivyValue::try_from(
+                    jsonb_datum_to_serde_json_value(datum)
+                        .ok_or(TantivyValueError::DatumDeref)??,
+                ),
                 PgBuiltInOids::JSONOID => TantivyValue::try_from(
                     pgrx::datum::JsonString::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?,

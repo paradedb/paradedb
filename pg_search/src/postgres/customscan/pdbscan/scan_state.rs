@@ -429,6 +429,7 @@ impl PdbScanState {
                                     )
                                 })?;
                             let json_value = jsonb_datum_to_serde_json_value(datum)
+                                .expect("doc_from_heap: jsonb datum should not be null")
                                 .expect("doc_from_heap: jsonb datum should be valid");
                             json_value.pointer(&pointer).cloned()?
                         }

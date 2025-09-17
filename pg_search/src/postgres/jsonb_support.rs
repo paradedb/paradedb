@@ -39,7 +39,13 @@ extern "C-unwind" {
 /// the caller's responsibility.
 pub unsafe fn jsonb_datum_to_serde_json_value(
     datum: pg_sys::Datum,
-) -> Result<serde_json::Value, Utf8Error> {
+) -> Option<Result<serde_json::Value, Utf8Error>> {
+    if datum.is_null() {
+        return None;
+    }
+    #[cfg(any(feature = "pg14", feature = "pg15"))]
+    let jsonb = pg_sys::pg_detoast_datum(datum.cast_mut_ptr()).cast::<pg_sys::Jsonb>();
+    #[cfg(not(any(feature = "pg14", feature = "pg15")))]
     let jsonb = pg_sys::DatumGetJsonbP(datum);
     let container = &mut (*jsonb).root;
     let result = pg_sys::submodules::ffi::pg_guard_ffi_boundary(|| {
@@ -50,7 +56,7 @@ pub unsafe fn jsonb_datum_to_serde_json_value(
     if !std::ptr::eq(datum.cast_mut_ptr(), jsonb) {
         pg_sys::pfree(jsonb.cast());
     }
-    result
+    Some(result)
 }
 
 unsafe fn jsonb_iterate(
@@ -262,7 +268,11 @@ mod tests {
         let json_value: Value = serde_json::from_str(input)?;
         let datum = JsonB(json_value).into_datum();
 
-        unsafe { jsonb_datum_to_serde_json_value(datum.unwrap()).map_err(|e| e.into()) }
+        unsafe {
+            jsonb_datum_to_serde_json_value(datum.unwrap())
+                .unwrap()
+                .map_err(|e| e.into())
+        }
     }
 
     // Strategy: JSON leaf values (null, bool, number, string)

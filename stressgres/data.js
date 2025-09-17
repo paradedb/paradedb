@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758118968970,
+  "lastUpdate": 1758118981850,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -4636,6 +4636,72 @@ window.BENCHMARK_DATA = {
             "value": 50.7669939800257,
             "unit": "median tps",
             "extra": "avg tps: 78.24660420401776, max tps: 1139.293432998723, count: 54896"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d344837c944c402f2781abd28b10a2f0e7185ac",
+          "message": "perf: teach custom scan callback to exit early if it can (#3169)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-17T10:06:44-04:00",
+          "tree_id": "efcbedd45680505ce75bd6fe8a623a0066b38fdb",
+          "url": "https://github.com/paradedb/paradedb/commit/2d344837c944c402f2781abd28b10a2f0e7185ac"
+        },
+        "date": 1758118980251,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 790.5957557502066,
+            "unit": "median tps",
+            "extra": "avg tps: 792.0606654585147, max tps: 813.7528157660241, count: 55443"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3384.2650420510104,
+            "unit": "median tps",
+            "extra": "avg tps: 3372.828891928334, max tps: 3395.0341986631574, count: 55443"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 775.3541887199235,
+            "unit": "median tps",
+            "extra": "avg tps: 775.6694610535359, max tps: 861.8037304854556, count: 55443"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 691.9042104903008,
+            "unit": "median tps",
+            "extra": "avg tps: 690.7020641144002, max tps: 716.0505287897901, count: 55443"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1635.5033015717163,
+            "unit": "median tps",
+            "extra": "avg tps: 1643.889668052891, max tps: 1691.9088178238912, count: 110886"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1245.9333296030711,
+            "unit": "median tps",
+            "extra": "avg tps: 1241.5480886229977, max tps: 1257.2375246049642, count: 55443"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.080215981447296,
+            "unit": "median tps",
+            "extra": "avg tps: 49.45254437253611, max tps: 574.4013445586673, count: 55443"
           }
         ]
       }

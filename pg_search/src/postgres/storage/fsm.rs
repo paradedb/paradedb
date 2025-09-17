@@ -128,7 +128,7 @@ impl FreeSpaceManager {
     ) -> impl Iterator<Item = pg_sys::BlockNumber> {
         let mut v: Vec<pg_sys::BlockNumber> = Vec::new();
         while v.len() < n {
-            let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
+            let (retry, killed) = self.drain1(bman, horizon, n - v.len(), &mut v);
             if killed != pg_sys::InvalidBlockNumber {
                 let next_xid = unsafe { pg_sys::ReadNextTransactionId() };
                 self.extend_with_when_recyclable(bman, next_xid, std::iter::once(killed));

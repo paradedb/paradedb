@@ -520,7 +520,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
             Some(recyclable_blockno)
         })
         .chain(std::iter::once(self.cloned.header_blockno));
-        self.bman.fsm().extend(&mut self.bman, recyclable_blocks);
+        self.bman.fsm().extend_with_when_recyclable(
+            &mut self.bman,
+            unsafe { pg_sys::ReadNextTransactionId() },
+            recyclable_blocks,
+        );
     }
 }
 

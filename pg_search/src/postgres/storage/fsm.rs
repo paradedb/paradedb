@@ -131,10 +131,9 @@ impl FreeSpaceManager {
             let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
             if killed != pg_sys::InvalidBlockNumber {
                 let next_xid = unsafe {
-                    pg_sys::TransactionId::from(
-                    1 + pg_sys::GetCurrentTransactionIdIfAny()
-                        .max(pg_sys::FirstNormalTransactionId)
-                        .into_inner())
+                    // This should really be wrapped by pgrx;
+                    // .h:#define XidFromFullTransactionId(x)((uint32) (x).value)
+                    pg_sys::TransactionId::from(pg_sys::GetNewTransactionId(true).value as u32)
                 };
                 self.extend_with_when_recyclable(bman, next_xid, std::iter::once(killed));
             }
@@ -516,7 +515,6 @@ fn move_block(
     let mut prev: Option<BufferMut> = None;
     let mut bno = *src;
     loop {
-
         if bno == mv.number() {
             match prev {
                 None => {

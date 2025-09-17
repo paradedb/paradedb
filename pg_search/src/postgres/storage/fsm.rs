@@ -130,7 +130,13 @@ impl FreeSpaceManager {
         while v.len() < n {
             let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
             if killed != pg_sys::InvalidBlockNumber {
-                self.extend(bman, std::iter::once(killed));
+                let next_xid = unsafe {
+                    pg_sys::TransactionId::from(
+                    1 + pg_sys::GetCurrentTransactionIdIfAny()
+                        .max(pg_sys::FirstNormalTransactionId)
+                        .into_inner())
+                };
+                self.extend_with_when_recyclable(bman, next_xid, std::iter::once(killed));
             }
             if !retry {
                 break;
@@ -174,7 +180,7 @@ impl FreeSpaceManager {
                     }
                     b.h.count -= n;
                     b.h.version += 1;
-                    if bno == mroot.partial[slot] && next_bno != pg_sys::InvalidBlockNumber {
+                    if bno == mroot.partial[slot] {
                         killed = bno;
                         mroot.partial[slot] = next_bno;
                     }
@@ -293,12 +299,14 @@ impl FreeSpaceManager {
                                 b.h.version += 1;
                                 iter.next();
                                 root.version += 1;
-                                move_block(
-                                    &mut root.partial[slot],
-                                    &mut root.filled[slot],
-                                    bman,
-                                    &mut buf,
-                                );
+                                if root.partial[slot] == chainno {
+                                    move_block(
+                                        &mut root.partial[slot],
+                                        &mut root.filled[slot],
+                                        bman,
+                                        &mut buf,
+                                    );
+                                }
                                 list = root.partial[slot];
                                 continue 'l;
                             }
@@ -508,6 +516,7 @@ fn move_block(
     let mut prev: Option<BufferMut> = None;
     let mut bno = *src;
     loop {
+
         if bno == mv.number() {
             match prev {
                 None => {

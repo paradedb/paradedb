@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758139611938,
+  "lastUpdate": 1758139614974,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11942,6 +11942,66 @@ window.BENCHMARK_DATA = {
             "value": 166.6328125,
             "unit": "median mem",
             "extra": "avg mem: 155.97824299293362, max mem: 166.6328125, count: 56889"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eb456f8c97d99e92e2795d88dd2c1082c13c83a6",
+          "message": "perf: optimize `Timestamp` and `JsonB` datum decoding (#3171)\n\n## What\n\nOptimize `Timestamp` and `JsonB` to `TantivyValue` datum conversions.\n\nThese two show up quite high in profiles. The `JsonB` conversion in\nparticular has been bad due to how pgrx stupidly (I can say it) handles\n`JsonB` values by converting them to strings and then asking serde to\nparse the strings.\n\n## Why\n\nTrying to make things faster.\n\n## How\n\nFor the `Timestamp` conversion we memoize Postgres' understanding of the\ncurrent EPOCH and do the same math that it does to calculate a time\nvalue.\n\nFor the `JsonB` conversion we implement our own deserializer routine\nusing Postgres' internal `JsonbIteratorInit()` and `JsonbIteratorNext()`\nfunctions, building up a `serde_json::Value` structure as it goes.\n\n\n## Tests\n\nA new `#[pg_test]`-based proptest has been added to test our custom\njsonb deserializer against normal serde.\n\n---------\n\nSigned-off-by: Eric Ridge <eebbrr@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-17T15:26:06-04:00",
+          "tree_id": "702cea735a514e9b33d6c1ee785606d39d4f705c",
+          "url": "https://github.com/paradedb/paradedb/commit/eb456f8c97d99e92e2795d88dd2c1082c13c83a6"
+        },
+        "date": 1758139613327,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.746835301100056, max cpu: 57.657658, count: 57411"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.4375,
+            "unit": "median mem",
+            "extra": "avg mem: 164.5500956779842, max mem: 166.4375, count: 57411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 41220,
+            "unit": "median block_count",
+            "extra": "avg block_count: 36061.696939610876, max block_count: 42784.0, count: 57411"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.27141140199613, max segment_count: 158.0, count: 57411"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.41323945327829, max cpu: 28.015566, count: 57411"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 160.875,
+            "unit": "median mem",
+            "extra": "avg mem: 151.6666939507455, max mem: 162.984375, count: 57411"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758118981850,
+  "lastUpdate": 1758118984621,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -7450,6 +7450,126 @@ window.BENCHMARK_DATA = {
             "value": 149.7734375,
             "unit": "median mem",
             "extra": "avg mem: 131.46255696851773, max mem: 150.578125, count: 54896"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d344837c944c402f2781abd28b10a2f0e7185ac",
+          "message": "perf: teach custom scan callback to exit early if it can (#3169)\n\n## What\n\nThis does two things.  \n\nOne, the first commit (62d752572b2d7bc5a02b7203ac2c83949e38e27e) simply\nreorders some code in the custom scan callback so it can decide to exit\nearly if we're not going to submit a path. Specifically, this is\nintended to avoid opening a Directory and Index and related structures.\n\nTwo, the second commit (5ac1dde23ef0809bea4b942d04fd14acc9d1c152) makes\na new decision to not evaluate possible pushdown predicates when the\nstatement type is not a SELECT statement. This cuts out the overhead of\nneeding to read/deserialize the index's schema at all on (at least)\nUPDATE statements.\n\nThis does mean that we won't consider doing pushdowns for UPDATE\nstatements, even if doing one would make the UPDATE scan faster.\n\n## Why\n\nTrying to reduce per-query overhead, targeting our stressgres benchmarks\nlike \"single-server.toml\" and \"wide-table.toml\".\n\n## How\n\n## Tests\n\nAll existing tests pass.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-17T10:06:44-04:00",
+          "tree_id": "efcbedd45680505ce75bd6fe8a623a0066b38fdb",
+          "url": "https://github.com/paradedb/paradedb/commit/2d344837c944c402f2781abd28b10a2f0e7185ac"
+        },
+        "date": 1758118983028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.860291621297286, max cpu: 14.428859, count: 55443"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.53910723907887, max mem: 154.18359375, count: 55443"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6228384310660635, max cpu: 9.448819, count: 55443"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.46805974999098, max mem: 33.37109375, count: 55443"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.901227296704622, max cpu: 14.589665, count: 55443"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 153.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2760022821862, max mem: 153.62109375, count: 55443"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2883729078428185, max cpu: 4.7524753, count: 55443"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 153.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 141.44521400357124, max mem: 153.98046875, count: 55443"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.693131150597858, max cpu: 9.628887, count: 110886"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.69140625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.00097848240534, max mem: 155.4296875, count: 110886"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 38225,
+            "unit": "median block_count",
+            "extra": "avg block_count: 38295.33059177895, max block_count: 77797.0, count: 55443"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.75172699889977, max segment_count: 77.0, count: 55443"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.673348060256405, max cpu: 9.495549, count: 55443"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 156.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.99374878816982, max mem: 157.078125, count: 55443"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.678487067754223, max cpu: 9.430255, count: 55443"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 150.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 133.71967641598127, max mem: 152.3671875, count: 55443"
           }
         ]
       }

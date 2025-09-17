@@ -19,7 +19,7 @@ use pgrx::{pg_sys, AnyNumeric, FromDatum};
 use std::str::{FromStr, Utf8Error};
 
 // we redefine these functions because we don't want pgrx' per-function FFI wrappers -- we intent
-// to use them, togther, in a single FFI wrapper closure
+// to use them, together, in a single FFI wrapper closure
 extern "C-unwind" {
     pub fn JsonbIteratorInit(container: *mut pg_sys::JsonbContainer) -> *mut pg_sys::JsonbIterator;
     pub fn JsonbIteratorNext(

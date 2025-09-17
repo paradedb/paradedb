@@ -30,6 +30,7 @@ use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::{ParallelExplainData, ParallelScanState};
 use crate::query::SearchQueryInput;
 
+use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use pgrx::heap_tuple::PgHeapTuple;
 use pgrx::{pg_sys, PgTupleDesc};
 use tantivy::snippet::SnippetGenerator;
@@ -420,14 +421,15 @@ impl PdbScanState {
                             json_value.pointer(&pointer).cloned()?
                         }
                         pg_sys::JSONBOID => {
-                            let json_value = heap_tuple
-                                .get_by_name::<pgrx::datum::JsonB>(&root)
+                            let datum = heap_tuple
+                                .get_by_name::<pg_sys::Datum>(&root)
                                 .unwrap_or_else(|_| {
                                     panic!(
                                         "doc_from_heap: should be able to read jsonb field {root}"
                                     )
-                                })?
-                                .0;
+                                })?;
+                            let json_value = jsonb_datum_to_serde_json_value(datum)
+                                .expect("doc_from_heap: jsonb datum should be valid");
                             json_value.pointer(&pointer).cloned()?
                         }
                         unsupported => {
@@ -437,8 +439,8 @@ impl PdbScanState {
 
                     match field {
                         serde_json::Value::String(val) => Some(val),
-                        serde_json::Value::Array(array) => Some(array.iter().filter_map(|v| match v {
-                            serde_json::Value::String(s) => Some(s.to_owned()),
+                        serde_json::Value::Array(array) => Some(array.into_iter().filter_map(|v| match v {
+                            serde_json::Value::String(s) => Some(s),
                             _ => None
                         }).collect::<Vec<_>>().join(" ")),
                         val => unimplemented!(

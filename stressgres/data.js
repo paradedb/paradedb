@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758120359920,
+  "lastUpdate": 1758120363228,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11402,6 +11402,66 @@ window.BENCHMARK_DATA = {
             "value": 160.69921875,
             "unit": "median mem",
             "extra": "avg mem: 150.71746805849403, max mem: 162.2578125, count: 57664"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63daa7f2bf568127e538f19f942d6363508ca615",
+          "message": "chore: don't warn about `raw` tokenizer on UUID key fields (#3167)\n\n## What\n\nRemove the warning about using the `raw` tokenizer when the `key_field`\nis a UUID field.\n\nThe drama here is that we (pg_search) assign the `raw` tokenizer to UUID\nfields used as the key_field so there's nothing a user can do about it.\nWarning about our own bad decisions is not cool.\n\n## Why\n\nMany user and customer complaints.\n\n## How\n\n## Tests\n\nExisting tests pass but a couple of the regression test expected output\nis now different.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-17T10:06:31-04:00",
+          "tree_id": "2c472616485a1c2a1ed61c7f2c030286882deb06",
+          "url": "https://github.com/paradedb/paradedb/commit/63daa7f2bf568127e538f19f942d6363508ca615"
+        },
+        "date": 1758120361123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.623204315235817, max cpu: 43.59233, count: 56889"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.78271900653027, max mem: 172.234375, count: 56889"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 22930,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20644.549385645732, max block_count: 24851.0, count: 56889"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 50,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 54.682311167361, max segment_count: 135.0, count: 56889"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.290000936713864, max cpu: 28.290766, count: 56889"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.97824299293362, max mem: 166.6328125, count: 56889"
           }
         ]
       }

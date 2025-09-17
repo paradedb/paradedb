@@ -131,9 +131,13 @@ impl FreeSpaceManager {
             let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
             if killed != pg_sys::InvalidBlockNumber {
                 let next_xid = unsafe {
-                    // This should really be wrapped by pgrx;
-                    // .h:#define XidFromFullTransactionId(x)((uint32) (x).value)
-                    pg_sys::TransactionId::from(pg_sys::GetNewTransactionId(true).value as u32)
+                    // Hack: we just need a transaction bigger than the current one.
+                    pg_sys::TransactionId::from(
+                        pg_sys::GetCurrentTransactionIdIfAny()
+                            .max(pg_sys::FirstNormalTransactionId)
+                            .into_inner()
+                            + 100,
+                    )
                 };
                 self.extend_with_when_recyclable(bman, next_xid, std::iter::once(killed));
             }
@@ -450,6 +454,10 @@ fn next_chain(
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
         let b = buf.page_mut().contents_mut::<FSMChain>();
+        if b.h.count == b.entries.len() as i32 {
+            bno = next(&buf);
+            continue;
+        }
         if b.h.xid == xid.into_inner() || b.h.count == 0 {
             b.h.xid = xid.into_inner();
             let vers = match &rbuf {

@@ -258,9 +258,13 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
                 // return it to the FSM. Doing so will also drop the lock, but we are still
                 // holding the lock on the previous page, so hand-over-hand is ensured.
                 let next_xid = unsafe {
-                    // This should really be wrapped by pgrx;
-                    // .h:#define XidFromFullTransactionId(x)((uint32) (x).value)
-                    pg_sys::TransactionId::from(pg_sys::GetNewTransactionId(true).value as u32)
+                    // Hack: we just need a transaction bigger than the current one.
+                    pg_sys::TransactionId::from(
+                        pg_sys::GetCurrentTransactionIdIfAny()
+                            .max(pg_sys::FirstNormalTransactionId)
+                            .into_inner()
+                            + 100,
+                    )
                 };
                 buffer.return_to_fsm_with_when_recyclable(&mut self.bman, next_xid);
             } else {

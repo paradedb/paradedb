@@ -2,7 +2,7 @@ use crate::postgres::customscan::qual_inspect::contains_exec_param;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 use pgrx::FromDatum;
-use pgrx::{pg_sys, PgBox, PgMemoryContexts};
+use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use std::ptr::NonNull;
 use tantivy::{
@@ -44,7 +44,7 @@ impl HeapFieldFilter {
         &mut self,
         ctid: pg_sys::ItemPointer,
         heaprel: &PgSearchRelation,
-        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> bool {
         // Get the expression node
@@ -62,7 +62,7 @@ impl HeapFieldFilter {
         ctid: pg_sys::ItemPointer,
         relation: &PgSearchRelation,
         expr_node: *mut pg_sys::Node,
-        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> bool {
         // Use heap_fetch to safely get the tuple
@@ -73,6 +73,7 @@ impl HeapFieldFilter {
             t_data: std::ptr::null_mut(),
         };
         let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+        let econtext = expr_context.as_ptr();
 
         // Fetch the heap tuple using PostgreSQL's heap_fetch API
         // Function signature differs between PostgreSQL versions
@@ -117,28 +118,8 @@ impl HeapFieldFilter {
             return false;
         }
 
-        // Use provided expression context if available, otherwise create a standalone one
-        let (econtext, standalone_context) = if let Some(ctx) = expr_context {
-            // Use the provided context (supports subqueries)
-            (ctx.as_ptr(), None)
-        } else {
-            // Create a standalone context (fallback for simple expressions)
-            let standalone_context = pg_sys::CreateStandaloneExprContext();
-            if standalone_context.is_null() {
-                Self::cleanup_resources(slot, buffer);
-                panic!("Failed to create standalone expression context");
-            }
-            // SAFETY: We just checked that standalone_context is not null
-            let pgbox_context = unsafe { PgBox::from_pg(standalone_context) };
-            (pgbox_context.as_ptr(), Some(pgbox_context))
-        };
-
         // Store the original scan tuple to restore later if we're using a provided context
-        let original_scan_tuple = if standalone_context.is_none() {
-            (*econtext).ecxt_scantuple
-        } else {
-            std::ptr::null_mut()
-        };
+        let original_scan_tuple = (*econtext).ecxt_scantuple;
 
         // Set the tuple slot in the expression context
         (*econtext).ecxt_scantuple = slot;
@@ -158,13 +139,7 @@ impl HeapFieldFilter {
         };
         if expr_state.is_null() {
             self.initialized_expression = None;
-            Self::cleanup_and_restore_context(
-                slot,
-                buffer,
-                econtext,
-                original_scan_tuple,
-                &standalone_context,
-            );
+            Self::cleanup_and_restore_context(slot, buffer, econtext, original_scan_tuple);
             return false;
         }
 
@@ -176,13 +151,7 @@ impl HeapFieldFilter {
         let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
 
         // Cleanup resources in reverse order
-        Self::cleanup_and_restore_context(
-            slot,
-            buffer,
-            econtext,
-            original_scan_tuple,
-            &standalone_context,
-        );
+        Self::cleanup_and_restore_context(slot, buffer, econtext, original_scan_tuple);
 
         eval_result
     }
@@ -212,14 +181,11 @@ impl HeapFieldFilter {
     unsafe fn cleanup_and_restore_context(
         slot: *mut pg_sys::TupleTableSlot,
         buffer: pg_sys::Buffer,
-        econtext: *mut pg_sys::ExprContext,
+        expr_context: *mut pg_sys::ExprContext,
         original_scan_tuple: *mut pg_sys::TupleTableSlot,
-        standalone_context: &Option<PgBox<pg_sys::ExprContext>>,
     ) {
-        // Restore original scan tuple if we're using a provided context
-        if standalone_context.is_none() {
-            (*econtext).ecxt_scantuple = original_scan_tuple;
-        }
+        // Restore original scan tuple
+        (*expr_context).ecxt_scantuple = original_scan_tuple;
         Self::cleanup_resources(slot, buffer);
     }
 
@@ -248,7 +214,7 @@ pub struct HeapFilterQuery {
     indexed_query: Box<dyn Query>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
-    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
@@ -261,7 +227,7 @@ impl HeapFilterQuery {
         indexed_query: Box<dyn Query>,
         field_filters: Vec<HeapFieldFilter>,
         rel_oid: pg_sys::Oid,
-        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         Self {
@@ -303,7 +269,7 @@ struct HeapFilterWeight {
     indexed_weight: Box<dyn Weight>,
     field_filters: Vec<HeapFieldFilter>,
     rel_oid: pg_sys::Oid,
-    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
@@ -343,7 +309,7 @@ struct HeapFilterScorer {
     ctid_ff: crate::index::fast_fields_helper::FFType,
     heaprel: PgSearchRelation,
     current_doc: DocId,
-    expr_context: Option<NonNull<pg_sys::ExprContext>>,
+    expr_context: NonNull<pg_sys::ExprContext>,
     planstate: Option<NonNull<pg_sys::PlanState>>,
 }
 
@@ -357,7 +323,7 @@ impl HeapFilterScorer {
         field_filters: Vec<HeapFieldFilter>,
         ctid_ff: crate::index::fast_fields_helper::FFType,
         rel_oid: pg_sys::Oid,
-        expr_context: Option<NonNull<pg_sys::ExprContext>>,
+        expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> Self {
         let mut scorer = Self {

@@ -130,15 +130,7 @@ impl FreeSpaceManager {
         while v.len() < n {
             let (retry, killed) = self.drain1(bman, horizon, n, &mut v);
             if killed != pg_sys::InvalidBlockNumber {
-                let next_xid = unsafe {
-                    // Hack: we just need a transaction bigger than the current one.
-                    pg_sys::TransactionId::from(
-                        pg_sys::GetCurrentTransactionIdIfAny()
-                            .max(pg_sys::FirstNormalTransactionId)
-                            .into_inner()
-                            + 100,
-                    )
-                };
+                let next_xid = unsafe { pg_sys::ReadNextTransactionId() };
                 self.extend_with_when_recyclable(bman, next_xid, std::iter::once(killed));
             }
             if !retry {

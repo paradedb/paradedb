@@ -446,12 +446,14 @@ fn next_chain(
     let mut bno = list;
     while bno != pg_sys::InvalidBlockNumber {
         let mut buf = bman.get_buffer_mut(bno);
+        bno = buf.page().special::<BM25PageSpecialData>().next_blockno;
         let b = buf.page_mut().contents_mut::<FSMChain>();
         if b.h.count == b.entries.len() as i32 {
-            bno = next(&buf);
             continue;
         }
-        if b.h.xid == xid.into_inner() || b.h.count == 0 {
+        if b.h.xid == xid.into_inner() || b.h.count == 0
+            || (bno == pg_sys::InvalidBlockNumber && (b.h.count as usize) < b.entries.len())
+         {
             b.h.xid = xid.into_inner();
             let vers = match &rbuf {
                 XBuf::Ro(b) => b.page().contents_ref::<FSMRoot>().version,
@@ -459,7 +461,6 @@ fn next_chain(
             };
             return (buf, vers, rbuf);
         }
-        bno = next(&buf);
     }
 
     let rbufnum = match rbuf {

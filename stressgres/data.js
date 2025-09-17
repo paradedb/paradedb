@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758120363228,
+  "lastUpdate": 1758121047218,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1066,6 +1066,60 @@ window.BENCHMARK_DATA = {
             "value": 18.319299063935397,
             "unit": "median tps",
             "extra": "avg tps: 18.219242700190005, max tps: 18.835532900702088, count: 55622"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63daa7f2bf568127e538f19f942d6363508ca615",
+          "message": "chore: don't warn about `raw` tokenizer on UUID key fields (#3167)\n\n## What\n\nRemove the warning about using the `raw` tokenizer when the `key_field`\nis a UUID field.\n\nThe drama here is that we (pg_search) assign the `raw` tokenizer to UUID\nfields used as the key_field so there's nothing a user can do about it.\nWarning about our own bad decisions is not cool.\n\n## Why\n\nMany user and customer complaints.\n\n## How\n\n## Tests\n\nExisting tests pass but a couple of the regression test expected output\nis now different.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-17T10:06:31-04:00",
+          "tree_id": "2c472616485a1c2a1ed61c7f2c030286882deb06",
+          "url": "https://github.com/paradedb/paradedb/commit/63daa7f2bf568127e538f19f942d6363508ca615"
+        },
+        "date": 1758121045600,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.23536429755855,
+            "unit": "median tps",
+            "extra": "avg tps: 37.485706341601265, max tps: 38.946791289050836, count: 55448"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.84051085056066,
+            "unit": "median tps",
+            "extra": "avg tps: 278.0010587481435, max tps: 2879.7959491782253, count: 55448"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 981.2931900957528,
+            "unit": "median tps",
+            "extra": "avg tps: 979.33191739944, max tps: 990.6449642220937, count: 55448"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.55323481730571,
+            "unit": "median tps",
+            "extra": "avg tps: 154.23101041228605, max tps: 800.9318402526686, count: 110896"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.406100869377777,
+            "unit": "median tps",
+            "extra": "avg tps: 17.468430492477005, max tps: 19.84249543032291, count: 55448"
           }
         ]
       }

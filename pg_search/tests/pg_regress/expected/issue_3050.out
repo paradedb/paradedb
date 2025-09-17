@@ -30,9 +30,8 @@ LIMIT 5;
                      Exec Method: MixedFastFieldExecState
                      Fast Fields: id, rating
                      Scores: false
-                     Full Index Scan: true
                      Tantivy Query: {"with_index":{"query":"all"}}
-(13 rows)
+(12 rows)
 
 SELECT id, rating, COUNT(*)
 FROM mock_items

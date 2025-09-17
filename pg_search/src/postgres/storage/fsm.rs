@@ -163,7 +163,7 @@ impl FreeSpaceManager {
                     let bvers = b.h.version;
                     drop(buf);
                     let mut mbuf = rbuf.upgrade(bman);
-                    let mroot = mbuf.page_mut().contents_mut::<FSMRoot>();
+                    let mroot = mbuf.page().contents_ref::<FSMRoot>();
                     buf = bman.get_buffer_mut(bno);
                     b = buf.page_mut().contents_mut::<FSMChain>();
                     if mroot.version != rvers || b.h.version != bvers {
@@ -177,7 +177,7 @@ impl FreeSpaceManager {
                     b.h.version += 1;
                     if bno == mroot.partial[slot] {
                         killed = bno;
-                        mroot.partial[slot] = next_bno;
+                        mbuf.page_mut().contents_mut::<FSMRoot>().partial[slot] = next_bno;
                     }
                 } else {
                     for i in 1..n + 1 {
@@ -190,7 +190,7 @@ impl FreeSpaceManager {
             }
             if let Some(mut buf) = get_chain(bman, root.filled[slot], horizon, false) {
                 let bno = buf.number();
-                let mut b = buf.page_mut().contents_mut::<FSMChain>();
+                let mut b = buf.page().contents_ref::<FSMChain>();
                 let rvers = root.version;
                 let bvers = b.h.version;
                 drop(buf);
@@ -208,6 +208,7 @@ impl FreeSpaceManager {
                 for i in 1..n + 1 {
                     v.push(b.entries[(b.h.count - i) as usize]);
                 }
+                let b = buf.page_mut().contents_mut::<FSMChain>();
                 b.h.count -= n;
                 b.h.version += 1;
                 if bno == mroot.filled[slot] {
@@ -461,12 +462,13 @@ fn next_chain(
         bno = next(&buf);
     }
 
-    let mut rbuf = match rbuf {
-        XBuf::Ro(b) => XBuf::Rw(b.upgrade(bman)),
-        XBuf::Rw(b) => XBuf::Rw(b),
+    let rbufnum = match rbuf {
+        XBuf::Ro(b) => b.number(),
+        XBuf::Rw(b) => b.number(),
     };
 
     let mut buf = new_chain(bman, xid);
+    let mut rbuf = XBuf::Rw(bman.get_buffer_mut(rbufnum));
     if let XBuf::Rw(ref mut b) = rbuf {
         let root = b.page_mut().contents_mut::<FSMRoot>();
         buf.page_mut()
@@ -568,8 +570,9 @@ fn load_root(root: pg_sys::BlockNumber, bman: &mut BufferManager) -> Buffer {
 }
 
 fn new_chain(bman: &mut BufferManager, xid: pg_sys::TransactionId) -> BufferMut {
-    let mut buf = init_new_buffer(bman.buffer_access().rel());
-    let mut pg = buf.page_mut();
+    // let mut buf = init_new_buffer(bman.buffer_access().rel());
+    let mut buf = bman.new_buffer();
+    let mut pg = buf.init_page();
     let chain = pg.contents_mut::<FSMChain>();
     *chain = FSMChain {
         h: ChainHeader {

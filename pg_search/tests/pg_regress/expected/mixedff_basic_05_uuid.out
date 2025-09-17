@@ -30,7 +30,6 @@ WITH (
         "name": { "tokenizer": { "type": "keyword" }, "fast": true }
     }'
 );
-WARNING:  the `raw` tokenizer is deprecated
 -- Confirm that the UUID key_field is fast and gets MixedFF.
 SELECT name FROM products WHERE name @@@ 'bob' ORDER BY uuid_key;
  name 

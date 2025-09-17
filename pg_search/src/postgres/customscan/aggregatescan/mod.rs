@@ -196,6 +196,7 @@ impl CustomScan for AggregateScan {
                 &bm25_index,
                 false, // Base relation quals should not convert external to all
                 &mut QualExtractState::default(),
+                true,
             );
             SearchQueryInput::from(&result?)
         };

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758237402357,
+  "lastUpdate": 1758237405003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -9190,6 +9190,126 @@ window.BENCHMARK_DATA = {
             "value": 145.8828125,
             "unit": "median mem",
             "extra": "avg mem: 127.23406282792682, max mem: 150.578125, count: 54795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e11875ba052ccd6937ca0c535b3803309c8b6eb",
+          "message": "feat: removed aggregation limitations re mix of aggregate functions and aggregation on group-by column. (#3179)\n\n# Ticket(s) Closed\n\n- Closes #2963\n\n## What\n\nRemoves aggregate limitations that prevented queries where the same\nfield is used in both `GROUP BY` and aggregate functions (e.g., `SELECT\nrating, AVG(rating) FROM table GROUP BY rating`).\n\n## Why\n\nPrevious safety checks blocked these queries due to Tantivy's\n\"incompatible fruit types\" errors, but testing shows the underlying\nissue is resolved. The limitations were overly restrictive and caused\nunnecessary fallbacks to slower PostgreSQL aggregation.\n\n## How\n\n- Removed `has_search_field_conflicts` function and field conflict\nvalidation\n- Eliminated ~35 lines of restrictive code in\n`extract_and_validate_aggregates`\n- Previously blocked queries now use faster `AggregateScan` instead of\n`GroupAggregate`\n\n## Tests\n\n- **`aggregate-groupby-conflict.sql`** - Tests `GROUP BY field` with\naggregates on same field\n- **`test-fruit-types-issue.sql`** - Validates #2963 issue resolution  \n- **`groupby_aggregate.out`** - Updated expectations showing\n`AggregateScan` usage",
+          "timestamp": "2025-09-18T16:00:25-07:00",
+          "tree_id": "f85924512f419186b824a986dd35eaa96d973884",
+          "url": "https://github.com/paradedb/paradedb/commit/6e11875ba052ccd6937ca0c535b3803309c8b6eb"
+        },
+        "date": 1758237403362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.806783096341936, max cpu: 14.4723625, count: 55250"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.28841084558823, max mem: 154.1484375, count: 55250"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.648725043613653, max cpu: 9.60961, count: 55250"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.309173430429865, max mem: 30.04296875, count: 55250"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.897508925949183, max cpu: 14.486921, count: 55250"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.88069753959277, max mem: 154.765625, count: 55250"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.589613258707651, max cpu: 4.729064, count: 55250"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.49936814196832, max mem: 154.83984375, count: 55250"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.704406555382931, max cpu: 9.657948, count: 110500"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.625,
+            "unit": "median mem",
+            "extra": "avg mem: 134.36915738122173, max mem: 152.75, count: 110500"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 28351,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27992.53011764706, max block_count: 54302.0, count: 55250"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.819239819004526, max segment_count: 73.0, count: 55250"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5574325536874465, max cpu: 9.458128, count: 55250"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.11357487273756, max mem: 158.09765625, count: 55250"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.127911249693383, max cpu: 4.7105007, count: 55250"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 145.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 127.48790999717194, max mem: 149.51171875, count: 55250"
           }
         ]
       }

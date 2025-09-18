@@ -72,18 +72,19 @@ impl State {
     }
 }
 
+type NumDeletedDocs = u32;
 struct ParallelAggregation {
     state: State,
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
-    segment_ids: Vec<(SegmentId, u32)>,
+    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for (SegmentId, u32) {}
+impl ParallelStateType for (SegmentId, NumDeletedDocs) {}
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -107,7 +108,7 @@ impl ParallelAggregation {
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<(SegmentId, u32)>,
+        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -136,7 +137,7 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Aggregations,
     query: SearchQueryInput,
-    segment_ids: Vec<(SegmentId, u32)>,
+    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
 }
@@ -146,7 +147,7 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: Aggregations,
         query: SearchQueryInput,
-        segment_ids: Vec<(SegmentId, u32)>,
+        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
@@ -270,7 +271,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, u32)>(4)
+            .slice::<(SegmentId, NumDeletedDocs)>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager

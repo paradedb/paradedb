@@ -16,14 +16,15 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
+use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
 use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::Oid;
-use pgrx::IntoDatum;
 use pgrx::PostgresType;
+use pgrx::{pg_sys, IntoDatum};
 use pgrx::{FromDatum, PgBuiltInOids, PgOid};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 use serde::{Deserialize, Deserializer};
@@ -104,18 +105,15 @@ impl TantivyValue {
     }
 
     fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
-        let mut tantivy_values = vec![];
         match value {
             // A tantivy JSON value can't be a top-level array, so we have to make
             // separate values out of each entry.
-            Value::Array(value_vec) => {
-                for value in value_vec {
-                    tantivy_values.extend_from_slice(&Self::json_value_to_tantivy_value(value));
-                }
-            }
-            _ => tantivy_values.push(TantivyValue(tantivy::schema::OwnedValue::from(value))),
+            Value::Array(value_vec) => value_vec
+                .into_iter()
+                .map(|value| TantivyValue(tantivy::schema::OwnedValue::from(value)))
+                .collect(),
+            _ => vec![TantivyValue(tantivy::schema::OwnedValue::from(value))],
         }
-        tantivy_values
     }
 
     /// Convert a JSON value to an OwnedValue based on the field type from the schema
@@ -199,9 +197,10 @@ impl TantivyValue {
                 // inserted into the index. Therefore, we need to flatten the array elements
                 // individually before converting them into Tantivy values.
                 PgBuiltInOids::JSONBOID => {
-                    let pgrx_value = pgrx::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?;
-                    Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
+                    let serde_json_value = jsonb_datum_to_serde_json_value(datum)
+                        .ok_or(TantivyValueError::DatumDeref)?
+                        .map_err(TantivyValueError::Utf8ConversionError)?;
+                    Ok(Self::json_value_to_tantivy_value(serde_json_value))
                 }
                 PgBuiltInOids::JSONOID => {
                     let pgrx_value = pgrx::Json::from_datum(datum, false)
@@ -300,8 +299,8 @@ impl TantivyValue {
                     .ok_or(TantivyValueError::DatumDeref)?,
                 ),
                 PgBuiltInOids::JSONBOID => TantivyValue::try_from(
-                    pgrx::datum::JsonB::from_datum(datum, false)
-                        .ok_or(TantivyValueError::DatumDeref)?,
+                    jsonb_datum_to_serde_json_value(datum)
+                        .ok_or(TantivyValueError::DatumDeref)??,
                 ),
                 PgBuiltInOids::JSONOID => TantivyValue::try_from(
                     pgrx::datum::JsonString::from_datum(datum, false)
@@ -759,8 +758,9 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+        Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+            serde_json::Value::Array(vec![val.0]),
+        )))
     }
 }
 
@@ -778,14 +778,40 @@ impl TryFrom<TantivyValue> for pgrx::JsonB {
     }
 }
 
+impl TryFrom<serde_json::Value> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(val: serde_json::Value) -> Result<Self, Self::Error> {
+        Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+            serde_json::Value::Array(vec![val]),
+        )))
+    }
+}
+
+impl TryFrom<TantivyValue> for serde_json::Value {
+    type Error = TantivyValueError;
+
+    fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
+        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
+            Ok(serde_json::to_value(val)?)
+        } else {
+            Err(TantivyValueError::UnsupportedIntoConversion(
+                "jsonb".to_string(),
+            ))
+        }
+    }
+}
+
 impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (0, 0, 0, 0),
-        )?))
+        let posix_time = val.to_posix_time();
+        let date = time::OffsetDateTime::from_unix_timestamp(posix_time)
+            .expect("postgres Date should be valid OffsetDateTime");
+        let tantivy_date =
+            tantivy::DateTime::from_timestamp_nanos(date.unix_timestamp_nanos() as i64);
+        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }
 
@@ -793,7 +819,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Date {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
+        if let OwnedValue::Date(val) = value.0 {
             let prim_dt = val.into_primitive();
             Ok(pgrx::datum::Date::new(
                 prim_dt.year(),
@@ -843,12 +869,15 @@ impl TryFrom<TantivyValue> for pgrx::datum::Time {
 impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
     type Error = TantivyValueError;
 
+    #[allow(static_mut_refs)]
     fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (v_h, v_m, v_s, v_ms),
-        )?))
+        static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
+        let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
+        let dt = chrono::DateTime::from_timestamp_micros(val.into_inner() - *epoch_ts)
+            .expect("postgres Timestamp should be valid DateTime");
+        let tantivy_date = tantivy::DateTime::from_timestamp_micros(dt.timestamp_micros());
+
+        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 }
 
@@ -949,8 +978,9 @@ impl TryFrom<pgrx::Uuid> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::Uuid) -> Result<Self, Self::Error> {
+        let uuid = uuid::Uuid::from_slice(val.as_bytes())?;
         Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
-            val.to_string(),
+            uuid.to_string(),
         )))
     }
 }
@@ -1097,4 +1127,7 @@ pub enum TantivyValueError {
 
     #[error("Cannot convert TantivyValue to type {0}")]
     UnsupportedIntoConversion(String),
+
+    #[error("UTF8 conversion error: {0}")]
+    Utf8ConversionError(#[from] std::str::Utf8Error),
 }

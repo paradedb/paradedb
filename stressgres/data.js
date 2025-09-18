@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758228865288,
+  "lastUpdate": 1758237402357,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -5776,6 +5776,72 @@ window.BENCHMARK_DATA = {
             "value": 90.0378114432283,
             "unit": "median tps",
             "extra": "avg tps: 89.71592216756898, max tps: 600.5122369381081, count: 54795"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e11875ba052ccd6937ca0c535b3803309c8b6eb",
+          "message": "feat: removed aggregation limitations re mix of aggregate functions and aggregation on group-by column. (#3179)\n\n# Ticket(s) Closed\n\n- Closes #2963\n\n## What\n\nRemoves aggregate limitations that prevented queries where the same\nfield is used in both `GROUP BY` and aggregate functions (e.g., `SELECT\nrating, AVG(rating) FROM table GROUP BY rating`).\n\n## Why\n\nPrevious safety checks blocked these queries due to Tantivy's\n\"incompatible fruit types\" errors, but testing shows the underlying\nissue is resolved. The limitations were overly restrictive and caused\nunnecessary fallbacks to slower PostgreSQL aggregation.\n\n## How\n\n- Removed `has_search_field_conflicts` function and field conflict\nvalidation\n- Eliminated ~35 lines of restrictive code in\n`extract_and_validate_aggregates`\n- Previously blocked queries now use faster `AggregateScan` instead of\n`GroupAggregate`\n\n## Tests\n\n- **`aggregate-groupby-conflict.sql`** - Tests `GROUP BY field` with\naggregates on same field\n- **`test-fruit-types-issue.sql`** - Validates #2963 issue resolution  \n- **`groupby_aggregate.out`** - Updated expectations showing\n`AggregateScan` usage",
+          "timestamp": "2025-09-18T16:00:25-07:00",
+          "tree_id": "f85924512f419186b824a986dd35eaa96d973884",
+          "url": "https://github.com/paradedb/paradedb/commit/6e11875ba052ccd6937ca0c535b3803309c8b6eb"
+        },
+        "date": 1758237400725,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 802.7734606484255,
+            "unit": "median tps",
+            "extra": "avg tps: 803.3655022112721, max tps: 818.5395468483744, count: 55250"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3191.376133437114,
+            "unit": "median tps",
+            "extra": "avg tps: 3183.1591559974463, max tps: 3311.0241365041816, count: 55250"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 786.4617940123576,
+            "unit": "median tps",
+            "extra": "avg tps: 786.7118494645048, max tps: 821.3398382996932, count: 55250"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 669.3545605969409,
+            "unit": "median tps",
+            "extra": "avg tps: 671.9255293044082, max tps: 699.3920887738077, count: 55250"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1702.3416768441261,
+            "unit": "median tps",
+            "extra": "avg tps: 1693.9705667693606, max tps: 1710.63774745472, count: 110500"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1271.6233314327262,
+            "unit": "median tps",
+            "extra": "avg tps: 1264.2020040645662, max tps: 1278.453568597078, count: 55250"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 171.60040250862255,
+            "unit": "median tps",
+            "extra": "avg tps: 175.26819908013618, max tps: 509.33301822597275, count: 55250"
           }
         ]
       }

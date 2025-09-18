@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758227487445,
+  "lastUpdate": 1758228173136,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -12156,6 +12156,42 @@ window.BENCHMARK_DATA = {
             "value": 582.6206868262547,
             "unit": "median tps",
             "extra": "avg tps: 587.2620465421335, max tps: 703.4971293993217, count: 57745"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3bcb1451087be74b7bd73bfc7d6546423046a0ce",
+          "message": "fix: write all delete files atomically (#3178)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `ambulkdelete`, write all delete files to the meta list atomically,\ninstead of one at a time.\n\n## Why\n\nReduces the number of writes to the metas list.\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T16:03:10-04:00",
+          "tree_id": "ad9609f0419a34b8f0cf543e911c1dc3c25d4563",
+          "url": "https://github.com/paradedb/paradedb/commit/3bcb1451087be74b7bd73bfc7d6546423046a0ce"
+        },
+        "date": 1758228171539,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.64891486008565,
+            "unit": "median tps",
+            "extra": "avg tps: 46.7732229727862, max tps: 48.900454305430735, count: 56987"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 611.9517943625154,
+            "unit": "median tps",
+            "extra": "avg tps: 615.3194737249194, max tps: 754.8805749393778, count: 56987"
           }
         ]
       }

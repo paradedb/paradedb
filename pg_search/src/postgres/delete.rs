@@ -138,7 +138,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
         stats.pages_deleted = 0;
     }
 
-    if !old_metas.is_empty() {
+    let did_delete = !old_metas.is_empty();
+    if did_delete {
         // Save the new delete metas entries in one atomic operation
         assert_eq!(old_metas.len(), new_metas.len());
         save_delete_metas(&index, old_metas, new_metas)
@@ -157,7 +158,10 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
-    drop(metadata);
+
+    if did_delete {
+        metadata.increment_ambulkdelete_epoch();
+    }
 
     stats.into_pg()
 }

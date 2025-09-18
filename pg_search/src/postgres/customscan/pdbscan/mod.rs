@@ -60,6 +60,7 @@ use crate::postgres::customscan::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
@@ -654,6 +655,11 @@ impl CustomScan for PdbScan {
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);
+
+            builder
+                .custom_private_mut()
+                .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
+
             builder.build()
         }
     }
@@ -765,6 +771,9 @@ impl CustomScan for PdbScan {
             .into_iter()
             .map(|field| (field, None))
             .collect();
+
+            builder.custom_state().ambulkdelete_epoch =
+                builder.custom_private().ambulkdelete_epoch();
 
             assign_exec_method(&mut builder);
 

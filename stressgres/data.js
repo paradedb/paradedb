@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758238113205,
+  "lastUpdate": 1758238115852,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11722,6 +11722,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.0050447462078, max segment_count: 105.0, count: 57882"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e11875ba052ccd6937ca0c535b3803309c8b6eb",
+          "message": "feat: removed aggregation limitations re mix of aggregate functions and aggregation on group-by column. (#3179)\n\n# Ticket(s) Closed\n\n- Closes #2963\n\n## What\n\nRemoves aggregate limitations that prevented queries where the same\nfield is used in both `GROUP BY` and aggregate functions (e.g., `SELECT\nrating, AVG(rating) FROM table GROUP BY rating`).\n\n## Why\n\nPrevious safety checks blocked these queries due to Tantivy's\n\"incompatible fruit types\" errors, but testing shows the underlying\nissue is resolved. The limitations were overly restrictive and caused\nunnecessary fallbacks to slower PostgreSQL aggregation.\n\n## How\n\n- Removed `has_search_field_conflicts` function and field conflict\nvalidation\n- Eliminated ~35 lines of restrictive code in\n`extract_and_validate_aggregates`\n- Previously blocked queries now use faster `AggregateScan` instead of\n`GroupAggregate`\n\n## Tests\n\n- **`aggregate-groupby-conflict.sql`** - Tests `GROUP BY field` with\naggregates on same field\n- **`test-fruit-types-issue.sql`** - Validates #2963 issue resolution  \n- **`groupby_aggregate.out`** - Updated expectations showing\n`AggregateScan` usage",
+          "timestamp": "2025-09-18T16:00:25-07:00",
+          "tree_id": "f85924512f419186b824a986dd35eaa96d973884",
+          "url": "https://github.com/paradedb/paradedb/commit/6e11875ba052ccd6937ca0c535b3803309c8b6eb"
+        },
+        "date": 1758238114223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.897638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.76614080738189, max cpu: 42.772278, count: 57965"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 224.62886244662727, max mem: 226.64453125, count: 57965"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.28088770180644, max cpu: 33.7011, count: 57965"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 163.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.77770846362029, max mem: 165.26171875, count: 57965"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23970,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22921.125575778486, max block_count: 25736.0, count: 57965"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.51565599930993, max segment_count: 105.0, count: 57965"
           }
         ]
       }

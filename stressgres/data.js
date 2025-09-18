@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758237405003,
+  "lastUpdate": 1758238113205,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -10198,6 +10198,42 @@ window.BENCHMARK_DATA = {
             "value": 5.499582999104259,
             "unit": "median tps",
             "extra": "avg tps: 4.970809495910068, max tps: 6.100146880844462, count: 57882"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e11875ba052ccd6937ca0c535b3803309c8b6eb",
+          "message": "feat: removed aggregation limitations re mix of aggregate functions and aggregation on group-by column. (#3179)\n\n# Ticket(s) Closed\n\n- Closes #2963\n\n## What\n\nRemoves aggregate limitations that prevented queries where the same\nfield is used in both `GROUP BY` and aggregate functions (e.g., `SELECT\nrating, AVG(rating) FROM table GROUP BY rating`).\n\n## Why\n\nPrevious safety checks blocked these queries due to Tantivy's\n\"incompatible fruit types\" errors, but testing shows the underlying\nissue is resolved. The limitations were overly restrictive and caused\nunnecessary fallbacks to slower PostgreSQL aggregation.\n\n## How\n\n- Removed `has_search_field_conflicts` function and field conflict\nvalidation\n- Eliminated ~35 lines of restrictive code in\n`extract_and_validate_aggregates`\n- Previously blocked queries now use faster `AggregateScan` instead of\n`GroupAggregate`\n\n## Tests\n\n- **`aggregate-groupby-conflict.sql`** - Tests `GROUP BY field` with\naggregates on same field\n- **`test-fruit-types-issue.sql`** - Validates #2963 issue resolution  \n- **`groupby_aggregate.out`** - Updated expectations showing\n`AggregateScan` usage",
+          "timestamp": "2025-09-18T16:00:25-07:00",
+          "tree_id": "f85924512f419186b824a986dd35eaa96d973884",
+          "url": "https://github.com/paradedb/paradedb/commit/6e11875ba052ccd6937ca0c535b3803309c8b6eb"
+        },
+        "date": 1758238111551,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.26112343217718,
+            "unit": "median tps",
+            "extra": "avg tps: 7.055789437238797, max tps: 10.959271372995877, count: 57965"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.433154161699186,
+            "unit": "median tps",
+            "extra": "avg tps: 4.906473493725666, max tps: 6.030736684806794, count: 57965"
           }
         ]
       }

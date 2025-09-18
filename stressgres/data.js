@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758227484663,
+  "lastUpdate": 1758227487445,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11278,6 +11278,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.39067206814168, max segment_count: 107.0, count: 57762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3bcb1451087be74b7bd73bfc7d6546423046a0ce",
+          "message": "fix: write all delete files atomically (#3178)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `ambulkdelete`, write all delete files to the meta list atomically,\ninstead of one at a time.\n\n## Why\n\nReduces the number of writes to the metas list.\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T16:03:10-04:00",
+          "tree_id": "ad9609f0419a34b8f0cf543e911c1dc3c25d4563",
+          "url": "https://github.com/paradedb/paradedb/commit/3bcb1451087be74b7bd73bfc7d6546423046a0ce"
+        },
+        "date": 1758227485803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 22.623722,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.0225459708206, max cpu: 42.942345, count: 57882"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 227.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 226.62063916135415, max mem: 229.00390625, count: 57882"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.326251388743636, max cpu: 33.168808, count: 57882"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 160.85732948606648, max mem: 162.65625, count: 57882"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23874,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22787.244134618708, max block_count: 25615.0, count: 57882"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.0050447462078, max segment_count: 105.0, count: 57882"
           }
         ]
       }

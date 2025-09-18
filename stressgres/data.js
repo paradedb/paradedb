@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758239553737,
+  "lastUpdate": 1758239765319,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -13398,6 +13398,42 @@ window.BENCHMARK_DATA = {
             "value": 604.6232560024505,
             "unit": "median tps",
             "extra": "avg tps: 606.4378021145862, max tps: 718.0308349467156, count: 58022"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "020f92b742187fe6fdc75a19390692e6d2e9a373",
+          "message": "feat: Port `ambulkdelete_epoch` to community (#3180)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd `ambulkdelete_epoch` to the index metadata and make sure it's passed\ndown to all scans. In enterprise, this value is used to detect query\nconflicts with concurrent vacuums on the primary.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T19:16:09-04:00",
+          "tree_id": "3642b293b38caa7676318f888b910c3f934e1976",
+          "url": "https://github.com/paradedb/paradedb/commit/020f92b742187fe6fdc75a19390692e6d2e9a373"
+        },
+        "date": 1758239763650,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 47.5783201824845,
+            "unit": "median tps",
+            "extra": "avg tps: 47.53280297775848, max tps: 48.99977065580093, count: 57612"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 576.354450095338,
+            "unit": "median tps",
+            "extra": "avg tps: 579.5650524332784, max tps: 724.9783691108424, count: 57612"
           }
         ]
       }

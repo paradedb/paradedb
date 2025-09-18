@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758239550926,
+  "lastUpdate": 1758239553737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -3994,6 +3994,114 @@ window.BENCHMARK_DATA = {
             "value": 155.1328125,
             "unit": "median mem",
             "extra": "avg mem: 154.0424702878563, max mem: 156.16015625, count: 55922"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6e11875ba052ccd6937ca0c535b3803309c8b6eb",
+          "message": "feat: removed aggregation limitations re mix of aggregate functions and aggregation on group-by column. (#3179)\n\n# Ticket(s) Closed\n\n- Closes #2963\n\n## What\n\nRemoves aggregate limitations that prevented queries where the same\nfield is used in both `GROUP BY` and aggregate functions (e.g., `SELECT\nrating, AVG(rating) FROM table GROUP BY rating`).\n\n## Why\n\nPrevious safety checks blocked these queries due to Tantivy's\n\"incompatible fruit types\" errors, but testing shows the underlying\nissue is resolved. The limitations were overly restrictive and caused\nunnecessary fallbacks to slower PostgreSQL aggregation.\n\n## How\n\n- Removed `has_search_field_conflicts` function and field conflict\nvalidation\n- Eliminated ~35 lines of restrictive code in\n`extract_and_validate_aggregates`\n- Previously blocked queries now use faster `AggregateScan` instead of\n`GroupAggregate`\n\n## Tests\n\n- **`aggregate-groupby-conflict.sql`** - Tests `GROUP BY field` with\naggregates on same field\n- **`test-fruit-types-issue.sql`** - Validates #2963 issue resolution  \n- **`groupby_aggregate.out`** - Updated expectations showing\n`AggregateScan` usage",
+          "timestamp": "2025-09-18T16:00:25-07:00",
+          "tree_id": "f85924512f419186b824a986dd35eaa96d973884",
+          "url": "https://github.com/paradedb/paradedb/commit/6e11875ba052ccd6937ca0c535b3803309c8b6eb"
+        },
+        "date": 1758239552093,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.14796691610747, max cpu: 42.64561, count: 55429"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 144.83542191925707, max mem: 156.57421875, count: 55429"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.760738821034685, max cpu: 28.125, count: 55429"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 110.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 109.72507150194393, max mem: 110.86328125, count: 55429"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.00202590381865, max cpu: 13.9265, count: 55429"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 142.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 121.61469585528333, max mem: 143.5859375, count: 55429"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30139,
+            "unit": "median block_count",
+            "extra": "avg block_count: 30893.977538833464, max block_count: 63785.0, count: 55429"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.60263963600085, max cpu: 4.7244096, count: 55429"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 99.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 89.66276755793447, max mem: 128.32421875, count: 55429"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.654909884717387, max segment_count: 55.0, count: 55429"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.129682550786187, max cpu: 42.561577, count: 110858"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.37109375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.5345790405857, max mem: 154.234375, count: 110858"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.237559786542835, max cpu: 28.015566, count: 55429"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 157.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 155.8559471209791, max mem: 159.05859375, count: 55429"
           }
         ]
       }

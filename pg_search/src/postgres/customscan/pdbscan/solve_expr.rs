@@ -6,18 +6,13 @@ impl SearchQueryInput {
     pub fn has_heap_filters(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {
-            if let SearchQueryInput::HeapFilter { field_filters, .. } = sqi {
-                // Check if any heap field filters contain subqueries
-                for filter in field_filters.iter() {
-                    if filter.contains_subqueries() {
-                        found = true;
-                        break;
-                    }
-                }
+            if let SearchQueryInput::HeapFilter { .. } = sqi {
+                found = true;
             }
         });
         found
     }
+
     pub fn has_postgres_expressions(&mut self) -> bool {
         let mut found = false;
         self.visit(&mut |sqi| {

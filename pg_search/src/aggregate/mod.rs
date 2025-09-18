@@ -15,6 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::error::Error;
+use std::ptr::NonNull;
+
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::index::mvcc::MvccSatisfies;
@@ -27,9 +30,9 @@ use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, 
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::query::SearchQueryInput;
+
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
-use std::error::Error;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
@@ -193,11 +196,14 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
-        let reader = SearchIndexReader::open(
+        let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
+        let reader = SearchIndexReader::open_with_context(
             &indexrel,
             self.query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
+            NonNull::new(standalone_context),
+            None,
         )?;
 
         let base_collector = DistributedAggregationCollector::from_aggs(
@@ -295,9 +301,15 @@ pub fn execute_aggregate(
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     unsafe {
-        let reader = SearchIndexReader::open(index, query.clone(), false, MvccSatisfies::Snapshot)?;
-        // TODO: Could potentially directly use the `serde` definitions of the aggregates: e.g.
-        // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
         let agg_req = serde_json::from_value(agg)?;
         let process = ParallelAggregation::new(
             index.oid(),

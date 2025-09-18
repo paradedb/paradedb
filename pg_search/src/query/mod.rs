@@ -766,6 +766,10 @@ impl SearchQueryInput {
                     planstate,
                 )?;
 
+                // Is initialized in `begin_custom_scan` if `has_heap_filters`.
+                let expr_context = expr_context
+                    .expect("An expression context must be provided when heap filtering.");
+
                 // Create combined query with heap field filters
                 Ok(Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,

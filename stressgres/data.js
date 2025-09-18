@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758154359708,
+  "lastUpdate": 1758154362306,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -10390,6 +10390,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 71.80703150682561, max segment_count: 104.0, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "849076799ca599dfbf0f2415149b12495b24624c",
+          "message": "fix: Always use a shared expression context to execute HeapFilters. (#3174)\n\n## What\n\nEvaluating heap filters was leaking a `CreateStandaloneExprContext` per\nexecution, which could eventually lead to OOMs.\n\n## Why\n\n`PgBox::from_pg` does not free the resulting memory: it's expected to be\nfreed by a memory context, since PG created it.\n\n## How\n\nAlways use a global expression context created by\n`ExecAssignExprContext` in `begin_custom_scan`.\n\n## Tests\n\nA repro uses significantly less memory, and [a benchmark query added for\nthis purpose](https://github.com/paradedb/paradedb/pull/3175) is faster.",
+          "timestamp": "2025-09-17T16:44:32-07:00",
+          "tree_id": "7eef1c518a935389aa23e91c6bc47bbc325b18e6",
+          "url": "https://github.com/paradedb/paradedb/commit/849076799ca599dfbf0f2415149b12495b24624c"
+        },
+        "date": 1758154360681,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.75,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.34121978197039, max cpu: 42.60355, count: 57490"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.613440177096, max mem: 227.86328125, count: 57490"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.27837,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.42017493662807, max cpu: 33.267326, count: 57490"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.62385476006696, max mem: 163.13671875, count: 57490"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24021,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22915.575908853712, max block_count: 25753.0, count: 57490"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.51902939641677, max segment_count: 105.0, count: 57490"
           }
         ]
       }

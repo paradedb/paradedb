@@ -62,6 +62,7 @@ pub struct MetaPageData {
 
     /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
     segment_meta_garbage: pg_sys::BlockNumber,
+    ambulkdelete_epoch: u32,
 }
 
 /// Provides read access to the metadata page
@@ -282,5 +283,27 @@ impl MetaPage {
             self.data.segment_metas_start
         };
         LinkedItemList::<SegmentMetaEntry>::open(self.bman.buffer_access().rel(), blockno)
+    }
+
+    pub fn ambulkdelete_epoch(&self) -> u32 {
+        self.data.ambulkdelete_epoch
+    }
+}
+
+pub struct MetaPageMut {
+    buffer: BufferMut,
+}
+
+impl MetaPageMut {
+    pub fn open(indexrel: &PgSearchRelation) -> Self {
+        let mut bman = BufferManager::new(indexrel);
+        let buffer = bman.get_buffer_mut(METAPAGE);
+        Self { buffer }
+    }
+
+    pub unsafe fn increment_ambulkdelete_epoch(mut self) {
+        let mut page = self.buffer.page_mut();
+        let metadata = page.contents_mut::<MetaPageData>();
+        metadata.ambulkdelete_epoch = metadata.ambulkdelete_epoch.wrapping_add(1);
     }
 }

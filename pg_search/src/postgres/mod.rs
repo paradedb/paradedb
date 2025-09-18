@@ -486,13 +486,13 @@ pub struct ParallelExplainData {
     workers: BTreeMap<i32, ParallelExplainWorkerData>,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize, Debug)]
 pub struct ParallelExplainWorkerData {
     query_count: Option<u16>,
     claimed_segments: Vec<ClaimedSegmentData>,
 }
 
-#[derive(Default, serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize, Debug)]
 pub struct ClaimedSegmentData {
     id: String,
     deleted_docs: u32,

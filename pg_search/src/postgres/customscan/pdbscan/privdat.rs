@@ -49,6 +49,7 @@ pub struct PrivateData {
     // Additional search predicates from join filters that are relevant for snippet/score generation
     // Stores the entire simplified Boolean expression to preserve OR structures like (TRUE OR name:"Rowling")
     join_predicates: Option<SearchQueryInput>,
+    ambulkdelete_epoch: u32,
 }
 
 mod var_attname_lookup_serializer {
@@ -184,6 +185,10 @@ impl PrivateData {
         self.var_attname_lookup = Some(var_attname_lookup);
     }
 
+    pub fn set_ambulkdelete_epoch(&mut self, epoch: u32) {
+        self.ambulkdelete_epoch = epoch;
+    }
+
     pub fn set_segment_count(&mut self, segment_count: usize) {
         self.segment_count = segment_count;
     }
@@ -277,5 +282,9 @@ impl PrivateData {
 
     pub fn join_predicates(&self) -> &Option<SearchQueryInput> {
         &self.join_predicates
+    }
+
+    pub fn ambulkdelete_epoch(&self) -> u32 {
+        self.ambulkdelete_epoch
     }
 }

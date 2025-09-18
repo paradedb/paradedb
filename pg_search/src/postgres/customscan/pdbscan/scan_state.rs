@@ -88,6 +88,8 @@ pub struct PdbScanState {
     pub join_predicates: Option<SearchQueryInput>,
 
     pub exec_method_type: ExecMethodType,
+    pub ambulkdelete_epoch: u32,
+
     exec_method: UnsafeCell<Box<dyn ExecMethod>>,
     exec_method_name: String,
 }

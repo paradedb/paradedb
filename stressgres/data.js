@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758155285627,
+  "lastUpdate": 1758155729461,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1174,6 +1174,60 @@ window.BENCHMARK_DATA = {
             "value": 18.117429315949774,
             "unit": "median tps",
             "extra": "avg tps: 18.180012193855926, max tps: 19.183290586567477, count: 55485"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "849076799ca599dfbf0f2415149b12495b24624c",
+          "message": "fix: Always use a shared expression context to execute HeapFilters. (#3174)\n\n## What\n\nEvaluating heap filters was leaking a `CreateStandaloneExprContext` per\nexecution, which could eventually lead to OOMs.\n\n## Why\n\n`PgBox::from_pg` does not free the resulting memory: it's expected to be\nfreed by a memory context, since PG created it.\n\n## How\n\nAlways use a global expression context created by\n`ExecAssignExprContext` in `begin_custom_scan`.\n\n## Tests\n\nA repro uses significantly less memory, and [a benchmark query added for\nthis purpose](https://github.com/paradedb/paradedb/pull/3175) is faster.",
+          "timestamp": "2025-09-17T16:44:32-07:00",
+          "tree_id": "7eef1c518a935389aa23e91c6bc47bbc325b18e6",
+          "url": "https://github.com/paradedb/paradedb/commit/849076799ca599dfbf0f2415149b12495b24624c"
+        },
+        "date": 1758155727814,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.17596990071766,
+            "unit": "median tps",
+            "extra": "avg tps: 39.24382132968797, max tps: 39.71930623584084, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.14970295833825,
+            "unit": "median tps",
+            "extra": "avg tps: 272.9472759356801, max tps: 2840.1752657208185, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.3070391770511,
+            "unit": "median tps",
+            "extra": "avg tps: 1025.4797682513442, max tps: 1042.7611157968172, count: 55524"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.33203073528722,
+            "unit": "median tps",
+            "extra": "avg tps: 154.8246450134393, max tps: 809.4219397193018, count: 111048"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.37767362489944,
+            "unit": "median tps",
+            "extra": "avg tps: 17.39734631593961, max tps: 20.312637903768266, count: 55524"
           }
         ]
       }

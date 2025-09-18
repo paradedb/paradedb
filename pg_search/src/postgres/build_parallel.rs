@@ -313,6 +313,7 @@ struct WorkerBuildState {
 }
 
 impl WorkerBuildState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,

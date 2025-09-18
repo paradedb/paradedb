@@ -29,6 +29,7 @@ use std::cmp::min;
 use std::collections::HashSet;
 
 #[pg_extern]
+#[allow(clippy::type_complexity)]
 unsafe fn used_blocks(
     index: PgRelation,
 ) -> TableIterator<

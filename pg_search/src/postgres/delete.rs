@@ -19,7 +19,7 @@ use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::metadata::{MetaPage, MetaPageMut};
+use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
 use pgrx::{pg_sys::ItemPointerData, *};
@@ -158,10 +158,8 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
 
     // we're done, no need to hold onto the sentinel any longer
     drop(vacuum_sentinel);
-    drop(metadata);
 
     if did_delete {
-        let metadata = MetaPageMut::open(&index_relation);
         metadata.increment_ambulkdelete_epoch();
     }
 

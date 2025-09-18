@@ -29,6 +29,7 @@ use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -76,12 +77,13 @@ struct ParallelAggregation {
     config: Config,
     query_bytes: Vec<u8>,
     agg_req_bytes: Vec<u8>,
-    segment_ids: Vec<SegmentId>,
+    segment_ids: Vec<(SegmentId, u32)>,
+    ambulkdelete_epoch: u32,
 }
 
 impl ParallelStateType for State {}
 impl ParallelStateType for Config {}
-impl ParallelStateType for SegmentId {}
+impl ParallelStateType for (SegmentId, u32) {}
 
 impl ParallelProcess for ParallelAggregation {
     fn state_values(&self) -> Vec<&dyn ParallelState> {
@@ -91,11 +93,13 @@ impl ParallelProcess for ParallelAggregation {
             &self.agg_req_bytes,
             &self.query_bytes,
             &self.segment_ids,
+            &self.ambulkdelete_epoch,
         ]
     }
 }
 
 impl ParallelAggregation {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         indexrelid: pg_sys::Oid,
         query: &SearchQueryInput,
@@ -103,7 +107,8 @@ impl ParallelAggregation {
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
-        segment_ids: Vec<SegmentId>,
+        segment_ids: Vec<(SegmentId, u32)>,
+        ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             state: State {
@@ -121,6 +126,7 @@ impl ParallelAggregation {
             agg_req_bytes: serde_json::to_vec(aggregations)?,
             query_bytes: serde_json::to_vec(query)?,
             segment_ids,
+            ambulkdelete_epoch,
         })
     }
 }
@@ -130,7 +136,9 @@ struct ParallelAggregationWorker<'a> {
     config: Config,
     aggregation: Aggregations,
     query: SearchQueryInput,
-    segment_ids: Vec<SegmentId>,
+    segment_ids: Vec<(SegmentId, u32)>,
+    #[allow(dead_code)]
+    ambulkdelete_epoch: u32,
 }
 
 impl<'a> ParallelAggregationWorker<'a> {
@@ -138,7 +146,8 @@ impl<'a> ParallelAggregationWorker<'a> {
     fn new_local(
         aggregation: Aggregations,
         query: SearchQueryInput,
-        segment_ids: Vec<SegmentId>,
+        segment_ids: Vec<(SegmentId, u32)>,
+        ambulkdelete_epoch: u32,
         indexrelid: pg_sys::Oid,
         solve_mvcc: bool,
         memory_limit: u64,
@@ -157,6 +166,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             aggregation,
             query,
             segment_ids,
+            ambulkdelete_epoch,
         }
     }
 
@@ -183,7 +193,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             return None;
         }
         self.state.remaining_segments -= 1;
-        self.segment_ids.get(self.state.remaining_segments).cloned()
+        self.segment_ids
+            .get(self.state.remaining_segments)
+            .cloned()
+            .map(|(segment_id, _)| segment_id)
     }
 
     fn execute_aggregate(
@@ -257,9 +270,13 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("wrong type for query_bytes")
             .expect("missing query_bytes value");
         let segment_ids = state_manager
-            .slice::<SegmentId>(4)
+            .slice::<(SegmentId, u32)>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
+        let ambulkdelete_epoch = state_manager
+            .object::<u32>(5)
+            .expect("wrong type for ambulkdelete_epoch")
+            .expect("missing ambulkdelete_epoch value");
 
         let aggregation = serde_json::from_slice::<Aggregations>(agg_req_bytes)
             .expect("agg_req_bytes should deserialize into an Aggregations");
@@ -271,6 +288,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             aggregation,
             query,
             segment_ids: segment_ids.to_vec(),
+            ambulkdelete_epoch: *ambulkdelete_epoch,
         }
     }
 
@@ -311,6 +329,12 @@ pub fn execute_aggregate(
             None,
         )?;
         let agg_req = serde_json::from_value(agg)?;
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
         let process = ParallelAggregation::new(
             index.oid(),
             &query,
@@ -318,7 +342,8 @@ pub fn execute_aggregate(
             solve_mvcc,
             memory_limit,
             bucket_limit,
-            reader.segment_ids(),
+            segment_ids,
+            ambulkdelete_epoch,
         )?;
 
         // limit number of workers to the number of segments
@@ -390,7 +415,11 @@ pub fn execute_aggregate(
             Ok(serde_json::to_value(merged)?)
         } else {
             // couldn't launch any workers, so we just execute the aggregate right here in this backend
-            let segment_ids = reader.segment_ids();
+            let segment_ids = reader
+                .segment_readers()
+                .iter()
+                .map(|r| (r.segment_id(), r.num_deleted_docs()))
+                .collect::<Vec<_>>();
             let mut state = State {
                 mutex: Spinlock::default(),
                 nlaunched: 1,
@@ -400,6 +429,7 @@ pub fn execute_aggregate(
                 agg_req.clone(),
                 query,
                 segment_ids,
+                ambulkdelete_epoch,
                 index.oid(),
                 solve_mvcc,
                 memory_limit as _,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758153651257,
+  "lastUpdate": 1758153653937,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -8146,6 +8146,126 @@ window.BENCHMARK_DATA = {
             "value": 148.7265625,
             "unit": "median mem",
             "extra": "avg mem: 130.70168246342575, max mem: 150.69140625, count: 55401"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "849076799ca599dfbf0f2415149b12495b24624c",
+          "message": "fix: Always use a shared expression context to execute HeapFilters. (#3174)\n\n## What\n\nEvaluating heap filters was leaking a `CreateStandaloneExprContext` per\nexecution, which could eventually lead to OOMs.\n\n## Why\n\n`PgBox::from_pg` does not free the resulting memory: it's expected to be\nfreed by a memory context, since PG created it.\n\n## How\n\nAlways use a global expression context created by\n`ExecAssignExprContext` in `begin_custom_scan`.\n\n## Tests\n\nA repro uses significantly less memory, and [a benchmark query added for\nthis purpose](https://github.com/paradedb/paradedb/pull/3175) is faster.",
+          "timestamp": "2025-09-17T16:44:32-07:00",
+          "tree_id": "7eef1c518a935389aa23e91c6bc47bbc325b18e6",
+          "url": "https://github.com/paradedb/paradedb/commit/849076799ca599dfbf0f2415149b12495b24624c"
+        },
+        "date": 1758153652327,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.924424480449956, max cpu: 14.131501, count: 55350"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 154.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 140.51464445009034, max mem: 154.7890625, count: 55350"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604137890327435, max cpu: 9.458128, count: 55350"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.75,
+            "unit": "median mem",
+            "extra": "avg mem: 26.264929355803975, max mem: 29.68359375, count: 55350"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.964634272816684, max cpu: 14.589665, count: 55350"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 140.34583926151763, max mem: 154.87109375, count: 55350"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.46566711394464, max cpu: 4.738401, count: 55350"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.22266119015356, max mem: 154.80078125, count: 55350"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.646179177699537, max cpu: 9.495549, count: 110700"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 154.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 139.1226351132001, max mem: 156.3515625, count: 110700"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35738,
+            "unit": "median block_count",
+            "extra": "avg block_count: 36349.19403794038, max block_count: 75085.0, count: 55350"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.483396567299007, max segment_count: 76.0, count: 55350"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.575380545408863, max cpu: 9.320388, count: 55350"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 155.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.36739357497743, max mem: 158.4453125, count: 55350"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.965216194306457, max cpu: 9.4395275, count: 55350"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 130.4504032576784, max mem: 150.49609375, count: 55350"
           }
         ]
       }

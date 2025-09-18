@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758153653937,
+  "lastUpdate": 1758154359708,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -9046,6 +9046,42 @@ window.BENCHMARK_DATA = {
             "value": 5.49438767999381,
             "unit": "median tps",
             "extra": "avg tps: 4.9479874971234565, max tps: 6.10650468212832, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "849076799ca599dfbf0f2415149b12495b24624c",
+          "message": "fix: Always use a shared expression context to execute HeapFilters. (#3174)\n\n## What\n\nEvaluating heap filters was leaking a `CreateStandaloneExprContext` per\nexecution, which could eventually lead to OOMs.\n\n## Why\n\n`PgBox::from_pg` does not free the resulting memory: it's expected to be\nfreed by a memory context, since PG created it.\n\n## How\n\nAlways use a global expression context created by\n`ExecAssignExprContext` in `begin_custom_scan`.\n\n## Tests\n\nA repro uses significantly less memory, and [a benchmark query added for\nthis purpose](https://github.com/paradedb/paradedb/pull/3175) is faster.",
+          "timestamp": "2025-09-17T16:44:32-07:00",
+          "tree_id": "7eef1c518a935389aa23e91c6bc47bbc325b18e6",
+          "url": "https://github.com/paradedb/paradedb/commit/849076799ca599dfbf0f2415149b12495b24624c"
+        },
+        "date": 1758154358109,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.34702636497707,
+            "unit": "median tps",
+            "extra": "avg tps: 7.129305693830275, max tps: 11.062926916051657, count: 57490"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.435481611094656,
+            "unit": "median tps",
+            "extra": "avg tps: 4.90806791865233, max tps: 6.054756369667337, count: 57490"
           }
         ]
       }

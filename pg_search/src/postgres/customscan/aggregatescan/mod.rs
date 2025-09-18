@@ -201,13 +201,6 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
-        // Check if any GROUP BY field is also being searched (conflicts with Tantivy aggregation)
-        // Tantivy cannot handle having aggregate function columns in the GROUP BY clause (e.g.,
-        // 'SELECT AVG(rating) FROM products GROUP BY rating').
-        if has_search_field_conflicts(&grouping_columns, &query) {
-            return None;
-        }
-
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
         //
@@ -574,12 +567,6 @@ fn extract_and_validate_aggregates(
     // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
     for aggregate in &aggregate_types {
         if let Some(field_name) = aggregate.field_name() {
-            // Check for conflict with GROUP BY columns
-            if grouping_field_names.contains(&field_name) {
-                // Aggregate field conflicts with GROUP BY column - causes incompatible fruit types in Tantivy
-                return None;
-            }
-
             // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
@@ -837,28 +824,6 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
-
-/// Check if any GROUP BY field is also being searched in the WHERE clause
-/// This causes "incompatible fruit types" errors in Tantivy aggregation
-fn has_search_field_conflicts(
-    grouping_columns: &[GroupingColumn],
-    query: &SearchQueryInput,
-) -> bool {
-    if grouping_columns.is_empty() {
-        return false;
-    }
-
-    let grouping_field_names: crate::api::HashSet<String> = grouping_columns
-        .iter()
-        .map(|gc| gc.field_name.clone())
-        .collect();
-
-    let mut search_field_names = crate::api::HashSet::default();
-    query.extract_field_names(&mut search_field_names);
-
-    // Check for conflicts
-    !search_field_names.is_disjoint(&grouping_field_names)
-}
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(

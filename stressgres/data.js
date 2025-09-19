@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758248965954,
+  "lastUpdate": 1758249001754,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -14922,6 +14922,42 @@ window.BENCHMARK_DATA = {
             "value": 587.3155887919804,
             "unit": "median tps",
             "extra": "avg tps: 592.846701523783, max tps: 806.6144830950872, count: 57625"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a97c525d0c11314fe01c8bbb250ea5fdf73ec8ce",
+          "message": "fix: write all delete files atomically (#3178) (#3182)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `ambulkdelete`, write all delete files to the meta list atomically,\ninstead of one at a time.\n\n## Why\n\nReduces the number of writes to the metas list.\n\n## How\n\n## Tests\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T21:50:00-04:00",
+          "tree_id": "ba5917ed034f24a8e2ad95a64751e5faef3d55d5",
+          "url": "https://github.com/paradedb/paradedb/commit/a97c525d0c11314fe01c8bbb250ea5fdf73ec8ce"
+        },
+        "date": 1758249000120,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.75637345075127,
+            "unit": "median tps",
+            "extra": "avg tps: 46.71293138436812, max tps: 48.24089029479664, count: 57774"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 573.2073319848355,
+            "unit": "median tps",
+            "extra": "avg tps: 578.6664274940713, max tps: 721.6169178756694, count: 57774"
           }
         ]
       }

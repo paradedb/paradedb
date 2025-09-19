@@ -164,7 +164,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
         c"Multiplier for the limit in a TopN query",
-        c"The limit is multiplied by this factor to determine the chunk size, and subsequent retries will multiply the chunk size by this factor. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        c"The limit is multiplied by this factor to determine the chunk size, and subsequent retries will multiply the chunk size by this factor. A higher value reduces the probability of a re-query for a TopN query but increases per-query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,

@@ -1,4 +1,5 @@
-create table public.key_field_uuid_raw
+DROP TABLE IF EXISTS public.key_field_uuid_raw;
+CREATE TABLE public.key_field_uuid_raw
 (
     id uuid default gen_random_uuid() not null primary key,
     metadata_json jsonb DEFAULT '{}'::jsonb NOT NULL

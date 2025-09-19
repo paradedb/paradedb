@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758320982837,
+  "lastUpdate": 1758321674335,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -16476,6 +16476,42 @@ window.BENCHMARK_DATA = {
             "value": 607.756141229271,
             "unit": "median tps",
             "extra": "avg tps: 608.6908333872653, max tps: 726.0105977491229, count: 56981"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8101a67174703310a6a1655496fd5296e869901d",
+          "message": "fix: Clone an Arc rather than a OnceLock. (#3185)\n\n## What\n\nInvert our use of `OnceLock` to ensure that we clone an\n`Arc<OnceLock<T>>` rather than a `OnceLock<Arc<T>>`.\n\n## Why\n\n`OnceLock` implements `Clone` by cloning its contents to create a\nseparate disconnected copy. If what is desired is \"exactly once\nbehavior\", then cloning the `OnceLock` before it has been computed the\nfirst time will defeat that.\n\nThis change has no impact on benchmarks in this case, but\n`Arc<OnceLock<T>>` matches the intent of this code, and sets a better\nexample for future us.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-19T15:01:21-07:00",
+          "tree_id": "de6adf9a09b874a0e133e9cbfeca50d417e6c5bf",
+          "url": "https://github.com/paradedb/paradedb/commit/8101a67174703310a6a1655496fd5296e869901d"
+        },
+        "date": 1758321672664,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 47.38957510699042,
+            "unit": "median tps",
+            "extra": "avg tps: 47.17322199951869, max tps: 49.019941221539014, count: 57619"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 588.8308962890161,
+            "unit": "median tps",
+            "extra": "avg tps: 592.541047281289, max tps: 718.4338518893918, count: 57619"
           }
         ]
       }

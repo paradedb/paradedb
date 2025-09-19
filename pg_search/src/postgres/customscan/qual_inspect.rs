@@ -905,7 +905,7 @@ unsafe fn node_opexpr(
             convert_external_to_special_qual,
         )
     } else {
-        return None;
+        None
     }
 }
 

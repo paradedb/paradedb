@@ -340,49 +340,49 @@ impl BM25IndexOptions {
         }
     }
 
-    pub fn text_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn text_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.text.borrow().is_none() {
             *self.lazy.text.borrow_mut() = Some(self.options_data().text_configs());
         }
         self.lazy.text.borrow()
     }
 
-    pub fn numeric_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn numeric_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.numeric.borrow().is_none() {
             *self.lazy.numeric.borrow_mut() = Some(self.options_data().numeric_configs());
         }
         self.lazy.numeric.borrow()
     }
 
-    pub fn datetime_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn datetime_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.datetime.borrow().is_none() {
             *self.lazy.datetime.borrow_mut() = Some(self.options_data().datetime_configs());
         }
         self.lazy.datetime.borrow()
     }
 
-    pub fn boolean_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn boolean_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.boolean.borrow().is_none() {
             *self.lazy.boolean.borrow_mut() = Some(self.options_data().boolean_configs());
         }
         self.lazy.boolean.borrow()
     }
 
-    pub fn json_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn json_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.json.borrow().is_none() {
             *self.lazy.json.borrow_mut() = Some(self.options_data().json_configs());
         }
         self.lazy.json.borrow()
     }
 
-    pub fn range_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn range_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.range.borrow().is_none() {
             *self.lazy.range.borrow_mut() = Some(self.options_data().range_configs());
         }
         self.lazy.range.borrow()
     }
 
-    pub fn inet_config(&self) -> Ref<Option<HashMap<FieldName, SearchFieldConfig>>> {
+    pub fn inet_config(&self) -> Ref<'_, Option<HashMap<FieldName, SearchFieldConfig>>> {
         if self.lazy.inet.borrow().is_none() {
             *self.lazy.inet.borrow_mut() = Some(self.options_data().inet_configs());
         }
@@ -539,7 +539,7 @@ impl BM25IndexOptions {
         None
     }
 
-    pub fn attributes(&self) -> Ref<HashMap<FieldName, ExtractedFieldAttribute>> {
+    pub fn attributes(&self) -> Ref<'_, HashMap<FieldName, ExtractedFieldAttribute>> {
         if self.lazy.attributes.borrow().is_empty() {
             *self.lazy.attributes.borrow_mut() = unsafe { extract_field_attributes(self.indexrel) };
         }

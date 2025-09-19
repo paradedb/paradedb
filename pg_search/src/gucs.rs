@@ -47,6 +47,9 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
+/// The maximum chunk size for a TopN query.
+static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
+
 /// The maximum number of buckets that can be returned by a TermsAggregation
 static MAX_TERM_AGG_BUCKETS: GucSetting<i32> = GucSetting::<i32>::new(DEFAULT_BUCKET_LIMIT as i32);
 
@@ -161,10 +164,21 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
         c"Multiplier for the limit in a TopN query",
-        c"Multiplier for the limit in a TopN query",
+        c"The limit is multiplied by this factor to determine the chunk size, and subsequent retries will multiply the chunk size by this factor. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.max_topn_chunk_size",
+        c"Maximum chunk size for a TopN query",
+        c"A higher value reduces the probability of a re-query for a TopN query but increases the memory usage",
+        &MAX_TOPN_CHUNK_SIZE,
+        1,
+        1_000_000,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -221,6 +235,10 @@ pub fn mixed_fast_field_exec_column_threshold() -> usize {
 
 pub fn per_tuple_cost() -> f64 {
     PER_TUPLE_COST.get()
+}
+
+pub fn max_topn_chunk_size() -> i32 {
+    MAX_TOPN_CHUNK_SIZE.get()
 }
 
 // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed

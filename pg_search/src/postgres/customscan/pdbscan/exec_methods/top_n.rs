@@ -28,10 +28,6 @@ use crate::query::SearchQueryInput;
 use pgrx::{check_for_interrupts, direct_function_call, pg_sys, IntoDatum};
 use tantivy::index::SegmentId;
 
-// TODO:  should these be GUCs?  I think yes, probably
-const RETRY_SCALE_FACTOR: usize = 2;
-const MAX_CHUNK_SIZE: usize = 5000;
-
 pub struct TopNScanExecState {
     // required
     limit: usize,
@@ -232,10 +228,11 @@ impl ExecMethod for TopNScanExecState {
             }
 
             // set the chunk size to the scaling factor times the limit
-            // on subsequent retries, multiply the chunk size by `RETRY_SCALE_FACTOR`
-            self.chunk_size = (self.chunk_size * RETRY_SCALE_FACTOR)
+            // on subsequent retries, multiply the chunk size by the scale factor
+            // but do not exceed the max chunk size
+            self.chunk_size = ((self.chunk_size as f64 * self.scale_factor) as usize)
                 .max((self.limit as f64 * self.scale_factor) as usize)
-                .min(MAX_CHUNK_SIZE);
+                .min(crate::gucs::max_topn_chunk_size() as usize);
 
             // Then try querying again, and continue looping if we got more results.
             if !self.query(state) {

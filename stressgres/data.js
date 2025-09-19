@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758250357573,
+  "lastUpdate": 1758250789885,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -12886,6 +12886,42 @@ window.BENCHMARK_DATA = {
             "value": 5.300693169837988,
             "unit": "median tps",
             "extra": "avg tps: 4.80102882445662, max tps: 5.8623228557837646, count: 57551"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "153f632ba06057571459a4b6e8767c135baf438c",
+          "message": "chore: small diff ported from enterprise for query cancel fix (#3187)",
+          "timestamp": "2025-09-18T22:31:35-04:00",
+          "tree_id": "2c3b3f692c24ba8540a69da9d41f4d3a24d4ae6f",
+          "url": "https://github.com/paradedb/paradedb/commit/153f632ba06057571459a4b6e8767c135baf438c"
+        },
+        "date": 1758250788253,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.368137352886034,
+            "unit": "median tps",
+            "extra": "avg tps: 7.147871379230123, max tps: 11.153937559865112, count: 57320"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.365049283616284,
+            "unit": "median tps",
+            "extra": "avg tps: 4.856610334783065, max tps: 5.9559297022817494, count: 57320"
           }
         ]
       }

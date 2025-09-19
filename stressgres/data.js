@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758320980093,
+  "lastUpdate": 1758320982837,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -15274,6 +15274,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.74152128401954, max segment_count: 107.0, count: 57320"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8101a67174703310a6a1655496fd5296e869901d",
+          "message": "fix: Clone an Arc rather than a OnceLock. (#3185)\n\n## What\n\nInvert our use of `OnceLock` to ensure that we clone an\n`Arc<OnceLock<T>>` rather than a `OnceLock<Arc<T>>`.\n\n## Why\n\n`OnceLock` implements `Clone` by cloning its contents to create a\nseparate disconnected copy. If what is desired is \"exactly once\nbehavior\", then cloning the `OnceLock` before it has been computed the\nfirst time will defeat that.\n\nThis change has no impact on benchmarks in this case, but\n`Arc<OnceLock<T>>` matches the intent of this code, and sets a better\nexample for future us.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-19T15:01:21-07:00",
+          "tree_id": "de6adf9a09b874a0e133e9cbfeca50d417e6c5bf",
+          "url": "https://github.com/paradedb/paradedb/commit/8101a67174703310a6a1655496fd5296e869901d"
+        },
+        "date": 1758320981185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.991999041581842, max cpu: 42.72997, count: 57801"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 226.20222880821697, max mem: 228.41015625, count: 57801"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39189182603578, max cpu: 33.300297, count: 57801"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 165.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.66601525330444, max mem: 167.41796875, count: 57801"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24321,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23030.83363609626, max block_count: 26004.0, count: 57801"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.84417224615491, max segment_count: 107.0, count: 57801"
           }
         ]
       }

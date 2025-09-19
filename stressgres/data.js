@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758321677201,
+  "lastUpdate": 1758322377682,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1768,6 +1768,60 @@ window.BENCHMARK_DATA = {
             "value": 18.600294451096786,
             "unit": "median tps",
             "extra": "avg tps: 18.542823625187015, max tps: 22.73350601350869, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8101a67174703310a6a1655496fd5296e869901d",
+          "message": "fix: Clone an Arc rather than a OnceLock. (#3185)\n\n## What\n\nInvert our use of `OnceLock` to ensure that we clone an\n`Arc<OnceLock<T>>` rather than a `OnceLock<Arc<T>>`.\n\n## Why\n\n`OnceLock` implements `Clone` by cloning its contents to create a\nseparate disconnected copy. If what is desired is \"exactly once\nbehavior\", then cloning the `OnceLock` before it has been computed the\nfirst time will defeat that.\n\nThis change has no impact on benchmarks in this case, but\n`Arc<OnceLock<T>>` matches the intent of this code, and sets a better\nexample for future us.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-19T15:01:21-07:00",
+          "tree_id": "de6adf9a09b874a0e133e9cbfeca50d417e6c5bf",
+          "url": "https://github.com/paradedb/paradedb/commit/8101a67174703310a6a1655496fd5296e869901d"
+        },
+        "date": 1758322375977,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.71511540219133,
+            "unit": "median tps",
+            "extra": "avg tps: 38.609010781186804, max tps: 40.11961405611928, count: 55450"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 77.11651628795957,
+            "unit": "median tps",
+            "extra": "avg tps: 123.84985579483052, max tps: 2874.7281963403043, count: 55450"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 974.8548287821834,
+            "unit": "median tps",
+            "extra": "avg tps: 972.9588010404958, max tps: 986.6793014372477, count: 55450"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.0446574443722,
+            "unit": "median tps",
+            "extra": "avg tps: 104.84093193445554, max tps: 798.350092436198, count: 110900"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.12779909447049,
+            "unit": "median tps",
+            "extra": "avg tps: 19.12985625731063, max tps: 22.126744826590045, count: 55450"
           }
         ]
       }

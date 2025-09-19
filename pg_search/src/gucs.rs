@@ -47,6 +47,9 @@ static ENABLE_MIXED_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(
 /// In a TopN query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
 
+/// The scale factor for the chunk size in a TopN query.
+static TOPN_RETRY_SCALE_FACTOR: GucSetting<i32> = GucSetting::<i32>::new(2);
+
 /// The maximum chunk size for a TopN query.
 static MAX_TOPN_CHUNK_SIZE: GucSetting<i32> = GucSetting::<i32>::new(100_000);
 
@@ -164,7 +167,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.limit_fetch_multiplier",
         c"Multiplier for the limit in a TopN query",
-        c"The limit is multiplied by this factor to determine the chunk size, and subsequent retries will multiply the chunk size by this factor. A higher value reduces the probability of a re-query for a TopN query but increases per-query times.",
+        c"The limit is multiplied by this factor to determine the chunk size. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
         &LIMIT_FETCH_MULTIPLIER,
         1.0,
         100.0,
@@ -179,6 +182,17 @@ pub fn init() {
         &MAX_TOPN_CHUNK_SIZE,
         1,
         1_000_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.topn_retry_scale_factor",
+        c"Scale factor for the chunk size in a TopN query",
+        c"The chunk size is multiplied by this factor on subsequent retries. A higher value reduces the probability of a re-query for a TopN query but increases query times.",
+        &TOPN_RETRY_SCALE_FACTOR,
+        1,
+        100,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -298,6 +312,10 @@ pub fn limit_fetch_multiplier() -> f64 {
 
 pub fn max_term_agg_buckets() -> i32 {
     MAX_TERM_AGG_BUCKETS.get()
+}
+
+pub fn topn_retry_scale_factor() -> i32 {
+    TOPN_RETRY_SCALE_FACTOR.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

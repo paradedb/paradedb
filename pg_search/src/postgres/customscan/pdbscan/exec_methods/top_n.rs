@@ -230,8 +230,13 @@ impl ExecMethod for TopNScanExecState {
             // set the chunk size to the scaling factor times the limit
             // on subsequent retries, multiply the chunk size by the scale factor
             // but do not exceed the max chunk size
-            self.chunk_size = ((self.chunk_size as f64 * self.scale_factor) as usize)
-                .max((self.limit as f64 * self.scale_factor) as usize)
+            self.chunk_size = (self.chunk_size * crate::gucs::topn_retry_scale_factor() as usize)
+                .max(
+                    (self.limit as f64
+                        * self.scale_factor
+                        * crate::gucs::topn_retry_scale_factor() as f64)
+                        as usize,
+                )
                 .min(crate::gucs::max_topn_chunk_size() as usize);
 
             // Then try querying again, and continue looping if we got more results.

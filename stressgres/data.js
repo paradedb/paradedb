@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758320253305,
+  "lastUpdate": 1758320256502,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11974,6 +11974,126 @@ window.BENCHMARK_DATA = {
             "value": 142.26171875,
             "unit": "median mem",
             "extra": "avg mem: 125.24339044639784, max mem: 149.23828125, count: 55203"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8101a67174703310a6a1655496fd5296e869901d",
+          "message": "fix: Clone an Arc rather than a OnceLock. (#3185)\n\n## What\n\nInvert our use of `OnceLock` to ensure that we clone an\n`Arc<OnceLock<T>>` rather than a `OnceLock<Arc<T>>`.\n\n## Why\n\n`OnceLock` implements `Clone` by cloning its contents to create a\nseparate disconnected copy. If what is desired is \"exactly once\nbehavior\", then cloning the `OnceLock` before it has been computed the\nfirst time will defeat that.\n\nThis change has no impact on benchmarks in this case, but\n`Arc<OnceLock<T>>` matches the intent of this code, and sets a better\nexample for future us.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-19T15:01:21-07:00",
+          "tree_id": "de6adf9a09b874a0e133e9cbfeca50d417e6c5bf",
+          "url": "https://github.com/paradedb/paradedb/commit/8101a67174703310a6a1655496fd5296e869901d"
+        },
+        "date": 1758320254858,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.844728767592118, max cpu: 14.356929, count: 55367"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.39637307929362, max mem: 153.7890625, count: 55367"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.59670739879973, max cpu: 9.486166, count: 55367"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.600508877128977, max mem: 30.49609375, count: 55367"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.877853308316837, max cpu: 14.117648, count: 55367"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 153.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 137.5835198256633, max mem: 154.015625, count: 55367"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.519087783436111, max cpu: 4.7856426, count: 55367"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 137.8588537621688, max mem: 155.16015625, count: 55367"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.643637425553139, max cpu: 9.467456, count: 110734"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 151.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 135.54614429341936, max mem: 157.3359375, count: 110734"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27939,
+            "unit": "median block_count",
+            "extra": "avg block_count: 27753.752325392383, max block_count: 54524.0, count: 55367"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 29.599707406939153, max segment_count: 71.0, count: 55367"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.552141807673459, max cpu: 4.902962, count: 55367"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 149.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 133.57387304542868, max mem: 157.3828125, count: 55367"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.037440554370437, max cpu: 9.619239, count: 55367"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 129.2380803180369, max mem: 151.4375, count: 55367"
           }
         ]
       }

@@ -409,13 +409,10 @@ impl ParallelScanState {
         }
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, (u32, u32)> {
+    pub fn segments(&self) -> HashMap<SegmentId, u32> {
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
-            segments.insert(
-                self.segment_id(i),
-                (self.num_deleted_docs(i), self.segment_max_docs(i)),
-            );
+            segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
     }

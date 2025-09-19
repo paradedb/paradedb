@@ -105,6 +105,8 @@ pub extern "C-unwind" fn amrescan(
         };
     }
 
+    let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
+
     // Create the index and scan state
     let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
         if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {

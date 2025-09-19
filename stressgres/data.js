@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758247798293,
+  "lastUpdate": 1758248249004,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6658,6 +6658,72 @@ window.BENCHMARK_DATA = {
             "value": 100.39196001576467,
             "unit": "median tps",
             "extra": "avg tps: 122.96785375211121, max tps: 998.453395690076, count: 55238"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f052aabf25719cee68a756a379c6b66e39452759",
+          "message": "feat: Port `ambulkdelete_epoch` to community (#3183)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd `ambulkdelete_epoch` to the index metadata and make sure it's passed\ndown to all scans. In enterprise, this value is used to detect query\nconflicts with concurrent vacuums on the primary.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-18T22:01:15-04:00",
+          "tree_id": "48ffae94b2f43d5c2d62b5adb846d1dcc2992aee",
+          "url": "https://github.com/paradedb/paradedb/commit/f052aabf25719cee68a756a379c6b66e39452759"
+        },
+        "date": 1758248247381,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 815.3357041183292,
+            "unit": "median tps",
+            "extra": "avg tps: 816.2183930023697, max tps: 862.4304762231966, count: 55384"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3396.358984492234,
+            "unit": "median tps",
+            "extra": "avg tps: 3368.0406897919647, max tps: 3405.4603913834394, count: 55384"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 799.2839330559461,
+            "unit": "median tps",
+            "extra": "avg tps: 798.7334909684644, max tps: 861.4286909109912, count: 55384"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 704.3342398457362,
+            "unit": "median tps",
+            "extra": "avg tps: 702.8390232117622, max tps: 720.0245706046976, count: 55384"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1691.355401322739,
+            "unit": "median tps",
+            "extra": "avg tps: 1701.811924234684, max tps: 1740.392175938719, count: 110768"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1308.2048622341283,
+            "unit": "median tps",
+            "extra": "avg tps: 1295.6624589847945, max tps: 1311.2428450721557, count: 55384"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 86.28765491972705,
+            "unit": "median tps",
+            "extra": "avg tps: 102.22983228152626, max tps: 904.2392544728195, count: 55384"
           }
         ]
       }

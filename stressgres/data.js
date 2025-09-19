@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758249665191,
+  "lastUpdate": 1758249757631,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1498,6 +1498,60 @@ window.BENCHMARK_DATA = {
             "value": 19.610861164462083,
             "unit": "median tps",
             "extra": "avg tps: 19.644247440268206, max tps: 20.02576222215357, count: 55560"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a97c525d0c11314fe01c8bbb250ea5fdf73ec8ce",
+          "message": "fix: write all delete files atomically (#3178) (#3182)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn `ambulkdelete`, write all delete files to the meta list atomically,\ninstead of one at a time.\n\n## Why\n\nReduces the number of writes to the metas list.\n\n## How\n\n## Tests\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T21:50:00-04:00",
+          "tree_id": "ba5917ed034f24a8e2ad95a64751e5faef3d55d5",
+          "url": "https://github.com/paradedb/paradedb/commit/a97c525d0c11314fe01c8bbb250ea5fdf73ec8ce"
+        },
+        "date": 1758249755985,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.65800844064497,
+            "unit": "median tps",
+            "extra": "avg tps: 38.68212582934701, max tps: 39.52951421494349, count: 55413"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 130.2618111500218,
+            "unit": "median tps",
+            "extra": "avg tps: 172.97378991324035, max tps: 2875.405606883509, count: 55413"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1033.1526559219824,
+            "unit": "median tps",
+            "extra": "avg tps: 1027.0301410451652, max tps: 1042.5702674938248, count: 55413"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 116.96822578378558,
+            "unit": "median tps",
+            "extra": "avg tps: 121.51737258335808, max tps: 821.5877618873551, count: 110826"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.42646457360095,
+            "unit": "median tps",
+            "extra": "avg tps: 19.521656173290964, max tps: 20.43945210372601, count: 55413"
           }
         ]
       }

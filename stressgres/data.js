@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758248480383,
+  "lastUpdate": 1758248511169,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11980,6 +11980,42 @@ window.BENCHMARK_DATA = {
             "value": 5.272805790729678,
             "unit": "median tps",
             "extra": "avg tps: 4.777170192342345, max tps: 5.82993025778322, count: 57790"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1046018b2db9614ef172bd802c98a3987da7513e",
+          "message": "chore: small diff ported from enterprise for query cancel fix (#3186)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSome small changes in enterprise that should be in community\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-18T21:53:42-04:00",
+          "tree_id": "85ed1f4eb7261157deabdfba479dc61164775f99",
+          "url": "https://github.com/paradedb/paradedb/commit/1046018b2db9614ef172bd802c98a3987da7513e"
+        },
+        "date": 1758248509577,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.559399004009657,
+            "unit": "median tps",
+            "extra": "avg tps: 7.293085470774937, max tps: 11.363488230973717, count: 57331"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.355068383367619,
+            "unit": "median tps",
+            "extra": "avg tps: 4.858077769581307, max tps: 5.947132276845599, count: 57331"
           }
         ]
       }

@@ -105,6 +105,8 @@ pub extern "C-unwind" fn amrescan(
         };
     }
 
+    let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
+
     // Create the index and scan state
     let search_reader = SearchIndexReader::open(&indexrel, search_query_input, false, unsafe {
         if pg_sys::ParallelWorkerNumber == -1 || (*scan).parallel_scan.is_null() {
@@ -136,7 +138,6 @@ pub extern "C-unwind" fn amrescan(
         };
 
         let natts = (*(*scan).xs_hitupdesc).natts as usize;
-        let ambulkdelete_epoch = MetaPage::open(&indexrel).ambulkdelete_epoch();
         let scan_state = if (*scan).xs_want_itup {
             let schema = indexrel.schema().expect("indexrel should have a schema");
             Bm25ScanState {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758248290948,
+  "lastUpdate": 1758248477449,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -11944,6 +11944,42 @@ window.BENCHMARK_DATA = {
             "value": 5.204393574686115,
             "unit": "median tps",
             "extra": "avg tps: 4.709720480629928, max tps: 5.729398851381262, count: 57766"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e15e51abfc4b7834faea068d861d91d5d873580f",
+          "message": "chore: Upgrade to `0.18.4` (#3184)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-18T21:52:13-04:00",
+          "tree_id": "3d203e3468a4e7504d03af9c39ac9a0869033086",
+          "url": "https://github.com/paradedb/paradedb/commit/e15e51abfc4b7834faea068d861d91d5d873580f"
+        },
+        "date": 1758248475802,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.592648592891226,
+            "unit": "median tps",
+            "extra": "avg tps: 7.3409674014039155, max tps: 11.450471250469944, count: 57790"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.272805790729678,
+            "unit": "median tps",
+            "extra": "avg tps: 4.777170192342345, max tps: 5.82993025778322, count: 57790"
           }
         ]
       }

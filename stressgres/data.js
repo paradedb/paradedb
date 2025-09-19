@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758249253909,
+  "lastUpdate": 1758249662322,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -15030,6 +15030,42 @@ window.BENCHMARK_DATA = {
             "value": 591.4544078569563,
             "unit": "median tps",
             "extra": "avg tps: 597.3079820001481, max tps: 772.7968073697307, count: 57780"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f052aabf25719cee68a756a379c6b66e39452759",
+          "message": "feat: Port `ambulkdelete_epoch` to community (#3183)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAdd `ambulkdelete_epoch` to the index metadata and make sure it's passed\ndown to all scans. In enterprise, this value is used to detect query\nconflicts with concurrent vacuums on the primary.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-18T22:01:15-04:00",
+          "tree_id": "48ffae94b2f43d5c2d62b5adb846d1dcc2992aee",
+          "url": "https://github.com/paradedb/paradedb/commit/f052aabf25719cee68a756a379c6b66e39452759"
+        },
+        "date": 1758249660595,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 48.68572861923553,
+            "unit": "median tps",
+            "extra": "avg tps: 48.60431541640026, max tps: 49.997074174978465, count: 57661"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 576.6581997570621,
+            "unit": "median tps",
+            "extra": "avg tps: 582.0382795065016, max tps: 704.3792710887585, count: 57661"
           }
         ]
       }

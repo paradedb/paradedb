@@ -175,49 +175,28 @@ impl AggregateType {
     }
 
     pub fn to_json(&self) -> serde_json::Value {
-        let mut json = match self {
-            AggregateType::CountAny => {
-                serde_json::json!({
-                    "value_count": {
-                        "field": "ctid",
-                    }
-                })
-            }
-            AggregateType::Sum { field, .. } => {
-                serde_json::json!({
-                    "sum": {
-                        "field": field,
-                    }
-                })
-            }
-            AggregateType::Avg { field, .. } => {
-                serde_json::json!({
-                    "avg": {
-                        "field": field,
-                    }
-                })
-            }
-            AggregateType::Min { field, .. } => {
-                serde_json::json!({
-                    "min": {
-                        "field": field,
-                    }
-                })
-            }
-            AggregateType::Max { field, .. } => {
-                serde_json::json!({
-                    "max": {
-                        "field": field,
-                    }
-                })
-            }
+        let (key, field) = match self {
+            AggregateType::CountAny => ("value_count", "ctid"),
+            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
+            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
+            AggregateType::Min { field, .. } => ("min", field.as_str()),
+            AggregateType::Max { field, .. } => ("max", field.as_str()),
         };
 
         if let Some(missing) = self.missing() {
-            json["missing"] = serde_json::json!(missing);
+            serde_json::json!({
+                key: {
+                    "field": field,
+                    "missing": missing,
+                }
+            })
+        } else {
+            serde_json::json!({
+                key: {
+                    "field": field,
+                }
+            })
         }
-
-        json
     }
 
     #[allow(unreachable_patterns)]

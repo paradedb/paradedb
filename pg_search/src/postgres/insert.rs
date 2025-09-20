@@ -209,6 +209,7 @@ pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {
                     &indexrel,
                     MergeStyle::Insert,
                     Some(pg_sys::GetCurrentTransactionId()),
+                    Some(pg_sys::ReadNextTransactionId()),
                 )
                 .expect("should be able to merge");
             }

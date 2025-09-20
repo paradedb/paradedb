@@ -55,6 +55,7 @@ struct WorkerConfig {
     indexrelid: pg_sys::Oid,
     concurrent: bool,
     current_xid: pg_sys::TransactionId,
+    next_xid: pg_sys::TransactionId,
 }
 impl ParallelStateType for WorkerConfig {}
 
@@ -119,6 +120,7 @@ impl ParallelBuild {
         snapshot: pg_sys::Snapshot,
         concurrent: bool,
         current_xid: pg_sys::TransactionId,
+        next_xid: pg_sys::TransactionId,
     ) -> Self {
         let scandesc = unsafe {
             let size = size_of::<pg_sys::ParallelTableScanDescData>()
@@ -133,6 +135,7 @@ impl ParallelBuild {
                 indexrelid: indexrel.oid(),
                 concurrent,
                 current_xid,
+                next_xid,
             },
             scandesc,
             coordination: Default::default(),
@@ -252,6 +255,7 @@ impl<'a> BuildWorker<'a> {
                 NonZeroUsize::new(per_worker_memory_budget)
                     .expect("per worker memory budget should be non-zero"),
                 self.config.current_xid,
+                self.config.next_xid,
                 worker_segment_target.max(1),
                 nlaunched,
                 worker_number,
@@ -285,6 +289,7 @@ struct WorkerBuildState {
     key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
     current_xid: pg_sys::TransactionId,
+    next_xid: pg_sys::TransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
     // the following statistics are used to determine when and what to merge:
@@ -308,11 +313,13 @@ struct WorkerBuildState {
 }
 
 impl WorkerBuildState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         heaprel: &PgSearchRelation,
         indexrel: &PgSearchRelation,
         per_worker_memory_budget: NonZeroUsize,
         current_xid: pg_sys::TransactionId,
+        next_xid: pg_sys::TransactionId,
         worker_segment_target: usize,
         nlaunched: usize,
         worker_number: i32,
@@ -344,6 +351,7 @@ impl WorkerBuildState {
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
             current_xid,
+            next_xid,
             worker_segment_target,
             nlaunched,
             estimated_nsegments: OnceLock::new(),
@@ -446,7 +454,7 @@ impl WorkerBuildState {
         unsafe {
             set_ps_display_suffix(GARBAGE_COLLECTING.as_ptr());
         };
-        unsafe { garbage_collect_index(&self.indexrel, self.current_xid) };
+        unsafe { garbage_collect_index(&self.indexrel, self.current_xid, self.next_xid) };
 
         self.nmerges += 1;
 
@@ -545,7 +553,15 @@ pub(super) fn build_index(
     });
 
     let current_xid = unsafe { pg_sys::GetCurrentTransactionId() };
-    let process = ParallelBuild::new(&heaprel, &indexrel, snapshot.0, concurrent, current_xid);
+    let next_xid = unsafe { pg_sys::ReadNextTransactionId() };
+    let process = ParallelBuild::new(
+        &heaprel,
+        &indexrel,
+        snapshot.0,
+        concurrent,
+        current_xid,
+        next_xid,
+    );
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
@@ -620,6 +636,7 @@ pub(super) fn build_index(
                 indexrelid,
                 concurrent,
                 current_xid,
+                next_xid,
             },
             &mut coordination,
         );

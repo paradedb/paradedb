@@ -202,6 +202,7 @@ pub unsafe fn do_merge(
     index: &PgSearchRelation,
     style: MergeStyle,
     current_xid: Option<pg_sys::TransactionId>,
+    next_xid: Option<pg_sys::TransactionId>,
 ) -> anyhow::Result<()> {
     let layer_sizes = IndexLayerSizes::from(index);
     let metadata = MetaPage::open(index);
@@ -236,6 +237,7 @@ pub unsafe fn do_merge(
             cleanup_lock,
             false,
             current_xid.expect("foreground merging requires a current transaction id"),
+            next_xid.expect("foreground merging requires a next transaction id"),
         );
     }
 
@@ -288,6 +290,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
         );
 
         let current_xid = pg_sys::GetCurrentTransactionId();
+        let next_xid = current_xid;
         let args = BackgroundMergeArgs::from_datum(arg, false).unwrap();
         let index = PgSearchRelation::try_open(
             args.index_oid(),
@@ -314,6 +317,7 @@ unsafe extern "C-unwind" fn background_merge(arg: pg_sys::Datum) {
             cleanup_lock,
             true,
             current_xid,
+            next_xid,
         )
     });
 }
@@ -326,6 +330,7 @@ unsafe fn merge_index(
     cleanup_lock: Buffer,
     gc_after_merge: bool,
     current_xid: pg_sys::TransactionId,
+    next_xid: pg_sys::TransactionId,
 ) {
     // take a shared lock on the CLEANUP_LOCK and hold it until this function is done.  We keep it
     // locked here so we can cause `ambulkdelete()` to block, waiting for all merging to finish
@@ -371,7 +376,7 @@ unsafe fn merge_index(
                 break;
             }
             if gc_after_merge {
-                garbage_collect_index(indexrel, current_xid);
+                garbage_collect_index(indexrel, current_xid, next_xid);
                 need_gc = false;
             }
         }
@@ -386,7 +391,7 @@ unsafe fn merge_index(
 
         // we can garbage collect and return blocks back to the FSM without being under the MergeLock
         if need_gc {
-            garbage_collect_index(indexrel, current_xid);
+            garbage_collect_index(indexrel, current_xid, next_xid);
         }
 
         // if merging was cancelled due to a legit interrupt we'd prefer that be provided to the user
@@ -416,6 +421,7 @@ unsafe fn merge_index(
 pub unsafe fn garbage_collect_index(
     indexrel: &PgSearchRelation,
     current_xid: pg_sys::TransactionId,
+    next_xid: pg_sys::TransactionId,
 ) {
     // Remove items which are no longer visible to active local transactions from SEGMENT_METAS,
     // and place them in SEGMENT_METAS_RECYLCABLE until they are no longer visible to remote
@@ -426,7 +432,7 @@ pub unsafe fn garbage_collect_index(
     // replication primary.
     let mut segment_metas_linked_list = MetaPage::open(indexrel).segment_metas();
     let mut segment_metas = segment_metas_linked_list.atomically();
-    let entries = segment_metas.garbage_collect();
+    let entries = segment_metas.garbage_collect(next_xid);
 
     // Replication is not enabled: immediately free the entries. It doesn't matter when we
     // commit the segment metas list in this case.

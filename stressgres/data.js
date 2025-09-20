@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758376472724,
+  "lastUpdate": 1758377173927,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -17436,6 +17436,42 @@ window.BENCHMARK_DATA = {
             "value": 575.4340397646366,
             "unit": "median tps",
             "extra": "avg tps: 580.7974890099725, max tps: 722.9219540403342, count: 57763"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f573a31e6704d95d0a62271a23ba47658a1dae06",
+          "message": "perf: Configurable Top N requeries more granularly (#3194)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllow the retry scale factor and max chunk size to be tuned, which is\nuseful for reducing Top N requeries.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-20T09:26:21-04:00",
+          "tree_id": "d4ee2092267660be53cb68f8b760756a5a07ab69",
+          "url": "https://github.com/paradedb/paradedb/commit/f573a31e6704d95d0a62271a23ba47658a1dae06"
+        },
+        "date": 1758377172275,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.55440813786506,
+            "unit": "median tps",
+            "extra": "avg tps: 46.54210289113978, max tps: 48.390969317988734, count: 57979"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 601.1234849488346,
+            "unit": "median tps",
+            "extra": "avg tps: 607.6391042886095, max tps: 769.4370595257326, count: 57979"
           }
         ]
       }

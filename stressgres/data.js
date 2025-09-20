@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758377176625,
+  "lastUpdate": 1758377873063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -1876,6 +1876,60 @@ window.BENCHMARK_DATA = {
             "value": 18.72964613562999,
             "unit": "median tps",
             "extra": "avg tps: 18.724261444146354, max tps: 20.51676123904804, count: 55389"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f573a31e6704d95d0a62271a23ba47658a1dae06",
+          "message": "perf: Configurable Top N requeries more granularly (#3194)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nAllow the retry scale factor and max chunk size to be tuned, which is\nuseful for reducing Top N requeries.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-20T09:26:21-04:00",
+          "tree_id": "d4ee2092267660be53cb68f8b760756a5a07ab69",
+          "url": "https://github.com/paradedb/paradedb/commit/f573a31e6704d95d0a62271a23ba47658a1dae06"
+        },
+        "date": 1758377871304,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.58784758465369,
+            "unit": "median tps",
+            "extra": "avg tps: 38.59764209660863, max tps: 39.15304505949049, count: 55426"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 135.6414283540376,
+            "unit": "median tps",
+            "extra": "avg tps: 177.95949103890618, max tps: 2908.4436856066063, count: 55426"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1022.1268511373573,
+            "unit": "median tps",
+            "extra": "avg tps: 1016.8468836161557, max tps: 1026.4639768776706, count: 55426"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 114.52220188393123,
+            "unit": "median tps",
+            "extra": "avg tps: 122.61932885287716, max tps: 806.8989588777167, count: 110852"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.781821138735477,
+            "unit": "median tps",
+            "extra": "avg tps: 18.814942004837132, max tps: 19.723465832399125, count: 55426"
           }
         ]
       }

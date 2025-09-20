@@ -164,8 +164,18 @@ impl AggregateType {
         }
     }
 
-    pub fn to_json(&self) -> serde_json::Value {
+    pub fn missing(&self) -> Option<f64> {
         match self {
+            AggregateType::CountAny => None,
+            AggregateType::Sum { missing, .. } => *missing,
+            AggregateType::Avg { missing, .. } => *missing,
+            AggregateType::Min { missing, .. } => *missing,
+            AggregateType::Max { missing, .. } => *missing,
+        }
+    }
+
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut json = match self {
             AggregateType::CountAny => {
                 serde_json::json!({
                     "value_count": {
@@ -173,55 +183,41 @@ impl AggregateType {
                     }
                 })
             }
-            AggregateType::Sum { field, missing } => {
+            AggregateType::Sum { field, .. } => {
                 serde_json::json!({
                     "sum": {
                         "field": field,
-                        "missing": if let Some(m) = missing {
-                            serde_json::json!(m)
-                        } else {
-                            serde_json::Value::Null
-                        },
                     }
                 })
             }
-            AggregateType::Avg { field, missing } => {
+            AggregateType::Avg { field, .. } => {
                 serde_json::json!({
                     "avg": {
                         "field": field,
-                        "missing": if let Some(m) = missing {
-                            serde_json::json!(m)
-                        } else {
-                            serde_json::Value::Null
-                        },
                     }
                 })
             }
-            AggregateType::Min { field, missing } => {
+            AggregateType::Min { field, .. } => {
                 serde_json::json!({
                     "min": {
                         "field": field,
-                        "missing": if let Some(m) = missing {
-                            serde_json::json!(m)
-                        } else {
-                            serde_json::Value::Null
-                        },
                     }
                 })
             }
-            AggregateType::Max { field, missing } => {
+            AggregateType::Max { field, .. } => {
                 serde_json::json!({
                     "max": {
                         "field": field,
-                        "missing": if let Some(m) = missing {
-                            serde_json::json!(m)
-                        } else {
-                            serde_json::Value::Null
-                        },
                     }
                 })
             }
+        };
+
+        if let Some(missing) = self.missing() {
+            json["missing"] = serde_json::json!(missing);
         }
+
+        json
     }
 
     #[allow(unreachable_patterns)]

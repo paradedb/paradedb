@@ -24,11 +24,11 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
-    Count,
-    Sum { field: String },
-    Avg { field: String },
-    Min { field: String },
-    Max { field: String },
+    Count { missing: Option<f64> },
+    Sum { field: String, missing: Option<f64> },
+    Avg { field: String, missing: Option<f64> },
+    Min { field: String, missing: Option<f64> },
+    Max { field: String, missing: Option<f64> },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -82,48 +82,73 @@ impl AggregateType {
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {
-            AggregateType::Count => None,
-            AggregateType::Sum { field } => Some(field.clone()),
-            AggregateType::Avg { field } => Some(field.clone()),
-            AggregateType::Min { field } => Some(field.clone()),
-            AggregateType::Max { field } => Some(field.clone()),
+            AggregateType::Count { .. } => None,
+            AggregateType::Sum { field, .. } => Some(field.clone()),
+            AggregateType::Avg { field, .. } => Some(field.clone()),
+            AggregateType::Min { field, .. } => Some(field.clone()),
+            AggregateType::Max { field, .. } => Some(field.clone()),
         }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            AggregateType::Count => {
+            AggregateType::Count { missing } => {
                 serde_json::json!({
                     "value_count": {
-                        "field": "ctid"
+                        "field": "ctid",
+                        "missing": if let Some(m) = missing {
+                            serde_json::json!(m)
+                        } else {
+                            serde_json::Value::Null
+                        },
                     }
                 })
             }
-            AggregateType::Sum { field } => {
+            AggregateType::Sum { field, missing } => {
                 serde_json::json!({
                     "sum": {
-                        "field": field
+                        "field": field,
+                        "missing": if let Some(m) = missing {
+                            serde_json::json!(m)
+                        } else {
+                            serde_json::Value::Null
+                        },
                     }
                 })
             }
-            AggregateType::Avg { field } => {
+            AggregateType::Avg { field, missing } => {
                 serde_json::json!({
                     "avg": {
-                        "field": field
+                        "field": field,
+                        "missing": if let Some(m) = missing {
+                            serde_json::json!(m)
+                        } else {
+                            serde_json::Value::Null
+                        },
                     }
                 })
             }
-            AggregateType::Min { field } => {
+            AggregateType::Min { field, missing } => {
                 serde_json::json!({
                     "min": {
-                        "field": field
+                        "field": field,
+                        "missing": if let Some(m) = missing {
+                            serde_json::json!(m)
+                        } else {
+                            serde_json::Value::Null
+                        },
                     }
                 })
             }
-            AggregateType::Max { field } => {
+            AggregateType::Max { field, missing } => {
                 serde_json::json!({
                     "max": {
-                        "field": field
+                        "field": field,
+                        "missing": if let Some(m) = missing {
+                            serde_json::json!(m)
+                        } else {
+                            serde_json::Value::Null
+                        },
                     }
                 })
             }
@@ -133,7 +158,7 @@ impl AggregateType {
     #[allow(unreachable_patterns)]
     pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::Count => None, // 'terms' bucket already has a 'doc_count'
+            AggregateType::Count { .. } => None, // 'terms' bucket already has a 'doc_count'
             _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
@@ -186,7 +211,7 @@ impl AggregateType {
             Some(num) => {
                 // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
-                    AggregateType::Count => NumberConversionMode::ToInt,
+                    AggregateType::Count { .. } => NumberConversionMode::ToInt,
                     AggregateType::Sum { .. } => NumberConversionMode::Preserve,
                     AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
                     AggregateType::Min { .. } => NumberConversionMode::Preserve,

@@ -631,7 +631,7 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
 
                 if (*aggref).aggstar {
                     // COUNT(*) (aggstar)
-                    aggregate_types.push(AggregateType::Count);
+                    aggregate_types.push(AggregateType::Count { missing: None });
                 } else {
                     // Check for other aggregate functions with arguments
                     let agg_type = identify_aggregate_function(aggref, relation_oid)?;
@@ -666,11 +666,11 @@ unsafe fn identify_aggregate_function(
     let field_name = extract_field_name_from_aggref(aggref, relation_oid);
 
     match func_name {
-        "count" => Some(AggregateType::Count),
-        "sum" => Some(AggregateType::Sum { field: field_name? }),
-        "avg" => Some(AggregateType::Avg { field: field_name? }),
-        "min" => Some(AggregateType::Min { field: field_name? }),
-        "max" => Some(AggregateType::Max { field: field_name? }),
+        "count" => Some(AggregateType::Count { missing: None }),
+        "sum" => Some(AggregateType::Sum { field: field_name?, missing: None }),
+        "avg" => Some(AggregateType::Avg { field: field_name?, missing: None }),
+        "min" => Some(AggregateType::Min { field: field_name?, missing: None }),
+        "max" => Some(AggregateType::Max { field: field_name?, missing: None }),
         _ => {
             pgrx::debug1!("Unsupported aggregate function: {func_name}");
             None

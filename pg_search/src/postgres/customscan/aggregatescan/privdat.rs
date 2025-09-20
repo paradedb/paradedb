@@ -16,8 +16,18 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
+use crate::nodecast;
+use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::{
+    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
+    F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
+    F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
+    F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
+    F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
+    F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+};
 use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
@@ -79,6 +89,55 @@ impl AggregateResult {
 // the expected {"aggregation_type": {"field": "name"}} format.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
+    pub unsafe fn try_from(aggref: *mut pg_sys::Aggref, heaprelid: pg_sys::Oid) -> Option<Self> {
+        let aggfnoid = (*aggref).aggfnoid.to_u32();
+        let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+        if args.is_empty() {
+            return None;
+        }
+
+        if aggfnoid == F_COUNT_ANY {
+            return Some(AggregateType::Count { missing: None });
+        }
+
+        let first_arg = args.get_ptr(0)?;
+        let var = nodecast!(Var, T_Var, (*first_arg).expr)?;
+        let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
+
+        match aggfnoid {
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(AggregateType::Avg {
+                    field,
+                    missing: None,
+                })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(AggregateType::Sum {
+                    field,
+                    missing: None,
+                })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(AggregateType::Max {
+                    field,
+                    missing: None,
+                })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(AggregateType::Min {
+                field,
+                missing: None,
+            }),
+            _ => {
+                // For unknown function OIDs, we'll reject them for now
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
+        }
+    }
+
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758331340781,
+  "lastUpdate": 1758332063768,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -13654,6 +13654,42 @@ window.BENCHMARK_DATA = {
             "value": 5.4184939753733925,
             "unit": "median tps",
             "extra": "avg tps: 4.901685016159776, max tps: 5.9881136085025455, count: 57801"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3163a5f3e48d3027585287ce8a63074f70ba1836",
+          "message": "perf: Configurable Top N requeries more granularly (#3190)",
+          "timestamp": "2025-09-19T21:06:04-04:00",
+          "tree_id": "8c74bdf97c37281e4641be0e94b4d464daa5a3ea",
+          "url": "https://github.com/paradedb/paradedb/commit/3163a5f3e48d3027585287ce8a63074f70ba1836"
+        },
+        "date": 1758332062127,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.454378313024492,
+            "unit": "median tps",
+            "extra": "avg tps: 7.230273498099597, max tps: 11.27148989391017, count: 57910"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.39295219475513,
+            "unit": "median tps",
+            "extra": "avg tps: 4.882237916701781, max tps: 5.973633924552263, count: 57910"
           }
         ]
       }

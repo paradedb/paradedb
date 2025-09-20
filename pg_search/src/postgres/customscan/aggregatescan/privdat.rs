@@ -17,6 +17,7 @@
 
 use crate::api::{AsCStr, OrderByInfo};
 use crate::nodecast;
+use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
@@ -31,6 +32,7 @@ use pgrx::pg_sys::{
 use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
+use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
@@ -101,35 +103,48 @@ impl AggregateType {
         }
 
         let first_arg = args.get_ptr(0)?;
-        let var = nodecast!(Var, T_Var, (*first_arg).expr)?;
+
+        let (var, missing) = if let Some(coalesce_node) =
+            nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+            if args.is_empty() {
+                return None;
+            }
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+            let missing = match TantivyValue::try_from(const_node) {
+                Ok(TantivyValue(OwnedValue::U64(missing))) => Some(missing as f64),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => Some(missing as f64),
+                Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
+                Ok(TantivyValue(OwnedValue::Null)) => None,
+                _ => {
+                    return None;
+                }
+            };
+            (var, missing)
+        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+            (var, None)
+        } else {
+            return None;
+        };
+
         let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
 
         match aggfnoid {
             F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-                Some(AggregateType::Avg {
-                    field,
-                    missing: None,
-                })
+                Some(AggregateType::Avg { field, missing })
             }
             F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-                Some(AggregateType::Sum {
-                    field,
-                    missing: None,
-                })
+                Some(AggregateType::Sum { field, missing })
             }
             F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
             | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-                Some(AggregateType::Max {
-                    field,
-                    missing: None,
-                })
+                Some(AggregateType::Max { field, missing })
             }
             F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
             | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-            | F_MIN_NUMERIC => Some(AggregateType::Min {
-                field,
-                missing: None,
-            }),
+            | F_MIN_NUMERIC => Some(AggregateType::Min { field, missing }),
             _ => {
                 // For unknown function OIDs, we'll reject them for now
                 pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);

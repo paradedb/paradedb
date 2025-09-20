@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758332759274,
+  "lastUpdate": 1758332761867,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -18962,6 +18962,66 @@ window.BENCHMARK_DATA = {
             "value": 160.57421875,
             "unit": "median mem",
             "extra": "avg mem: 151.54639318464828, max mem: 161.38671875, count: 57619"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3163a5f3e48d3027585287ce8a63074f70ba1836",
+          "message": "perf: Configurable Top N requeries more granularly (#3190)",
+          "timestamp": "2025-09-19T21:06:04-04:00",
+          "tree_id": "8c74bdf97c37281e4641be0e94b4d464daa5a3ea",
+          "url": "https://github.com/paradedb/paradedb/commit/3163a5f3e48d3027585287ce8a63074f70ba1836"
+        },
+        "date": 1758332760211,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.72951450196891, max cpu: 56.14035, count: 57763"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.16273879905822, max mem: 167.953125, count: 57763"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40755,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35618.45991378564, max block_count: 41622.0, count: 57763"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.07084119592126, max segment_count: 172.0, count: 57763"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.447782569254149, max cpu: 28.015566, count: 57763"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 158.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 149.77536550213804, max mem: 161.06640625, count: 57763"
           }
         ]
       }

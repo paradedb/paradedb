@@ -36,7 +36,7 @@ use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
-    Count { missing: Option<f64> },
+    CountAny, // COUNT(*)
     Sum { field: String, missing: Option<f64> },
     Avg { field: String, missing: Option<f64> },
     Min { field: String, missing: Option<f64> },
@@ -99,7 +99,7 @@ impl AggregateType {
         }
 
         if aggfnoid == F_COUNT_ANY {
-            return Some(AggregateType::Count { missing: None });
+            return Some(AggregateType::CountAny);
         }
 
         let first_arg = args.get_ptr(0)?;
@@ -156,7 +156,7 @@ impl AggregateType {
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {
-            AggregateType::Count { .. } => None,
+            AggregateType::CountAny => None,
             AggregateType::Sum { field, .. } => Some(field.clone()),
             AggregateType::Avg { field, .. } => Some(field.clone()),
             AggregateType::Min { field, .. } => Some(field.clone()),
@@ -166,15 +166,10 @@ impl AggregateType {
 
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            AggregateType::Count { missing } => {
+            AggregateType::CountAny => {
                 serde_json::json!({
                     "value_count": {
                         "field": "ctid",
-                        "missing": if let Some(m) = missing {
-                            serde_json::json!(m)
-                        } else {
-                            serde_json::Value::Null
-                        },
                     }
                 })
             }
@@ -232,7 +227,7 @@ impl AggregateType {
     #[allow(unreachable_patterns)]
     pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::Count { .. } => None, // 'terms' bucket already has a 'doc_count'
+            AggregateType::CountAny => None, // 'terms' bucket already has a 'doc_count'
             _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
@@ -285,7 +280,7 @@ impl AggregateType {
             Some(num) => {
                 // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
-                    AggregateType::Count { .. } => NumberConversionMode::ToInt,
+                    AggregateType::CountAny => NumberConversionMode::ToInt,
                     AggregateType::Sum { .. } => NumberConversionMode::Preserve,
                     AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
                     AggregateType::Min { .. } => NumberConversionMode::Preserve,

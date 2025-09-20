@@ -631,7 +631,7 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
 
                 if (*aggref).aggstar {
                     // COUNT(*) (aggstar)
-                    aggregate_types.push(AggregateType::Count { missing: None });
+                    aggregate_types.push(AggregateType::CountAny);
                 } else {
                     // Check for other aggregate functions with arguments
                     let agg_type = AggregateType::try_from(aggref, relation_oid)?;

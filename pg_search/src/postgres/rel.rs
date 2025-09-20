@@ -211,7 +211,7 @@ impl PgSearchRelation {
         .expect("unable to convert namespace name to UTF8")
     }
 
-    pub fn tuple_desc(&self) -> PgTupleDesc {
+    pub fn tuple_desc(&self) -> PgTupleDesc<'_> {
         unsafe { PgTupleDesc::from_pg_unchecked(self.rd_att) }
     }
 

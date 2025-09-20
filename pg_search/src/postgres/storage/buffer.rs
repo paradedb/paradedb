@@ -178,7 +178,7 @@ impl Buffer {
         Self { pg_buffer }
     }
 
-    pub fn page(&self) -> Page {
+    pub fn page(&self) -> Page<'_> {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.pg_buffer) };
         Page {
             pg_page,
@@ -245,7 +245,7 @@ impl Drop for BufferMut {
 }
 
 impl BufferMut {
-    pub fn init_page(&mut self) -> PageMut {
+    pub fn init_page(&mut self) -> PageMut<'_> {
         let page_size = self.page_size();
         let page = self.page_mut();
         page.buffer.dirty = true;
@@ -260,7 +260,7 @@ impl BufferMut {
     }
 
     #[allow(dead_code)]
-    pub fn page(&self) -> Page {
+    pub fn page(&self) -> Page<'_> {
         unsafe {
             Page {
                 pg_page: pg_sys::BufferGetPage(self.inner.pg_buffer),
@@ -269,7 +269,7 @@ impl BufferMut {
         }
     }
 
-    pub fn page_mut(&mut self) -> PageMut {
+    pub fn page_mut(&mut self) -> PageMut<'_> {
         let pg_page = unsafe { pg_sys::BufferGetPage(self.inner.pg_buffer) };
         PageMut {
             buffer: self,

@@ -892,7 +892,7 @@ impl SearchIndexReader {
     }
 }
 
-pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring {
+pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {
     if need_scores {
         EnableScoring::enabled_from_searcher(searcher)
     } else {

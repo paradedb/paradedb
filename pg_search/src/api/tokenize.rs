@@ -24,7 +24,7 @@ use tokenizers::SearchTokenizer;
 pub fn tokenize(
     tokenizer_setting: JsonB,
     input_text: &str,
-) -> TableIterator<(name!(token, String), name!(position, i32))> {
+) -> TableIterator<'_, (name!(token, String), name!(position, i32))> {
     let tokenizer_setting = serde_json::to_value(tokenizer_setting)
         .expect("invalid tokenizer setting, expected paradedb.tokenizer()");
     let tokenizer = SearchTokenizer::from_json_value(&tokenizer_setting)

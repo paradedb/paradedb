@@ -291,11 +291,16 @@ impl BufferMut {
 
     /// Return this [`BufferMut`] instance back to our' Free Space Map, making
     /// it available for future reuse as a new buffer.
-    pub fn return_to_fsm(self, bman: &mut BufferManager) {
+    pub fn return_to_fsm_with_when_recyclable(
+        self,
+        bman: &mut BufferManager,
+        when_recyclable: pg_sys::TransactionId,
+    ) {
         let blockno = self.number();
         drop(self);
 
-        bman.fsm().extend(bman, std::iter::once(blockno));
+        bman.fsm()
+            .extend_with_when_recyclable(bman, when_recyclable, std::iter::once(blockno));
     }
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758553416590,
+  "lastUpdate": 1758553595991,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -15052,6 +15052,42 @@ window.BENCHMARK_DATA = {
             "value": 5.41567443207037,
             "unit": "median tps",
             "extra": "avg tps: 4.890071032285965, max tps: 6.00005372655396, count: 57588"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f4016019b33da6e3e77ef5d3f8663670394cff1",
+          "message": "fix: update tantivy dependency revision (#3198)\n\n## What\n\nUpdate tantivy to\n\nhttps://github.com/paradedb/tantivy/commit/7c6c6fc6ac977382b19ae7fb9fd5b0c53b8f1b58\nwhich fixes a bug that disallowed a segment, during indexing, to real\nthe real memory limit of 4GB.\n\n## Why\n\nWe had a bug in our tantivy fork that wouldn't allow a segment, during\nindexing, to cross over 2GB to reach the actual limit of 4GB.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:36:38-04:00",
+          "tree_id": "45c5f689aa0bacc2a9e85d97ac3ccc0047a14590",
+          "url": "https://github.com/paradedb/paradedb/commit/5f4016019b33da6e3e77ef5d3f8663670394cff1"
+        },
+        "date": 1758553594273,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.584832426214152,
+            "unit": "median tps",
+            "extra": "avg tps: 7.341598469195393, max tps: 11.437737272954939, count: 57847"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.359890670399153,
+            "unit": "median tps",
+            "extra": "avg tps: 4.848876217602089, max tps: 5.939310272177895, count: 57847"
           }
         ]
       }

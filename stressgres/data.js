@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758554908217,
+  "lastUpdate": 1758554911201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -14086,6 +14086,126 @@ window.BENCHMARK_DATA = {
             "value": 146.7109375,
             "unit": "median mem",
             "extra": "avg mem: 127.46194408289836, max mem: 151.1328125, count: 55366"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "89d1a665f7856e60cff6c4aa2f48baedce10840f",
+          "message": "fix: allow user to set TEXT `key_field`'s tokenizer to `keyword` (#3197)\n\nCloses: #2502\n\n## What\n\nThis allows the user to change the key_field's tokenizer to `keyword`\nsince until now we complain that `raw` is deprecated.\n\n## Why\n\nIt's not right for us to complain that the `raw` tokenizer is deprecated\nand then not allow the user to change it.\n\nIn the case of key_field TEXT columns we long long ago made the wrong\ndecision to use the `raw` tokenizer as the default tokenizer. Then we\ndecided to deprecate the `raw` tokenizer in favor of the `keyword`\ntokenizer, but we never actually let users change the key_field's\ntokenizer. So now we do... for TEXT fields only.\n\n## How\n\n## Tests\n\nA new regression test has been added.  All other tests pass.",
+          "timestamp": "2025-09-22T11:10:35-04:00",
+          "tree_id": "77a2d9b81f93cf90b21546c3b6817d0fd41c115f",
+          "url": "https://github.com/paradedb/paradedb/commit/89d1a665f7856e60cff6c4aa2f48baedce10840f"
+        },
+        "date": 1758554909502,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.870577557290627, max cpu: 14.708885, count: 55379"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 137.65267329730133, max mem: 153.58203125, count: 55379"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.682560028075721, max cpu: 9.448819, count: 55379"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 27.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.143348914412503, max mem: 31.28515625, count: 55379"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.879264424994955, max cpu: 14.708885, count: 55379"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.40663661146374, max mem: 154.234375, count: 55379"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.506213415376144, max cpu: 9.311348, count: 55379"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 155.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 138.95548762561168, max mem: 155.27734375, count: 55379"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.701787127982985, max cpu: 9.504951, count: 110758"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.95703125,
+            "unit": "median mem",
+            "extra": "avg mem: 135.62588946735224, max mem: 156.33203125, count: 110758"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 27084,
+            "unit": "median block_count",
+            "extra": "avg block_count: 26949.99172971704, max block_count: 51950.0, count: 55379"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.0650246483324, max segment_count: 72.0, count: 55379"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582301993484763, max cpu: 9.476802, count: 55379"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 136.90369967632134, max mem: 157.08984375, count: 55379"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.623892210971195, max cpu: 7.5294113, count: 55379"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 147.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 126.0618797005634, max mem: 151.359375, count: 55379"
           }
         ]
       }

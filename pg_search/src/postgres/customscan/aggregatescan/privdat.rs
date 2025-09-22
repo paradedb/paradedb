@@ -115,8 +115,8 @@ impl AggregateType {
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
                 // return None and bail if the conversion is lossy
-                Ok(TantivyValue(OwnedValue::U64(missing))) => f64_exact_from(missing as f64),
-                Ok(TantivyValue(OwnedValue::I64(missing))) => f64_exact_from(missing as f64),
+                Ok(TantivyValue(OwnedValue::U64(missing))) => f64_exact_from(missing),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => f64_exact_from(missing),
                 Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
                 Ok(TantivyValue(OwnedValue::Null)) => None,
                 _ => {

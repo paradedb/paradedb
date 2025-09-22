@@ -20,7 +20,6 @@ use crate::nodecast;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
-use num_traits::cast::FromPrimitive;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
@@ -116,8 +115,8 @@ impl AggregateType {
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
                 // return None and bail if the conversion is lossy
-                Ok(TantivyValue(OwnedValue::U64(missing))) => f64::from_u64(missing),
-                Ok(TantivyValue(OwnedValue::I64(missing))) => f64::from_i64(missing),
+                Ok(TantivyValue(OwnedValue::U64(missing))) => f64_exact_from(missing as f64),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => f64_exact_from(missing as f64),
                 Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
                 Ok(TantivyValue(OwnedValue::Null)) => None,
                 _ => {
@@ -368,4 +367,18 @@ impl From<PrivateData> for *mut pg_sys::List {
             ser.into_pg()
         }
     }
+}
+
+fn f64_exact_from<T>(v: T) -> Option<f64>
+where
+    T: Into<f64> + Copy + PartialEq + TryFrom<f64>,
+    <T as TryFrom<f64>>::Error: std::fmt::Debug,
+{
+    let f = v.into();
+    if let Ok(back) = T::try_from(f) {
+        if back == v {
+            return Some(f);
+        }
+    }
+    None
 }

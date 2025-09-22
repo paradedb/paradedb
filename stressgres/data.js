@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758551976124,
+  "lastUpdate": 1758552583250,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -14608,6 +14608,42 @@ window.BENCHMARK_DATA = {
             "value": 5.387271665451007,
             "unit": "median tps",
             "extra": "avg tps: 4.868567970757335, max tps: 5.977213272629829, count: 57946"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b5e7226ce38eaa98ce91906a3f8eb0b72906e66",
+          "message": "fix: update tantivy dependency revision (#3192)\n\n## What\n\nUpdate tantivy to\n\nhttps://github.com/paradedb/tantivy/commit/7c6c6fc6ac977382b19ae7fb9fd5b0c53b8f1b58\nwhich fixes a bug that disallowed a segment, during indexing, to real\nthe real memory limit of 4GB.\n\n## Why\n\nWe had a bug in our tantivy fork that wouldn't allow a segment, during\nindexing, to cross over 2GB to reach the actual limit of 4GB.\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-22T10:19:44-04:00",
+          "tree_id": "89f8538f4216f95c908cb451c1405afaa80946e6",
+          "url": "https://github.com/paradedb/paradedb/commit/8b5e7226ce38eaa98ce91906a3f8eb0b72906e66"
+        },
+        "date": 1758552581554,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.479330950606695,
+            "unit": "median tps",
+            "extra": "avg tps: 7.231219546657223, max tps: 11.256405356574138, count: 57344"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.374762165762079,
+            "unit": "median tps",
+            "extra": "avg tps: 4.863768955714802, max tps: 5.953715152993979, count: 57344"
           }
         ]
       }

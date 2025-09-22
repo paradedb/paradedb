@@ -12,7 +12,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Affero General Public License for more details.
 //
-// You should have received a copy of the GNU Affzero General Public License
+// You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
@@ -115,6 +115,7 @@ impl AggregateType {
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
+                // return None and bail if the conversion is lossy
                 Ok(TantivyValue(OwnedValue::U64(missing))) => f64::from_u64(missing),
                 Ok(TantivyValue(OwnedValue::I64(missing))) => f64::from_i64(missing),
                 Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),

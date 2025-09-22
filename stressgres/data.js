@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758552707296,
+  "lastUpdate": 1758552864405,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -8416,6 +8416,72 @@ window.BENCHMARK_DATA = {
             "value": 86.65795389111214,
             "unit": "median tps",
             "extra": "avg tps: 92.74807906007315, max tps: 861.2418763360015, count: 54856"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5f4016019b33da6e3e77ef5d3f8663670394cff1",
+          "message": "fix: update tantivy dependency revision (#3198)\n\n## What\n\nUpdate tantivy to\n\nhttps://github.com/paradedb/tantivy/commit/7c6c6fc6ac977382b19ae7fb9fd5b0c53b8f1b58\nwhich fixes a bug that disallowed a segment, during indexing, to real\nthe real memory limit of 4GB.\n\n## Why\n\nWe had a bug in our tantivy fork that wouldn't allow a segment, during\nindexing, to cross over 2GB to reach the actual limit of 4GB.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:36:38-04:00",
+          "tree_id": "45c5f689aa0bacc2a9e85d97ac3ccc0047a14590",
+          "url": "https://github.com/paradedb/paradedb/commit/5f4016019b33da6e3e77ef5d3f8663670394cff1"
+        },
+        "date": 1758552862790,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 821.3446740865195,
+            "unit": "median tps",
+            "extra": "avg tps: 821.2206414276168, max tps: 882.3903659683428, count: 55400"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3329.4162245282814,
+            "unit": "median tps",
+            "extra": "avg tps: 3299.455599444926, max tps: 3352.5310170494154, count: 55400"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 790.0335111244311,
+            "unit": "median tps",
+            "extra": "avg tps: 790.846086418895, max tps: 887.496063434234, count: 55400"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 695.7019768239911,
+            "unit": "median tps",
+            "extra": "avg tps: 694.8162317582951, max tps: 700.3880137794753, count: 55400"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1702.0741577186116,
+            "unit": "median tps",
+            "extra": "avg tps: 1694.4830353746784, max tps: 1717.302386559184, count: 110800"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1283.1564489202876,
+            "unit": "median tps",
+            "extra": "avg tps: 1272.9003077274515, max tps: 1291.6375946934722, count: 55400"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 101.38681651419634,
+            "unit": "median tps",
+            "extra": "avg tps: 106.47890227708588, max tps: 944.0285474232741, count: 55400"
           }
         ]
       }

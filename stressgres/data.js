@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758558052796,
+  "lastUpdate": 1758558055504,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -22742,6 +22742,66 @@ window.BENCHMARK_DATA = {
             "value": 160.5,
             "unit": "median mem",
             "extra": "avg mem: 150.57994642177883, max mem: 163.07421875, count: 57836"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c4e3a6415a270c20a4eaf785557c9a67c427fc",
+          "message": "fix: allow user to set TEXT `key_field`'s tokenizer to `keyword` (#3200)\n\nCloses: #2502\n\n## What\n\nThis allows the user to change the key_field's tokenizer to `keyword`\nsince until now we complain that `raw` is deprecated.\n\n## Why\n\nIt's not right for us to complain that the `raw` tokenizer is deprecated\nand then not allow the user to change it.\n\nIn the case of key_field TEXT columns we long long ago made the wrong\ndecision to use the `raw` tokenizer as the default tokenizer. Then we\ndecided to deprecate the `raw` tokenizer in favor of the `keyword`\ntokenizer, but we never actually let users change the key_field's\ntokenizer. So now we do... for TEXT fields only.\n\n## How\n\n## Tests\n\nA new regression test has been added.  All other tests pass.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T11:40:42-04:00",
+          "tree_id": "7bc161785b0d7b510b41699931bb1726da7ea875",
+          "url": "https://github.com/paradedb/paradedb/commit/a6c4e3a6415a270c20a4eaf785557c9a67c427fc"
+        },
+        "date": 1758558054126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.693227231406567, max cpu: 53.333336, count: 57765"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 169.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 168.84557453962174, max mem: 169.66015625, count: 57765"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40567,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35493.20739201939, max block_count: 41518.0, count: 57765"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.314013676101446, max segment_count: 171.0, count: 57765"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.405951534637691, max cpu: 28.042841, count: 57765"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 158.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 150.03853639206267, max mem: 160.84765625, count: 57765"
           }
         ]
       }

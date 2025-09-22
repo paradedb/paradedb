@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758555134978,
+  "lastUpdate": 1758555632120,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -15958,6 +15958,42 @@ window.BENCHMARK_DATA = {
             "value": 5.467760707445808,
             "unit": "median tps",
             "extra": "avg tps: 4.940953084262768, max tps: 6.059653042379854, count: 57289"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "89d1a665f7856e60cff6c4aa2f48baedce10840f",
+          "message": "fix: allow user to set TEXT `key_field`'s tokenizer to `keyword` (#3197)\n\nCloses: #2502\n\n## What\n\nThis allows the user to change the key_field's tokenizer to `keyword`\nsince until now we complain that `raw` is deprecated.\n\n## Why\n\nIt's not right for us to complain that the `raw` tokenizer is deprecated\nand then not allow the user to change it.\n\nIn the case of key_field TEXT columns we long long ago made the wrong\ndecision to use the `raw` tokenizer as the default tokenizer. Then we\ndecided to deprecate the `raw` tokenizer in favor of the `keyword`\ntokenizer, but we never actually let users change the key_field's\ntokenizer. So now we do... for TEXT fields only.\n\n## How\n\n## Tests\n\nA new regression test has been added.  All other tests pass.",
+          "timestamp": "2025-09-22T11:10:35-04:00",
+          "tree_id": "77a2d9b81f93cf90b21546c3b6817d0fd41c115f",
+          "url": "https://github.com/paradedb/paradedb/commit/89d1a665f7856e60cff6c4aa2f48baedce10840f"
+        },
+        "date": 1758555630391,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.340848215828268,
+            "unit": "median tps",
+            "extra": "avg tps: 7.143321869023349, max tps: 11.161515208268703, count: 57769"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.342533206417582,
+            "unit": "median tps",
+            "extra": "avg tps: 4.835225598733342, max tps: 5.923494402543675, count: 57769"
           }
         ]
       }

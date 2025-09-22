@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758555132054,
+  "lastUpdate": 1758555134978,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -6262,6 +6262,114 @@ window.BENCHMARK_DATA = {
             "value": 157.19921875,
             "unit": "median mem",
             "extra": "avg mem: 155.2235198353125, max mem: 158.55859375, count: 55537"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "414e16a1fd61ad461377aedc953534abc28d76a4",
+          "message": "fix: use correct xids when returning to the fsm (#3199)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere's a few places where we need to use a future xid when returning\nblocks to the FSM.\n\nSpecically blocks from the segment meta entries list when it's garbage\ncollected.\n\n## Why\n\nTo address some community reports of what appear to be corrupt index\npages.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:38:03-04:00",
+          "tree_id": "7f77ddfdfc23d53ffdb8a2b66caf5806c3a67939",
+          "url": "https://github.com/paradedb/paradedb/commit/414e16a1fd61ad461377aedc953534abc28d76a4"
+        },
+        "date": 1758555133220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.497108,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.266030895281286, max cpu: 42.561577, count: 55411"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 156.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 145.85132690260056, max mem: 156.30078125, count: 55411"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.699292251086642, max cpu: 41.498558, count: 55411"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 110.16796917297559, max mem: 111.3359375, count: 55411"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.994446790317385, max cpu: 13.994169, count: 55411"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 141.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 120.12056157622133, max mem: 141.3984375, count: 55411"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30686,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31169.141452058255, max block_count: 63776.0, count: 55411"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.485745629262861, max cpu: 4.669261, count: 55411"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 101.125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.05160288006894, max mem: 127.765625, count: 55411"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.765967046254353, max segment_count: 55.0, count: 55411"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.780653480633339, max cpu: 41.498558, count: 110822"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.96241234536012, max mem: 154.21484375, count: 110822"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.779904,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.817848390372426, max cpu: 27.799229, count: 55411"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 155.5369173088376, max mem: 159.6640625, count: 55411"
           }
         ]
       }

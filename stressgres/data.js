@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758554428062,
+  "lastUpdate": 1758554430915,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -21500,6 +21500,66 @@ window.BENCHMARK_DATA = {
             "value": 199.25390625,
             "unit": "median mem",
             "extra": "avg mem: 183.4404863330567, max mem: 240.34375, count: 56633"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "414e16a1fd61ad461377aedc953534abc28d76a4",
+          "message": "fix: use correct xids when returning to the fsm (#3199)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere's a few places where we need to use a future xid when returning\nblocks to the FSM.\n\nSpecically blocks from the segment meta entries list when it's garbage\ncollected.\n\n## Why\n\nTo address some community reports of what appear to be corrupt index\npages.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:38:03-04:00",
+          "tree_id": "7f77ddfdfc23d53ffdb8a2b66caf5806c3a67939",
+          "url": "https://github.com/paradedb/paradedb/commit/414e16a1fd61ad461377aedc953534abc28d76a4"
+        },
+        "date": 1758554429225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.559380199661476, max cpu: 52.905815, count: 57572"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 163.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.7477404652001, max mem: 167.7734375, count: 57572"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40850,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35633.90769818662, max block_count: 41654.0, count: 57572"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.11008823733759, max segment_count: 154.0, count: 57572"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5103987116834015, max cpu: 28.514853, count: 57572"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 153.36658194033123, max mem: 163.27734375, count: 57572"
           }
         ]
       }

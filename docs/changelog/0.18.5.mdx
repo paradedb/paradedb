@@ -1,0 +1,15 @@
+---
+title: 0.18.4
+---
+
+## Performance Improvements 🚀
+
+- Introduced two new settings, `paradedb.topn_retry_scale_factor` and `paradedb.max_topn_chunk_size`, which can be used to reduce the number of re-queries during a TopN
+  when the index has lots of dead entries
+
+## Stability Improvements 💪
+
+- We now allow text key fields to use the `keyword` tokenizer
+- Fixed an index corruption issue related to the free space map
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.18.5).

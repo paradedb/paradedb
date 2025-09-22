@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758555013688,
+  "lastUpdate": 1758555132054,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2092,6 +2092,60 @@ window.BENCHMARK_DATA = {
             "value": 18.60007947894222,
             "unit": "median tps",
             "extra": "avg tps: 18.637105730481988, max tps: 20.696916400058043, count: 55537"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "414e16a1fd61ad461377aedc953534abc28d76a4",
+          "message": "fix: use correct xids when returning to the fsm (#3199)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere's a few places where we need to use a future xid when returning\nblocks to the FSM.\n\nSpecically blocks from the segment meta entries list when it's garbage\ncollected.\n\n## Why\n\nTo address some community reports of what appear to be corrupt index\npages.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:38:03-04:00",
+          "tree_id": "7f77ddfdfc23d53ffdb8a2b66caf5806c3a67939",
+          "url": "https://github.com/paradedb/paradedb/commit/414e16a1fd61ad461377aedc953534abc28d76a4"
+        },
+        "date": 1758555130324,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 39.38856654789205,
+            "unit": "median tps",
+            "extra": "avg tps: 39.39198806215385, max tps: 39.66105028611049, count: 55411"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 242.4059208549773,
+            "unit": "median tps",
+            "extra": "avg tps: 267.8047539799833, max tps: 2931.3676209577084, count: 55411"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1016.6379901661608,
+            "unit": "median tps",
+            "extra": "avg tps: 1009.8918480034781, max tps: 1028.935725206625, count: 55411"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 124.92682764097711,
+            "unit": "median tps",
+            "extra": "avg tps: 159.07355086597323, max tps: 808.0663635245663, count: 110822"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.738593580109114,
+            "unit": "median tps",
+            "extra": "avg tps: 19.899155772477517, max tps: 22.850119122241008, count: 55411"
           }
         ]
       }

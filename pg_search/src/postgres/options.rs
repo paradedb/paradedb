@@ -400,7 +400,13 @@ impl BM25IndexOptions {
         }
 
         if field_name.root() == data.key_field_name()?.root() {
-            return self.get_field_type(field_name).map(key_field_config);
+            return match self.text_config().as_ref().unwrap().get(field_name) {
+                // if the key_field is TEXT then we'll use the config for it
+                config @ Some(SearchFieldConfig::Text { .. }) => config.cloned(),
+
+                // otherwise we'll use the default config for key_fields in general
+                _ => self.get_field_type(field_name).map(key_field_config),
+            };
         }
 
         self.text_config()

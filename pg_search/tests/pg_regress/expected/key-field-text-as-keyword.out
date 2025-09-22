@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS public.key_field_text_raw;
+CREATE TABLE public.key_field_text_raw
+(
+    id text not null primary key,
+    data text
+);
+CREATE INDEX idx_key_field_raw on public.key_field_text_raw USING bm25 (id, data)
+WITH (key_field = id, text_fields = '{"id": { "tokenizer": { "type": "keyword" } } }');
+SELECT * FROM paradedb.schema('idx_key_field_raw') ORDER BY name;
+ name | field_type | stored | indexed | fast | fieldnorms | expand_dots |                         tokenizer                         |  record  | normalizer 
+------+------------+--------+---------+------+------------+-------------+-----------------------------------------------------------+----------+------------
+ ctid | U64        | f      | t       | t    | f          |             |                                                           |          | 
+ data | Str        | f      | t       | f    | t          |             | default                                                   | position | 
+ id   | Str        | f      | t       | t    | t          |             | keyword[remove_long=18446744073709551615,lowercase=false] | position | raw
+(3 rows)
+

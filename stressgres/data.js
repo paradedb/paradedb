@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758554300754,
+  "lastUpdate": 1758554428062,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -19194,6 +19194,42 @@ window.BENCHMARK_DATA = {
             "value": 548.0249008478825,
             "unit": "median tps",
             "extra": "avg tps: 549.2907938461891, max tps: 731.878505240616, count: 56633"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "414e16a1fd61ad461377aedc953534abc28d76a4",
+          "message": "fix: use correct xids when returning to the fsm (#3199)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere's a few places where we need to use a future xid when returning\nblocks to the FSM.\n\nSpecically blocks from the segment meta entries list when it's garbage\ncollected.\n\n## Why\n\nTo address some community reports of what appear to be corrupt index\npages.\n\n## How\n\n## Tests\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T10:38:03-04:00",
+          "tree_id": "7f77ddfdfc23d53ffdb8a2b66caf5806c3a67939",
+          "url": "https://github.com/paradedb/paradedb/commit/414e16a1fd61ad461377aedc953534abc28d76a4"
+        },
+        "date": 1758554426244,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 47.32131485992449,
+            "unit": "median tps",
+            "extra": "avg tps: 47.390021709211, max tps: 49.080364717980046, count: 57572"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 586.1873923136745,
+            "unit": "median tps",
+            "extra": "avg tps: 592.4252463593077, max tps: 733.2264441151447, count: 57572"
           }
         ]
       }

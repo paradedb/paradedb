@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758553286238,
+  "lastUpdate": 1758553413722,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -18606,6 +18606,42 @@ window.BENCHMARK_DATA = {
             "value": 601.0275045163879,
             "unit": "median tps",
             "extra": "avg tps: 605.358092715416, max tps: 738.4002550447428, count: 57647"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "eebbrr@gmail.com",
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7efcca559340008f06df6d1861f1f0301970a0dc",
+          "message": "fix: use correct xids when returning to the fsm (#3191)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThere's a few places where we need to use a future xid when returning\nblocks to the FSM.\n\nSpecically blocks from the segment meta entries list when it's garbage\ncollected.\n\n## Why\n\nTo address some community reports of what appear to be corrupt index\npages.\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-22T10:21:41-04:00",
+          "tree_id": "a4cdecfcfa42fbe38c487b7c4f6c5cc31eef4f46",
+          "url": "https://github.com/paradedb/paradedb/commit/7efcca559340008f06df6d1861f1f0301970a0dc"
+        },
+        "date": 1758553412038,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.76455492430214,
+            "unit": "median tps",
+            "extra": "avg tps: 46.96720526471393, max tps: 49.00129654425895, count: 57383"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 580.6229974032038,
+            "unit": "median tps",
+            "extra": "avg tps: 583.8552351018145, max tps: 696.4070722563312, count: 57383"
           }
         ]
       }

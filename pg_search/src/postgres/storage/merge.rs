@@ -291,8 +291,8 @@ impl MergeList {
         self.entries.list()
     }
 
-    pub unsafe fn garbage_collect(&mut self) {
-        let recycled_entries = self.entries.garbage_collect();
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::TransactionId) {
+        let recycled_entries = self.entries.garbage_collect(when_recyclable);
 
         let indexrel = self.bman.buffer_access().rel().clone();
         self.bman.fsm().extend(

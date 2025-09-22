@@ -189,9 +189,9 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
         true
     }
 
-    pub unsafe fn garbage_collect(&mut self) -> Vec<T> {
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::TransactionId) -> Vec<T> {
         // Delete all items that are definitely dead
-        self.retain(|bman, entry| {
+        self.retain(when_recyclable, |bman, entry| {
             if entry.recyclable(bman) {
                 RetainItem::Remove(entry)
             } else {
@@ -209,6 +209,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
     ///
     pub unsafe fn retain(
         &mut self,
+        when_recyclable: pg_sys::TransactionId,
         mut f: impl FnMut(&mut BufferManager, T) -> RetainItem<T>,
     ) -> Vec<T> {
         let (mut blockno, mut previous_buffer) = self.get_start_blockno_mut();
@@ -257,7 +258,7 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> LinkedItemList<
 
                 // return it to the FSM. Doing so will also drop the lock, but we are still
                 // holding the lock on the previous page, so hand-over-hand is ensured.
-                buffer.return_to_fsm(&mut self.bman);
+                buffer.return_to_fsm_with_when_recyclable(&mut self.bman, when_recyclable);
             } else {
                 // this is either the start page, or a page containing valid data. move its buffer
                 // into previous_buffer to ensure that it is held hand-over-hand until we decide
@@ -519,7 +520,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone + MVCCEntry> AtomicGuard<'_,
             Some(recyclable_blockno)
         })
         .chain(std::iter::once(self.cloned.header_blockno));
-        self.bman.fsm().extend(&mut self.bman, recyclable_blocks);
+        self.bman.fsm().extend_with_when_recyclable(
+            &mut self.bman,
+            unsafe { pg_sys::ReadNextTransactionId() },
+            recyclable_blocks,
+        );
     }
 }
 
@@ -595,7 +600,7 @@ mod tests {
 
         list.add_items(&entries_to_delete, None);
         list.add_items(&entries_to_keep, None);
-        list.garbage_collect();
+        list.garbage_collect(delete_xid);
 
         assert!(list
             .lookup(|entry| entry.segment_id == entries_to_delete[0].segment_id)
@@ -630,7 +635,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             list.add_items(&entries, None);
-            list.garbage_collect();
+            list.garbage_collect(deleted_xid);
 
             for entry in entries {
                 if entry.xmax == not_deleted_xid {
@@ -677,7 +682,7 @@ mod tests {
             list.add_items(&entries_3, None);
 
             let pre_gc_blocks = linked_list_block_numbers(&list);
-            list.garbage_collect();
+            list.garbage_collect(deleted_xid);
 
             for entries in [entries_1, entries_2, entries_3] {
                 for entry in entries {

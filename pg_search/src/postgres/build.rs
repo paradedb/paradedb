@@ -193,9 +193,15 @@ fn validate_field_config(
     }
 
     if field_name.root() == key_field_name.root() {
-        panic!(
-            "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
-        );
+        match config {
+            // we allow the user to change a TEXT key_field tokenizer to "keyword"
+            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
+                // noop
+            }
+
+            // but not to anything else
+            _ => panic!("cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key")
+        }
     }
 
     if let Some(alias) = config.alias() {

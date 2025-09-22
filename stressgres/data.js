@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758558523835,
+  "lastUpdate": 1758558765523,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2200,6 +2200,60 @@ window.BENCHMARK_DATA = {
             "value": 16.635240315346262,
             "unit": "median tps",
             "extra": "avg tps: 16.686508145804783, max tps: 20.660360064209918, count: 55343"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6c4e3a6415a270c20a4eaf785557c9a67c427fc",
+          "message": "fix: allow user to set TEXT `key_field`'s tokenizer to `keyword` (#3200)\n\nCloses: #2502\n\n## What\n\nThis allows the user to change the key_field's tokenizer to `keyword`\nsince until now we complain that `raw` is deprecated.\n\n## Why\n\nIt's not right for us to complain that the `raw` tokenizer is deprecated\nand then not allow the user to change it.\n\nIn the case of key_field TEXT columns we long long ago made the wrong\ndecision to use the `raw` tokenizer as the default tokenizer. Then we\ndecided to deprecate the `raw` tokenizer in favor of the `keyword`\ntokenizer, but we never actually let users change the key_field's\ntokenizer. So now we do... for TEXT fields only.\n\n## How\n\n## Tests\n\nA new regression test has been added.  All other tests pass.\n\nCo-authored-by: Eric Ridge <eebbrr@gmail.com>",
+          "timestamp": "2025-09-22T11:40:42-04:00",
+          "tree_id": "7bc161785b0d7b510b41699931bb1726da7ea875",
+          "url": "https://github.com/paradedb/paradedb/commit/a6c4e3a6415a270c20a4eaf785557c9a67c427fc"
+        },
+        "date": 1758558764083,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.98922205321064,
+            "unit": "median tps",
+            "extra": "avg tps: 39.03033457197431, max tps: 39.348498405184, count: 55601"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 130.4945314465949,
+            "unit": "median tps",
+            "extra": "avg tps: 175.6398208262028, max tps: 2919.4664116999334, count: 55601"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1004.8561189891848,
+            "unit": "median tps",
+            "extra": "avg tps: 998.9243717861061, max tps: 1023.7116542141886, count: 55601"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.46078478897846,
+            "unit": "median tps",
+            "extra": "avg tps: 123.8428221968935, max tps: 803.3831859970678, count: 111202"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.580893388071473,
+            "unit": "median tps",
+            "extra": "avg tps: 18.766680434855516, max tps: 20.43186307176439, count: 55601"
           }
         ]
       }

@@ -3146,6 +3146,7 @@ dependencies = [
  "lazy_static",
  "macros",
  "memoffset",
+ "num-traits",
  "once_cell",
  "ordered-float",
  "parking_lot",

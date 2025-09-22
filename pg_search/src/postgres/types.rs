@@ -1095,9 +1095,6 @@ impl ConstNode {
 impl TryFrom<ConstNode> for TantivyValue {
     type Error = TantivyValueError;
 
-    /// # Safety
-    ///
-    /// This is unsafe because it dereferences a pointer to a `pg_sys::Const` node
     fn try_from(value: ConstNode) -> Result<Self, Self::Error> {
         if unsafe { (*value.0).constisnull } {
             return Ok(TantivyValue(OwnedValue::Null));

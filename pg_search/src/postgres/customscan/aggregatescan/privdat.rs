@@ -12,7 +12,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Affero General Public License for more details.
 //
-// You should have received a copy of the GNU Affero General Public License
+// You should have received a copy of the GNU Affzero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
@@ -20,6 +20,7 @@ use crate::nodecast;
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+use num_traits::cast::FromPrimitive;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
@@ -114,8 +115,8 @@ impl AggregateType {
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
-                Ok(TantivyValue(OwnedValue::U64(missing))) => Some(missing as f64),
-                Ok(TantivyValue(OwnedValue::I64(missing))) => Some(missing as f64),
+                Ok(TantivyValue(OwnedValue::U64(missing))) => f64::from_u64(missing),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => f64::from_i64(missing),
                 Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
                 Ok(TantivyValue(OwnedValue::Null)) => None,
                 _ => {

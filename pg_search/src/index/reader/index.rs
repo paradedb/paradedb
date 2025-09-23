@@ -365,7 +365,11 @@ impl SearchIndexReader {
             .expect("weight should be constructable")
     }
 
-    pub fn make_query(&self, search_query_input: SearchQueryInput) -> Box<dyn Query> {
+    fn make_query(
+        &self,
+        search_query_input: SearchQueryInput,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
+    ) -> Box<dyn Query> {
         search_query_input
             .clone()
             .into_tantivy_query(
@@ -382,7 +386,7 @@ impl SearchIndexReader {
                 &self.searcher,
                 self.index_rel.oid(),
                 self.index_rel.rel_oid(),
-                None, // no expr_context
+                expr_context,
                 None, // no planstate
             )
             .unwrap_or_else(|e| panic!("{e}"))
@@ -421,20 +425,22 @@ impl SearchIndexReader {
         &self,
         field_name: impl AsRef<str> + Display,
         query: SearchQueryInput,
+        expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
     ) -> (tantivy::schema::Field, SnippetGenerator) {
         let search_field = self
             .schema
             .search_field(&field_name)
-            .unwrap_or_else(|| panic!("snippet_generator: field {field_name} should exist"));
+            .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
         if search_field.is_text() || search_field.is_json() {
             let field = search_field.field();
-            let generator =
-                SnippetGenerator::create(&self.searcher, &self.make_query(query), field)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "failed to create snippet generator for field: {field_name}... {err}"
-                        )
-                    });
+            let generator = SnippetGenerator::create(
+                &self.searcher,
+                &self.make_query(query, expr_context),
+                field,
+            )
+            .unwrap_or_else(|err| {
+                panic!("failed to create snippet generator for field: {field_name}... {err}")
+            });
             (field, generator)
         } else {
             panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")

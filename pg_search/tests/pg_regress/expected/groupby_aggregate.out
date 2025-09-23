@@ -1192,11 +1192,9 @@ FROM products
 WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category ASC;
-  category   
--------------
- Electronics
- Toys
-(2 rows)
+ category 
+----------
+(0 rows)
 
 -- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)

@@ -37,10 +37,45 @@ use tantivy::schema::OwnedValue;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     CountAny, // COUNT(*)
-    Sum { field: String, missing: Option<f64> },
-    Avg { field: String, missing: Option<f64> },
-    Min { field: String, missing: Option<f64> },
-    Max { field: String, missing: Option<f64> },
+    CountAnyWithFilter {
+        filter_expr: SearchQueryInput,
+    },
+    Sum {
+        field: String,
+        missing: Option<f64>,
+    },
+    SumWithFilter {
+        field: String,
+        missing: Option<f64>,
+        filter_expr: SearchQueryInput,
+    },
+    Avg {
+        field: String,
+        missing: Option<f64>,
+    },
+    AvgWithFilter {
+        field: String,
+        missing: Option<f64>,
+        filter_expr: SearchQueryInput,
+    },
+    Min {
+        field: String,
+        missing: Option<f64>,
+    },
+    MinWithFilter {
+        field: String,
+        missing: Option<f64>,
+        filter_expr: SearchQueryInput,
+    },
+    Max {
+        field: String,
+        missing: Option<f64>,
+    },
+    MaxWithFilter {
+        field: String,
+        missing: Option<f64>,
+        filter_expr: SearchQueryInput,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -158,30 +193,74 @@ impl AggregateType {
     pub fn field_name(&self) -> Option<String> {
         match self {
             AggregateType::CountAny => None,
+            AggregateType::CountAnyWithFilter { .. } => None,
             AggregateType::Sum { field, .. } => Some(field.clone()),
+            AggregateType::SumWithFilter { field, .. } => Some(field.clone()),
             AggregateType::Avg { field, .. } => Some(field.clone()),
+            AggregateType::AvgWithFilter { field, .. } => Some(field.clone()),
             AggregateType::Min { field, .. } => Some(field.clone()),
+            AggregateType::MinWithFilter { field, .. } => Some(field.clone()),
             AggregateType::Max { field, .. } => Some(field.clone()),
+            AggregateType::MaxWithFilter { field, .. } => Some(field.clone()),
         }
     }
 
     pub fn missing(&self) -> Option<f64> {
         match self {
             AggregateType::CountAny => None,
+            AggregateType::CountAnyWithFilter { .. } => None,
             AggregateType::Sum { missing, .. } => *missing,
+            AggregateType::SumWithFilter { missing, .. } => *missing,
             AggregateType::Avg { missing, .. } => *missing,
+            AggregateType::AvgWithFilter { missing, .. } => *missing,
             AggregateType::Min { missing, .. } => *missing,
+            AggregateType::MinWithFilter { missing, .. } => *missing,
             AggregateType::Max { missing, .. } => *missing,
+            AggregateType::MaxWithFilter { missing, .. } => *missing,
+        }
+    }
+
+    /// Check if this aggregate has a filter
+    pub fn has_filter(&self) -> bool {
+        matches!(
+            self,
+            AggregateType::CountAnyWithFilter { .. }
+                | AggregateType::SumWithFilter { .. }
+                | AggregateType::AvgWithFilter { .. }
+                | AggregateType::MinWithFilter { .. }
+                | AggregateType::MaxWithFilter { .. }
+        )
+    }
+
+    /// Get the filter expression if present
+    pub fn filter_expr(&self) -> Option<&SearchQueryInput> {
+        match self {
+            AggregateType::CountAnyWithFilter { filter_expr } => Some(filter_expr),
+            AggregateType::SumWithFilter { filter_expr, .. } => Some(filter_expr),
+            AggregateType::AvgWithFilter { filter_expr, .. } => Some(filter_expr),
+            AggregateType::MinWithFilter { filter_expr, .. } => Some(filter_expr),
+            AggregateType::MaxWithFilter { filter_expr, .. } => Some(filter_expr),
+            _ => None,
         }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
         let (key, field) = match self {
-            AggregateType::CountAny => ("value_count", "ctid"),
-            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
-            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
-            AggregateType::Min { field, .. } => ("min", field.as_str()),
-            AggregateType::Max { field, .. } => ("max", field.as_str()),
+            AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. } => {
+                ("value_count", "ctid")
+            }
+            AggregateType::Sum { field, .. } | AggregateType::SumWithFilter { field, .. } => {
+                ("sum", field.as_str())
+            }
+            AggregateType::Avg { field, .. } | AggregateType::AvgWithFilter { field, .. } => {
+                ("avg", field.as_str())
+            }
+            AggregateType::Min { field, .. } | AggregateType::MinWithFilter { field, .. } => {
+                ("min", field.as_str())
+            }
+            AggregateType::Max { field, .. } | AggregateType::MaxWithFilter { field, .. } => {
+                ("max", field.as_str())
+            }
         };
 
         if let Some(missing) = self.missing() {
@@ -203,7 +282,7 @@ impl AggregateType {
     #[allow(unreachable_patterns)]
     pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::CountAny => None, // 'terms' bucket already has a 'doc_count'
+            AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. } => None, // 'terms' bucket already has a 'doc_count'
             _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
@@ -245,7 +324,11 @@ impl AggregateType {
     ) -> AggregateValue {
         // Handle empty result sets for SUM aggregates specifically
         // SUM needs doc_count to distinguish empty buckets from buckets with zero values
-        if matches!(self, AggregateType::Sum { .. }) && doc_count == Some(0) {
+        if matches!(
+            self,
+            AggregateType::Sum { .. } | AggregateType::SumWithFilter { .. }
+        ) && doc_count == Some(0)
+        {
             return AggregateValue::Null;
         }
 
@@ -256,11 +339,21 @@ impl AggregateType {
             Some(num) => {
                 // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
-                    AggregateType::CountAny => NumberConversionMode::ToInt,
-                    AggregateType::Sum { .. } => NumberConversionMode::Preserve,
-                    AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
-                    AggregateType::Min { .. } => NumberConversionMode::Preserve,
-                    AggregateType::Max { .. } => NumberConversionMode::Preserve,
+                    AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. } => {
+                        NumberConversionMode::ToInt
+                    }
+                    AggregateType::Sum { .. } | AggregateType::SumWithFilter { .. } => {
+                        NumberConversionMode::Preserve
+                    }
+                    AggregateType::Avg { .. } | AggregateType::AvgWithFilter { .. } => {
+                        NumberConversionMode::ToFloat
+                    }
+                    AggregateType::Min { .. } | AggregateType::MinWithFilter { .. } => {
+                        NumberConversionMode::Preserve
+                    }
+                    AggregateType::Max { .. } | AggregateType::MaxWithFilter { .. } => {
+                        NumberConversionMode::Preserve
+                    }
                 };
 
                 // Process and convert the number according to the aggregate type requirements

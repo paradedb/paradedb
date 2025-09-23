@@ -24,9 +24,9 @@ use crate::postgres::customscan::pdbscan::exec_methods::ExecMethod;
 use crate::postgres::customscan::pdbscan::projections::snippet::SnippetType;
 use crate::postgres::customscan::qual_inspect::Qual;
 use crate::postgres::customscan::CustomScanState;
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
-use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::postgres::{ParallelExplainData, ParallelScanState};
 use crate::query::SearchQueryInput;
 

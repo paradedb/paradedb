@@ -58,11 +58,11 @@ use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
+use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
-use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};

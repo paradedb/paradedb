@@ -620,7 +620,7 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert((rti, (*var).varattno), attname);
                 }
             }
 

@@ -124,3 +124,31 @@ pub unsafe fn get_rte(
     }
     Some(nth_rte_ptr)
 }
+
+pub unsafe fn rte_is_partitioned(root: *mut pg_sys::PlannerInfo, rti: pg_sys::Index) -> bool {
+    let rtable = (*(*root).parse).rtable;
+    let rte = pg_sys::rt_fetch(rti, rtable);
+    (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE
+}
+
+pub unsafe fn rte_is_parent(
+    root: *mut pg_sys::PlannerInfo,
+    parent: pg_sys::Index,
+    child: pg_sys::Index,
+) -> bool {
+    if (*root).simple_rel_array.is_null() {
+        return false;
+    }
+
+    let parent_rel_info_ptr = *(*root).simple_rel_array.add(child as usize);
+    if parent_rel_info_ptr.is_null() {
+        return false;
+    }
+
+    let parent_rel_info = &*parent_rel_info_ptr;
+    if parent_rel_info.all_partrels.is_null() {
+        return false;
+    }
+
+    pg_sys::bms_is_member(parent as i32, parent_rel_info.all_partrels)
+}

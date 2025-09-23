@@ -119,7 +119,7 @@ impl Explainer {
 
 /// Remove the oid from the with_index object
 /// This helps to reduce the variability of the explain output used in regression tests
-fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Value) {
+pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Value) {
     match json_value {
         serde_json::Value::Object(obj) => {
             // Check if this is a "with_index" object and remove its "oid" if present

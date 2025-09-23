@@ -15,4 +15,6 @@ SELECT paradedb.snippet(indexed) FROM t WHERE indexed @@@ 'hello' AND nonindexed
  <b>hello</b>
 (1 row)
 
+SELECT paradedb.snippet(nonindexed) FROM t WHERE indexed @@@ 'hello' AND nonindexed = 'world';
+ERROR:  cannot generate snippet for field nonindexed because it was not found in the index
 DROP TABLE t;

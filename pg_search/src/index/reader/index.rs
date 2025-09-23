@@ -430,7 +430,7 @@ impl SearchIndexReader {
         let search_field = self
             .schema
             .search_field(&field_name)
-            .unwrap_or_else(|| panic!("snippet_generator: field {field_name} should exist"));
+            .unwrap_or_else(|| panic!("cannot generate snippet for field {field_name} because it was not found in the index"));
         if search_field.is_text() || search_field.is_json() {
             let field = search_field.field();
             let generator = SnippetGenerator::create(

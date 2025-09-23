@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758598456954,
+  "lastUpdate": 1758598744454,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2416,6 +2416,60 @@ window.BENCHMARK_DATA = {
             "value": 18.350683821332733,
             "unit": "median tps",
             "extra": "avg tps: 18.30850430045865, max tps: 19.28372196043177, count: 55579"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50e7b016a3947ceb0c8f278f69c541b3b627570b",
+          "message": "fix: merge estimate calculations (#3207)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe were incorrectly calculating a segment's byte size using the average\ndoc size across the index -- we should be using that segment's fraction\nof alive docs.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-22T22:44:39-04:00",
+          "tree_id": "05f29fded88f670857f5e462084f9c32365de786",
+          "url": "https://github.com/paradedb/paradedb/commit/50e7b016a3947ceb0c8f278f69c541b3b627570b"
+        },
+        "date": 1758598742902,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.463316656351346,
+            "unit": "median tps",
+            "extra": "avg tps: 38.512206681926344, max tps: 40.01063460592993, count: 55496"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.48487510574,
+            "unit": "median tps",
+            "extra": "avg tps: 274.27140928266607, max tps: 2933.667403102839, count: 55496"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1033.9309924714894,
+            "unit": "median tps",
+            "extra": "avg tps: 1024.3665623547504, max tps: 1044.7889885407837, count: 55496"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.34892118123227,
+            "unit": "median tps",
+            "extra": "avg tps: 157.35384695684613, max tps: 802.1395588969773, count: 110992"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.590150863612443,
+            "unit": "median tps",
+            "extra": "avg tps: 18.8457386572345, max tps: 21.240438922382555, count: 55496"
           }
         ]
       }

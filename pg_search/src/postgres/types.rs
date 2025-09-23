@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::nodecast;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::range::RangeToTantivyValue;
 use crate::schema::{AnyEnum, SearchField};
@@ -1047,6 +1048,30 @@ impl TryFrom<TantivyValue> for pgrx::Inet {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "inet".to_string(),
             ))
+        }
+    }
+}
+
+/// A wrapper around a `pg_sys::Const` node
+pub struct ConstNode(*mut pg_sys::Const);
+
+impl ConstNode {
+    pub fn try_from(node: *mut pg_sys::Node) -> Option<Self> {
+        let const_node = unsafe { nodecast!(Const, T_Const, node)? };
+        Some(Self(const_node))
+    }
+}
+
+impl TryFrom<ConstNode> for TantivyValue {
+    type Error = TantivyValueError;
+
+    fn try_from(value: ConstNode) -> Result<Self, Self::Error> {
+        if unsafe { (*value.0).constisnull } {
+            return Ok(TantivyValue(OwnedValue::Null));
+        }
+
+        unsafe {
+            TantivyValue::try_from_datum((*value.0).constvalue, PgOid::from((*value.0).consttype))
         }
     }
 }

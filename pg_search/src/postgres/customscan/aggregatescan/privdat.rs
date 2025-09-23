@@ -16,19 +16,31 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::{AsCStr, OrderByInfo};
+use crate::nodecast;
+use crate::postgres::types::{ConstNode, TantivyValue};
+use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::{
+    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
+    F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
+    F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
+    F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
+    F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
+    F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+};
 use pgrx::prelude::*;
 use pgrx::PgList;
 use serde::Deserialize;
+use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
-    Count,
-    Sum { field: String },
-    Avg { field: String },
-    Min { field: String },
-    Max { field: String },
+    CountAny, // COUNT(*)
+    Sum { field: String, missing: Option<f64> },
+    Avg { field: String, missing: Option<f64> },
+    Min { field: String, missing: Option<f64> },
+    Max { field: String, missing: Option<f64> },
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -79,61 +91,119 @@ impl AggregateResult {
 // the expected {"aggregation_type": {"field": "name"}} format.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
+    pub unsafe fn try_from(aggref: *mut pg_sys::Aggref, heaprelid: pg_sys::Oid) -> Option<Self> {
+        let aggfnoid = (*aggref).aggfnoid.to_u32();
+        let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
+        if args.is_empty() {
+            return None;
+        }
+
+        if aggfnoid == F_COUNT_ANY {
+            return Some(AggregateType::CountAny);
+        }
+
+        let first_arg = args.get_ptr(0)?;
+
+        let (var, missing) = if let Some(coalesce_node) =
+            nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
+        {
+            let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+            if args.is_empty() {
+                return None;
+            }
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+            let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+            let missing = match TantivyValue::try_from(const_node) {
+                // return None and bail if the conversion is lossy
+                Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
+                Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
+                Ok(TantivyValue(OwnedValue::Null)) => None,
+                _ => {
+                    return None;
+                }
+            };
+            (var, missing)
+        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+            (var, None)
+        } else {
+            return None;
+        };
+
+        let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
+
+        match aggfnoid {
+            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+                Some(AggregateType::Avg { field, missing })
+            }
+            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+                Some(AggregateType::Sum { field, missing })
+            }
+            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+                Some(AggregateType::Max { field, missing })
+            }
+            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+            | F_MIN_NUMERIC => Some(AggregateType::Min { field, missing }),
+            _ => {
+                // For unknown function OIDs, we'll reject them for now
+                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                None
+            }
+        }
+    }
+
     /// Get the field name for field-based aggregates (None for COUNT)
     pub fn field_name(&self) -> Option<String> {
         match self {
-            AggregateType::Count => None,
-            AggregateType::Sum { field } => Some(field.clone()),
-            AggregateType::Avg { field } => Some(field.clone()),
-            AggregateType::Min { field } => Some(field.clone()),
-            AggregateType::Max { field } => Some(field.clone()),
+            AggregateType::CountAny => None,
+            AggregateType::Sum { field, .. } => Some(field.clone()),
+            AggregateType::Avg { field, .. } => Some(field.clone()),
+            AggregateType::Min { field, .. } => Some(field.clone()),
+            AggregateType::Max { field, .. } => Some(field.clone()),
+        }
+    }
+
+    pub fn missing(&self) -> Option<f64> {
+        match self {
+            AggregateType::CountAny => None,
+            AggregateType::Sum { missing, .. } => *missing,
+            AggregateType::Avg { missing, .. } => *missing,
+            AggregateType::Min { missing, .. } => *missing,
+            AggregateType::Max { missing, .. } => *missing,
         }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
-        match self {
-            AggregateType::Count => {
-                serde_json::json!({
-                    "value_count": {
-                        "field": "ctid"
-                    }
-                })
-            }
-            AggregateType::Sum { field } => {
-                serde_json::json!({
-                    "sum": {
-                        "field": field
-                    }
-                })
-            }
-            AggregateType::Avg { field } => {
-                serde_json::json!({
-                    "avg": {
-                        "field": field
-                    }
-                })
-            }
-            AggregateType::Min { field } => {
-                serde_json::json!({
-                    "min": {
-                        "field": field
-                    }
-                })
-            }
-            AggregateType::Max { field } => {
-                serde_json::json!({
-                    "max": {
-                        "field": field
-                    }
-                })
-            }
+        let (key, field) = match self {
+            AggregateType::CountAny => ("value_count", "ctid"),
+            AggregateType::Sum { field, .. } => ("sum", field.as_str()),
+            AggregateType::Avg { field, .. } => ("avg", field.as_str()),
+            AggregateType::Min { field, .. } => ("min", field.as_str()),
+            AggregateType::Max { field, .. } => ("max", field.as_str()),
+        };
+
+        if let Some(missing) = self.missing() {
+            serde_json::json!({
+                key: {
+                    "field": field,
+                    "missing": missing,
+                }
+            })
+        } else {
+            serde_json::json!({
+                key: {
+                    "field": field,
+                }
+            })
         }
     }
 
     #[allow(unreachable_patterns)]
     pub fn to_json_for_group(&self, idx: usize) -> Option<(String, serde_json::Value)> {
         match self {
-            AggregateType::Count => None, // 'terms' bucket already has a 'doc_count'
+            AggregateType::CountAny => None, // 'terms' bucket already has a 'doc_count'
             _ => Some((format!("agg_{idx}"), self.to_json())),
         }
     }
@@ -186,7 +256,7 @@ impl AggregateType {
             Some(num) => {
                 // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
-                    AggregateType::Count => NumberConversionMode::ToInt,
+                    AggregateType::CountAny => NumberConversionMode::ToInt,
                     AggregateType::Sum { .. } => NumberConversionMode::Preserve,
                     AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
                     AggregateType::Min { .. } => NumberConversionMode::Preserve,
@@ -295,6 +365,32 @@ impl From<PrivateData> for *mut pg_sys::List {
             let mut ser = PgList::new();
             ser.push(pg_sys::makeString(content.as_pg_cstr()).cast::<pg_sys::Node>());
             ser.into_pg()
+        }
+    }
+}
+
+trait F64Lossless {
+    fn to_f64_lossless(self) -> Option<f64>;
+}
+
+impl F64Lossless for u64 {
+    fn to_f64_lossless(self) -> Option<f64> {
+        let f = self as f64;
+        if f as u64 == self {
+            Some(f)
+        } else {
+            None
+        }
+    }
+}
+
+impl F64Lossless for i64 {
+    fn to_f64_lossless(self) -> Option<f64> {
+        let f = self as f64;
+        if f as i64 == self {
+            Some(f)
+        } else {
+            None
         }
     }
 }

@@ -6291,8 +6291,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "rust_icu_sys"
-version = "5.0.0"
-source = "git+https://github.com/google/rust_icu.git?rev=53e98c8#53e98c8af71a572c0bfc459b533f9ae7019dc73d"

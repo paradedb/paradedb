@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758596813783,
+  "lastUpdate": 1758597302278,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -18088,6 +18088,42 @@ window.BENCHMARK_DATA = {
             "value": 5.350345716099552,
             "unit": "median tps",
             "extra": "avg tps: 4.833286173077948, max tps: 5.923113704166346, count: 57349"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50e7b016a3947ceb0c8f278f69c541b3b627570b",
+          "message": "fix: merge estimate calculations (#3207)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe were incorrectly calculating a segment's byte size using the average\ndoc size across the index -- we should be using that segment's fraction\nof alive docs.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-22T22:44:39-04:00",
+          "tree_id": "05f29fded88f670857f5e462084f9c32365de786",
+          "url": "https://github.com/paradedb/paradedb/commit/50e7b016a3947ceb0c8f278f69c541b3b627570b"
+        },
+        "date": 1758597300739,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.321715940077056,
+            "unit": "median tps",
+            "extra": "avg tps: 7.150785686313653, max tps: 11.19208837265661, count: 57573"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.3197782325986935,
+            "unit": "median tps",
+            "extra": "avg tps: 4.797768856474467, max tps: 5.883041653129307, count: 57573"
           }
         ]
       }

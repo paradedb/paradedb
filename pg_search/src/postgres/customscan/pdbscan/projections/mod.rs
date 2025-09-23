@@ -26,6 +26,7 @@ use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
     snippet_funcoid, snippet_positions_funcoid, SnippetType,
 };
+use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
@@ -152,7 +153,15 @@ pub unsafe fn pullout_funcexprs(
                     if let Some((var, fieldname)) =
                         find_one_var_and_fieldname(VarContext::Planner(data.root), arg)
                     {
-                        if (*var).varno as i32 == data.rti as i32 {
+                        let same_layer = (*var).varno as i32 == data.rti as i32
+                            || (rte_is_partitioned(data.root, (*var).varno as pg_sys::Index)
+                                && rte_is_parent(
+                                    data.root,
+                                    data.rti as pg_sys::Index,
+                                    (*var).varno as pg_sys::Index,
+                                ));
+
+                        if same_layer {
                             data.matches.push((funcexpr, var, fieldname));
                         }
                     }

@@ -5,11 +5,11 @@ use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use std::ptr::NonNull;
+use tantivy::schema::Field;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
-    DocId, DocSet, Score, SegmentReader, TERMINATED,
+    DocId, DocSet, Score, SegmentReader, Term, TERMINATED,
 };
-
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
 /// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
@@ -262,6 +262,15 @@ impl Query for HeapFilterQuery {
             expr_context: self.expr_context,
             planstate: self.planstate,
         }))
+    }
+
+    fn query_terms(
+        &self,
+        field: Field,
+        reader: &SegmentReader,
+        visitor: &mut dyn for<'a> FnMut(&'a Term, bool),
+    ) {
+        self.indexed_query.query_terms(field, reader, visitor);
     }
 }
 

@@ -162,7 +162,11 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
+                    .snippet_generator(
+                        snippet_type.field().root(),
+                        query_to_use.clone(),
+                        std::ptr::NonNull::new(expr_context),
+                    );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes

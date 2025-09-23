@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758597305309,
+  "lastUpdate": 1758597525379,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -22410,6 +22410,42 @@ window.BENCHMARK_DATA = {
             "value": 613.276604352486,
             "unit": "median tps",
             "extra": "avg tps: 616.1266976354176, max tps: 757.0054965617302, count: 56604"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92bb315d06c8a1dae87b13aedf93cc3f5ecbf631",
+          "message": "fix: merge estimate calculations (#3205)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe were incorrectly calculating a segment's byte size using the average\ndoc size across the index -- we should be using that segment's fraction\nof alive docs.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-22T22:36:57-04:00",
+          "tree_id": "e9926074cfe780276586d025ea45a03298762656",
+          "url": "https://github.com/paradedb/paradedb/commit/92bb315d06c8a1dae87b13aedf93cc3f5ecbf631"
+        },
+        "date": 1758597523855,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 47.88609542147142,
+            "unit": "median tps",
+            "extra": "avg tps: 47.91715615921341, max tps: 49.433830797011446, count: 57619"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 572.4682473511326,
+            "unit": "median tps",
+            "extra": "avg tps: 574.6231433682946, max tps: 686.5809946307755, count: 57619"
           }
         ]
       }

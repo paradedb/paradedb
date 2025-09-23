@@ -78,6 +78,32 @@ pub enum AggregateType {
     },
 }
 
+impl AggregateType {
+    /// Helper function to convert a single filtered aggregate to unfiltered
+    pub fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
+        match self {
+            AggregateType::CountAnyWithFilter { .. } => AggregateType::CountAny,
+            AggregateType::SumWithFilter { field, missing, .. } => AggregateType::Sum {
+                field: field.clone(),
+                missing: *missing,
+            },
+            AggregateType::AvgWithFilter { field, missing, .. } => AggregateType::Avg {
+                field: field.clone(),
+                missing: *missing,
+            },
+            AggregateType::MinWithFilter { field, missing, .. } => AggregateType::Min {
+                field: field.clone(),
+                missing: *missing,
+            },
+            AggregateType::MaxWithFilter { field, missing, .. } => AggregateType::Max {
+                field: field.clone(),
+                missing: *missing,
+            },
+            other => other.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum AggregateValue {
     #[default]

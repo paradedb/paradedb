@@ -51,6 +51,8 @@ use tantivy::{
 };
 use thiserror::Error;
 
+const ERROR_SERIALIZING_QUERY: &str = "Error serializing query";
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -406,6 +408,60 @@ impl SearchQueryInput {
             | SearchQueryInput::PostgresExpression { .. }
             | SearchQueryInput::FieldedQuery { .. } => {}
         }
+    }
+
+    pub fn combine_query_with_filter(&self, filter_expr: Option<&Self>) -> Self {
+        match filter_expr {
+            Some(filter) => match self {
+                SearchQueryInput::All => filter.clone(),
+                _ => SearchQueryInput::Boolean {
+                    must: vec![self.clone(), filter.clone()],
+                    should: vec![],
+                    must_not: vec![],
+                },
+            },
+            None => self.clone(),
+        }
+    }
+
+    pub fn serialize_and_clean_query(&self) -> String {
+        let mut cleaned_query = serde_json::to_value(self)
+            .unwrap_or_else(|_| serde_json::Value::String(ERROR_SERIALIZING_QUERY.to_string()));
+        cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
+        serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
+    }
+}
+
+/// Remove the oid from the with_index object
+/// This helps to reduce the variability of the explain output used in regression tests
+pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Value) {
+    match json_value {
+        serde_json::Value::Object(obj) => {
+            // Check if this is a "with_index" object and remove its "oid" if present
+            if obj.contains_key("with_index") {
+                if let Some(with_index) = obj.get_mut("with_index") {
+                    if let Some(with_index_obj) = with_index.as_object_mut() {
+                        with_index_obj.remove("oid");
+                    }
+                }
+            }
+
+            // Remove any field named "postgres_expression"
+            obj.remove("postgres_expression");
+
+            // Recursively process all values in the object
+            for (_, value) in obj.iter_mut() {
+                cleanup_variabilities_from_tantivy_query(value);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            // Recursively process all elements in the array
+            for item in arr.iter_mut() {
+                cleanup_variabilities_from_tantivy_query(item);
+            }
+        }
+        // Base cases: primitive values don't need processing
+        _ => {}
     }
 }
 

@@ -22,7 +22,7 @@ use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregate;
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{HashSet, OrderByFeature};
+use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::nodecast;
@@ -39,7 +39,6 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
-use crate::postgres::customscan::explainer::cleanup_variabilities_from_tantivy_query;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
@@ -52,11 +51,17 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
+use crate::query::pdb_query::pdb::Query;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
+
+// Constants for better maintainability
+const DEFAULT_BUCKET_LIMIT: u32 = 65000;
+const NO_FILTER_KEY: &str = "NO_FILTER";
+const FAILED_TO_EXECUTE_AGGREGATE: &str = "failed to execute aggregate";
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -371,161 +376,9 @@ impl CustomScan for AggregateScan {
 
         // Analyze filter patterns for optimization (same logic as execution)
         let filter_groups = analyze_filter_patterns(&state.custom_state().aggregate_types);
-        // Helper function to get human-readable aggregate descriptions
-        let get_aggregate_descriptions = |indices: &[usize]| -> String {
-            let descriptions: Vec<String> = indices
-                .iter()
-                .map(|&idx| {
-                    let agg_type = &state.custom_state().aggregate_types[idx];
-                    match agg_type {
-                        AggregateType::CountAny => "COUNT(*)".to_string(),
-                        AggregateType::CountAnyWithFilter { filter_expr } => {
-                            format!(
-                                "COUNT(*) FILTER (WHERE {})",
-                                format_filter_condition(filter_expr)
-                            )
-                        }
-                        AggregateType::Sum { field, .. } => format!("SUM({field})"),
-                        AggregateType::SumWithFilter {
-                            field, filter_expr, ..
-                        } => {
-                            format!(
-                                "SUM({}) FILTER (WHERE {})",
-                                field,
-                                format_filter_condition(filter_expr)
-                            )
-                        }
-                        AggregateType::Avg { field, .. } => format!("AVG({field})"),
-                        AggregateType::AvgWithFilter {
-                            field, filter_expr, ..
-                        } => {
-                            format!(
-                                "AVG({}) FILTER (WHERE {})",
-                                field,
-                                format_filter_condition(filter_expr)
-                            )
-                        }
-                        AggregateType::Min { field, .. } => format!("MIN({field})"),
-                        AggregateType::MinWithFilter {
-                            field, filter_expr, ..
-                        } => {
-                            format!(
-                                "MIN({}) FILTER (WHERE {})",
-                                field,
-                                format_filter_condition(filter_expr)
-                            )
-                        }
-                        AggregateType::Max { field, .. } => format!("MAX({field})"),
-                        AggregateType::MaxWithFilter {
-                            field, filter_expr, ..
-                        } => {
-                            format!(
-                                "MAX({}) FILTER (WHERE {})",
-                                field,
-                                format_filter_condition(filter_expr)
-                            )
-                        }
-                    }
-                })
-                .collect();
-            descriptions.join(", ")
-        };
 
-        if filter_groups.is_empty() {
-            // No filters - just show the base query without mentioning execution strategy
-            explainer.add_query(&state.custom_state().query);
-        } else if filter_groups.len() == 1 {
-            // Single query optimization
-            let (filter_expr, aggregate_indices) = &filter_groups[0];
-
-            if filter_expr.is_none() {
-                // No filters - just show the base query without mentioning execution strategy
-                explainer.add_query(&state.custom_state().query);
-            } else {
-                // Same filter - just show the base query without mentioning execution strategy
-
-                // Show the combined query
-                let combined_query = match &state.custom_state().query {
-                    crate::query::SearchQueryInput::All => filter_expr.as_ref().unwrap().clone(),
-                    base_query => crate::query::SearchQueryInput::Boolean {
-                        must: vec![base_query.clone(), filter_expr.as_ref().unwrap().clone()],
-                        should: vec![],
-                        must_not: vec![],
-                    },
-                };
-
-                let mut cleaned_query =
-                    serde_json::to_value(&combined_query).unwrap_or_else(|_| {
-                        serde_json::Value::String("Error serializing query".to_string())
-                    });
-                cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
-
-                explainer.add_text(
-                    "  Combined Query",
-                    serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string()),
-                );
-
-                explainer.add_text(
-                    "  Applies to Aggregates",
-                    get_aggregate_descriptions(aggregate_indices),
-                );
-            }
-        } else {
-            // Multi-group optimization
-            explainer.add_text(
-                "Execution Strategy",
-                format!(
-                    "Optimized Multi-Query ({} Filter Groups)",
-                    filter_groups.len()
-                ),
-            );
-
-            for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
-                if let Some(filter_expr) = filter_expr {
-                    // Show the combined query for this group
-                    let combined_query = match &state.custom_state().query {
-                        crate::query::SearchQueryInput::All => filter_expr.clone(),
-                        base_query => crate::query::SearchQueryInput::Boolean {
-                            must: vec![base_query.clone(), filter_expr.clone()],
-                            should: vec![],
-                            must_not: vec![],
-                        },
-                    };
-
-                    let mut cleaned_query =
-                        serde_json::to_value(&combined_query).unwrap_or_else(|_| {
-                            serde_json::Value::String("Error serializing query".to_string())
-                        });
-                    cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
-
-                    explainer.add_text(
-                        &format!("  Group {} Query", group_idx + 1),
-                        serde_json::to_string(&cleaned_query)
-                            .unwrap_or_else(|_| "Error".to_string()),
-                    );
-                } else {
-                    // Base query for unfiltered group
-                    let mut cleaned_query = serde_json::to_value(&state.custom_state().query)
-                        .unwrap_or_else(|_| {
-                            serde_json::Value::String("Error serializing query".to_string())
-                        });
-                    cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
-
-                    explainer.add_text(
-                        &format!("  Group {} Query (No Filter)", group_idx + 1),
-                        serde_json::to_string(&cleaned_query)
-                            .unwrap_or_else(|_| "Error".to_string()),
-                    );
-                }
-
-                explainer.add_text(
-                    &format!("  Group {} Aggregates", group_idx + 1),
-                    get_aggregate_descriptions(aggregate_indices),
-                );
-            }
-
-            explainer.add_unsigned_integer("Total Groups", filter_groups.len() as u64, None);
-        }
+        // Show execution strategy and queries based on filter patterns
+        explain_filter_execution_strategy(state, &filter_groups, explainer);
 
         explainer.add_text(
             "Aggregate Definition",
@@ -688,6 +541,171 @@ fn convert_aggregate_value_to_datum(
             Ok(None) => (pg_sys::Datum::null(), true),
             Err(e) => (pg_sys::Datum::null(), true),
         }
+    }
+}
+
+/// Helper function to get human-readable aggregate descriptions
+fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
+    let descriptions: Vec<String> = indices
+        .iter()
+        .map(|&idx| {
+            let agg_type = &aggregate_types[idx];
+            match agg_type {
+                AggregateType::CountAny => "COUNT(*)".to_string(),
+                AggregateType::CountAnyWithFilter { filter_expr } => {
+                    format!(
+                        "COUNT(*) FILTER (WHERE {})",
+                        format_filter_condition(filter_expr)
+                    )
+                }
+                AggregateType::Sum { field, .. } => format!("SUM({field})"),
+                AggregateType::SumWithFilter {
+                    field, filter_expr, ..
+                } => {
+                    format!(
+                        "SUM({}) FILTER (WHERE {})",
+                        field,
+                        format_filter_condition(filter_expr)
+                    )
+                }
+                AggregateType::Avg { field, .. } => format!("AVG({field})"),
+                AggregateType::AvgWithFilter {
+                    field, filter_expr, ..
+                } => {
+                    format!(
+                        "AVG({}) FILTER (WHERE {})",
+                        field,
+                        format_filter_condition(filter_expr)
+                    )
+                }
+                AggregateType::Min { field, .. } => format!("MIN({field})"),
+                AggregateType::MinWithFilter {
+                    field, filter_expr, ..
+                } => {
+                    format!(
+                        "MIN({}) FILTER (WHERE {})",
+                        field,
+                        format_filter_condition(filter_expr)
+                    )
+                }
+                AggregateType::Max { field, .. } => format!("MAX({field})"),
+                AggregateType::MaxWithFilter {
+                    field, filter_expr, ..
+                } => {
+                    format!(
+                        "MAX({}) FILTER (WHERE {})",
+                        field,
+                        format_filter_condition(filter_expr)
+                    )
+                }
+            }
+        })
+        .collect();
+    descriptions.join(", ")
+}
+
+/// Helper function to explain filter execution strategy
+fn explain_filter_execution_strategy(
+    state: &CustomScanStateWrapper<AggregateScan>,
+    filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
+    explainer: &mut Explainer,
+) {
+    if filter_groups.is_empty() {
+        // No filters - just show the base query without mentioning execution strategy
+        explainer.add_query(&state.custom_state().query);
+    } else if filter_groups.len() == 1 {
+        // Single query optimization
+        let (filter_expr, aggregate_indices) = &filter_groups[0];
+
+        if filter_expr.is_none() {
+            // No filters - just show the base query without mentioning execution strategy
+            explainer.add_query(&state.custom_state().query);
+        } else {
+            // Show the combined query
+            let combined_query = state
+                .custom_state()
+                .query
+                .combine_query_with_filter(filter_expr.as_ref());
+
+            explainer.add_text(
+                "  Combined Query",
+                combined_query.serialize_and_clean_query(),
+            );
+
+            explainer.add_text(
+                "  Applies to Aggregates",
+                get_aggregate_descriptions(
+                    &state.custom_state().aggregate_types,
+                    aggregate_indices,
+                ),
+            );
+        }
+    } else {
+        // Multi-group optimization
+        explainer.add_text(
+            "Execution Strategy",
+            format!(
+                "Optimized Multi-Query ({} Filter Groups)",
+                filter_groups.len()
+            ),
+        );
+
+        for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
+            let combined_query = state
+                .custom_state()
+                .query
+                .combine_query_with_filter(filter_expr.as_ref());
+
+            let query_label = if filter_expr.is_some() {
+                format!("  Group {} Query", group_idx + 1)
+            } else {
+                format!("  Group {} Query (No Filter)", group_idx + 1)
+            };
+
+            explainer.add_text(&query_label, combined_query.serialize_and_clean_query());
+
+            explainer.add_text(
+                &format!("  Group {} Aggregates", group_idx + 1),
+                get_aggregate_descriptions(
+                    &state.custom_state().aggregate_types,
+                    aggregate_indices,
+                ),
+            );
+        }
+
+        explainer.add_unsigned_integer("Total Groups", filter_groups.len() as u64, None);
+    }
+}
+
+/// Helper function to convert filtered aggregates to unfiltered ones
+fn convert_to_unfiltered_aggregates(aggregate_types: &[AggregateType]) -> Vec<AggregateType> {
+    aggregate_types
+        .iter()
+        .map(|agg| agg.convert_filtered_aggregate_to_unfiltered())
+        .collect()
+}
+
+/// Helper function to create temporary scan state for query execution
+fn create_temp_scan_state(
+    base_state: &CustomScanStateWrapper<AggregateScan>,
+    aggregate_types: Vec<AggregateType>,
+    query: SearchQueryInput,
+    target_list_mapping: Option<Vec<TargetListEntry>>,
+) -> crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
+    crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
+        state: crate::postgres::customscan::aggregatescan::scan_state::ExecutionState::NotStarted,
+        aggregate_types,
+        grouping_columns: base_state.custom_state().grouping_columns.clone(),
+        orderby_info: base_state.custom_state().orderby_info.clone(),
+        target_list_mapping: target_list_mapping
+            .unwrap_or_else(|| base_state.custom_state().target_list_mapping.clone()),
+        query,
+        indexrelid: base_state.custom_state().indexrelid,
+        indexrel: base_state.custom_state().indexrel.clone(),
+        execution_rti: base_state.custom_state().execution_rti,
+        limit: base_state.custom_state().limit,
+        offset: base_state.custom_state().offset,
+        maybe_truncated: false,
     }
 }
 
@@ -1027,35 +1045,32 @@ fn execute(
 }
 
 /// Format a filter condition in human-readable form
-fn format_filter_condition(filter_expr: &crate::query::SearchQueryInput) -> String {
+fn format_filter_condition(filter_expr: &SearchQueryInput) -> String {
     match filter_expr {
-        crate::query::SearchQueryInput::FieldedQuery { field, query } => {
-            use crate::query::pdb_query::pdb::Query;
-            match query {
-                Query::Term { value, .. } => match value {
-                    tantivy::schema::OwnedValue::Bool(b) => format!("{field} = {b}"),
-                    tantivy::schema::OwnedValue::I64(i) => format!("{field} = {i}"),
-                    tantivy::schema::OwnedValue::F64(f) => format!("{field} = {f}"),
-                    tantivy::schema::OwnedValue::Str(s) => format!("{field} = '{s}'"),
-                    _ => format!("{field} = <value>"),
-                },
-                Query::Range {
-                    lower_bound,
-                    upper_bound,
-                    ..
-                } => {
-                    format!("{field} BETWEEN {lower_bound:?} AND {upper_bound:?}")
-                }
-                Query::Phrase { phrases, .. } => {
-                    format!("{field} @@@ '{}'", phrases.join(" "))
-                }
-                Query::ParseWithField { query_string, .. } => {
-                    format!("{field} @@@ '{query_string}'")
-                }
-                _ => format!("{field} <condition>"),
+        SearchQueryInput::FieldedQuery { field, query } => match query {
+            Query::Term { value, .. } => match value {
+                tantivy::schema::OwnedValue::Bool(b) => format!("{field} = {b}"),
+                tantivy::schema::OwnedValue::I64(i) => format!("{field} = {i}"),
+                tantivy::schema::OwnedValue::F64(f) => format!("{field} = {f}"),
+                tantivy::schema::OwnedValue::Str(s) => format!("{field} = '{s}'"),
+                _ => format!("{field} = <value>"),
+            },
+            Query::Range {
+                lower_bound,
+                upper_bound,
+                ..
+            } => {
+                format!("{field} BETWEEN {lower_bound:?} AND {upper_bound:?}")
             }
-        }
-        crate::query::SearchQueryInput::Boolean { must, .. } => {
+            Query::Phrase { phrases, .. } => {
+                format!("{field} @@@ '{}'", phrases.join(" "))
+            }
+            Query::ParseWithField { query_string, .. } => {
+                format!("{field} @@@ '{query_string}'")
+            }
+            _ => format!("{field} <condition>"),
+        },
+        SearchQueryInput::Boolean { must, .. } => {
             // For Boolean queries, try to extract the simple case
             if must.len() == 1 {
                 format_filter_condition(&must[0])
@@ -1072,16 +1087,14 @@ fn format_filter_condition(filter_expr: &crate::query::SearchQueryInput) -> Stri
 fn analyze_filter_patterns(
     aggregate_types: &[AggregateType],
 ) -> Vec<(Option<SearchQueryInput>, Vec<usize>)> {
-    use std::collections::HashMap;
-
     // Group aggregates by their filter expression
-    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::default();
 
     for (idx, agg_type) in aggregate_types.iter().enumerate() {
         let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
             format!("{filter_expr:?}")
         } else {
-            "NO_FILTER".to_string()
+            NO_FILTER_KEY.to_string()
         };
 
         filter_groups.entry(filter_key).or_default().push(idx);
@@ -1090,7 +1103,7 @@ fn analyze_filter_patterns(
     // Convert to the expected format and sort for deterministic output
     let mut result = Vec::new();
     for (filter_key, indices) in filter_groups {
-        let filter_expr = if filter_key == "NO_FILTER" {
+        let filter_expr = if filter_key == NO_FILTER_KEY {
             None
         } else {
             // Get the actual filter expression from the first aggregate in this group
@@ -1104,9 +1117,9 @@ fn analyze_filter_patterns(
     // NO_FILTER groups come first, then sorted by filter expression string
     result.sort_by(|a, b| {
         match (a.2.as_str(), b.2.as_str()) {
-            ("NO_FILTER", "NO_FILTER") => std::cmp::Ordering::Equal,
-            ("NO_FILTER", _) => std::cmp::Ordering::Less, // NO_FILTER comes first
-            (_, "NO_FILTER") => std::cmp::Ordering::Greater,
+            (NO_FILTER_KEY, NO_FILTER_KEY) => std::cmp::Ordering::Equal,
+            (NO_FILTER_KEY, _) => std::cmp::Ordering::Less, // NO_FILTER comes first
+            (_, NO_FILTER_KEY) => std::cmp::Ordering::Greater,
             (a_key, b_key) => a_key.cmp(b_key), // Sort other filters alphabetically
         }
     });
@@ -1124,67 +1137,19 @@ fn execute_single_optimized_query(
     common_filter: Option<SearchQueryInput>,
     _aggregate_indices: Vec<usize>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    use crate::query::SearchQueryInput;
-
     // Combine base query with common filter (if any)
-    let combined_query = if let Some(filter_expr) = common_filter {
-        let base_query = state.custom_state().query.clone();
-        match &base_query {
-            SearchQueryInput::All => filter_expr,
-            _ => SearchQueryInput::Boolean {
-                must: vec![base_query, filter_expr],
-                should: vec![],
-                must_not: vec![],
-            },
-        }
-    } else {
-        state.custom_state().query.clone()
-    };
+    let combined_query = state
+        .custom_state()
+        .query
+        .combine_query_with_filter(common_filter.as_ref());
 
     // Create unfiltered aggregate types (since filter is moved to query level)
-    let unfiltered_aggregates: Vec<AggregateType> = state
-        .custom_state()
-        .aggregate_types
-        .iter()
-        .map(|agg| match agg {
-            AggregateType::CountAnyWithFilter { .. } => AggregateType::CountAny,
-            AggregateType::SumWithFilter { field, missing, .. } => AggregateType::Sum {
-                field: field.clone(),
-                missing: *missing,
-            },
-            AggregateType::AvgWithFilter { field, missing, .. } => AggregateType::Avg {
-                field: field.clone(),
-                missing: *missing,
-            },
-            AggregateType::MinWithFilter { field, missing, .. } => AggregateType::Min {
-                field: field.clone(),
-                missing: *missing,
-            },
-            AggregateType::MaxWithFilter { field, missing, .. } => AggregateType::Max {
-                field: field.clone(),
-                missing: *missing,
-            },
-            other => other.clone(),
-        })
-        .collect();
+    let unfiltered_aggregates =
+        convert_to_unfiltered_aggregates(&state.custom_state().aggregate_types);
 
     // Create temporary state for aggregation JSON generation
     let temp_scan_state =
-        crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
-            state:
-                crate::postgres::customscan::aggregatescan::scan_state::ExecutionState::NotStarted,
-            aggregate_types: unfiltered_aggregates,
-            grouping_columns: state.custom_state().grouping_columns.clone(),
-            orderby_info: state.custom_state().orderby_info.clone(),
-            target_list_mapping: state.custom_state().target_list_mapping.clone(),
-            query: combined_query.clone(),
-            indexrelid: state.custom_state().indexrelid,
-            indexrel: state.custom_state().indexrel.clone(),
-            execution_rti: state.custom_state().execution_rti,
-            limit: state.custom_state().limit,
-            offset: state.custom_state().offset,
-            maybe_truncated: false,
-        };
+        create_temp_scan_state(state, unfiltered_aggregates, combined_query.clone(), None);
 
     let agg_json = temp_scan_state.aggregates_to_json();
 
@@ -1195,9 +1160,9 @@ fn execute_single_optimized_query(
         agg_json,
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        65000,                                             // bucket_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
-    .expect("failed to execute aggregate");
+    .expect(FAILED_TO_EXECUTE_AGGREGATE);
 
     // Parse results using the temporary state
     temp_scan_state
@@ -1210,72 +1175,39 @@ fn execute_optimized_multi_filter_queries(
     state: &CustomScanStateWrapper<AggregateScan>,
     filter_groups: Vec<(Option<SearchQueryInput>, Vec<usize>)>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    use crate::query::SearchQueryInput;
-
-    let base_query = state.custom_state().query.clone();
     let mut all_results = Vec::new();
 
     // Execute one query per filter group
-    for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
+    for (filter_expr, aggregate_indices) in filter_groups.iter() {
         // Combine base query with group filter
-        let combined_query = if let Some(filter_expr) = filter_expr {
-            match &base_query {
-                SearchQueryInput::All => filter_expr.clone(),
-                _ => SearchQueryInput::Boolean {
-                    must: vec![base_query.clone(), filter_expr.clone()],
-                    should: vec![],
-                    must_not: vec![],
-                },
-            }
-        } else {
-            base_query.clone()
-        };
+        let combined_query = state
+            .custom_state()
+            .query
+            .combine_query_with_filter(filter_expr.as_ref());
 
         // Create aggregates for this group (unfiltered since filter is in query)
         let group_aggregates: Vec<AggregateType> = aggregate_indices
             .iter()
             .map(|&idx| {
-                let agg_type = &state.custom_state().aggregate_types[idx];
-                match agg_type {
-                    AggregateType::CountAnyWithFilter { .. } => AggregateType::CountAny,
-                    AggregateType::SumWithFilter { field, missing, .. } => AggregateType::Sum {
-                        field: field.clone(),
-                        missing: *missing,
-                    },
-                    AggregateType::AvgWithFilter { field, missing, .. } => AggregateType::Avg {
-                        field: field.clone(),
-                        missing: *missing,
-                    },
-                    AggregateType::MinWithFilter { field, missing, .. } => AggregateType::Min {
-                        field: field.clone(),
-                        missing: *missing,
-                    },
-                    AggregateType::MaxWithFilter { field, missing, .. } => AggregateType::Max {
-                        field: field.clone(),
-                        missing: *missing,
-                    },
-                    other => other.clone(),
-                }
+                state.custom_state().aggregate_types[idx].convert_filtered_aggregate_to_unfiltered()
+            })
+            .collect();
+
+        // Create target list mapping for this group
+        let target_list_mapping = aggregate_indices
+            .iter()
+            .map(|&idx| {
+                crate::postgres::customscan::aggregatescan::privdat::TargetListEntry::Aggregate(idx)
             })
             .collect();
 
         // Create temporary state for this group
-        let temp_scan_state = crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
-            state: crate::postgres::customscan::aggregatescan::scan_state::ExecutionState::NotStarted,
-            aggregate_types: group_aggregates,
-            grouping_columns: state.custom_state().grouping_columns.clone(),
-            orderby_info: state.custom_state().orderby_info.clone(),
-            target_list_mapping: aggregate_indices.iter().map(|&idx| {
-                crate::postgres::customscan::aggregatescan::privdat::TargetListEntry::Aggregate(idx)
-            }).collect(),
-            query: combined_query.clone(),
-            indexrelid: state.custom_state().indexrelid,
-            indexrel: state.custom_state().indexrel.clone(),
-            execution_rti: state.custom_state().execution_rti,
-            limit: state.custom_state().limit,
-            offset: state.custom_state().offset,
-            maybe_truncated: false,
-        };
+        let temp_scan_state = create_temp_scan_state(
+            state,
+            group_aggregates,
+            combined_query.clone(),
+            Some(target_list_mapping),
+        );
 
         let agg_json = temp_scan_state.aggregates_to_json();
 
@@ -1286,9 +1218,9 @@ fn execute_optimized_multi_filter_queries(
             agg_json,
             true,                                              // solve_mvcc
             gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-            65000,                                             // bucket_limit
+            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
         )
-        .expect("failed to execute aggregate");
+        .expect(FAILED_TO_EXECUTE_AGGREGATE);
 
         all_results.push((result, aggregate_indices.clone()));
     }

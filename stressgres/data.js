@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758646701119,
+  "lastUpdate": 1758646704338,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -17218,6 +17218,126 @@ window.BENCHMARK_DATA = {
             "value": 147.79296875,
             "unit": "median mem",
             "extra": "avg mem: 128.79201283623166, max mem: 152.09375, count: 55003"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3c7abdaf817660970ba0689daa0b3f94fad0d39",
+          "message": "fix: `paradedb.snippet` no longer empty over partitioned tables (#3204)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our custom scan we assume that a `Var` belongs to the current range\ntable entry if the `varno` equals the current range table index.\n\nHowever, in a partitioned setup, the `varno` can refer to the parent\ntable while the range table index can refer to the child. This leads to\nus not pulling out the `Var`s necessary for snippets to be generated.\n\n## Why\n\nBug fix\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-23T12:42:08-04:00",
+          "tree_id": "31109c4dcdadbad678a79c410d9181e8fd9f1ae3",
+          "url": "https://github.com/paradedb/paradedb/commit/b3c7abdaf817660970ba0689daa0b3f94fad0d39"
+        },
+        "date": 1758646702840,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.963015496010598, max cpu: 14.663951, count: 54565"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.49100341908732, max mem: 153.44140625, count: 54565"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.540810548759702, max cpu: 9.60961, count: 54565"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 26.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 27.34394307534592, max mem: 32.79296875, count: 54565"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.004473509511915, max cpu: 14.663951, count: 54565"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 153.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 139.6854736037295, max mem: 153.72265625, count: 54565"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.548251701959997, max cpu: 4.907975, count: 54565"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.69992984284798, max mem: 154.04296875, count: 54565"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.618809503475737, max cpu: 9.590409, count: 109130"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 152.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 137.37641867783836, max mem: 155.94921875, count: 109130"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 29111,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28548.11685146156, max block_count: 54669.0, count: 54565"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.141409328324016, max segment_count: 76.0, count: 54565"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6122608047408855, max cpu: 9.590409, count: 54565"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 153.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.2005823759507, max mem: 158.6171875, count: 54565"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7151275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.901845923963812, max cpu: 7.5000005, count: 54565"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 149.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 132.20209576594428, max mem: 151.68359375, count: 54565"
           }
         ]
       }

@@ -304,10 +304,9 @@ fn adjusted_byte_size(
     all_entries
         .get(&meta.id())
         .map(|entry| {
-            entry
-                .byte_size()
-                .saturating_sub(entry.num_deleted_docs() as u64 * avg_doc_size)
+            let fraction_alive =
+                entry.num_docs() as f64 / (entry.num_docs() + entry.num_deleted_docs()) as f64;
+            (entry.byte_size() as f64 * fraction_alive) as u64
         })
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
-        .max(avg_doc_size)
 }

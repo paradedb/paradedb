@@ -142,11 +142,8 @@ impl CustomScan for AggregateScan {
         if has_filters {
             // Check if any filters are HeapFilters (non-search predicates)
             let has_heap_filters = aggregate_types.iter().any(|agg| {
-                if let Some(filter_expr) = agg.filter_expr() {
-                    matches!(
-                        filter_expr,
-                        crate::query::SearchQueryInput::HeapFilter { .. }
-                    )
+                if let Some(mut filter_expr) = agg.filter_expr() {
+                    filter_expr.has_heap_filters()
                 } else {
                     false
                 }
@@ -222,7 +219,7 @@ impl CustomScan for AggregateScan {
         }
 
         // Extract the WHERE clause query if present
-        let query = if has_where_clause {
+        let mut query = if has_where_clause {
             unsafe {
                 let result = extract_quals(
                     args.root,
@@ -241,6 +238,11 @@ impl CustomScan for AggregateScan {
             // No WHERE clause - use an "All" query that matches everything
             SearchQueryInput::All
         };
+
+        // Check if the WHERE clause query contains HeapFilter conditions that Tantivy cannot handle
+        if query.has_heap_filters() {
+            return None;
+        }
 
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
@@ -1107,7 +1109,7 @@ fn analyze_filter_patterns(
             None
         } else {
             // Get the actual filter expression from the first aggregate in this group
-            aggregate_types[indices[0]].filter_expr().cloned()
+            aggregate_types[indices[0]].filter_expr()
         };
 
         result.push((filter_expr, indices, filter_key));

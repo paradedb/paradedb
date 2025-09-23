@@ -223,7 +223,19 @@ SELECT
     COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics_count,
     SUM(price) FILTER (WHERE status @@@ 'available') AS available_revenue
 FROM filter_agg_test
-WHERE brand IN ('Apple', 'Samsung', 'TechPress')
+WHERE brand @@@ 'Apple OR Samsung OR TechPress'
+GROUP BY brand
+ORDER BY brand;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT 
+    brand,
+    COUNT(*) AS total_products,
+    AVG(price) AS avg_price,
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics_count,
+    SUM(price) FILTER (WHERE status @@@ 'available') AS available_revenue
+FROM filter_agg_test
+WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
 

@@ -259,13 +259,13 @@ impl AggregateType {
     }
 
     /// Get the filter expression if present
-    pub fn filter_expr(&self) -> Option<&SearchQueryInput> {
+    pub fn filter_expr(&self) -> Option<SearchQueryInput> {
         match self {
-            AggregateType::CountAnyWithFilter { filter_expr } => Some(filter_expr),
-            AggregateType::SumWithFilter { filter_expr, .. } => Some(filter_expr),
-            AggregateType::AvgWithFilter { filter_expr, .. } => Some(filter_expr),
-            AggregateType::MinWithFilter { filter_expr, .. } => Some(filter_expr),
-            AggregateType::MaxWithFilter { filter_expr, .. } => Some(filter_expr),
+            AggregateType::CountAnyWithFilter { filter_expr } => Some(filter_expr.clone()),
+            AggregateType::SumWithFilter { filter_expr, .. } => Some(filter_expr.clone()),
+            AggregateType::AvgWithFilter { filter_expr, .. } => Some(filter_expr.clone()),
+            AggregateType::MinWithFilter { filter_expr, .. } => Some(filter_expr.clone()),
+            AggregateType::MaxWithFilter { filter_expr, .. } => Some(filter_expr.clone()),
             _ => None,
         }
     }

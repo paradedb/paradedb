@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758650974941,
+  "lastUpdate": 1758651134503,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -24222,6 +24222,42 @@ window.BENCHMARK_DATA = {
             "value": 604.6947261023493,
             "unit": "median tps",
             "extra": "avg tps: 608.7861659495425, max tps: 758.9908272567952, count: 56941"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6542f2dd65c0f1a74aa8d593f36e51b1f4c89f11",
+          "message": "chore: Cherry pick PRs for `0.18.7` (#3216)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-23T13:29:55-04:00",
+          "tree_id": "ed78efbf7c57710b63673cc4ff794de3343b3b17",
+          "url": "https://github.com/paradedb/paradedb/commit/6542f2dd65c0f1a74aa8d593f36e51b1f4c89f11"
+        },
+        "date": 1758651132954,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.34036083471191,
+            "unit": "median tps",
+            "extra": "avg tps: 46.1399573509541, max tps: 47.873350614512695, count: 57369"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 596.6289059917276,
+            "unit": "median tps",
+            "extra": "avg tps: 600.303443687918, max tps: 732.987303288594, count: 57369"
           }
         ]
       }

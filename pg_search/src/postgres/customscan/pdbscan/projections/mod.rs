@@ -157,8 +157,8 @@ pub unsafe fn pullout_funcexprs(
                             || (rte_is_partitioned(data.root, (*var).varno as pg_sys::Index)
                                 && rte_is_parent(
                                     data.root,
-                                    data.rti as pg_sys::Index,
-                                    (*var).varno as pg_sys::Index,
+                                    data.rti as Varno,
+                                    (*var).varno as Varno,
                                 ));
 
                         if same_layer {

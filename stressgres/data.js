@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758646704338,
+  "lastUpdate": 1758647445189,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -19018,6 +19018,42 @@ window.BENCHMARK_DATA = {
             "value": 5.2655941909425685,
             "unit": "median tps",
             "extra": "avg tps: 4.770162671895487, max tps: 5.853151576282921, count: 57575"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3c7abdaf817660970ba0689daa0b3f94fad0d39",
+          "message": "fix: `paradedb.snippet` no longer empty over partitioned tables (#3204)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our custom scan we assume that a `Var` belongs to the current range\ntable entry if the `varno` equals the current range table index.\n\nHowever, in a partitioned setup, the `varno` can refer to the parent\ntable while the range table index can refer to the child. This leads to\nus not pulling out the `Var`s necessary for snippets to be generated.\n\n## Why\n\nBug fix\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-23T12:42:08-04:00",
+          "tree_id": "31109c4dcdadbad678a79c410d9181e8fd9f1ae3",
+          "url": "https://github.com/paradedb/paradedb/commit/b3c7abdaf817660970ba0689daa0b3f94fad0d39"
+        },
+        "date": 1758647443617,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.2219662522135,
+            "unit": "median tps",
+            "extra": "avg tps: 7.01859244391603, max tps: 10.92809988253338, count: 57889"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.415117815540664,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8985953333327386, max tps: 6.0133415643140085, count: 57889"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758599882213,
+  "lastUpdate": 1758646701119,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -10924,6 +10924,72 @@ window.BENCHMARK_DATA = {
             "value": 121.66884982174129,
             "unit": "median tps",
             "extra": "avg tps: 161.83586614344034, max tps: 571.1178833000562, count: 55003"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3c7abdaf817660970ba0689daa0b3f94fad0d39",
+          "message": "fix: `paradedb.snippet` no longer empty over partitioned tables (#3204)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our custom scan we assume that a `Var` belongs to the current range\ntable entry if the `varno` equals the current range table index.\n\nHowever, in a partitioned setup, the `varno` can refer to the parent\ntable while the range table index can refer to the child. This leads to\nus not pulling out the `Var`s necessary for snippets to be generated.\n\n## Why\n\nBug fix\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-23T12:42:08-04:00",
+          "tree_id": "31109c4dcdadbad678a79c410d9181e8fd9f1ae3",
+          "url": "https://github.com/paradedb/paradedb/commit/b3c7abdaf817660970ba0689daa0b3f94fad0d39"
+        },
+        "date": 1758646699614,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 797.0855911240809,
+            "unit": "median tps",
+            "extra": "avg tps: 797.0616343701441, max tps: 815.9526355814097, count: 54565"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3504.2160275786696,
+            "unit": "median tps",
+            "extra": "avg tps: 3483.225498925894, max tps: 3517.3816660338157, count: 54565"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 788.9848510265967,
+            "unit": "median tps",
+            "extra": "avg tps: 789.6830319384458, max tps: 837.6937689372688, count: 54565"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 664.1439479340975,
+            "unit": "median tps",
+            "extra": "avg tps: 663.7426248161256, max tps: 689.0719799077636, count: 54565"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1629.2763793450956,
+            "unit": "median tps",
+            "extra": "avg tps: 1629.4759191014116, max tps: 1659.9786805794572, count: 109130"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1254.740138115178,
+            "unit": "median tps",
+            "extra": "avg tps: 1252.0873692990203, max tps: 1259.9986170251423, count: 54565"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 52.60849238140486,
+            "unit": "median tps",
+            "extra": "avg tps: 56.93436691629847, max tps: 610.9377405567354, count: 54565"
           }
         ]
       }

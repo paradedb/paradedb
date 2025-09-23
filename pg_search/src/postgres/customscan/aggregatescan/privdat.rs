@@ -115,8 +115,8 @@ impl AggregateType {
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
                 // return None and bail if the conversion is lossy
-                Ok(TantivyValue(OwnedValue::U64(missing))) => f64_exact_from(missing),
-                Ok(TantivyValue(OwnedValue::I64(missing))) => f64_exact_from(missing),
+                Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
+                Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
                 Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
                 Ok(TantivyValue(OwnedValue::Null)) => None,
                 _ => {
@@ -369,16 +369,28 @@ impl From<PrivateData> for *mut pg_sys::List {
     }
 }
 
-fn f64_exact_from<T>(v: T) -> Option<f64>
-where
-    T: Into<f64> + Copy + PartialEq + TryFrom<f64>,
-    <T as TryFrom<f64>>::Error: std::fmt::Debug,
-{
-    let f = v.into();
-    if let Ok(back) = T::try_from(f) {
-        if back == v {
-            return Some(f);
+trait F64Lossless {
+    fn to_f64_lossless(self) -> Option<f64>;
+}
+
+impl F64Lossless for u64 {
+    fn to_f64_lossless(self) -> Option<f64> {
+        let f = self as f64;
+        if f as u64 == self {
+            Some(f)
+        } else {
+            None
         }
     }
-    None
+}
+
+impl F64Lossless for i64 {
+    fn to_f64_lossless(self) -> Option<f64> {
+        let f = self as f64;
+        if f as i64 == self {
+            Some(f)
+        } else {
+            None
+        }
+    }
 }

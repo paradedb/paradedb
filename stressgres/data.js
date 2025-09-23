@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758599161210,
+  "lastUpdate": 1758599164003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -25814,6 +25814,66 @@ window.BENCHMARK_DATA = {
             "value": 158.421875,
             "unit": "median mem",
             "extra": "avg mem: 149.81249086913894, max mem: 160.58203125, count: 57754"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8df6d2c77bd44c4c122a3607942e7ca6d0c1cdf",
+          "message": "feat: Push down `COALESCE` (#3195)\n\n# Ticket(s) Closed\n\n- Closes #3172 \n\n## What\n\nPushes down `SUM`, `MIN`, `MAX`, and `AVG` with `COALESCE` to the\naggregate custom scan.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-22T23:04:02-04:00",
+          "tree_id": "8597505378657271ee363c544a0574c49023d038",
+          "url": "https://github.com/paradedb/paradedb/commit/c8df6d2c77bd44c4c122a3607942e7ca6d0c1cdf"
+        },
+        "date": 1758599162426,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.916398554207298, max cpu: 52.905815, count: 56941"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 165.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.58772265371175, max mem: 169.421875, count: 56941"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40715,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35616.42299924483, max block_count: 41618.0, count: 56941"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.2535782652219, max segment_count: 162.0, count: 56941"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.440469634847472, max cpu: 27.934044, count: 56941"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 157.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 148.89841822291933, max mem: 159.52734375, count: 56941"
           }
         ]
       }

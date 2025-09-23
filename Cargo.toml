@@ -33,5 +33,4 @@ pgrx-tests = "=0.15.0"
 tantivy-jieba = "0.11.0"
 
 [patch.crates-io]
-rust_icu_sys = { git = "https://github.com/google/rust_icu.git", rev = "53e98c8" }
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "7c6c6fc6ac977382b19ae7fb9fd5b0c53b8f1b58" }

@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::Varno;
 use pgrx::{pg_sys, PgList};
 
 /// If the given Bitmapset has exactly one member, return it.
@@ -132,8 +131,13 @@ pub unsafe fn rte_is_partitioned(root: *mut pg_sys::PlannerInfo, rti: pg_sys::In
     (*rte).relkind as u8 == pg_sys::RELKIND_PARTITIONED_TABLE
 }
 
-pub unsafe fn rte_is_parent(root: *mut pg_sys::PlannerInfo, parent: Varno, child: Varno) -> bool {
-    if (*root).simple_rel_array.is_null() || child > (*root).simple_rel_array_size as Varno {
+pub unsafe fn rte_is_parent(
+    root: *mut pg_sys::PlannerInfo,
+    parent: pg_sys::Index,
+    child: pg_sys::Index,
+) -> bool {
+    if (*root).simple_rel_array.is_null() || child > (*root).simple_rel_array_size as pg_sys::Index
+    {
         return false;
     }
 
@@ -147,5 +151,5 @@ pub unsafe fn rte_is_parent(root: *mut pg_sys::PlannerInfo, parent: Varno, child
         return false;
     }
 
-    pg_sys::bms_is_member(parent, parent_rel_info.all_partrels)
+    pg_sys::bms_is_member(parent as i32, parent_rel_info.all_partrels)
 }

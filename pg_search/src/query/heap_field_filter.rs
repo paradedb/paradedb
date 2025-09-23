@@ -5,7 +5,6 @@ use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use std::ptr::NonNull;
-use tantivy::postings::TermInfo;
 use tantivy::schema::Field;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},

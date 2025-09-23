@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758597525379,
+  "lastUpdate": 1758597528090,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -25016,6 +25016,66 @@ window.BENCHMARK_DATA = {
             "value": 159.00390625,
             "unit": "median mem",
             "extra": "avg mem: 148.73569350774682, max mem: 160.87890625, count: 56604"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "92bb315d06c8a1dae87b13aedf93cc3f5ecbf631",
+          "message": "fix: merge estimate calculations (#3205)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe were incorrectly calculating a segment's byte size using the average\ndoc size across the index -- we should be using that segment's fraction\nof alive docs.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2025-09-22T22:36:57-04:00",
+          "tree_id": "e9926074cfe780276586d025ea45a03298762656",
+          "url": "https://github.com/paradedb/paradedb/commit/92bb315d06c8a1dae87b13aedf93cc3f5ecbf631"
+        },
+        "date": 1758597526554,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 17.411366105080855, max cpu: 53.22581, count: 57619"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 168.3359375,
+            "unit": "median mem",
+            "extra": "avg mem: 167.1777188161674, max mem: 168.55078125, count: 57619"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 40920,
+            "unit": "median block_count",
+            "extra": "avg block_count: 35838.725403078846, max block_count: 41811.0, count: 57619"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 52,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 58.34190110900918, max segment_count: 172.0, count: 57619"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.419869920101895, max cpu: 28.070175, count: 57619"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 159.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 150.88419021937207, max mem: 161.9375, count: 57619"
           }
         ]
       }

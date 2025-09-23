@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758597719071,
+  "lastUpdate": 1758598035841,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -22632,6 +22632,42 @@ window.BENCHMARK_DATA = {
             "value": 572.4682473511326,
             "unit": "median tps",
             "extra": "avg tps: 574.6231433682946, max tps: 686.5809946307755, count: 57619"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50e7b016a3947ceb0c8f278f69c541b3b627570b",
+          "message": "fix: merge estimate calculations (#3207)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nWe were incorrectly calculating a segment's byte size using the average\ndoc size across the index -- we should be using that segment's fraction\nof alive docs.\n\n## Why\n\n## How\n\n## Tests\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-22T22:44:39-04:00",
+          "tree_id": "05f29fded88f670857f5e462084f9c32365de786",
+          "url": "https://github.com/paradedb/paradedb/commit/50e7b016a3947ceb0c8f278f69c541b3b627570b"
+        },
+        "date": 1758598034264,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 47.61594053468049,
+            "unit": "median tps",
+            "extra": "avg tps: 47.34340641434799, max tps: 48.55485062547992, count: 57754"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 589.6206464916233,
+            "unit": "median tps",
+            "extra": "avg tps: 594.1124702319069, max tps: 720.859261477608, count: 57754"
           }
         ]
       }

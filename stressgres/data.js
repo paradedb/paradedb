@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758599164003,
+  "lastUpdate": 1758599879312,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2470,6 +2470,60 @@ window.BENCHMARK_DATA = {
             "value": 18.590150863612443,
             "unit": "median tps",
             "extra": "avg tps: 18.8457386572345, max tps: 21.240438922382555, count: 55496"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8df6d2c77bd44c4c122a3607942e7ca6d0c1cdf",
+          "message": "feat: Push down `COALESCE` (#3195)\n\n# Ticket(s) Closed\n\n- Closes #3172 \n\n## What\n\nPushes down `SUM`, `MIN`, `MAX`, and `AVG` with `COALESCE` to the\naggregate custom scan.\n\n## Why\n\n## How\n\n## Tests\n\nAdded regression test\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-22T23:04:02-04:00",
+          "tree_id": "8597505378657271ee363c544a0574c49023d038",
+          "url": "https://github.com/paradedb/paradedb/commit/c8df6d2c77bd44c4c122a3607942e7ca6d0c1cdf"
+        },
+        "date": 1758599877733,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.40423094393364,
+            "unit": "median tps",
+            "extra": "avg tps: 36.58022120225666, max tps: 38.751475067192175, count: 55611"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.5361478823818,
+            "unit": "median tps",
+            "extra": "avg tps: 272.29949203798805, max tps: 2838.638676233607, count: 55611"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1044.78193016455,
+            "unit": "median tps",
+            "extra": "avg tps: 1037.250450201642, max tps: 1059.1914651376264, count: 55611"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 121.12345346628378,
+            "unit": "median tps",
+            "extra": "avg tps: 155.29101480033768, max tps: 801.3452350453564, count: 111222"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.162109893900602,
+            "unit": "median tps",
+            "extra": "avg tps: 18.31436755159697, max tps: 19.65410912568532, count: 55611"
           }
         ]
       }

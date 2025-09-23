@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758647445189,
+  "lastUpdate": 1758647448278,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -21862,6 +21862,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.68387320885802, max segment_count: 106.0, count: 57575"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3c7abdaf817660970ba0689daa0b3f94fad0d39",
+          "message": "fix: `paradedb.snippet` no longer empty over partitioned tables (#3204)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn our custom scan we assume that a `Var` belongs to the current range\ntable entry if the `varno` equals the current range table index.\n\nHowever, in a partitioned setup, the `varno` can refer to the parent\ntable while the range table index can refer to the child. This leads to\nus not pulling out the `Var`s necessary for snippets to be generated.\n\n## Why\n\nBug fix\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-23T12:42:08-04:00",
+          "tree_id": "31109c4dcdadbad678a79c410d9181e8fd9f1ae3",
+          "url": "https://github.com/paradedb/paradedb/commit/b3c7abdaf817660970ba0689daa0b3f94fad0d39"
+        },
+        "date": 1758647446719,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.953604,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.76161164040578, max cpu: 42.687748, count: 57889"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 226.1027934387362, max mem: 228.41796875, count: 57889"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.385588491879396, max cpu: 33.20158, count: 57889"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 162.53515625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.74579779027536, max mem: 165.81640625, count: 57889"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24027,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22871.14888838985, max block_count: 25705.0, count: 57889"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.46273039783033, max segment_count: 104.0, count: 57889"
           }
         ]
       }

@@ -240,12 +240,25 @@ GROUP BY brand
 ORDER BY brand;
 
 -- Test 3.4: Multi-column GROUP BY with FILTER
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     category,
     status,
     COUNT(*) AS count,
     AVG(rating) FILTER (WHERE price > 100) AS avg_rating_expensive,
-    MAX(views) FILTER (WHERE in_stock = true) AS max_views_available
+    MAX(views) FILTER (WHERE in_stock = false) AS max_views_out_of_stock,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS max_views_available
+FROM filter_agg_test
+GROUP BY category, status
+ORDER BY category, status;
+
+SELECT 
+    category,
+    status,
+    COUNT(*) AS count,
+    AVG(rating) FILTER (WHERE price > 100) AS avg_rating_expensive,
+    MAX(views) FILTER (WHERE in_stock = false) AS max_views_out_of_stock,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS max_views_available
 FROM filter_agg_test
 GROUP BY category, status
 ORDER BY category, status;
@@ -428,6 +441,17 @@ SELECT
 FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
+
+-- Test 9.4: GROUP BY with FILTER without @@@ (should fall back)
+SELECT 
+    category,
+    status,
+    COUNT(*) AS count,
+    AVG(rating) FILTER (WHERE price > 100) AS avg_rating_expensive,
+    MAX(views) FILTER (WHERE in_stock = true) AS max_views_available
+FROM filter_agg_test
+GROUP BY category, status
+ORDER BY category, status;
 
 -- Clean up
 DROP TABLE filter_agg_test CASCADE;

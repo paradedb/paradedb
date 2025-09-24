@@ -134,7 +134,7 @@ impl CustomScan for AggregateScan {
             extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
 
         // Extract and validate aggregates - must have schema for field validation
-        let aggregate_types = extract_and_validate_aggregates(
+        let (aggregate_types, filter_uses_search_operator) = extract_and_validate_aggregates(
             args,
             &schema,
             &grouping_columns,
@@ -209,7 +209,8 @@ impl CustomScan for AggregateScan {
             }
         }
 
-        // Extract the WHERE clause query if present
+        // Extract the WHERE clause query if present and track @@@ operator usage
+        let mut where_qual_state = QualExtractState::default();
         let query = if has_where_clause {
             unsafe {
                 let result = extract_quals(
@@ -220,7 +221,7 @@ impl CustomScan for AggregateScan {
                     ri_type,
                     &bm25_index,
                     false, // Base relation quals should not convert external to all
-                    &mut QualExtractState::default(),
+                    &mut where_qual_state,
                     true,
                 );
                 SearchQueryInput::from(&result?)
@@ -229,6 +230,13 @@ impl CustomScan for AggregateScan {
             // No WHERE clause - use an "All" query that matches everything
             SearchQueryInput::All
         };
+
+        // Check if @@@ operators are used in WHERE clause or FILTER clauses
+        // Only use AggregateScan if there's at least one @@@ operator
+        let where_uses_search_operator = where_qual_state.uses_our_operator;
+        if !where_uses_search_operator && !filter_uses_search_operator {
+            return None;
+        }
 
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
@@ -759,8 +767,9 @@ fn extract_and_validate_aggregates(
     grouping_columns: &[GroupingColumn],
     bm25_index: &PgSearchRelation,
     heap_rti: pg_sys::Index,
-) -> Option<Vec<AggregateType>> {
-    let aggregate_types = extract_aggregates(args, bm25_index, heap_rti)?;
+) -> Option<(Vec<AggregateType>, bool)> {
+    let (aggregate_types, filter_uses_search_operator) =
+        extract_aggregates(args, bm25_index, heap_rti)?;
 
     // Create a set of grouping column field names for quick lookup
     let grouping_field_names: crate::api::HashSet<&String> =
@@ -780,7 +789,7 @@ fn extract_and_validate_aggregates(
         }
     }
 
-    Some(aggregate_types)
+    Some((aggregate_types, filter_uses_search_operator))
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.
@@ -788,7 +797,7 @@ fn extract_aggregates(
     args: &CreateUpperPathsHookArgs,
     bm25_index: &PgSearchRelation,
     heap_rti: pg_sys::Index,
-) -> Option<Vec<AggregateType>> {
+) -> Option<(Vec<AggregateType>, bool)> {
     // The PathTarget `exprs` are the closest that we have to a target list at this point.
     let target_list =
         unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
@@ -807,6 +816,7 @@ fn extract_aggregates(
 
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
+    let mut filter_uses_search_operator = false;
     for (i, expr) in target_list.iter_ptr().enumerate() {
         unsafe {
             let node_tag = (*expr).type_;
@@ -838,12 +848,16 @@ fn extract_aggregates(
                 if (*aggref).aggstar {
                     // COUNT(*) (aggstar) - but check for FILTER clause
                     if !(*aggref).aggfilter.is_null() {
+                        let mut filter_qual_state = QualExtractState::default();
                         let filter_expr = extract_filter_clause(
                             (*aggref).aggfilter,
                             bm25_index,
                             args.root,
                             heap_rti,
+                            &mut filter_qual_state,
                         );
+                        filter_uses_search_operator =
+                            filter_uses_search_operator || filter_qual_state.uses_our_operator;
                         if let Some(filter) = filter_expr {
                             aggregate_types.push(AggregateType::CountAnyWithFilter {
                                 filter_expr: filter,
@@ -856,13 +870,14 @@ fn extract_aggregates(
                     }
                 } else {
                     // Check for other aggregate functions with arguments
-                    let agg_type = identify_aggregate_function(
+                    let (agg_type, uses_search_op) = identify_aggregate_function(
                         aggref,
                         relation_oid,
                         bm25_index,
                         args.root,
                         heap_rti,
                     )?;
+                    filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
                     aggregate_types.push(agg_type);
                 }
             } else {
@@ -876,7 +891,7 @@ fn extract_aggregates(
     // a ParadeDB Aggregate Scan that only returns the grouping keys. Therefore we return
     // an empty vector instead of rejecting the plan.
 
-    Some(aggregate_types)
+    Some((aggregate_types, filter_uses_search_operator))
 }
 
 /// Identify an aggregate function by its OID and extract field name from its arguments
@@ -886,57 +901,66 @@ unsafe fn identify_aggregate_function(
     bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
-) -> Option<AggregateType> {
+) -> Option<(AggregateType, bool)> {
     // First try to create the base aggregate using the new try_from method
     let base_agg_type = AggregateType::try_from(aggref, relation_oid)?;
 
     // Check if there's a FILTER clause
+    let mut filter_qual_state = QualExtractState::default();
     let filter_expr = if !(*aggref).aggfilter.is_null() {
-        extract_filter_clause((*aggref).aggfilter, bm25_index, root, heap_rti)
+        extract_filter_clause(
+            (*aggref).aggfilter,
+            bm25_index,
+            root,
+            heap_rti,
+            &mut filter_qual_state,
+        )
     } else {
         None
     };
 
     // If there's a filter, convert the base aggregate to its filtered variant
     if let Some(filter) = filter_expr {
-        match base_agg_type {
-            AggregateType::CountAny => Some(AggregateType::CountAnyWithFilter {
+        let filtered_agg = match base_agg_type {
+            AggregateType::CountAny => AggregateType::CountAnyWithFilter {
                 filter_expr: filter,
-            }),
-            AggregateType::Sum { field, missing } => Some(AggregateType::SumWithFilter {
+            },
+            AggregateType::Sum { field, missing } => AggregateType::SumWithFilter {
                 field,
                 missing,
                 filter_expr: filter,
-            }),
-            AggregateType::Avg { field, missing } => Some(AggregateType::AvgWithFilter {
+            },
+            AggregateType::Avg { field, missing } => AggregateType::AvgWithFilter {
                 field,
                 missing,
                 filter_expr: filter,
-            }),
-            AggregateType::Min { field, missing } => Some(AggregateType::MinWithFilter {
+            },
+            AggregateType::Min { field, missing } => AggregateType::MinWithFilter {
                 field,
                 missing,
                 filter_expr: filter,
-            }),
-            AggregateType::Max { field, missing } => Some(AggregateType::MaxWithFilter {
+            },
+            AggregateType::Max { field, missing } => AggregateType::MaxWithFilter {
                 field,
                 missing,
                 filter_expr: filter,
-            }),
+            },
             // Already filtered variants should not happen here
-            _ => Some(base_agg_type),
-        }
+            _ => base_agg_type,
+        };
+        Some((filtered_agg, filter_qual_state.uses_our_operator))
     } else {
-        Some(base_agg_type)
+        Some((base_agg_type, filter_qual_state.uses_our_operator))
     }
 }
 
-/// Extract filter expression from a FILTER clause
+/// Extract filter expression from a FILTER clause and track @@@ operator usage
 unsafe fn extract_filter_clause(
     filter_expr: *mut pg_sys::Expr,
     bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,
     heap_rti: pg_sys::Index,
+    qual_state: &mut QualExtractState,
 ) -> Option<SearchQueryInput> {
     // The filter expression is an Expr
     if filter_expr.is_null() {
@@ -956,8 +980,8 @@ unsafe fn extract_filter_clause(
         RestrictInfoType::BaseRelation,
         bm25_index,
         false,
-        &mut QualExtractState::default(),
-        true, // attempt_pushdown
+        qual_state, // Pass the state to track @@@ operator usage
+        true,       // attempt_pushdown
     );
 
     // Convert Qual to SearchQueryInput

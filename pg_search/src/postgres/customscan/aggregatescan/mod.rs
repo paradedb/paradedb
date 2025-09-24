@@ -147,7 +147,7 @@ impl CustomScan for AggregateScan {
 
         // If we don't have a WHERE clause and we don't have FILTER clauses,
         // there's no benefit to using AggregateScan
-        if !has_where_clause && !has_filters {
+        if !gucs::enable_custom_scan_without_operator() && !has_where_clause && !has_filters {
             return None;
         }
 
@@ -233,7 +233,10 @@ impl CustomScan for AggregateScan {
         // Check if @@@ operators are used in WHERE clause or FILTER clauses
         // Only use AggregateScan if there's at least one @@@ operator
         let where_uses_search_operator = where_qual_state.uses_our_operator;
-        if !where_uses_search_operator && !filter_uses_search_operator {
+        if !gucs::enable_custom_scan_without_operator()
+            && !where_uses_search_operator
+            && !filter_uses_search_operator
+        {
             return None;
         }
 
@@ -1140,11 +1143,23 @@ fn execute_optimized_multi_filter_queries(
 
     // Execute one query per filter group
     for (filter_expr, aggregate_indices) in filter_groups.iter() {
-        // Combine base query with group filter
-        let combined_query = state
-            .custom_state()
-            .query
-            .combine_query_with_filter(filter_expr.as_ref());
+        // Determine the query to execute
+        let combined_query = if let Some(filter) = filter_expr {
+            // If there's a filter, check if we need to combine with base query
+            if matches!(state.custom_state().query, SearchQueryInput::All) {
+                // No base WHERE clause - just use the filter directly
+                filter.clone()
+            } else {
+                // Combine filter with existing WHERE clause
+                state
+                    .custom_state()
+                    .query
+                    .combine_query_with_filter(Some(filter))
+            }
+        } else {
+            // No filter - use the base query (for unfiltered aggregates)
+            state.custom_state().query.clone()
+        };
 
         // Create aggregates for this group (unfiltered since filter is in query)
         let group_aggregates: Vec<AggregateType> = aggregate_indices

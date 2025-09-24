@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758751703525,
+  "lastUpdate": 1758751706317,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -20212,6 +20212,126 @@ window.BENCHMARK_DATA = {
             "value": 148.6875,
             "unit": "median mem",
             "extra": "avg mem: 129.92461640533148, max mem: 151.08984375, count: 55285"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "387ada8768d75f50e135e43cd4a85dbdea81db07",
+          "message": "fix: Fix error for invalid col in FF JSON (#3218)\n\nThe error used to say the column didn't exist in the table, but what\nit's actually trying to say is that the column isn't covered in the bm25\nUSING clause.\n\n- If the column isn't in the table but is in the USING then Postgres\nwill throw it's own error before this code is reached.\n- If the column is in the table and is isn't in the USING we will get\nthis error\n- If the column isn't in **either** then I suppose we could throw a more\naccurate warning, but this way at least it will throw the new erro,\nfixing which will result in the PG error\n\n```\npg_search=# create table tester(id int, words text);\nCREATE TABLE\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  the column `missing` does not exist in the USING clause\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words, missing) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  column \"missing\" does not exist\n```",
+          "timestamp": "2025-09-24T14:52:13-07:00",
+          "tree_id": "67c4ad2f7cbba1cc522e73cfb15db519f212322b",
+          "url": "https://github.com/paradedb/paradedb/commit/387ada8768d75f50e135e43cd4a85dbdea81db07"
+        },
+        "date": 1758751704684,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.874634191595647, max cpu: 13.953489, count: 55305"
+          },
+          {
+            "name": "Custom Scan - Primary - mem",
+            "value": 153,
+            "unit": "median mem",
+            "extra": "avg mem: 138.52668186646778, max mem: 153.0, count: 55305"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.598015350761194, max cpu: 9.213051, count: 55305"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 25.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.15228625632854, max mem: 28.8046875, count: 55305"
+          },
+          {
+            "name": "Index Only Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.889553202090078, max cpu: 14.371258, count: 55305"
+          },
+          {
+            "name": "Index Only Scan - Primary - mem",
+            "value": 154.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 139.92522474798844, max mem: 154.64453125, count: 55305"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.422727423239791, max cpu: 9.302325, count: 55305"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 154.5,
+            "unit": "median mem",
+            "extra": "avg mem: 139.43475393556187, max mem: 154.87890625, count: 55305"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.714368897781416, max cpu: 9.4395275, count: 110610"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 153.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 137.0853312384165, max mem: 155.703125, count: 110610"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 29733,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28800.78506464153, max block_count: 55158.0, count: 55305"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 30,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 30.075146912575715, max segment_count: 74.0, count: 55305"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.615108525817056, max cpu: 9.329447, count: 55305"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 152.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 138.5335547616626, max mem: 159.88671875, count: 55305"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.524768279043531, max cpu: 4.8096194, count: 55305"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 148.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 128.7123721578067, max mem: 150.984375, count: 55305"
           }
         ]
       }

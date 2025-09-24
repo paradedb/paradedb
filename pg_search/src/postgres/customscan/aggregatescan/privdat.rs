@@ -152,15 +152,49 @@ impl AggregateResult {
 // the expected {"aggregation_type": {"field": "name"}} format.
 // https://docs.rs/tantivy/latest/tantivy/aggregation/metric/struct.CountAggregation.html
 impl AggregateType {
-    pub unsafe fn try_from(aggref: *mut pg_sys::Aggref, heaprelid: pg_sys::Oid) -> Option<Self> {
+    pub unsafe fn try_from(
+        aggref: *mut pg_sys::Aggref,
+        heaprelid: pg_sys::Oid,
+        bm25_index: &crate::postgres::PgSearchRelation,
+        root: *mut pg_sys::PlannerInfo,
+        heap_rti: pg_sys::Index,
+    ) -> Option<(Self, bool)> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
         if args.is_empty() {
             return None;
         }
 
+        // Handle FILTER clause if present
+        let mut filter_uses_search_operator = false;
+        let filter_expr = if !(*aggref).aggfilter.is_null() {
+            let mut filter_qual_state =
+                crate::postgres::customscan::qual_inspect::QualExtractState::default();
+            let filter_result = crate::postgres::customscan::aggregatescan::extract_filter_clause(
+                (*aggref).aggfilter,
+                bm25_index,
+                root,
+                heap_rti,
+                &mut filter_qual_state,
+            );
+            filter_uses_search_operator = filter_qual_state.uses_our_operator;
+            filter_result
+        } else {
+            None
+        };
+
         if aggfnoid == F_COUNT_ANY {
-            return Some(AggregateType::CountAny);
+            let base_agg = AggregateType::CountAny;
+            if let Some(filter) = filter_expr {
+                return Some((
+                    AggregateType::CountAnyWithFilter {
+                        filter_expr: filter,
+                    },
+                    filter_uses_search_operator,
+                ));
+            } else {
+                return Some((base_agg, filter_uses_search_operator));
+            }
         }
 
         let first_arg = args.get_ptr(0)?;
@@ -193,25 +227,54 @@ impl AggregateType {
 
         let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
 
-        match aggfnoid {
-            F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-                Some(AggregateType::Avg { field, missing })
-            }
-            F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-                Some(AggregateType::Sum { field, missing })
-            }
-            F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-            | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-                Some(AggregateType::Max { field, missing })
-            }
-            F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-            | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-            | F_MIN_NUMERIC => Some(AggregateType::Min { field, missing }),
-            _ => {
-                // For unknown function OIDs, we'll reject them for now
-                pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-                None
-            }
+        let base_agg =
+            match aggfnoid {
+                F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4
+                | F_AVG_FLOAT8 => AggregateType::Avg { field, missing },
+                F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8
+                | F_SUM_NUMERIC => AggregateType::Sum { field, missing },
+                F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+                | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ
+                | F_MAX_NUMERIC => AggregateType::Max { field, missing },
+                F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+                | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+                | F_MIN_NUMERIC => AggregateType::Min { field, missing },
+                _ => {
+                    // For unknown function OIDs, we'll reject them for now
+                    pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
+                    return None;
+                }
+            };
+
+        // Apply FILTER clause if present
+        if let Some(filter) = filter_expr {
+            let filtered_agg = match base_agg {
+                AggregateType::Sum { field, missing } => AggregateType::SumWithFilter {
+                    field,
+                    missing,
+                    filter_expr: filter,
+                },
+                AggregateType::Avg { field, missing } => AggregateType::AvgWithFilter {
+                    field,
+                    missing,
+                    filter_expr: filter,
+                },
+                AggregateType::Min { field, missing } => AggregateType::MinWithFilter {
+                    field,
+                    missing,
+                    filter_expr: filter,
+                },
+                AggregateType::Max { field, missing } => AggregateType::MaxWithFilter {
+                    field,
+                    missing,
+                    filter_expr: filter,
+                },
+                // Already filtered variants should not happen here
+                _ => base_agg,
+            };
+            Some((filtered_agg, filter_uses_search_operator))
+        } else {
+            Some((base_agg, filter_uses_search_operator))
         }
     }
 

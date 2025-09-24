@@ -870,7 +870,7 @@ fn extract_aggregates(
                     }
                 } else {
                     // Check for other aggregate functions with arguments
-                    let (agg_type, uses_search_op) = identify_aggregate_function(
+                    let (agg_type, uses_search_op) = AggregateType::try_from(
                         aggref,
                         relation_oid,
                         bm25_index,
@@ -894,68 +894,8 @@ fn extract_aggregates(
     Some((aggregate_types, filter_uses_search_operator))
 }
 
-/// Identify an aggregate function by its OID and extract field name from its arguments
-unsafe fn identify_aggregate_function(
-    aggref: *mut pg_sys::Aggref,
-    relation_oid: pg_sys::Oid,
-    bm25_index: &PgSearchRelation,
-    root: *mut pg_sys::PlannerInfo,
-    heap_rti: pg_sys::Index,
-) -> Option<(AggregateType, bool)> {
-    // First try to create the base aggregate using the new try_from method
-    let base_agg_type = AggregateType::try_from(aggref, relation_oid)?;
-
-    // Check if there's a FILTER clause
-    let mut filter_qual_state = QualExtractState::default();
-    let filter_expr = if !(*aggref).aggfilter.is_null() {
-        extract_filter_clause(
-            (*aggref).aggfilter,
-            bm25_index,
-            root,
-            heap_rti,
-            &mut filter_qual_state,
-        )
-    } else {
-        None
-    };
-
-    // If there's a filter, convert the base aggregate to its filtered variant
-    if let Some(filter) = filter_expr {
-        let filtered_agg = match base_agg_type {
-            AggregateType::CountAny => AggregateType::CountAnyWithFilter {
-                filter_expr: filter,
-            },
-            AggregateType::Sum { field, missing } => AggregateType::SumWithFilter {
-                field,
-                missing,
-                filter_expr: filter,
-            },
-            AggregateType::Avg { field, missing } => AggregateType::AvgWithFilter {
-                field,
-                missing,
-                filter_expr: filter,
-            },
-            AggregateType::Min { field, missing } => AggregateType::MinWithFilter {
-                field,
-                missing,
-                filter_expr: filter,
-            },
-            AggregateType::Max { field, missing } => AggregateType::MaxWithFilter {
-                field,
-                missing,
-                filter_expr: filter,
-            },
-            // Already filtered variants should not happen here
-            _ => base_agg_type,
-        };
-        Some((filtered_agg, filter_qual_state.uses_our_operator))
-    } else {
-        Some((base_agg_type, filter_qual_state.uses_our_operator))
-    }
-}
-
 /// Extract filter expression from a FILTER clause and track @@@ operator usage
-unsafe fn extract_filter_clause(
+pub unsafe fn extract_filter_clause(
     filter_expr: *mut pg_sys::Expr,
     bm25_index: &PgSearchRelation,
     root: *mut pg_sys::PlannerInfo,

@@ -392,9 +392,23 @@ impl AggregateScanState {
                             aggregate_indices.iter().enumerate()
                         {
                             let agg_type = &self.aggregate_types[original_agg_idx];
-                            let agg_value = if agg_type.has_filter()
-                                && !matches!(agg_type, AggregateType::CountAnyWithFilter { .. })
-                            {
+                            let agg_value = if matches!(
+                                agg_type,
+                                AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. }
+                            ) {
+                                // Count aggregate - use doc_count
+                                let doc_count = bucket_obj
+                                    .get("doc_count")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or(0);
+                                let count_result = AggregateResult::DirectValue(
+                                    serde_json::Number::from(doc_count),
+                                );
+                                agg_type.result_from_aggregate_with_doc_count(
+                                    count_result,
+                                    Some(doc_count),
+                                )
+                            } else {
                                 // Non-count aggregate - look for agg_{group_agg_idx}
                                 let agg_key = format!("agg_{group_agg_idx}");
                                 if let Some(agg_obj) = bucket_obj.get(&agg_key) {
@@ -411,19 +425,6 @@ impl AggregateScanState {
                                 } else {
                                     AggregateValue::Null
                                 }
-                            } else {
-                                // Count aggregate - use doc_count
-                                let doc_count = bucket_obj
-                                    .get("doc_count")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(0);
-                                let count_result = AggregateResult::DirectValue(
-                                    serde_json::Number::from(doc_count),
-                                );
-                                agg_type.result_from_aggregate_with_doc_count(
-                                    count_result,
-                                    Some(doc_count),
-                                )
                             };
 
                             aggregate_values[original_agg_idx] = agg_value;

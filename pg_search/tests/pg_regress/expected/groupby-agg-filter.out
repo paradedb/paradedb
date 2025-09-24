@@ -378,11 +378,11 @@ FROM filter_agg_test
 WHERE brand @@@ 'Apple OR Samsung OR TechPress'
 GROUP BY brand
 ORDER BY brand;
-   brand   | total_products | avg_price | electronics_count | available_revenue 
------------+----------------+-----------+-------------------+-------------------
- Apple     |              3 |         3 |                 3 |           4499.98
- Samsung   |              3 |         3 |                 3 |           2399.98
- TechPress |              2 |         2 |                   |            109.98
+   brand   | total_products |    avg_price     | electronics_count | available_revenue 
+-----------+----------------+------------------+-------------------+-------------------
+ Apple     |              3 |          1799.99 |                 3 |           4499.98
+ Samsung   |              3 | 1016.65666666667 |                 3 |           2399.98
+ TechPress |              2 |            54.99 |                   |            109.98
 (3 rows)
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)

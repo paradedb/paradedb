@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758723841111,
+  "lastUpdate": 1758723844600,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -23662,6 +23662,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.44566890991817, max segment_count: 107.0, count: 57803"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7540148a47948a008a635c0854976f7f70c3363c",
+          "message": "fix: Move to using `table_index_fetch_tuple` rather than `heap_fetch`. (#3219)\n\n# Ticket(s) Closed\n\n- Closes #3099\n\n## What\n\nSwitch from using `heap_fetch` to using `table_index_fetch_tuple`, and\nreuse `TupleTableSlot`s across lookups.\n\n## Why\n\nTwo different locations in the codebase were using `heap_fetch`\ndirectly, but `heap_fetch` will not follow HOT updates or deal with\npruned pages.\n\nIn the case of snippets, that caused #3099, and in the case of our\nheap-filter query, it caused another user reported issue.\n\n## Tests\n\nAdded new tests which fail for each of the cases before the fix. The\n`regex-and-heap` benchmark runs 20% faster.",
+          "timestamp": "2025-09-24T06:55:41-07:00",
+          "tree_id": "472a40c41bbfac041188887a1249dd9ceed050b6",
+          "url": "https://github.com/paradedb/paradedb/commit/7540148a47948a008a635c0854976f7f70c3363c"
+        },
+        "date": 1758723843000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.212291850110912, max cpu: 42.772278, count: 57614"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 225.34236944904885, max mem: 227.75, count: 57614"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.494542359723553, max cpu: 33.267326, count: 57614"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 158.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.33073382229145, max mem: 162.08203125, count: 57614"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24454,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23176.015378206685, max block_count: 25891.0, count: 57614"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.91828375047731, max segment_count: 108.0, count: 57614"
           }
         ]
       }

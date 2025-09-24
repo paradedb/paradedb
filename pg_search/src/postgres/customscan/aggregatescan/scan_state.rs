@@ -301,7 +301,7 @@ impl AggregateScanState {
             return rows;
         }
 
-        self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows);
+        self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows, None);
 
         if self.maybe_truncated && self.was_truncated(&result) {
             ErrorReport::new(
@@ -362,14 +362,14 @@ impl AggregateScanState {
             let mut group_lookup: HashMap<String, usize> = HashMap::default();
 
             for (result, aggregate_indices) in group_results {
-                // Use the existing extract_bucket_results logic to handle multi-level grouping
+                // Use the unified extract_bucket_results logic to handle multi-level grouping
                 let mut temp_rows = Vec::new();
-                self.extract_bucket_results_for_merge(
+                self.extract_bucket_results(
                     &result,
                     0,
                     &mut Vec::new(),
                     &mut temp_rows,
-                    &aggregate_indices,
+                    Some(&aggregate_indices),
                 );
 
                 // Merge the extracted rows into all_groups
@@ -468,117 +468,16 @@ impl AggregateScanState {
         aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
-    /// Extract bucket results for merge operations - similar to extract_bucket_results
-    /// but only extracts aggregates specified in aggregate_indices
-    fn extract_bucket_results_for_merge(
-        &self,
-        json: &serde_json::Value,
-        depth: usize,
-        prefix_keys: &mut Vec<OwnedValue>,
-        rows: &mut Vec<GroupedAggregateRow>,
-        aggregate_indices: &[usize],
-    ) {
-        let bucket_name = format!("group_{depth}");
-        let buckets = json
-            .get(&bucket_name)
-            .and_then(|v| v.get("buckets"))
-            .and_then(|v| v.as_array());
-
-        // Handle missing bucket results (empty table case)
-        let buckets = match buckets {
-            Some(b) => b,
-            None => {
-                // No buckets found, which is expected for empty tables
-                // Return early as there are no results to process
-                return;
-            }
-        };
-
-        for bucket in buckets {
-            let bucket_obj = bucket.as_object().expect("bucket should be object");
-
-            // Current grouping key - handle bounds checking for multi-column GROUP BY
-            if depth >= self.grouping_columns.len() {
-                // This shouldn't happen, but handle it gracefully
-                return;
-            }
-            let grouping_column = &self.grouping_columns[depth];
-            let key_json = bucket_obj.get("key").expect("missing bucket key");
-            let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
-            prefix_keys.push(key_owned);
-
-            if depth + 1 == self.grouping_columns.len() {
-                // Deepest level – collect only the aggregates specified in aggregate_indices
-                let aggregate_values: AggregateRow = if aggregate_indices.is_empty() {
-                    AggregateRow::default()
-                } else {
-                    // Extract doc_count for empty result set handling
-                    let doc_count = bucket_obj
-                        .get("doc_count")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-
-                    aggregate_indices
-                        .iter()
-                        .enumerate()
-                        .map(|(group_agg_idx, &original_agg_idx)| {
-                            let aggregate = &self.aggregate_types[original_agg_idx];
-
-                            let agg_value = if matches!(aggregate, AggregateType::CountAny { .. }) {
-                                // Count aggregate - use doc_count
-                                let count_result = AggregateResult::DirectValue(
-                                    serde_json::Number::from(doc_count),
-                                );
-                                aggregate.result_from_aggregate_with_doc_count(
-                                    count_result,
-                                    Some(doc_count),
-                                )
-                            } else {
-                                // Non-count aggregate - look for agg_{group_agg_idx}
-                                let agg_key = format!("agg_{group_agg_idx}");
-                                if let Some(agg_obj) = bucket_obj.get(&agg_key) {
-                                    let agg_result =
-                                        Self::extract_aggregate_value_from_json(agg_obj);
-                                    aggregate.result_from_aggregate_with_doc_count(
-                                        agg_result,
-                                        Some(doc_count),
-                                    )
-                                } else {
-                                    AggregateValue::Null
-                                }
-                            };
-
-                            agg_value
-                        })
-                        .collect()
-                };
-                rows.push(GroupedAggregateRow {
-                    group_keys: prefix_keys.clone(),
-                    aggregate_values,
-                });
-            } else {
-                // Recurse into next level - pass the current bucket, not the original json
-                self.extract_bucket_results_for_merge(
-                    bucket,
-                    depth + 1,
-                    prefix_keys,
-                    rows,
-                    aggregate_indices,
-                );
-            }
-
-            // Remove the key we added for this level
-            prefix_keys.pop();
-        }
-    }
-
-    #[allow(unreachable_patterns)]
+    /// Extract bucket results from JSON, optionally filtering to specific aggregate indices
+    /// If aggregate_indices is None, extracts all aggregates (normal case)
+    /// If aggregate_indices is Some, extracts only the specified aggregates (merge case)
     fn extract_bucket_results(
         &self,
         json: &serde_json::Value,
         depth: usize,
         prefix_keys: &mut Vec<OwnedValue>,
         rows: &mut Vec<GroupedAggregateRow>,
+        aggregate_indices: Option<&[usize]>,
     ) {
         let bucket_name = format!("group_{depth}");
         let buckets = json
@@ -610,28 +509,77 @@ impl AggregateScanState {
             prefix_keys.push(key_owned);
 
             if depth + 1 == self.grouping_columns.len() {
-                // Deepest level – collect aggregates (may be empty)
-                let aggregate_values: AggregateRow = if self.aggregate_types.is_empty() {
-                    AggregateRow::default()
-                } else {
-                    // Extract doc_count for empty result set handling
-                    let doc_count = bucket_obj
-                        .get("doc_count")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
+                // Deepest level – collect aggregates
+                let aggregate_values: AggregateRow = match aggregate_indices {
+                    Some(indices) => {
+                        // Merge case: extract only specified aggregates
+                        if indices.is_empty() {
+                            AggregateRow::default()
+                        } else {
+                            // Extract doc_count for empty result set handling
+                            let doc_count = bucket_obj
+                                .get("doc_count")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
 
-                    self.aggregate_types
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, aggregate)| {
-                            self.process_aggregate_result(
-                                aggregate,
-                                idx,
-                                AggregateResultSource::BucketObj(bucket_obj),
-                                Some(doc_count),
-                            )
-                        })
-                        .collect()
+                            indices
+                                .iter()
+                                .enumerate()
+                                .map(|(group_agg_idx, &original_agg_idx)| {
+                                    let aggregate = &self.aggregate_types[original_agg_idx];
+
+                                    if matches!(aggregate, AggregateType::CountAny { .. }) {
+                                        // Count aggregate - use doc_count
+                                        let count_result = AggregateResult::DirectValue(
+                                            serde_json::Number::from(doc_count),
+                                        );
+                                        aggregate.result_from_aggregate_with_doc_count(
+                                            count_result,
+                                            Some(doc_count),
+                                        )
+                                    } else {
+                                        // Non-count aggregate - look for agg_{group_agg_idx}
+                                        let agg_key = format!("agg_{group_agg_idx}");
+                                        if let Some(agg_obj) = bucket_obj.get(&agg_key) {
+                                            let agg_result =
+                                                Self::extract_aggregate_value_from_json(agg_obj);
+                                            aggregate.result_from_aggregate_with_doc_count(
+                                                agg_result,
+                                                Some(doc_count),
+                                            )
+                                        } else {
+                                            AggregateValue::Null
+                                        }
+                                    }
+                                })
+                                .collect()
+                        }
+                    }
+                    None => {
+                        // Normal case: extract all aggregates
+                        if self.aggregate_types.is_empty() {
+                            AggregateRow::default()
+                        } else {
+                            // Extract doc_count for empty result set handling
+                            let doc_count = bucket_obj
+                                .get("doc_count")
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0);
+
+                            self.aggregate_types
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, aggregate)| {
+                                    self.process_aggregate_result(
+                                        aggregate,
+                                        idx,
+                                        AggregateResultSource::BucketObj(bucket_obj),
+                                        Some(doc_count),
+                                    )
+                                })
+                                .collect()
+                        }
+                    }
                 };
                 rows.push(GroupedAggregateRow {
                     group_keys: prefix_keys.clone(),
@@ -639,7 +587,13 @@ impl AggregateScanState {
                 });
             } else {
                 // Recurse into next level
-                self.extract_bucket_results(bucket, depth + 1, prefix_keys, rows);
+                self.extract_bucket_results(
+                    bucket,
+                    depth + 1,
+                    prefix_keys,
+                    rows,
+                    aggregate_indices,
+                );
             }
 
             prefix_keys.pop();

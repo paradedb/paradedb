@@ -63,6 +63,15 @@ const DEFAULT_BUCKET_LIMIT: u32 = 65000;
 const NO_FILTER_KEY: &str = "NO_FILTER";
 const FAILED_TO_EXECUTE_AGGREGATE: &str = "failed to execute aggregate";
 
+/// Result type for aggregate extraction, containing:
+/// - Vec<AggregateType>: The extracted aggregate types
+/// - Vec<FilterGroup>: Groups of aggregates with the same filter
+/// - bool: Whether any filter uses the @@@ search operator
+type AggregateExtractionResult = (Vec<AggregateType>, Vec<FilterGroup>, bool);
+
+/// A group of aggregate indices that share the same filter condition
+type FilterGroup = (Option<SearchQueryInput>, Vec<usize>);
+
 #[derive(Default)]
 pub struct AggregateScan;
 
@@ -134,13 +143,14 @@ impl CustomScan for AggregateScan {
             extract_grouping_columns(&group_pathkeys, args.root, heap_rti, &schema)?;
 
         // Extract and validate aggregates - must have schema for field validation
-        let (aggregate_types, filter_uses_search_operator) = extract_and_validate_aggregates(
-            args,
-            &schema,
-            &grouping_columns,
-            &bm25_index,
-            heap_rti,
-        )?;
+        let (aggregate_types, filter_groups, filter_uses_search_operator) =
+            extract_and_validate_aggregates(
+                args,
+                &schema,
+                &grouping_columns,
+                &bm25_index,
+                heap_rti,
+            )?;
 
         // Check if any aggregates have filters
         let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
@@ -312,6 +322,7 @@ impl CustomScan for AggregateScan {
             limit,
             offset,
             maybe_truncated,
+            filter_groups,
         }))
     }
 
@@ -362,6 +373,7 @@ impl CustomScan for AggregateScan {
         builder.custom_state().limit = builder.custom_private().limit;
         builder.custom_state().offset = builder.custom_private().offset;
         builder.custom_state().maybe_truncated = builder.custom_private().maybe_truncated;
+        builder.custom_state().filter_groups = builder.custom_private().filter_groups.clone();
         builder.build()
     }
 
@@ -372,11 +384,11 @@ impl CustomScan for AggregateScan {
     ) {
         explainer.add_text("Index", state.custom_state().indexrel().name());
 
-        // Analyze filter patterns for optimization (same logic as execution)
-        let filter_groups = analyze_filter_patterns(&state.custom_state().aggregate_types);
+        // Use pre-computed filter groups from the scan state
+        let filter_groups = &state.custom_state().filter_groups;
 
         // Show execution strategy and queries based on filter patterns
-        explain_filter_execution_strategy(state, &filter_groups, explainer);
+        explain_filter_execution_strategy(state, filter_groups, explainer);
 
         explainer.add_text(
             "Aggregate Definition",
@@ -709,6 +721,7 @@ fn create_temp_scan_state(
         limit: base_state.custom_state().limit,
         offset: base_state.custom_state().offset,
         maybe_truncated: false,
+        filter_groups: Vec::new(), // Temporary states don't need filter groups
     }
 }
 
@@ -774,8 +787,8 @@ fn extract_and_validate_aggregates(
     grouping_columns: &[GroupingColumn],
     bm25_index: &PgSearchRelation,
     heap_rti: pg_sys::Index,
-) -> Option<(Vec<AggregateType>, bool)> {
-    let (aggregate_types, filter_uses_search_operator) =
+) -> Option<AggregateExtractionResult> {
+    let (aggregate_types, filter_groups, filter_uses_search_operator) =
         extract_aggregates(args, bm25_index, heap_rti)?;
 
     // Create a set of grouping column field names for quick lookup
@@ -798,7 +811,7 @@ fn extract_and_validate_aggregates(
         }
     }
 
-    Some((aggregate_types, filter_uses_search_operator))
+    Some((aggregate_types, filter_groups, filter_uses_search_operator))
 }
 
 /// If the given args consist only of AggregateTypes that we can handle, return them.
@@ -806,7 +819,7 @@ fn extract_aggregates(
     args: &CreateUpperPathsHookArgs,
     bm25_index: &PgSearchRelation,
     heap_rti: pg_sys::Index,
-) -> Option<(Vec<AggregateType>, bool)> {
+) -> Option<AggregateExtractionResult> {
     // The PathTarget `exprs` are the closest that we have to a target list at this point.
     let target_list =
         unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
@@ -826,6 +839,8 @@ fn extract_aggregates(
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
     let mut filter_uses_search_operator = false;
+    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::default();
+
     for expr in target_list.iter_ptr() {
         unsafe {
             let node_tag = (*expr).type_;
@@ -855,7 +870,8 @@ fn extract_aggregates(
                 // Check for FILTER clause in aggregate functions
                 // We now support FILTER clauses via multi-query execution!
 
-                if (*aggref).aggstar {
+                let agg_idx = aggregate_types.len(); // Current index before adding
+                let agg_type = if (*aggref).aggstar {
                     // COUNT(*) (aggstar) - but check for FILTER clause
                     if !(*aggref).aggfilter.is_null() {
                         let mut filter_qual_state = QualExtractState::default();
@@ -868,11 +884,11 @@ fn extract_aggregates(
                         );
                         filter_uses_search_operator =
                             filter_uses_search_operator || filter_qual_state.uses_our_operator;
-                        aggregate_types.push(AggregateType::CountAny {
+                        AggregateType::CountAny {
                             filter: filter_expr,
-                        });
+                        }
                     } else {
-                        aggregate_types.push(AggregateType::CountAny { filter: None });
+                        AggregateType::CountAny { filter: None }
                     }
                 } else {
                     // Check for other aggregate functions with arguments
@@ -884,20 +900,61 @@ fn extract_aggregates(
                         heap_rti,
                     )?;
                     filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
-                    aggregate_types.push(agg_type);
-                }
+                    agg_type
+                };
+
+                // Group aggregates by their filter expression during extraction
+                let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
+                    format!("{filter_expr:?}")
+                } else {
+                    NO_FILTER_KEY.to_string()
+                };
+                filter_groups.entry(filter_key).or_default().push(agg_idx);
+
+                aggregate_types.push(agg_type);
             } else {
                 return None;
             }
         }
     }
 
+    // Convert filter groups to the expected format and sort for deterministic output
+    let mut grouped_aggregates: Vec<(Option<SearchQueryInput>, Vec<usize>, String)> = filter_groups
+        .into_iter()
+        .map(|(filter_key, indices)| {
+            let filter_expr = if filter_key == NO_FILTER_KEY {
+                None
+            } else {
+                // Get the actual filter expression from the first aggregate in this group
+                aggregate_types[indices[0]].filter_expr()
+            };
+            (filter_expr, indices, filter_key)
+        })
+        .collect();
+
+    // Sort by filter key to ensure deterministic ordering
+    // NO_FILTER groups come first, then sorted by filter expression string
+    grouped_aggregates.sort_by(|a, b| {
+        match (a.2.as_str(), b.2.as_str()) {
+            (NO_FILTER_KEY, NO_FILTER_KEY) => std::cmp::Ordering::Equal,
+            (NO_FILTER_KEY, _) => std::cmp::Ordering::Less, // NO_FILTER comes first
+            (_, NO_FILTER_KEY) => std::cmp::Ordering::Greater,
+            (a_key, b_key) => a_key.cmp(b_key), // Sort other filters alphabetically
+        }
+    });
+
+    // Remove the filter_key from the result tuple
+    let filter_groups = grouped_aggregates
+        .into_iter()
+        .map(|(filter_expr, indices, _)| (filter_expr, indices))
+        .collect();
+
     // It's valid to have zero aggregates when the query is only a GROUP BY on fast fields
     // (e.g., SELECT category FROM .. GROUP BY category). In that case, we can still build
     // a ParadeDB Aggregate Scan that only returns the grouping keys. Therefore we return
     // an empty vector instead of rejecting the plan.
 
-    Some((aggregate_types, filter_uses_search_operator))
+    Some((aggregate_types, filter_groups, filter_uses_search_operator))
 }
 
 /// Extract filter expression from a FILTER clause and track @@@ operator usage
@@ -995,8 +1052,8 @@ fn execute(
         return execute_single_optimized_query(state, None, vec![]);
     }
 
-    // Analyze filter patterns for optimization opportunities
-    let filter_groups = analyze_filter_patterns(&state.custom_state().aggregate_types);
+    // Use pre-computed filter groups from the scan state
+    let filter_groups = &state.custom_state().filter_groups;
 
     if filter_groups.len() == 1 {
         // All aggregates have the same filter (or no filter) - use single query optimization
@@ -1046,55 +1103,6 @@ fn format_filter_condition(filter_expr: &SearchQueryInput) -> String {
     }
 }
 
-/// Analyze filter patterns to identify optimization opportunities
-/// Returns groups of (filter_expr, aggregate_indices) where aggregates with the same filter are grouped together
-fn analyze_filter_patterns(
-    aggregate_types: &[AggregateType],
-) -> Vec<(Option<SearchQueryInput>, Vec<usize>)> {
-    // Group aggregates by their filter expression
-    let mut filter_groups: HashMap<String, Vec<usize>> = HashMap::default();
-
-    for (idx, agg_type) in aggregate_types.iter().enumerate() {
-        let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
-            format!("{filter_expr:?}")
-        } else {
-            NO_FILTER_KEY.to_string()
-        };
-
-        filter_groups.entry(filter_key).or_default().push(idx);
-    }
-
-    // Convert to the expected format and sort for deterministic output
-    let mut result = Vec::new();
-    for (filter_key, indices) in filter_groups {
-        let filter_expr = if filter_key == NO_FILTER_KEY {
-            None
-        } else {
-            // Get the actual filter expression from the first aggregate in this group
-            aggregate_types[indices[0]].filter_expr()
-        };
-
-        result.push((filter_expr, indices, filter_key));
-    }
-
-    // Sort by filter key to ensure deterministic ordering
-    // NO_FILTER groups come first, then sorted by filter expression string
-    result.sort_by(|a, b| {
-        match (a.2.as_str(), b.2.as_str()) {
-            (NO_FILTER_KEY, NO_FILTER_KEY) => std::cmp::Ordering::Equal,
-            (NO_FILTER_KEY, _) => std::cmp::Ordering::Less, // NO_FILTER comes first
-            (_, NO_FILTER_KEY) => std::cmp::Ordering::Greater,
-            (a_key, b_key) => a_key.cmp(b_key), // Sort other filters alphabetically
-        }
-    });
-
-    // Remove the filter_key from the result tuple
-    result
-        .into_iter()
-        .map(|(filter_expr, indices, _)| (filter_expr, indices))
-        .collect()
-}
-
 /// Execute a single optimized query when all aggregates have the same filter (or no filter)
 fn execute_single_optimized_query(
     state: &CustomScanStateWrapper<AggregateScan>,
@@ -1137,12 +1145,12 @@ fn execute_single_optimized_query(
 /// Execute optimized multi-query approach, grouping aggregates by filter
 fn execute_optimized_multi_filter_queries(
     state: &CustomScanStateWrapper<AggregateScan>,
-    filter_groups: Vec<(Option<SearchQueryInput>, Vec<usize>)>,
+    filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
     let mut all_results = Vec::new();
 
     // Execute one query per filter group
-    for (filter_expr, aggregate_indices) in filter_groups.iter() {
+    for (filter_expr, aggregate_indices) in filter_groups {
         // Determine the query to execute
         let combined_query = if let Some(filter) = filter_expr {
             // If there's a filter, check if we need to combine with base query

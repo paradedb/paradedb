@@ -83,6 +83,8 @@ pub struct AggregateScanState {
     pub offset: Option<u32>,
     // Whether a GROUP BY could be lossy (i.e. some buckets truncated)
     pub maybe_truncated: bool,
+    // Filter groups for optimization (filter_expr, aggregate_indices)
+    pub filter_groups: Vec<super::FilterGroup>,
 }
 
 impl AggregateScanState {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758723844600,
+  "lastUpdate": 1758724549203,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -25476,6 +25476,42 @@ window.BENCHMARK_DATA = {
             "value": 574.6220433893375,
             "unit": "median tps",
             "extra": "avg tps: 578.3404039273346, max tps: 705.4702237415975, count: 57674"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7540148a47948a008a635c0854976f7f70c3363c",
+          "message": "fix: Move to using `table_index_fetch_tuple` rather than `heap_fetch`. (#3219)\n\n# Ticket(s) Closed\n\n- Closes #3099\n\n## What\n\nSwitch from using `heap_fetch` to using `table_index_fetch_tuple`, and\nreuse `TupleTableSlot`s across lookups.\n\n## Why\n\nTwo different locations in the codebase were using `heap_fetch`\ndirectly, but `heap_fetch` will not follow HOT updates or deal with\npruned pages.\n\nIn the case of snippets, that caused #3099, and in the case of our\nheap-filter query, it caused another user reported issue.\n\n## Tests\n\nAdded new tests which fail for each of the cases before the fix. The\n`regex-and-heap` benchmark runs 20% faster.",
+          "timestamp": "2025-09-24T06:55:41-07:00",
+          "tree_id": "472a40c41bbfac041188887a1249dd9ceed050b6",
+          "url": "https://github.com/paradedb/paradedb/commit/7540148a47948a008a635c0854976f7f70c3363c"
+        },
+        "date": 1758724547589,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 46.720223895659046,
+            "unit": "median tps",
+            "extra": "avg tps: 46.77705531730825, max tps: 48.72022348290637, count: 56997"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 588.6405405482487,
+            "unit": "median tps",
+            "extra": "avg tps: 592.0307648841325, max tps: 717.8228113164625, count: 56997"
           }
         ]
       }

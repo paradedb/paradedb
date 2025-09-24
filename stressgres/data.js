@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758753164726,
+  "lastUpdate": 1758753872339,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2902,6 +2902,60 @@ window.BENCHMARK_DATA = {
             "value": 18.86325094647922,
             "unit": "median tps",
             "extra": "avg tps: 19.041822569877674, max tps: 20.394385212166256, count: 55473"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "387ada8768d75f50e135e43cd4a85dbdea81db07",
+          "message": "fix: Fix error for invalid col in FF JSON (#3218)\n\nThe error used to say the column didn't exist in the table, but what\nit's actually trying to say is that the column isn't covered in the bm25\nUSING clause.\n\n- If the column isn't in the table but is in the USING then Postgres\nwill throw it's own error before this code is reached.\n- If the column is in the table and is isn't in the USING we will get\nthis error\n- If the column isn't in **either** then I suppose we could throw a more\naccurate warning, but this way at least it will throw the new erro,\nfixing which will result in the PG error\n\n```\npg_search=# create table tester(id int, words text);\nCREATE TABLE\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  the column `missing` does not exist in the USING clause\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words, missing) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  column \"missing\" does not exist\n```",
+          "timestamp": "2025-09-24T14:52:13-07:00",
+          "tree_id": "67c4ad2f7cbba1cc522e73cfb15db519f212322b",
+          "url": "https://github.com/paradedb/paradedb/commit/387ada8768d75f50e135e43cd4a85dbdea81db07"
+        },
+        "date": 1758753870698,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.727948803235485,
+            "unit": "median tps",
+            "extra": "avg tps: 38.76501947451409, max tps: 41.01848811327205, count: 55575"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.56862442513403,
+            "unit": "median tps",
+            "extra": "avg tps: 272.7917441651311, max tps: 2933.956095174746, count: 55575"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1040.88471526084,
+            "unit": "median tps",
+            "extra": "avg tps: 1032.4950622897784, max tps: 1053.821201588189, count: 55575"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 125.11061569376761,
+            "unit": "median tps",
+            "extra": "avg tps: 158.54803989278503, max tps: 817.8337956242126, count: 111150"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.027859564605027,
+            "unit": "median tps",
+            "extra": "avg tps: 19.10370935901532, max tps: 19.96981362971732, count: 55575"
           }
         ]
       }

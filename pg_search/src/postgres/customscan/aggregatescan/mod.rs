@@ -1033,6 +1033,12 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
+    // Handle the special case of GROUP BY without aggregates
+    if state.custom_state().aggregate_types.is_empty() {
+        // No aggregates - just execute a single query for GROUP BY
+        return execute_single_optimized_query(state, None, vec![]);
+    }
+
     // Analyze filter patterns for optimization opportunities
     let filter_groups = analyze_filter_patterns(&state.custom_state().aggregate_types);
 

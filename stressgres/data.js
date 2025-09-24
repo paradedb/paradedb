@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758724552125,
+  "lastUpdate": 1758725256913,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -2686,6 +2686,60 @@ window.BENCHMARK_DATA = {
             "value": 19.20856216476793,
             "unit": "median tps",
             "extra": "avg tps: 19.304349399073782, max tps: 20.445404695134258, count: 55385"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7540148a47948a008a635c0854976f7f70c3363c",
+          "message": "fix: Move to using `table_index_fetch_tuple` rather than `heap_fetch`. (#3219)\n\n# Ticket(s) Closed\n\n- Closes #3099\n\n## What\n\nSwitch from using `heap_fetch` to using `table_index_fetch_tuple`, and\nreuse `TupleTableSlot`s across lookups.\n\n## Why\n\nTwo different locations in the codebase were using `heap_fetch`\ndirectly, but `heap_fetch` will not follow HOT updates or deal with\npruned pages.\n\nIn the case of snippets, that caused #3099, and in the case of our\nheap-filter query, it caused another user reported issue.\n\n## Tests\n\nAdded new tests which fail for each of the cases before the fix. The\n`regex-and-heap` benchmark runs 20% faster.",
+          "timestamp": "2025-09-24T06:55:41-07:00",
+          "tree_id": "472a40c41bbfac041188887a1249dd9ceed050b6",
+          "url": "https://github.com/paradedb/paradedb/commit/7540148a47948a008a635c0854976f7f70c3363c"
+        },
+        "date": 1758725255318,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 36.28771016538435,
+            "unit": "median tps",
+            "extra": "avg tps: 36.60585724831393, max tps: 38.33435118426991, count: 55537"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.7030172376209,
+            "unit": "median tps",
+            "extra": "avg tps: 273.8846811990768, max tps: 2966.512150038202, count: 55537"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 966.6362184399591,
+            "unit": "median tps",
+            "extra": "avg tps: 967.9737078947962, max tps: 992.10794222696, count: 55537"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 122.15983588334478,
+            "unit": "median tps",
+            "extra": "avg tps: 156.0034854547886, max tps: 796.3352447959719, count: 111074"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 17.957234034962784,
+            "unit": "median tps",
+            "extra": "avg tps: 18.277054112018494, max tps: 20.049312755003868, count: 55537"
           }
         ]
       }

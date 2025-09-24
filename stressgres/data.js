@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758752443717,
+  "lastUpdate": 1758752446626,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -25624,6 +25624,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.25562173331713, max segment_count: 107.0, count: 57589"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "387ada8768d75f50e135e43cd4a85dbdea81db07",
+          "message": "fix: Fix error for invalid col in FF JSON (#3218)\n\nThe error used to say the column didn't exist in the table, but what\nit's actually trying to say is that the column isn't covered in the bm25\nUSING clause.\n\n- If the column isn't in the table but is in the USING then Postgres\nwill throw it's own error before this code is reached.\n- If the column is in the table and is isn't in the USING we will get\nthis error\n- If the column isn't in **either** then I suppose we could throw a more\naccurate warning, but this way at least it will throw the new erro,\nfixing which will result in the PG error\n\n```\npg_search=# create table tester(id int, words text);\nCREATE TABLE\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  the column `missing` does not exist in the USING clause\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words, missing) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  column \"missing\" does not exist\n```",
+          "timestamp": "2025-09-24T14:52:13-07:00",
+          "tree_id": "67c4ad2f7cbba1cc522e73cfb15db519f212322b",
+          "url": "https://github.com/paradedb/paradedb/commit/387ada8768d75f50e135e43cd4a85dbdea81db07"
+        },
+        "date": 1758752444996,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.912529,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.67161067393276, max cpu: 42.942345, count: 57943"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 225.7778083094593, max mem: 228.08984375, count: 57943"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.27994352912917, max cpu: 33.333336, count: 57943"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.20378162590822, max mem: 162.19921875, count: 57943"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24165,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23015.606596137583, max block_count: 25769.0, count: 57943"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 70,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.3473240943686, max segment_count: 106.0, count: 57943"
           }
         ]
       }

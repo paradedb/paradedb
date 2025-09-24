@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758738580271,
+  "lastUpdate": 1758738924204,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -21718,6 +21718,42 @@ window.BENCHMARK_DATA = {
             "value": 5.265097000087724,
             "unit": "median tps",
             "extra": "avg tps: 4.766248990639129, max tps: 5.822235587056787, count: 57910"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "38b472775eea5b1d87d3e95072aabfab56647379",
+          "message": "chore: Prepare `0.18.8` (#3224)\n\nPrepare the `0.18.8` release.",
+          "timestamp": "2025-09-24T10:40:58-07:00",
+          "tree_id": "d047ace8532550f61675267bb52ef1119bcd338b",
+          "url": "https://github.com/paradedb/paradedb/commit/38b472775eea5b1d87d3e95072aabfab56647379"
+        },
+        "date": 1758738922574,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.287100696410947,
+            "unit": "median tps",
+            "extra": "avg tps: 7.092263533323197, max tps: 11.064518680717427, count: 57893"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.286509700714129,
+            "unit": "median tps",
+            "extra": "avg tps: 4.777861677349009, max tps: 5.865690727700826, count: 57893"
           }
         ]
       }

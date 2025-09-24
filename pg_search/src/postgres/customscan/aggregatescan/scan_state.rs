@@ -321,7 +321,13 @@ impl AggregateScanState {
             let mut aggregate_values = vec![AggregateValue::Null; self.aggregate_types.len()];
 
             for (result, aggregate_indices) in group_results {
-                let result_map = result.as_object().expect("expected JSON object");
+                let result_map = match result.as_object() {
+                    Some(obj) => obj,
+                    None => {
+                        // Handle non-object results (e.g., null or array results)
+                        continue;
+                    }
+                };
 
                 // Extract results for each aggregate in this group
                 for (group_agg_idx, &original_agg_idx) in aggregate_indices.iter().enumerate() {
@@ -350,84 +356,41 @@ impl AggregateScanState {
             let mut group_lookup: HashMap<String, usize> = HashMap::default();
 
             for (result, aggregate_indices) in group_results {
-                let bucket_name = "group_0";
-                let buckets = result
-                    .get(bucket_name)
-                    .and_then(|v| v.get("buckets"))
-                    .and_then(|v| v.as_array());
+                // Use the existing extract_bucket_results logic to handle multi-level grouping
+                let mut temp_rows = Vec::new();
+                self.extract_bucket_results_for_merge(
+                    &result,
+                    0,
+                    &mut Vec::new(),
+                    &mut temp_rows,
+                    &aggregate_indices,
+                );
 
-                if let Some(buckets) = buckets {
-                    for bucket in buckets {
-                        let bucket_obj = bucket.as_object().expect("bucket should be object");
+                // Merge the extracted rows into all_groups
+                for row in temp_rows {
+                    let group_key_str = format!("{:?}", row.group_keys);
 
-                        // Extract the group key
-                        let key_json = bucket_obj.get("key").expect("missing bucket key");
-                        let grouping_column = &self.grouping_columns[0]; // Assuming single-level grouping
-                        let key_owned =
-                            self.json_value_to_owned_value(key_json, &grouping_column.field_name);
-                        let group_keys = vec![key_owned];
+                    let group_index = if let Some(&index) = group_lookup.get(&group_key_str) {
+                        index
+                    } else {
+                        // New group - add it to the Vec in the order it appears
+                        let index = all_groups.len();
+                        all_groups.push((
+                            group_key_str.clone(),
+                            row.group_keys.clone(),
+                            vec![AggregateValue::Null; self.aggregate_types.len()],
+                        ));
+                        group_lookup.insert(group_key_str, index);
+                        index
+                    };
 
-                        // Create a string key for the group lookup
-                        let group_key_str = format!("{group_keys:?}");
+                    let (_, _, aggregate_values) = &mut all_groups[group_index];
 
-                        // Get or create the aggregate values array for this group
-                        let group_index = if let Some(&index) = group_lookup.get(&group_key_str) {
-                            index
-                        } else {
-                            // New group - add it to the Vec in the order it appears
-                            let index = all_groups.len();
-                            all_groups.push((
-                                group_key_str.clone(),
-                                group_keys.clone(),
-                                vec![AggregateValue::Null; self.aggregate_types.len()],
-                            ));
-                            group_lookup.insert(group_key_str, index);
-                            index
-                        };
-
-                        let (_, _, aggregate_values) = &mut all_groups[group_index];
-
-                        // Extract results for each aggregate in this group
-                        for (group_agg_idx, &original_agg_idx) in
-                            aggregate_indices.iter().enumerate()
-                        {
-                            let agg_type = &self.aggregate_types[original_agg_idx];
-                            let agg_value = if matches!(
-                                agg_type,
-                                AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. }
-                            ) {
-                                // Count aggregate - use doc_count
-                                let doc_count = bucket_obj
-                                    .get("doc_count")
-                                    .and_then(|v| v.as_i64())
-                                    .unwrap_or(0);
-                                let count_result = AggregateResult::DirectValue(
-                                    serde_json::Number::from(doc_count),
-                                );
-                                agg_type.result_from_aggregate_with_doc_count(
-                                    count_result,
-                                    Some(doc_count),
-                                )
-                            } else {
-                                // Non-count aggregate - look for agg_{group_agg_idx}
-                                let agg_key = format!("agg_{group_agg_idx}");
-                                if let Some(agg_obj) = bucket_obj.get(&agg_key) {
-                                    let agg_result =
-                                        Self::extract_aggregate_value_from_json(agg_obj);
-                                    let doc_count = bucket_obj
-                                        .get("doc_count")
-                                        .and_then(|v| v.as_i64())
-                                        .unwrap_or(0);
-                                    agg_type.result_from_aggregate_with_doc_count(
-                                        agg_result,
-                                        Some(doc_count),
-                                    )
-                                } else {
-                                    AggregateValue::Null
-                                }
-                            };
-
-                            aggregate_values[original_agg_idx] = agg_value;
+                    // Update aggregate values for this group
+                    for (group_agg_idx, &original_agg_idx) in aggregate_indices.iter().enumerate() {
+                        if group_agg_idx < row.aggregate_values.len() {
+                            aggregate_values[original_agg_idx] =
+                                row.aggregate_values[group_agg_idx].clone();
                         }
                     }
                 }
@@ -516,6 +479,113 @@ impl AggregateScanState {
         aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
+    /// Extract bucket results for merge operations - similar to extract_bucket_results
+    /// but only extracts aggregates specified in aggregate_indices
+    fn extract_bucket_results_for_merge(
+        &self,
+        json: &serde_json::Value,
+        depth: usize,
+        prefix_keys: &mut Vec<OwnedValue>,
+        rows: &mut Vec<GroupedAggregateRow>,
+        aggregate_indices: &[usize],
+    ) {
+        let bucket_name = format!("group_{depth}");
+        let buckets = json
+            .get(&bucket_name)
+            .and_then(|v| v.get("buckets"))
+            .and_then(|v| v.as_array());
+
+        // Handle missing bucket results (empty table case)
+        let buckets = match buckets {
+            Some(b) => b,
+            None => {
+                // No buckets found, which is expected for empty tables
+                // Return early as there are no results to process
+                return;
+            }
+        };
+
+        for bucket in buckets {
+            let bucket_obj = bucket.as_object().expect("bucket should be object");
+
+            // Current grouping key - handle bounds checking for multi-column GROUP BY
+            if depth >= self.grouping_columns.len() {
+                // This shouldn't happen, but handle it gracefully
+                return;
+            }
+            let grouping_column = &self.grouping_columns[depth];
+            let key_json = bucket_obj.get("key").expect("missing bucket key");
+            let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
+            prefix_keys.push(key_owned);
+
+            if depth + 1 == self.grouping_columns.len() {
+                // Deepest level – collect only the aggregates specified in aggregate_indices
+                let aggregate_values: AggregateRow = if aggregate_indices.is_empty() {
+                    AggregateRow::default()
+                } else {
+                    // Extract doc_count for empty result set handling
+                    let doc_count = bucket_obj
+                        .get("doc_count")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+
+                    aggregate_indices
+                        .iter()
+                        .enumerate()
+                        .map(|(group_agg_idx, &original_agg_idx)| {
+                            let aggregate = &self.aggregate_types[original_agg_idx];
+
+                            let agg_value = if matches!(
+                                aggregate,
+                                AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. }
+                            ) {
+                                // Count aggregate - use doc_count
+                                let count_result = AggregateResult::DirectValue(
+                                    serde_json::Number::from(doc_count),
+                                );
+                                aggregate.result_from_aggregate_with_doc_count(
+                                    count_result,
+                                    Some(doc_count),
+                                )
+                            } else {
+                                // Non-count aggregate - look for agg_{group_agg_idx}
+                                let agg_key = format!("agg_{group_agg_idx}");
+                                if let Some(agg_obj) = bucket_obj.get(&agg_key) {
+                                    let agg_result =
+                                        Self::extract_aggregate_value_from_json(agg_obj);
+                                    aggregate.result_from_aggregate_with_doc_count(
+                                        agg_result,
+                                        Some(doc_count),
+                                    )
+                                } else {
+                                    AggregateValue::Null
+                                }
+                            };
+
+                            agg_value
+                        })
+                        .collect()
+                };
+                rows.push(GroupedAggregateRow {
+                    group_keys: prefix_keys.clone(),
+                    aggregate_values,
+                });
+            } else {
+                // Recurse into next level - pass the current bucket, not the original json
+                self.extract_bucket_results_for_merge(
+                    bucket,
+                    depth + 1,
+                    prefix_keys,
+                    rows,
+                    aggregate_indices,
+                );
+            }
+
+            // Remove the key we added for this level
+            prefix_keys.pop();
+        }
+    }
+
     #[allow(unreachable_patterns)]
     fn extract_bucket_results(
         &self,
@@ -543,7 +613,11 @@ impl AggregateScanState {
         for bucket in buckets {
             let bucket_obj = bucket.as_object().expect("bucket should be object");
 
-            // Current grouping key
+            // Current grouping key - handle bounds checking for multi-column GROUP BY
+            if depth >= self.grouping_columns.len() {
+                // This shouldn't happen, but handle it gracefully
+                return;
+            }
             let grouping_column = &self.grouping_columns[depth];
             let key_json = bucket_obj.get("key").expect("missing bucket key");
             let key_owned = self.json_value_to_owned_value(key_json, &grouping_column.field_name);

@@ -515,7 +515,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all();
  high_count | electronics_sum 
 ------------+-----------------
-          0 |                
+            |                
 (1 row)
 
 -- Test 6.4: Multiple tables (though both empty)

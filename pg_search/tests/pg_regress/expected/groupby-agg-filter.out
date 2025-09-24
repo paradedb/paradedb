@@ -427,10 +427,10 @@ ORDER BY category, status;
  books       | available |     3 |                      |                1800
  books       | sold      |     1 |                      |                    
  clothing    | available |     3 |                      |                 350
- clothing    | sold      |     1 |   4.0000000000000000 |                    
- electronics | available |     6 |   4.2000000000000000 |                1500
- electronics | sold      |     2 |   3.5000000000000000 |                    
- sports      | available |     3 |   4.5000000000000000 |                 250
+ clothing    | sold      |     1 |                    4 |                    
+ electronics | available |     6 |                  4.2 |                1500
+ electronics | sold      |     2 |                  3.5 |                    
+ sports      | available |     3 |                  4.5 |                 250
  sports      | sold      |     1 |                      |                    
 (8 rows)
 

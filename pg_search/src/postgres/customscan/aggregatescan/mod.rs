@@ -83,6 +83,11 @@ impl CustomScan for AggregateScan {
 
         // Check if there are restrictions (WHERE clause)
         let (restrict_info, ri_type) = restrict_info(builder.args().input_rel());
+        if matches!(ri_type, RestrictInfoType::Join) {
+            // This relation is a join, or has no restrictions (WHERE clause predicates), so there's no need
+            // for us to do anything.
+            return None;
+        }
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
 
         // Are there any group (/distinct/order-by) or having clauses?
@@ -139,20 +144,6 @@ impl CustomScan for AggregateScan {
 
         // Check if any aggregates have filters
         let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
-        if has_filters {
-            // Check if any filters are HeapFilters (non-search predicates)
-            let has_heap_filters = aggregate_types.iter().any(|agg| {
-                if let Some(mut filter_expr) = agg.filter_expr() {
-                    filter_expr.has_heap_filters()
-                } else {
-                    false
-                }
-            });
-
-            if has_heap_filters {
-                return None;
-            }
-        }
 
         // If we don't have a WHERE clause and we don't have FILTER clauses,
         // there's no benefit to using AggregateScan
@@ -219,7 +210,7 @@ impl CustomScan for AggregateScan {
         }
 
         // Extract the WHERE clause query if present
-        let mut query = if has_where_clause {
+        let query = if has_where_clause {
             unsafe {
                 let result = extract_quals(
                     args.root,
@@ -238,11 +229,6 @@ impl CustomScan for AggregateScan {
             // No WHERE clause - use an "All" query that matches everything
             SearchQueryInput::All
         };
-
-        // Check if the WHERE clause query contains HeapFilter conditions that Tantivy cannot handle
-        if query.has_heap_filters() {
-            return None;
-        }
 
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.

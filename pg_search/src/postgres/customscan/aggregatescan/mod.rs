@@ -717,7 +717,7 @@ fn extract_grouping_columns(
             let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*equivclass).ec_members);
 
             let mut found_valid_column = false;
-            for (i, member) in members.iter_ptr().enumerate() {
+            for member in members.iter_ptr() {
                 let expr = (*member).em_expr;
 
                 // Create VarContext for field extraction
@@ -773,14 +773,16 @@ fn extract_and_validate_aggregates(
         grouping_columns.iter().map(|gc| &gc.field_name).collect();
 
     // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
-    for (i, aggregate) in aggregate_types.iter().enumerate() {
+    for aggregate in &aggregate_types {
         if let Some(field_name) = aggregate.field_name() {
             // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
+                    // Aggregate field is not a fast field
                     return None;
                 }
             } else {
+                // Aggregate field not found in schema
                 return None;
             }
         }

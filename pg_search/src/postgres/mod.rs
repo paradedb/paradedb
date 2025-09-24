@@ -48,6 +48,7 @@ pub mod customscan;
 pub mod datetime;
 #[cfg(not(feature = "pg17"))]
 pub mod fake_aminsertcleanup;
+pub mod heap;
 pub mod index;
 mod parallel;
 pub mod rel;
@@ -57,7 +58,6 @@ pub mod types;
 pub mod types_arrow;
 pub mod utils;
 pub mod var;
-pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {

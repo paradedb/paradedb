@@ -87,3 +87,38 @@ impl VisibilityChecker {
         }
     }
 }
+
+/// A wrapper for an owned scan and slot for repeated use with table_index_fetch_tuple.
+///
+/// TODO: Similar to `VisibilityChecker`, but uses an owned slot in the shape of the table, rather
+/// than borrowing a slot in the shape of the custom scan.
+#[derive(Debug)]
+pub struct HeapFetchState {
+    pub scan: *mut pg_sys::IndexFetchTableData,
+    pub slot: *mut pg_sys::TupleTableSlot,
+}
+
+impl HeapFetchState {
+    /// Create a HeapFetchState which will fetch the entire content of the given relation.
+    pub fn new(heaprel: &PgSearchRelation) -> Self {
+        unsafe {
+            let scan = pg_sys::table_index_fetch_begin(heaprel.as_ptr());
+            let slot = pg_sys::MakeTupleTableSlot(heaprel.rd_att, &pg_sys::TTSOpsBufferHeapTuple);
+            Self { scan, slot }
+        }
+    }
+}
+
+impl Drop for HeapFetchState {
+    fn drop(&mut self) {
+        unsafe {
+            if !crate::postgres::utils::IsTransactionState() {
+                // we are not in a transaction, so we can't do things like release buffers
+                return;
+            }
+
+            pg_sys::ExecDropSingleTupleTableSlot(self.slot);
+            pg_sys::table_index_fetch_end(self.scan);
+        }
+    }
+}

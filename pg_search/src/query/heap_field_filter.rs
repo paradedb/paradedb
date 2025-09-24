@@ -1,10 +1,30 @@
+// Copyright (c) 2023-2025 ParadeDB, Inc.
+//
+// This file is part of ParadeDB - Postgres for Search and Analytics
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Affero General Public License for more details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with this program. If not, see <http://www.gnu.org/licenses/>.
+
+use std::ptr::NonNull;
+
 use crate::postgres::customscan::qual_inspect::contains_exec_param;
+use crate::postgres::heap::HeapFetchState;
 use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
+
 use pgrx::FromDatum;
 use pgrx::{pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
-use std::ptr::NonNull;
 use tantivy::schema::Field;
 use tantivy::{
     query::{EnableScoring, Explanation, Query, Scorer, Weight},
@@ -13,7 +33,7 @@ use tantivy::{
 /// Core heap-based field filter using PostgreSQL expression evaluation
 /// This approach stores a serialized representation of the PostgreSQL expression
 /// and evaluates it directly against heap tuples, supporting any PostgreSQL operator or function
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HeapFieldFilter {
     /// PostgreSQL expression node that can be serialized and reconstructed
     expr_node: PostgresPointer,
@@ -22,6 +42,25 @@ pub struct HeapFieldFilter {
 
     #[serde(skip)]
     initialized_expression: Option<(*mut pg_sys::ExprState, Option<NonNull<pg_sys::PlanState>>)>,
+    #[serde(skip)]
+    heap_fetch_state: Option<HeapFetchState>,
+}
+
+impl Clone for HeapFieldFilter {
+    fn clone(&self) -> Self {
+        Self {
+            expr_node: self.expr_node.clone(),
+            description: self.description.clone(),
+            initialized_expression: None,
+            heap_fetch_state: None,
+        }
+    }
+}
+
+impl PartialEq for HeapFieldFilter {
+    fn eq(&self, other: &HeapFieldFilter) -> bool {
+        self.expr_node == other.expr_node && self.description == other.description
+    }
 }
 
 // SAFETY:  we don't execute within threads, despite Tantivy expecting that to be the case
@@ -35,6 +74,7 @@ impl HeapFieldFilter {
             expr_node: PostgresPointer(expr_node.cast()),
             description: expr_desc,
             initialized_expression: None,
+            heap_fetch_state: None,
         }
     }
 
@@ -65,56 +105,21 @@ impl HeapFieldFilter {
         expr_context: NonNull<pg_sys::ExprContext>,
         planstate: Option<NonNull<pg_sys::PlanState>>,
     ) -> bool {
-        // Use heap_fetch to safely get the tuple
-        let mut heap_tuple = pg_sys::HeapTupleData {
-            t_len: 0,
-            t_self: *ctid, // Set the ctid we want to fetch
-            t_tableOid: relation.oid(),
-            t_data: std::ptr::null_mut(),
-        };
-        let mut buffer = pg_sys::InvalidBuffer as pg_sys::Buffer;
+        let heap_fetch_state = self
+            .heap_fetch_state
+            .get_or_insert_with(|| HeapFetchState::new(relation));
         let econtext = expr_context.as_ptr();
 
-        // Fetch the heap tuple using PostgreSQL's heap_fetch API
-        // Function signature differs between PostgreSQL versions
-        #[cfg(feature = "pg14")]
-        let valid_tuple = pg_sys::heap_fetch(
-            relation.as_ptr(),
-            pgrx::pg_sys::GetActiveSnapshot(),
-            &mut heap_tuple,
-            &mut buffer,
-        );
-
-        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
-        let valid_tuple = pg_sys::heap_fetch(
-            relation.as_ptr(),
-            pgrx::pg_sys::GetActiveSnapshot(),
-            &mut heap_tuple,
-            &mut buffer,
-            false, // keep_buf
-        );
-
-        if !valid_tuple {
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
-            return false;
-        }
-
-        // Create a tuple table slot for expression evaluation
-        let tuple_desc = relation.rd_att;
-        let slot = pg_sys::MakeTupleTableSlot(tuple_desc, &pg_sys::TTSOpsHeapTuple);
-        if slot.is_null() {
-            if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-                pg_sys::ReleaseBuffer(buffer);
-            }
-            return false;
-        }
-
-        // Store the heap tuple in the slot
-        let stored_slot = pg_sys::ExecStoreHeapTuple(&mut heap_tuple, slot, false);
-        if stored_slot.is_null() {
-            Self::cleanup_resources(slot, buffer);
+        let mut call_again = false;
+        let mut all_dead = false;
+        if !pg_sys::table_index_fetch_tuple(
+            heap_fetch_state.scan,
+            ctid,
+            pg_sys::GetActiveSnapshot(),
+            heap_fetch_state.slot,
+            &mut call_again,
+            &mut all_dead,
+        ) {
             return false;
         }
 
@@ -122,36 +127,37 @@ impl HeapFieldFilter {
         let original_scan_tuple = (*econtext).ecxt_scantuple;
 
         // Set the tuple slot in the expression context
-        (*econtext).ecxt_scantuple = slot;
+        (*econtext).ecxt_scantuple = heap_fetch_state.slot;
 
-        // Initialize the expression for execution with proper planstate for subquery support
-        let expr_state = match (&self.initialized_expression, planstate) {
-            // We have an existing expression state, which WAS NOT initialized without a planstate
-            (Some((_existing_state, None)), Some(new_planstate)) => {
-                // Check if we need to reinitialize with a better planstate
-                self.init_expression_state(expr_node, Some(new_planstate))
+        let eval_result = (|| {
+            // Initialize the expression for execution with proper planstate for subquery support
+            let expr_state = match (&self.initialized_expression, planstate) {
+                // We have an existing expression state, which WAS NOT initialized without a planstate
+                (Some((_existing_state, None)), Some(new_planstate)) => {
+                    // Check if we need to reinitialize with a better planstate
+                    self.init_expression_state(expr_node, Some(new_planstate))
+                }
+                // We have an existing expression state, which WAS either initialized with a planstate or
+                // the newly given plan state is also None
+                (Some((existing_state, _init_with_planstate)), _new_planstate) => *existing_state,
+                // First initialization
+                (None, planstate) => self.init_expression_state(expr_node, planstate),
+            };
+            if expr_state.is_null() {
+                self.initialized_expression = None;
+                return false;
             }
-            // We have an existing expression state, which WAS either initialized with a planstate or
-            // the newly given plan state is also None
-            (Some((existing_state, _init_with_planstate)), _new_planstate) => *existing_state,
-            // First initialization
-            (None, planstate) => self.init_expression_state(expr_node, planstate),
-        };
-        if expr_state.is_null() {
-            self.initialized_expression = None;
-            Self::cleanup_and_restore_context(slot, buffer, econtext, original_scan_tuple);
-            return false;
-        }
 
-        // Evaluate the expression
-        let mut is_null = false;
-        let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
+            // Evaluate the expression
+            let mut is_null = false;
+            let result = pg_sys::ExecEvalExpr(expr_state, econtext, &mut is_null);
 
-        // Convert the result to a boolean
-        let eval_result = bool::from_datum(result, is_null).unwrap_or(false);
+            // Convert the result to a boolean
+            bool::from_datum(result, is_null).unwrap_or(false)
+        })();
 
-        // Cleanup resources in reverse order
-        Self::cleanup_and_restore_context(slot, buffer, econtext, original_scan_tuple);
+        // Restore original scan tuple
+        (*econtext).ecxt_scantuple = original_scan_tuple;
 
         eval_result
     }
@@ -167,26 +173,6 @@ impl HeapFieldFilter {
             .switch_to(|_| pg_sys::ExecInitExpr(expr_node.cast(), planstate_ptr));
         self.initialized_expression = Some((new_state, planstate));
         new_state
-    }
-
-    /// Helper function to clean up tuple slot and buffer resources
-    unsafe fn cleanup_resources(slot: *mut pg_sys::TupleTableSlot, buffer: pg_sys::Buffer) {
-        pg_sys::ExecDropSingleTupleTableSlot(slot);
-        if buffer != pg_sys::InvalidBuffer as pg_sys::Buffer {
-            pg_sys::ReleaseBuffer(buffer);
-        }
-    }
-
-    /// Helper function to restore expression context state and cleanup resources
-    unsafe fn cleanup_and_restore_context(
-        slot: *mut pg_sys::TupleTableSlot,
-        buffer: pg_sys::Buffer,
-        expr_context: *mut pg_sys::ExprContext,
-        original_scan_tuple: *mut pg_sys::TupleTableSlot,
-    ) {
-        // Restore original scan tuple
-        (*expr_context).ecxt_scantuple = original_scan_tuple;
-        Self::cleanup_resources(slot, buffer);
     }
 
     /// Get the PostgreSQL expression node

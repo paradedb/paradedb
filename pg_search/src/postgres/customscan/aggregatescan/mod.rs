@@ -816,11 +816,12 @@ fn extract_aggregates(
     // We must recognize all target list entries as either grouping columns (Vars) or supported aggregates.
     let mut aggregate_types = Vec::new();
     let mut filter_uses_search_operator = false;
-    for (i, expr) in target_list.iter_ptr().enumerate() {
+    for expr in target_list.iter_ptr() {
         unsafe {
             let node_tag = (*expr).type_;
 
             if let Some(_var) = nodecast!(Var, T_Var, expr) {
+                // This is a Var - it should be a grouping column, skip it
                 continue;
             } else if let Some(_opexpr) = nodecast!(OpExpr, T_OpExpr, expr) {
                 // This might be a JSON operator expression - verify it's recognized
@@ -828,12 +829,12 @@ fn extract_aggregates(
                 if let Some((_var, _field_name)) =
                     find_one_var_and_fieldname(var_context, expr as *mut pg_sys::Node)
                 {
+                    // This is a recognized JSON operator expression used in GROUP BY - skip it
                     continue;
                 } else {
+                    // This is an unrecognized OpExpr, we can't support it
                     return None;
                 }
-            } else if let Some(_const_expr) = nodecast!(Const, T_Const, expr) {
-                continue;
             } else if let Some(aggref) = nodecast!(Aggref, T_Aggref, expr) {
                 // Check for DISTINCT in aggregate functions
                 if !(*aggref).aggdistinct.is_null() {

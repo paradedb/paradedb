@@ -111,12 +111,18 @@ impl AggregateScanState {
                 .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
                 .collect();
 
-            // Add a document count aggregation only if we have SUM aggregates (to detect empty result sets)
+            // Add a document count aggregation only if we have SUM aggregates but no COUNT aggregate
+            // (to detect empty result sets for SUM)
             let has_sum = self
                 .aggregate_types
                 .iter()
                 .any(|agg| matches!(agg, AggregateType::Sum { .. }));
-            if has_sum {
+            let has_count = self
+                .aggregate_types
+                .iter()
+                .any(|agg| matches!(agg, AggregateType::CountAny { .. }));
+
+            if has_sum && !has_count {
                 agg_map.insert(
                     "_doc_count".to_string(),
                     serde_json::json!({
@@ -433,30 +439,13 @@ impl AggregateScanState {
         doc_count: Option<i64>,
     ) -> AggregateValue {
         let agg_result = match (aggregate, result_source) {
-            (AggregateType::CountAny, AggregateResultSource::ResultMap(result_map)) => {
+            (AggregateType::CountAny { .. }, AggregateResultSource::ResultMap(result_map)) => {
                 let raw_result = result_map
                     .get(&agg_idx.to_string())
                     .expect("missing aggregate result");
                 Self::extract_aggregate_value_from_json(raw_result)
             }
-            (
-                AggregateType::CountAnyWithFilter { .. },
-                AggregateResultSource::ResultMap(result_map),
-            ) => {
-                let raw_result = result_map
-                    .get(&agg_idx.to_string())
-                    .expect("missing aggregate result");
-                Self::extract_aggregate_value_from_json(raw_result)
-            }
-            (AggregateType::CountAny, AggregateResultSource::BucketObj(bucket_obj)) => {
-                let raw_result = bucket_obj.get("doc_count").expect("missing doc_count");
-                Self::extract_aggregate_value_from_json(raw_result)
-            }
-            (
-                AggregateType::CountAnyWithFilter { .. },
-                AggregateResultSource::BucketObj(bucket_obj),
-            ) => {
-                // COUNT(*) with filter also uses doc_count from the filtered bucket
+            (AggregateType::CountAny { .. }, AggregateResultSource::BucketObj(bucket_obj)) => {
                 let raw_result = bucket_obj.get("doc_count").expect("missing doc_count");
                 Self::extract_aggregate_value_from_json(raw_result)
             }
@@ -535,10 +524,7 @@ impl AggregateScanState {
                         .map(|(group_agg_idx, &original_agg_idx)| {
                             let aggregate = &self.aggregate_types[original_agg_idx];
 
-                            let agg_value = if matches!(
-                                aggregate,
-                                AggregateType::CountAny | AggregateType::CountAnyWithFilter { .. }
-                            ) {
+                            let agg_value = if matches!(aggregate, AggregateType::CountAny { .. }) {
                                 // Count aggregate - use doc_count
                                 let count_result = AggregateResult::DirectValue(
                                     serde_json::Number::from(doc_count),

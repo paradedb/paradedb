@@ -546,52 +546,59 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
         .map(|&idx| {
             let agg_type = &aggregate_types[idx];
             match agg_type {
-                AggregateType::CountAny => "COUNT(*)".to_string(),
-                AggregateType::CountAnyWithFilter { filter_expr } => {
-                    format!(
-                        "COUNT(*) FILTER (WHERE {})",
-                        format_filter_condition(filter_expr)
-                    )
+                AggregateType::CountAny { filter } => {
+                    if let Some(filter_expr) = filter {
+                        format!(
+                            "COUNT(*) FILTER (WHERE {})",
+                            format_filter_condition(filter_expr)
+                        )
+                    } else {
+                        "COUNT(*)".to_string()
+                    }
                 }
-                AggregateType::Sum { field, .. } => format!("SUM({field})"),
-                AggregateType::SumWithFilter {
-                    field, filter_expr, ..
-                } => {
-                    format!(
-                        "SUM({}) FILTER (WHERE {})",
-                        field,
-                        format_filter_condition(filter_expr)
-                    )
+                AggregateType::Sum { field, filter, .. } => {
+                    if let Some(filter_expr) = filter {
+                        format!(
+                            "SUM({}) FILTER (WHERE {})",
+                            field,
+                            format_filter_condition(filter_expr)
+                        )
+                    } else {
+                        format!("SUM({field})")
+                    }
                 }
-                AggregateType::Avg { field, .. } => format!("AVG({field})"),
-                AggregateType::AvgWithFilter {
-                    field, filter_expr, ..
-                } => {
-                    format!(
-                        "AVG({}) FILTER (WHERE {})",
-                        field,
-                        format_filter_condition(filter_expr)
-                    )
+                AggregateType::Avg { field, filter, .. } => {
+                    if let Some(filter_expr) = filter {
+                        format!(
+                            "AVG({}) FILTER (WHERE {})",
+                            field,
+                            format_filter_condition(filter_expr)
+                        )
+                    } else {
+                        format!("AVG({field})")
+                    }
                 }
-                AggregateType::Min { field, .. } => format!("MIN({field})"),
-                AggregateType::MinWithFilter {
-                    field, filter_expr, ..
-                } => {
-                    format!(
-                        "MIN({}) FILTER (WHERE {})",
-                        field,
-                        format_filter_condition(filter_expr)
-                    )
+                AggregateType::Min { field, filter, .. } => {
+                    if let Some(filter_expr) = filter {
+                        format!(
+                            "MIN({}) FILTER (WHERE {})",
+                            field,
+                            format_filter_condition(filter_expr)
+                        )
+                    } else {
+                        format!("MIN({field})")
+                    }
                 }
-                AggregateType::Max { field, .. } => format!("MAX({field})"),
-                AggregateType::MaxWithFilter {
-                    field, filter_expr, ..
-                } => {
-                    format!(
-                        "MAX({}) FILTER (WHERE {})",
-                        field,
-                        format_filter_condition(filter_expr)
-                    )
+                AggregateType::Max { field, filter, .. } => {
+                    if let Some(filter_expr) = filter {
+                        format!(
+                            "MAX({}) FILTER (WHERE {})",
+                            field,
+                            format_filter_condition(filter_expr)
+                        )
+                    } else {
+                        format!("MAX({field})")
+                    }
                 }
             }
         })
@@ -858,15 +865,11 @@ fn extract_aggregates(
                         );
                         filter_uses_search_operator =
                             filter_uses_search_operator || filter_qual_state.uses_our_operator;
-                        if let Some(filter) = filter_expr {
-                            aggregate_types.push(AggregateType::CountAnyWithFilter {
-                                filter_expr: filter,
-                            });
-                        } else {
-                            aggregate_types.push(AggregateType::CountAny);
-                        }
+                        aggregate_types.push(AggregateType::CountAny {
+                            filter: filter_expr,
+                        });
                     } else {
-                        aggregate_types.push(AggregateType::CountAny);
+                        aggregate_types.push(AggregateType::CountAny { filter: None });
                     }
                 } else {
                     // Check for other aggregate functions with arguments

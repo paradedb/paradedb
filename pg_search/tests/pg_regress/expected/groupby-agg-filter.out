@@ -192,13 +192,13 @@ SELECT
     MAX(views) AS max_views
 FROM filter_agg_test
 WHERE status @@@ 'available';
-                                                                                               QUERY PLAN                                                                                                
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                        QUERY PLAN                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now()
    Index: filter_agg_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"3":{"max":{"field":"views"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"3":{"max":{"field":"views"}}}
 (5 rows)
 
 -- Test 2.2: All aggregates have SAME filter (single query optimization)
@@ -227,8 +227,8 @@ SELECT
     SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_revenue, -- Filter 1 (same)
     COUNT(*) FILTER (WHERE category @@@ 'books') AS books_count   -- Filter 2 (different)
 FROM filter_agg_test;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now(), now()
    Index: filter_agg_idx
@@ -239,7 +239,7 @@ FROM filter_agg_test;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>)
      Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"value_count":{"field":"ctid"}},"3":{"sum":{"field":"price"}},"4":{"value_count":{"field":"ctid"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"value_count":{"field":"ctid"}},"3":{"sum":{"field":"price"}},"4":{"value_count":{"field":"ctid"}}}
 (11 rows)
 
 -- Test 2.4: Many different filters (multi-query required)

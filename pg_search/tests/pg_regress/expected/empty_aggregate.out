@@ -149,13 +149,13 @@ SELECT MAX(value) FROM empty_test WHERE id @@@ paradedb.all();
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 
 FROM empty_test WHERE id @@@ paradedb.all();
-                                                                                                                                QUERY PLAN                                                                                                                                 
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.empty_test
    Output: now(), now(), now(), now(), now(), now()
    Index: empty_test_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"sum":{"field":"value"}},"3":{"avg":{"field":"value"}},"4":{"min":{"field":"value"}},"5":{"max":{"field":"value"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"sum":{"field":"value"}},"3":{"avg":{"field":"value"}},"4":{"min":{"field":"value"}},"5":{"max":{"field":"value"}}}
 (5 rows)
 
 SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value) 

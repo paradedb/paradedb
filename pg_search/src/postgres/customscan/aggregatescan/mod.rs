@@ -201,12 +201,11 @@ impl CustomScan for AggregateScan {
 
         // We cannot push down a GROUP BY if the user asks for more than `max_term_agg_buckets`
         // or if it orders by columns that we cannot push down
-        if unsafe { !(*parse).groupClause.is_null() } {
-            let total_limit = limit.unwrap_or(0) + offset.unwrap_or(0);
-
-            if total_limit > max_term_agg_buckets || orderby_info.len() != sort_clause.len() {
-                return None;
-            }
+        if unsafe { !(*parse).groupClause.is_null() }
+            && (limit.unwrap_or(0) + offset.unwrap_or(0) > max_term_agg_buckets
+                || orderby_info.len() != sort_clause.len())
+        {
+            return None;
         }
 
         // Extract the WHERE clause query if present and track @@@ operator usage
@@ -668,8 +667,6 @@ fn explain_filter_execution_strategy(
                 ),
             );
         }
-
-        explainer.add_unsigned_integer("Total Groups", filter_groups.len() as u64, None);
     }
 }
 

@@ -85,9 +85,8 @@ FROM filter_agg_test;
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 2
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}}}
-(10 rows)
+(9 rows)
 
 SELECT 
     COUNT(*) AS total,
@@ -120,9 +119,8 @@ FROM filter_agg_test;
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
      Group 4 Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
      Group 4 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 4
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"value_count":{"field":"ctid"}},"3":{"value_count":{"field":"ctid"}}}
-(14 rows)
+(13 rows)
 
 SELECT 
     COUNT(*) AS total,
@@ -155,9 +153,8 @@ WHERE status @@@ 'available';
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
      Group 3 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}]}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 3
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"value_count":{"field":"ctid"}}}
-(12 rows)
+(11 rows)
 
 SELECT 
     COUNT(*) AS available_total,
@@ -242,9 +239,8 @@ FROM filter_agg_test;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>)
      Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 3
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"value_count":{"field":"ctid"}},"3":{"sum":{"field":"price"}},"4":{"value_count":{"field":"ctid"}},"_doc_count":{"value_count":{"field":"ctid"}}}
-(12 rows)
+(11 rows)
 
 -- Test 2.4: Many different filters (multi-query required)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -280,9 +276,8 @@ FROM filter_agg_test;
      Group 7 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
      Group 8 Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"sold","lenient":null,"conjunction_mode":null}}}}
      Group 8 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 8
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"value_count":{"field":"ctid"}},"3":{"value_count":{"field":"ctid"}},"4":{"value_count":{"field":"ctid"}},"5":{"value_count":{"field":"ctid"}},"6":{"value_count":{"field":"ctid"}},"7":{"value_count":{"field":"ctid"}}}
-(22 rows)
+(21 rows)
 
 -- =====================================================================
 -- SECTION 3: GROUP BY with FILTER clauses
@@ -306,9 +301,8 @@ ORDER BY category;
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 2
    Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000}}}
-(10 rows)
+(9 rows)
 
 SELECT 
     category,
@@ -347,9 +341,8 @@ ORDER BY category;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE rating BETWEEN Included(U64(4)) AND Unbounded)
      Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 3
    Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_2":{"avg":{"field":"price"}}}}}
-(12 rows)
+(11 rows)
 
 SELECT 
     category,
@@ -408,9 +401,8 @@ ORDER BY brand;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
      Group 3 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple OR Samsung OR TechPress","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}]}}
      Group 3 Aggregates: SUM(price) FILTER (WHERE <complex condition>)
-   Total Groups: 3
    Aggregate Definition: {"group_0":{"terms":{"field":"brand","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"price"}},"agg_3":{"sum":{"field":"price"}}}}}
-(12 rows)
+(11 rows)
 
 -- Test 3.4: Multi-column GROUP BY with FILTER
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
@@ -438,9 +430,8 @@ ORDER BY category, status;
      Group 3 Aggregates: AVG(rating) FILTER (WHERE <complex condition>)
      Group 4 Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
      Group 4 Aggregates: MAX(views) FILTER (WHERE <complex condition>)
-   Total Groups: 4
    Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"status","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"avg":{"field":"rating"}},"agg_2":{"max":{"field":"views"}},"agg_3":{"max":{"field":"views"}}}}}}}
-(14 rows)
+(13 rows)
 
 SELECT 
     category,
@@ -521,9 +512,8 @@ FROM filter_agg_test;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE in_stock = true)
      Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>)
-   Total Groups: 3
    Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"value_count":{"field":"ctid"}},"2":{"value_count":{"field":"ctid"}}}
-(12 rows)
+(11 rows)
 
 -- Test 5.2: Empty result sets
 SELECT 

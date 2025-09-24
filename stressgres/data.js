@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758740736274,
+  "lastUpdate": 1758751703525,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -12718,6 +12718,72 @@ window.BENCHMARK_DATA = {
             "value": 128.17141515777251,
             "unit": "median tps",
             "extra": "avg tps: 156.86856674380365, max tps: 562.567332277582, count: 55285"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "387ada8768d75f50e135e43cd4a85dbdea81db07",
+          "message": "fix: Fix error for invalid col in FF JSON (#3218)\n\nThe error used to say the column didn't exist in the table, but what\nit's actually trying to say is that the column isn't covered in the bm25\nUSING clause.\n\n- If the column isn't in the table but is in the USING then Postgres\nwill throw it's own error before this code is reached.\n- If the column is in the table and is isn't in the USING we will get\nthis error\n- If the column isn't in **either** then I suppose we could throw a more\naccurate warning, but this way at least it will throw the new erro,\nfixing which will result in the PG error\n\n```\npg_search=# create table tester(id int, words text);\nCREATE TABLE\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  the column `missing` does not exist in the USING clause\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words, missing) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  column \"missing\" does not exist\n```",
+          "timestamp": "2025-09-24T14:52:13-07:00",
+          "tree_id": "67c4ad2f7cbba1cc522e73cfb15db519f212322b",
+          "url": "https://github.com/paradedb/paradedb/commit/387ada8768d75f50e135e43cd4a85dbdea81db07"
+        },
+        "date": 1758751701931,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 805.7277243445741,
+            "unit": "median tps",
+            "extra": "avg tps: 805.1651709741838, max tps: 832.9878417094625, count: 55305"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3387.353230996233,
+            "unit": "median tps",
+            "extra": "avg tps: 3360.039627799591, max tps: 3475.3302701804964, count: 55305"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 792.6575311111553,
+            "unit": "median tps",
+            "extra": "avg tps: 791.7291479770537, max tps: 806.1653823278504, count: 55305"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 705.5774054055313,
+            "unit": "median tps",
+            "extra": "avg tps: 701.8756995440586, max tps: 725.0968215743375, count: 55305"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1732.5913695992567,
+            "unit": "median tps",
+            "extra": "avg tps: 1718.4149814530206, max tps: 1737.6971792498512, count: 110610"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1307.8749120200491,
+            "unit": "median tps",
+            "extra": "avg tps: 1295.5915034428924, max tps: 1309.952167885807, count: 55305"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 136.45170288951118,
+            "unit": "median tps",
+            "extra": "avg tps: 161.83394801210864, max tps: 519.7010887218107, count: 55305"
           }
         ]
       }

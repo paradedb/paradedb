@@ -613,11 +613,15 @@ SELECT paradedb.aggregate(
     query => paradedb.parse('category:electronics'),
     agg => '{
         "total_count": {"value_count": {"field": "id"}},
-        "avg_price": {"avg": {"field": "price"}},
+        "sum_price": {"sum": {"field": "price"}},
         "max_rating": {"max": {"field": "rating"}}
     }'::json
 );
-ERROR:  incompatible fruit types in tree or missing merge_fruits handler
+                                           aggregate                                            
+------------------------------------------------------------------------------------------------
+ {"sum_price": {"value": 8679.92}, "max_rating": {"value": 5.0}, "total_count": {"value": 8.0}}
+(1 row)
+
 -- Test 7.2: Complex aggregation with grouping
 SELECT paradedb.aggregate(
     index => 'filter_agg_idx'::regclass,
@@ -677,9 +681,420 @@ ORDER BY apple_count DESC;
 (4 rows)
 
 -- =====================================================================
--- SECTION 9: Limitations and fallback scenarios
+-- SECTION 9: Multiple Aggregates with Same Filter (MultiCollector Optimization)
 -- =====================================================================
--- Test 9.1: COUNT(DISTINCT) with FILTER (should fall back)
+-- Test 9.1: Multiple aggregates with same filter - no GROUP BY
+-- This should trigger MultiCollector optimization
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
+FROM filter_agg_test;
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: now(), now(), now(), now(), now()
+   Index: filter_agg_idx
+     Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>), AVG(price) FILTER (WHERE <complex condition>), MIN(price) FILTER (WHERE <complex condition>), MAX(price) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"price"}},"3":{"min":{"field":"price"}},"4":{"max":{"field":"price"}}}
+(6 rows)
+
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
+FROM filter_agg_test;
+ apple_count | apple_total_price | apple_avg_price | apple_min_price | apple_max_price 
+-------------+-------------------+-----------------+-----------------+-----------------
+           3 |           5399.97 |         1799.99 |          899.99 |         2499.99
+(1 row)
+
+-- Test 9.2: Multiple aggregates with same filter - with GROUP BY
+-- This should trigger MultiCollector optimization within each group
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_min_rating,
+    MAX(views) FILTER (WHERE brand @@@ 'Apple') AS apple_max_views
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, now(), now(), now(), now(), now()
+   Index: filter_agg_idx
+     Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>), AVG(price) FILTER (WHERE <complex condition>), MIN(rating) FILTER (WHERE <complex condition>), MAX(views) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"price"}},"agg_3":{"min":{"field":"rating"}},"agg_4":{"max":{"field":"views"}}}}}
+(6 rows)
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_min_rating,
+    MAX(views) FILTER (WHERE brand @@@ 'Apple') AS apple_max_views
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | apple_count | apple_total_price | apple_avg_price | apple_min_rating | apple_max_views 
+-------------+-------------+-------------------+-----------------+------------------+-----------------
+ electronics |           3 |           5399.97 |         1799.99 |                4 |            2000
+(1 row)
+
+-- Test 9.3: Multiple aggregates with same complex filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_total,
+    AVG(rating) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_avg_rating
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                                                                                                                                                                                                                                                                              QUERY PLAN                                                                                                                                                                                                                                                                                                                                                               
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, now(), now(), now()
+   Index: filter_agg_idx
+   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+     Group 1 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 7 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 -12 1 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+     Group 1 Aggregates: COUNT(*) FILTER (WHERE <complex boolean condition>)
+     Group 2 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 7 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 -12 1 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+     Group 2 Aggregates: SUM(price) FILTER (WHERE <complex boolean condition>)
+     Group 3 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"expr_node":"{OPEXPR :opno 1756 :opfuncid 1720 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 7 :vartype 1700 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varnosyn 1 :varattnosyn 7 :location -1} {CONST :consttype 1700 :consttypmod -1 :constcollid 0 :constlen -1 :constbyval false :constisnull false :location -1 :constvalue 8 [ 32 0 0 0 0 -128 -12 1 ]}) :location -1}","description":"OpExpr with operator OID 1756"}]}}]}}
+     Group 3 Aggregates: AVG(rating) FILTER (WHERE <complex boolean condition>)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}}}}}
+(11 rows)
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_total,
+    AVG(rating) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_avg_rating
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | expensive_available_count | expensive_available_total | expensive_available_avg_rating 
+-------------+---------------------------+---------------------------+--------------------------------
+ electronics |                         4 |                   6899.96 |                            4.5
+ sports      |                         1 |                    899.99 |                              5
+(2 rows)
+
+-- Test 9.4: Multiple aggregates with same numeric filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE rating >= 4) AS highly_rated_count,
+    SUM(price) FILTER (WHERE rating >= 4) AS highly_rated_total_price,
+    AVG(price) FILTER (WHERE rating >= 4) AS highly_rated_avg_price,
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price,
+    MAX(price) FILTER (WHERE rating >= 4) AS highly_rated_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*) FILTER (WHERE (rating >= 4)), sum(price) FILTER (WHERE (rating >= 4)), avg(price) FILTER (WHERE (rating >= 4)), min(price) FILTER (WHERE (rating >= 4)), max(price) FILTER (WHERE (rating >= 4))
+   Group Key: filter_agg_test.category
+   ->  Sort
+         Output: category, rating, price
+         Sort Key: filter_agg_test.category
+         ->  Seq Scan on public.filter_agg_test
+               Output: category, rating, price
+(8 rows)
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE rating >= 4) AS highly_rated_count,
+    SUM(price) FILTER (WHERE rating >= 4) AS highly_rated_total_price,
+    AVG(price) FILTER (WHERE rating >= 4) AS highly_rated_avg_price,
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price,
+    MAX(price) FILTER (WHERE rating >= 4) AS highly_rated_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | highly_rated_count | highly_rated_total_price | highly_rated_avg_price | highly_rated_min_price | highly_rated_max_price 
+-------------+--------------------+--------------------------+------------------------+------------------------+------------------------
+ books       |                  4 |                   194.96 |    48.7400000000000000 |                  39.99 |                  59.99
+ clothing    |                  3 |                   214.97 |    71.6566666666666667 |                  24.99 |                 129.99
+ electronics |                  6 |                  7879.94 |  1313.3233333333333333 |                  79.99 |                2499.99
+ sports      |                  3 |                  1139.97 |   379.9900000000000000 |                  39.99 |                 899.99
+(4 rows)
+
+-- Test 9.5: Multiple aggregates with same boolean filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    brand,
+    COUNT(*) FILTER (WHERE in_stock = true) AS in_stock_count,
+    SUM(price) FILTER (WHERE in_stock = true) AS in_stock_total_price,
+    AVG(rating) FILTER (WHERE in_stock = true) AS in_stock_avg_rating,
+    MAX(views) FILTER (WHERE in_stock = true) AS in_stock_max_views
+FROM filter_agg_test
+GROUP BY brand
+ORDER BY brand;
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: brand, count(*) FILTER (WHERE in_stock), sum(price) FILTER (WHERE in_stock), avg(rating) FILTER (WHERE in_stock), max(views) FILTER (WHERE in_stock)
+   Group Key: filter_agg_test.brand
+   ->  Sort
+         Output: brand, in_stock, price, rating, views
+         Sort Key: filter_agg_test.brand
+         ->  Seq Scan on public.filter_agg_test
+               Output: brand, in_stock, price, rating, views
+(8 rows)
+
+SELECT 
+    brand,
+    COUNT(*) FILTER (WHERE in_stock = true) AS in_stock_count,
+    SUM(price) FILTER (WHERE in_stock = true) AS in_stock_total_price,
+    AVG(rating) FILTER (WHERE in_stock = true) AS in_stock_avg_rating,
+    MAX(views) FILTER (WHERE in_stock = true) AS in_stock_max_views
+FROM filter_agg_test
+GROUP BY brand
+ORDER BY brand;
+    brand    | in_stock_count | in_stock_total_price | in_stock_avg_rating | in_stock_max_views 
+-------------+----------------+----------------------+---------------------+--------------------
+ Apple       |              2 |              4499.98 |  5.0000000000000000 |               1500
+ DataBooks   |              1 |                44.99 |  4.0000000000000000 |               1200
+ FashionCo   |              1 |                79.99 |  3.0000000000000000 |                120
+ Generic     |              2 |               229.98 |  3.5000000000000000 |                400
+ GolfPro     |              1 |               899.99 |  5.0000000000000000 |                100
+ PlayTime    |              0 |                      |                     |                   
+ Samsung     |              2 |              2399.98 |  4.0000000000000000 |                800
+ SportsBrand |              0 |                      |                     |                   
+ SportsCorp  |              2 |               229.98 |  3.5000000000000000 |                250
+ TechPress   |              2 |               109.98 |  5.0000000000000000 |               1800
+ TechWear    |              2 |                84.98 |  4.5000000000000000 |                350
+(11 rows)
+
+-- Test 9.6: Mix of same and different filters (should optimize same-filter groups)
+SELECT 
+    category,
+    -- These three should use MultiCollector (same filter)
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_rating,
+    -- These two should use MultiCollector (same filter, different from above)
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS available_max_views,
+    -- This one is different (separate query)
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | apple_count | apple_total_price | apple_avg_rating | available_count | available_max_views | highly_rated_min_price 
+-------------+-------------+-------------------+------------------+-----------------+---------------------+------------------------
+ books       |             |                   |                  |               3 |                1800 |                  39.99
+ clothing    |             |                   |                  |               3 |                 350 |                  24.99
+ electronics |           3 |           5399.97 | 4.66666666666667 |               6 |                1500 |                  79.99
+ sports      |             |                   |                  |               3 |                 250 |                  39.99
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    -- These three should use MultiCollector (same filter)
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_rating,
+    -- These two should use MultiCollector (same filter, different from above)
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS available_max_views,
+    -- This one is different (separate query)
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, now(), now(), now(), now(), now(), now()
+   Index: filter_agg_idx
+   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+     Group 1 Query: {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}}
+     Group 1 Aggregates: MIN(price) FILTER (WHERE rating BETWEEN Included(U64(4)) AND Unbounded)
+     Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+     Group 2 Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>), AVG(rating) FILTER (WHERE <complex condition>)
+     Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
+     Group 3 Aggregates: COUNT(*) FILTER (WHERE <complex condition>), MAX(views) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"avg":{"field":"rating"}},"agg_4":{"max":{"field":"views"}},"agg_5":{"min":{"field":"price"}}}}}
+(11 rows)
+
+-- Test 9.7: Many aggregates with same filter (stress test for MultiCollector)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Samsung') AS samsung_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_rating,
+    MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
+    SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
+FROM filter_agg_test;
+                                                                                                                                                                             QUERY PLAN                                                                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: now(), now(), now(), now(), now(), now(), now()
+   Index: filter_agg_idx
+     Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>), MIN(price) FILTER (WHERE <complex condition>), MAX(price) FILTER (WHERE <complex condition>), MIN(rating) FILTER (WHERE <complex condition>), MAX(rating) FILTER (WHERE <complex condition>), SUM(views) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"min":{"field":"price"}},"3":{"max":{"field":"price"}},"4":{"min":{"field":"rating"}},"5":{"max":{"field":"rating"}},"6":{"sum":{"field":"views"}}}
+(6 rows)
+
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Samsung') AS samsung_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_rating,
+    MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
+    SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
+FROM filter_agg_test;
+ samsung_count | samsung_total_price | samsung_min_price | samsung_max_price | samsung_min_rating | samsung_max_rating | samsung_total_views 
+---------------+---------------------+-------------------+-------------------+--------------------+--------------------+---------------------
+             3 |             3049.97 |            599.99 |           1799.99 |                  3 |                  4 |                2300
+(1 row)
+
+-- Test 9.8: Multiple aggregates with same filter on different field types
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE price > 1000) AS expensive_count,
+    SUM(rating) FILTER (WHERE price > 1000) AS expensive_rating_sum,
+    AVG(views) FILTER (WHERE price > 1000) AS expensive_avg_views,
+    MIN(price) FILTER (WHERE price > 1000) AS expensive_min_price,
+    MAX(price) FILTER (WHERE price > 1000) AS expensive_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | expensive_count | expensive_rating_sum |  expensive_avg_views  | expensive_min_price | expensive_max_price 
+-------------+-----------------+----------------------+-----------------------+---------------------+---------------------
+ books       |               0 |                      |                       |                     |                    
+ clothing    |               0 |                      |                       |                     |                    
+ electronics |               3 |                   14 | 1166.6666666666666667 |             1799.99 |             2499.99
+ sports      |               0 |                      |                       |                     |                    
+(4 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE price > 1000) AS expensive_count,
+    SUM(rating) FILTER (WHERE price > 1000) AS expensive_rating_sum,
+    AVG(views) FILTER (WHERE price > 1000) AS expensive_avg_views,
+    MIN(price) FILTER (WHERE price > 1000) AS expensive_min_price,
+    MAX(price) FILTER (WHERE price > 1000) AS expensive_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                                                         QUERY PLAN                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ GroupAggregate
+   Output: category, count(*) FILTER (WHERE (price > '1000'::numeric)), sum(rating) FILTER (WHERE (price > '1000'::numeric)), avg(views) FILTER (WHERE (price > '1000'::numeric)), min(price) FILTER (WHERE (price > '1000'::numeric)), max(price) FILTER (WHERE (price > '1000'::numeric))
+   Group Key: filter_agg_test.category
+   ->  Sort
+         Output: category, price, rating, views
+         Sort Key: filter_agg_test.category
+         ->  Seq Scan on public.filter_agg_test
+               Output: category, price, rating, views
+(8 rows)
+
+-- Test 9.9: Same filter with multi-column GROUP BY
+SELECT 
+    category,
+    brand,
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available') AS available_total_price,
+    SUM(rating) FILTER (WHERE status @@@ 'available') AS available_sum_rating
+FROM filter_agg_test
+GROUP BY category, brand
+ORDER BY category, brand;
+  category   |   brand    | available_count | available_total_price | available_sum_rating 
+-------------+------------+-----------------+-----------------------+----------------------
+ books       | DataBooks  |               1 |                 44.99 |                    4
+ books       | TechPress  |               2 |                 54.99 |                   64
+ clothing    | FashionCo  |               1 |                 79.99 |                    3
+ clothing    | TechWear   |               2 |                 84.98 |                    9
+ electronics | Apple      |               2 |               4499.98 |                   10
+ electronics | Generic    |               2 |                 82.99 |                  153
+ electronics | Samsung    |               2 |               2399.98 |                    8
+ sports      | GolfPro    |               1 |                899.99 |                    5
+ sports      | SportsCorp |               2 |                229.98 |                    7
+(9 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    brand,
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available') AS available_total_price,
+    SUM(rating) FILTER (WHERE status @@@ 'available') AS available_sum_rating
+FROM filter_agg_test
+GROUP BY category, brand
+ORDER BY category, brand;
+                                                                                                                                                    QUERY PLAN                                                                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, brand, now(), now(), now()
+   Index: filter_agg_idx
+     Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*) FILTER (WHERE <complex condition>), SUM(price) FILTER (WHERE <complex condition>), SUM(rating) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"group_1":{"terms":{"field":"brand","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_1":{"sum":{"field":"price"}},"agg_2":{"sum":{"field":"rating"}}}}}}}
+(6 rows)
+
+-- Test 9.10: Identical filters with different aggregate functions on same field
+SELECT 
+    category,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_sum,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_avg,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_min,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_max,
+    COUNT(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_count
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+  category   | apple_price_sum | apple_price_avg | apple_price_min | apple_price_max | apple_price_count 
+-------------+-----------------+-----------------+-----------------+-----------------+-------------------
+ electronics |         5399.97 |         1799.99 |          899.99 |         2499.99 |                 3
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_sum,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_avg,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_min,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_max,
+    COUNT(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_count
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
+   Output: category, now(), now(), now(), now(), now()
+   Index: filter_agg_idx
+     Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: SUM(price) FILTER (WHERE <complex condition>), AVG(price) FILTER (WHERE <complex condition>), MIN(price) FILTER (WHERE <complex condition>), MAX(price) FILTER (WHERE <complex condition>), COUNT(*) FILTER (WHERE <complex condition>)
+   Aggregate Definition: {"group_0":{"terms":{"field":"category","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}},"agg_1":{"avg":{"field":"price"}},"agg_2":{"min":{"field":"price"}},"agg_3":{"max":{"field":"price"}}}}}
+(6 rows)
+
+-- =====================================================================
+-- SECTION 10: Limitations and fallback scenarios
+-- =====================================================================
+-- Test 10.1: COUNT(DISTINCT) with FILTER (should fall back)
 SELECT 
     COUNT(DISTINCT category) AS unique_categories,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
@@ -689,7 +1104,7 @@ FROM filter_agg_test;
                  4 |           3
 (1 row)
 
--- Test 9.2: Window functions (should fall back)
+-- Test 10.2: Window functions (should fall back)
 SELECT 
     category,
     price,
@@ -708,7 +1123,7 @@ LIMIT 5;
  electronics |  649.99 |           8 |                  3
 (5 rows)
 
--- Test 9.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
+-- Test 10.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
 SELECT 
     category,
     COUNT(*) AS total_in_category,
@@ -724,7 +1139,7 @@ ORDER BY category;
  sports      |                 4 |                  
 (4 rows)
 
--- Test 9.4: GROUP BY with FILTER without @@@ (should fall back)
+-- Test 10.4: GROUP BY with FILTER without @@@ (should fall back)
 SELECT 
     category,
     status,

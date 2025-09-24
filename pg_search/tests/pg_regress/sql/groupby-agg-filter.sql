@@ -366,7 +366,7 @@ SELECT paradedb.aggregate(
     query => paradedb.parse('category:electronics'),
     agg => '{
         "total_count": {"value_count": {"field": "id"}},
-        "avg_price": {"avg": {"field": "price"}},
+        "sum_price": {"sum": {"field": "price"}},
         "max_rating": {"max": {"field": "rating"}}
     }'::json
 );
@@ -413,16 +413,254 @@ GROUP BY category
 ORDER BY apple_count DESC;
 
 -- =====================================================================
--- SECTION 9: Limitations and fallback scenarios
+-- SECTION 9: Multiple Aggregates with Same Filter (MultiCollector Optimization)
 -- =====================================================================
 
--- Test 9.1: COUNT(DISTINCT) with FILTER (should fall back)
+-- Test 9.1: Multiple aggregates with same filter - no GROUP BY
+-- This should trigger MultiCollector optimization
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
+FROM filter_agg_test;
+
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_max_price
+FROM filter_agg_test;
+
+-- Test 9.2: Multiple aggregates with same filter - with GROUP BY
+-- This should trigger MultiCollector optimization within each group
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_min_rating,
+    MAX(views) FILTER (WHERE brand @@@ 'Apple') AS apple_max_views
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_min_rating,
+    MAX(views) FILTER (WHERE brand @@@ 'Apple') AS apple_max_views
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- Test 9.3: Multiple aggregates with same complex filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_total,
+    AVG(rating) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_avg_rating
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_total,
+    AVG(rating) FILTER (WHERE status @@@ 'available' AND price > 500) AS expensive_available_avg_rating
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- Test 9.4: Multiple aggregates with same numeric filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE rating >= 4) AS highly_rated_count,
+    SUM(price) FILTER (WHERE rating >= 4) AS highly_rated_total_price,
+    AVG(price) FILTER (WHERE rating >= 4) AS highly_rated_avg_price,
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price,
+    MAX(price) FILTER (WHERE rating >= 4) AS highly_rated_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE rating >= 4) AS highly_rated_count,
+    SUM(price) FILTER (WHERE rating >= 4) AS highly_rated_total_price,
+    AVG(price) FILTER (WHERE rating >= 4) AS highly_rated_avg_price,
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price,
+    MAX(price) FILTER (WHERE rating >= 4) AS highly_rated_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- Test 9.5: Multiple aggregates with same boolean filter
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    brand,
+    COUNT(*) FILTER (WHERE in_stock = true) AS in_stock_count,
+    SUM(price) FILTER (WHERE in_stock = true) AS in_stock_total_price,
+    AVG(rating) FILTER (WHERE in_stock = true) AS in_stock_avg_rating,
+    MAX(views) FILTER (WHERE in_stock = true) AS in_stock_max_views
+FROM filter_agg_test
+GROUP BY brand
+ORDER BY brand;
+
+SELECT 
+    brand,
+    COUNT(*) FILTER (WHERE in_stock = true) AS in_stock_count,
+    SUM(price) FILTER (WHERE in_stock = true) AS in_stock_total_price,
+    AVG(rating) FILTER (WHERE in_stock = true) AS in_stock_avg_rating,
+    MAX(views) FILTER (WHERE in_stock = true) AS in_stock_max_views
+FROM filter_agg_test
+GROUP BY brand
+ORDER BY brand;
+
+-- Test 9.6: Mix of same and different filters (should optimize same-filter groups)
+SELECT 
+    category,
+    -- These three should use MultiCollector (same filter)
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_rating,
+    -- These two should use MultiCollector (same filter, different from above)
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS available_max_views,
+    -- This one is different (separate query)
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    -- These three should use MultiCollector (same filter)
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_total_price,
+    AVG(rating) FILTER (WHERE brand @@@ 'Apple') AS apple_avg_rating,
+    -- These two should use MultiCollector (same filter, different from above)
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    MAX(views) FILTER (WHERE status @@@ 'available') AS available_max_views,
+    -- This one is different (separate query)
+    MIN(price) FILTER (WHERE rating >= 4) AS highly_rated_min_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- Test 9.7: Many aggregates with same filter (stress test for MultiCollector)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Samsung') AS samsung_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_rating,
+    MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
+    SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
+FROM filter_agg_test;
+
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'Samsung') AS samsung_count,
+    SUM(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_price,
+    MIN(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_price,
+    MAX(price) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_price,
+    MIN(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_min_rating,
+    MAX(rating) FILTER (WHERE brand @@@ 'Samsung') AS samsung_max_rating,
+    SUM(views) FILTER (WHERE brand @@@ 'Samsung') AS samsung_total_views
+FROM filter_agg_test;
+
+-- Test 9.8: Multiple aggregates with same filter on different field types
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE price > 1000) AS expensive_count,
+    SUM(rating) FILTER (WHERE price > 1000) AS expensive_rating_sum,
+    AVG(views) FILTER (WHERE price > 1000) AS expensive_avg_views,
+    MIN(price) FILTER (WHERE price > 1000) AS expensive_min_price,
+    MAX(price) FILTER (WHERE price > 1000) AS expensive_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE price > 1000) AS expensive_count,
+    SUM(rating) FILTER (WHERE price > 1000) AS expensive_rating_sum,
+    AVG(views) FILTER (WHERE price > 1000) AS expensive_avg_views,
+    MIN(price) FILTER (WHERE price > 1000) AS expensive_min_price,
+    MAX(price) FILTER (WHERE price > 1000) AS expensive_max_price
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- Test 9.9: Same filter with multi-column GROUP BY
+SELECT 
+    category,
+    brand,
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available') AS available_total_price,
+    SUM(rating) FILTER (WHERE status @@@ 'available') AS available_sum_rating
+FROM filter_agg_test
+GROUP BY category, brand
+ORDER BY category, brand;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    brand,
+    COUNT(*) FILTER (WHERE status @@@ 'available') AS available_count,
+    SUM(price) FILTER (WHERE status @@@ 'available') AS available_total_price,
+    SUM(rating) FILTER (WHERE status @@@ 'available') AS available_sum_rating
+FROM filter_agg_test
+GROUP BY category, brand
+ORDER BY category, brand;
+
+-- Test 9.10: Identical filters with different aggregate functions on same field
+SELECT 
+    category,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_sum,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_avg,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_min,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_max,
+    COUNT(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_count
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT 
+    category,
+    SUM(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_sum,
+    AVG(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_avg,
+    MIN(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_min,
+    MAX(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_max,
+    COUNT(price) FILTER (WHERE brand @@@ 'Apple') AS apple_price_count
+FROM filter_agg_test
+GROUP BY category
+ORDER BY category;
+
+-- =====================================================================
+-- SECTION 10: Limitations and fallback scenarios
+-- =====================================================================
+
+-- Test 10.1: COUNT(DISTINCT) with FILTER (should fall back)
 SELECT 
     COUNT(DISTINCT category) AS unique_categories,
     COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
 FROM filter_agg_test;
 
--- Test 9.2: Window functions (should fall back)
+-- Test 10.2: Window functions (should fall back)
 SELECT 
     category,
     price,
@@ -433,7 +671,7 @@ WHERE category @@@ 'electronics'
 ORDER BY price DESC
 LIMIT 5;
 
--- Test 9.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
+-- Test 10.3: Complex aggregation patterns (avoiding subqueries that may cause issues)
 SELECT 
     category,
     COUNT(*) AS total_in_category,
@@ -442,7 +680,7 @@ FROM filter_agg_test
 GROUP BY category
 ORDER BY category;
 
--- Test 9.4: GROUP BY with FILTER without @@@ (should fall back)
+-- Test 10.4: GROUP BY with FILTER without @@@ (should fall back)
 SELECT 
     category,
     status,

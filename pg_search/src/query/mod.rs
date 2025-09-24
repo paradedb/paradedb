@@ -1182,9 +1182,13 @@ impl PostgresExpression {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
-    use super::*;
+    use super::{SearchQueryInput, TermInput};
+    use crate::query::pdb_query::pdb;
+
+    use pgrx::prelude::*;
     use tantivy::schema::OwnedValue;
 
     fn create_term_query() -> SearchQueryInput {
@@ -1211,7 +1215,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_base_cases() {
         // All query is a full scan
         assert!(SearchQueryInput::All.is_full_scan_query());
@@ -1236,7 +1240,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_boolean_must_only() {
         // Single Must clause with All → full scan
         assert!(SearchQueryInput::Boolean {
@@ -1271,7 +1275,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_boolean_should_only() {
         // Should clause with All → full scan
         assert!(SearchQueryInput::Boolean {
@@ -1306,7 +1310,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_boolean_must_not() {
         // Must with All, MustNot with term → not full scan (MustNot excludes docs)
         assert!(!SearchQueryInput::Boolean {
@@ -1341,7 +1345,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_boolean_mixed() {
         // Must with All, Should with term → full scan (Must satisfies "at least one")
         assert!(SearchQueryInput::Boolean {
@@ -1360,7 +1364,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_disjunction_max() {
         // DisjunctionMax with All → full scan
         assert!(SearchQueryInput::DisjunctionMax {
@@ -1384,7 +1388,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_wrapper_queries() {
         // WithIndex wrapping All → full scan
         assert!(SearchQueryInput::WithIndex {
@@ -1436,7 +1440,7 @@ mod tests {
         .is_full_scan_query());
     }
 
-    #[test]
+    #[pg_test]
     fn test_is_full_scan_query_nested_queries() {
         // Nested Boolean with All deep inside Should
         assert!(SearchQueryInput::Boolean {

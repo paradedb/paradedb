@@ -24,7 +24,7 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -58,11 +58,11 @@ use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
+use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
-use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};
@@ -162,7 +162,11 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
+                    .snippet_generator(
+                        snippet_type.field().root(),
+                        query_to_use.clone(),
+                        std::ptr::NonNull::new(expr_context),
+                    );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
@@ -620,7 +624,7 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert((rti as Varno, (*var).varattno), attname);
                 }
             }
 
@@ -895,12 +899,14 @@ impl CustomScan for PdbScan {
                 return;
             }
 
-            // setup the structures we need to do mvcc checking
+            // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =
                 Some(VisibilityChecker::with_rel_and_snap(
                     state.custom_state().heaprel(),
                     pg_sys::GetActiveSnapshot(),
                 ));
+            state.custom_state_mut().doc_from_heap_state =
+                Some(HeapFetchState::new(state.custom_state().heaprel()));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -1016,6 +1022,11 @@ impl CustomScan for PdbScan {
                                 (*const_score_node).constisnull = false;
                             }
 
+                            // TODO: We go _back_ to the heap to get snippet information here
+                            // inside of `make_snippet` and `get_snippet_positions`. It's possible
+                            // that we could use a wider tuple slot to fetch the extra columns that
+                            // we need during our initial lookup above (but then we'd need to copy
+                            // into the correctly shaped slot for this scan).
                             if state.custom_state().need_snippets() {
                                 per_tuple_context.switch_to(|_| {
                                     for (snippet_type, const_snippet_nodes) in
@@ -1108,6 +1119,7 @@ impl CustomScan for PdbScan {
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
+        drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758753872339,
+  "lastUpdate": 1758753875298,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -8692,6 +8692,114 @@ window.BENCHMARK_DATA = {
             "value": 157.8671875,
             "unit": "median mem",
             "extra": "avg mem: 155.68997509204928, max mem: 158.9453125, count: 55473"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "387ada8768d75f50e135e43cd4a85dbdea81db07",
+          "message": "fix: Fix error for invalid col in FF JSON (#3218)\n\nThe error used to say the column didn't exist in the table, but what\nit's actually trying to say is that the column isn't covered in the bm25\nUSING clause.\n\n- If the column isn't in the table but is in the USING then Postgres\nwill throw it's own error before this code is reached.\n- If the column is in the table and is isn't in the USING we will get\nthis error\n- If the column isn't in **either** then I suppose we could throw a more\naccurate warning, but this way at least it will throw the new erro,\nfixing which will result in the PG error\n\n```\npg_search=# create table tester(id int, words text);\nCREATE TABLE\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  the column `missing` does not exist in the USING clause\n\npg_search=# CREATE INDEX   \n        ON tester USING bm25(id, words, missing) WITH (\n    key_field = 'id', \n    numeric_fields = '{\n        \"missing\": {\"fast\": true}\n    }'\n) ;\nERROR:  column \"missing\" does not exist\n```",
+          "timestamp": "2025-09-24T14:52:13-07:00",
+          "tree_id": "67c4ad2f7cbba1cc522e73cfb15db519f212322b",
+          "url": "https://github.com/paradedb/paradedb/commit/387ada8768d75f50e135e43cd4a85dbdea81db07"
+        },
+        "date": 1758753873677,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.568666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.444830778306965, max cpu: 46.55674, count: 55575"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 143.4910013214125, max mem: 155.03125, count: 55575"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.767343351803213, max cpu: 28.015566, count: 55575"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 109.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 108.57938954959513, max mem: 109.7265625, count: 55575"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.981900120078173, max cpu: 13.953489, count: 55575"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 139.75,
+            "unit": "median mem",
+            "extra": "avg mem: 119.1172983440171, max mem: 140.18359375, count: 55575"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30578,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31005.179235267657, max block_count: 63400.0, count: 55575"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.1418780261988974, max cpu: 4.655674, count: 55575"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 103.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 91.9159467780027, max mem: 130.36328125, count: 55575"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 32,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.815672514619884, max segment_count: 52.0, count: 55575"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.778679312407434, max cpu: 28.042841, count: 111150"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.6796875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.65136333923752, max mem: 155.0234375, count: 111150"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.562032865760214, max cpu: 32.55814, count: 55575"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 155.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 153.7493182776653, max mem: 156.5703125, count: 55575"
           }
         ]
       }

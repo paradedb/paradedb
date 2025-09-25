@@ -430,44 +430,6 @@ impl SearchQueryInput {
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }
-
-    /// Format a filter condition in human-readable form
-    pub fn format_filter_condition(&self) -> String {
-        match self {
-            SearchQueryInput::FieldedQuery { field, query } => match query {
-                pdb::Query::Term { value, .. } => match value {
-                    tantivy::schema::OwnedValue::Bool(b) => format!("{field} = {b}"),
-                    tantivy::schema::OwnedValue::I64(i) => format!("{field} = {i}"),
-                    tantivy::schema::OwnedValue::F64(f) => format!("{field} = {f}"),
-                    tantivy::schema::OwnedValue::Str(s) => format!("{field} = '{s}'"),
-                    _ => format!("{field} = <value>"),
-                },
-                pdb::Query::Range {
-                    lower_bound,
-                    upper_bound,
-                    ..
-                } => {
-                    format!("{field} BETWEEN {lower_bound:?} AND {upper_bound:?}")
-                }
-                pdb::Query::Phrase { phrases, .. } => {
-                    format!("{field} @@@ '{}'", phrases.join(" "))
-                }
-                pdb::Query::ParseWithField { query_string, .. } => {
-                    format!("{field} @@@ '{query_string}'")
-                }
-                _ => format!("{field} <condition>"),
-            },
-            SearchQueryInput::Boolean { must, .. } => {
-                // For Boolean queries, try to extract the simple case
-                if must.len() == 1 {
-                    must[0].format_filter_condition()
-                } else {
-                    "<complex boolean condition>".to_string()
-                }
-            }
-            _ => "<complex condition>".to_string(),
-        }
-    }
 }
 
 /// Remove the oid from the with_index object

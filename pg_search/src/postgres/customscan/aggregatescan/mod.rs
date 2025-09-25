@@ -564,7 +564,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                     if let Some(filter_expr) = filter {
                         format!(
                             "COUNT(*) FILTER (WHERE {})",
-                            filter_expr.format_filter_condition()
+                            filter_expr.serialize_and_clean_query()
                         )
                     } else {
                         "COUNT(*)".to_string()
@@ -575,7 +575,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "SUM({}) FILTER (WHERE {})",
                             field,
-                            filter_expr.format_filter_condition()
+                            filter_expr.serialize_and_clean_query()
                         )
                     } else {
                         format!("SUM({field})")
@@ -586,7 +586,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "AVG({}) FILTER (WHERE {})",
                             field,
-                            filter_expr.format_filter_condition()
+                            filter_expr.serialize_and_clean_query()
                         )
                     } else {
                         format!("AVG({field})")
@@ -597,7 +597,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "MIN({}) FILTER (WHERE {})",
                             field,
-                            filter_expr.format_filter_condition()
+                            filter_expr.serialize_and_clean_query()
                         )
                     } else {
                         format!("MIN({field})")
@@ -608,7 +608,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "MAX({}) FILTER (WHERE {})",
                             field,
-                            filter_expr.format_filter_condition()
+                            filter_expr.serialize_and_clean_query()
                         )
                     } else {
                         format!("MAX({field})")

@@ -405,16 +405,13 @@ impl AggregateScanState {
             }
 
             // Convert the Vec back to rows, preserving the order from Tantivy
-            let rows: Vec<GroupedAggregateRow> = all_groups
+            all_groups
                 .into_iter()
                 .map(|(_, group_keys, aggregate_values)| GroupedAggregateRow {
                     group_keys,
                     aggregate_values: aggregate_values.into_iter().collect(),
                 })
-                .collect();
-
-            // Order is preserved from Tantivy's ORDER BY configuration
-            rows
+                .collect()
         }
     }
 

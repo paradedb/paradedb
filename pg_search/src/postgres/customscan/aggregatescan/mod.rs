@@ -51,7 +51,6 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
 use crate::postgres::PgSearchRelation;
-use crate::query::pdb_query::pdb::Query;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
@@ -565,7 +564,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                     if let Some(filter_expr) = filter {
                         format!(
                             "COUNT(*) FILTER (WHERE {})",
-                            format_filter_condition(filter_expr)
+                            filter_expr.format_filter_condition()
                         )
                     } else {
                         "COUNT(*)".to_string()
@@ -576,7 +575,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "SUM({}) FILTER (WHERE {})",
                             field,
-                            format_filter_condition(filter_expr)
+                            filter_expr.format_filter_condition()
                         )
                     } else {
                         format!("SUM({field})")
@@ -587,7 +586,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "AVG({}) FILTER (WHERE {})",
                             field,
-                            format_filter_condition(filter_expr)
+                            filter_expr.format_filter_condition()
                         )
                     } else {
                         format!("AVG({field})")
@@ -598,7 +597,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "MIN({}) FILTER (WHERE {})",
                             field,
-                            format_filter_condition(filter_expr)
+                            filter_expr.format_filter_condition()
                         )
                     } else {
                         format!("MIN({field})")
@@ -609,7 +608,7 @@ fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usiz
                         format!(
                             "MAX({}) FILTER (WHERE {})",
                             field,
-                            format_filter_condition(filter_expr)
+                            filter_expr.format_filter_condition()
                         )
                     } else {
                         format!("MAX({field})")
@@ -1056,44 +1055,6 @@ fn execute(
     } else {
         // Multiple distinct filters - use multi-query approach
         execute_multi_filter_queries(state, filter_groups)
-    }
-}
-
-/// Format a filter condition in human-readable form
-fn format_filter_condition(filter_expr: &SearchQueryInput) -> String {
-    match filter_expr {
-        SearchQueryInput::FieldedQuery { field, query } => match query {
-            Query::Term { value, .. } => match value {
-                tantivy::schema::OwnedValue::Bool(b) => format!("{field} = {b}"),
-                tantivy::schema::OwnedValue::I64(i) => format!("{field} = {i}"),
-                tantivy::schema::OwnedValue::F64(f) => format!("{field} = {f}"),
-                tantivy::schema::OwnedValue::Str(s) => format!("{field} = '{s}'"),
-                _ => format!("{field} = <value>"),
-            },
-            Query::Range {
-                lower_bound,
-                upper_bound,
-                ..
-            } => {
-                format!("{field} BETWEEN {lower_bound:?} AND {upper_bound:?}")
-            }
-            Query::Phrase { phrases, .. } => {
-                format!("{field} @@@ '{}'", phrases.join(" "))
-            }
-            Query::ParseWithField { query_string, .. } => {
-                format!("{field} @@@ '{query_string}'")
-            }
-            _ => format!("{field} <condition>"),
-        },
-        SearchQueryInput::Boolean { must, .. } => {
-            // For Boolean queries, try to extract the simple case
-            if must.len() == 1 {
-                format_filter_condition(&must[0])
-            } else {
-                "<complex boolean condition>".to_string()
-            }
-        }
-        _ => "<complex condition>".to_string(),
     }
 }
 

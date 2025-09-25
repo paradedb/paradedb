@@ -378,9 +378,7 @@ impl CustomScan for AggregateScan {
 
         // Use pre-computed filter groups from the scan state
         let filter_groups = &state.custom_state().filter_groups;
-
         explain_execution_strategy(state, filter_groups, explainer);
-
         explainer.add_text(
             "Aggregate Definition",
             serde_json::to_string(&state.custom_state().aggregates_to_json())
@@ -989,7 +987,6 @@ fn execute(
     }
 
     let filter_groups = &state.custom_state().filter_groups;
-
     if filter_groups.len() == 1 {
         // All aggregates have the same filter (or no filter) - use single query approach
         let (filter_expr, aggregate_indices) = &filter_groups[0];

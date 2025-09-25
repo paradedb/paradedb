@@ -87,7 +87,7 @@ SELECT
     COUNT(*) FILTER (WHERE description @@@ 'laptop') AS laptop_count
 FROM filter_agg_test;
 
--- Test 1.2: Multiple FILTER clauses (should use optimized multi-query)
+-- Test 1.2: Multiple FILTER clauses (should use multi-query)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     COUNT(*) AS total,

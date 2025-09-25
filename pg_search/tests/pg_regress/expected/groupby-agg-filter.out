@@ -97,7 +97,7 @@ FROM filter_agg_test;
     20 |            2
 (1 row)
 
--- Test 1.2: Multiple FILTER clauses (should use optimized multi-query)
+-- Test 1.2: Multiple FILTER clauses (should use multi-query)
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT 
     COUNT(*) AS total,

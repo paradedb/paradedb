@@ -631,9 +631,8 @@ fn explain_filter_execution_strategy(
         // No filters - just show the base query without mentioning execution strategy
         explainer.add_query(&state.custom_state().query);
     } else if filter_groups.len() == 1 {
-        // Single query optimization
+        // Single query
         let (filter_expr, aggregate_indices) = &filter_groups[0];
-
         if filter_expr.is_none() {
             // No filters - just show the base query without mentioning execution strategy
             explainer.add_query(&state.custom_state().query);
@@ -643,12 +642,10 @@ fn explain_filter_execution_strategy(
                 .custom_state()
                 .query
                 .combine_query_with_filter(filter_expr.as_ref());
-
             explainer.add_text(
                 "  Combined Query",
                 combined_query.serialize_and_clean_query(),
             );
-
             explainer.add_text(
                 "  Applies to Aggregates",
                 get_aggregate_descriptions(
@@ -658,7 +655,7 @@ fn explain_filter_execution_strategy(
             );
         }
     } else {
-        // Multi-group optimization
+        // Multi-group
         explainer.add_text(
             "Execution Strategy",
             format!(
@@ -666,7 +663,6 @@ fn explain_filter_execution_strategy(
                 filter_groups.len()
             ),
         );
-
         for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
             let combined_query = state
                 .custom_state()
@@ -678,9 +674,7 @@ fn explain_filter_execution_strategy(
             } else {
                 format!("  Group {} Query (No Filter)", group_idx + 1)
             };
-
             explainer.add_text(&query_label, combined_query.serialize_and_clean_query());
-
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
                 get_aggregate_descriptions(
@@ -1049,19 +1043,19 @@ fn execute(
     // Handle the special case of GROUP BY without aggregates
     if state.custom_state().aggregate_types.is_empty() {
         // No aggregates - just execute a single query for GROUP BY
-        return execute_single_optimized_query(state, None, vec![]);
+        return execute_single_query(state, None, vec![]);
     }
 
     // Use pre-computed filter groups from the scan state
     let filter_groups = &state.custom_state().filter_groups;
 
     if filter_groups.len() == 1 {
-        // All aggregates have the same filter (or no filter) - use single query optimization
+        // All aggregates have the same filter (or no filter) - use single query approach
         let (filter_expr, aggregate_indices) = &filter_groups[0];
-        execute_single_optimized_query(state, filter_expr.clone(), aggregate_indices.clone())
+        execute_single_query(state, filter_expr.clone(), aggregate_indices.clone())
     } else {
-        // Multiple distinct filters - use optimized multi-query approach
-        execute_optimized_multi_filter_queries(state, filter_groups)
+        // Multiple distinct filters - use multi-query approach
+        execute_multi_filter_queries(state, filter_groups)
     }
 }
 
@@ -1103,8 +1097,8 @@ fn format_filter_condition(filter_expr: &SearchQueryInput) -> String {
     }
 }
 
-/// Execute a single optimized query when all aggregates have the same filter (or no filter)
-fn execute_single_optimized_query(
+/// Execute a single query when all aggregates have the same filter (or no filter)
+fn execute_single_query(
     state: &CustomScanStateWrapper<AggregateScan>,
     common_filter: Option<SearchQueryInput>,
     _aggregate_indices: Vec<usize>,
@@ -1142,8 +1136,8 @@ fn execute_single_optimized_query(
         .into_iter()
 }
 
-/// Execute optimized multi-query approach, grouping aggregates by filter
-fn execute_optimized_multi_filter_queries(
+/// Execute multi-query approach, grouping aggregates by filter
+fn execute_multi_filter_queries(
     state: &CustomScanStateWrapper<AggregateScan>,
     filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
@@ -1212,7 +1206,7 @@ fn execute_optimized_multi_filter_queries(
     // Merge results from all groups
     state
         .custom_state()
-        .merge_optimized_multi_group_results(all_results)
+        .merge_multi_group_results(all_results)
         .into_iter()
 }
 

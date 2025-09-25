@@ -319,8 +319,8 @@ impl AggregateScanState {
         rows
     }
 
-    /// Merge results from optimized multi-group queries where aggregates are grouped by filter
-    pub fn merge_optimized_multi_group_results(
+    /// Merge results from multi-group queries where aggregates are grouped by filter
+    pub fn merge_multi_group_results(
         &self,
         group_results: Vec<(serde_json::Value, Vec<usize>)>,
     ) -> Vec<GroupedAggregateRow> {

@@ -99,7 +99,6 @@ impl CustomScan for AggregateScan {
         let has_where_clause = matches!(ri_type, RestrictInfoType::BaseRelation);
 
         // Are there any group (/distinct/order-by) or having clauses?
-        // We can't handle HAVING yet
         if args.root().hasHavingQual {
             // We can't handle HAVING yet
             return None;
@@ -151,12 +150,11 @@ impl CustomScan for AggregateScan {
                 heap_rti,
             )?;
 
-        // Check if any aggregates have filters
         let has_filters = aggregate_types.iter().any(|agg| agg.has_filter());
-
+        let handle_query_without_op = !gucs::enable_custom_scan_without_operator();
         // If we don't have a WHERE clause and we don't have FILTER clauses,
-        // there's no benefit to using AggregateScan
-        if !gucs::enable_custom_scan_without_operator() && !has_where_clause && !has_filters {
+        // we'd only handle the query if the GUC is enabled
+        if handle_query_without_op && !has_where_clause && !has_filters {
             return None;
         }
 
@@ -238,14 +236,9 @@ impl CustomScan for AggregateScan {
             // No WHERE clause - use an "All" query that matches everything
             SearchQueryInput::All
         };
-
-        // Check if @@@ operators are used in WHERE clause or FILTER clauses
-        // Only use AggregateScan if there's at least one @@@ operator
         let where_uses_search_operator = where_qual_state.uses_our_operator;
-        if !gucs::enable_custom_scan_without_operator()
-            && !where_uses_search_operator
-            && !filter_uses_search_operator
-        {
+        let has_search_operator = where_uses_search_operator || filter_uses_search_operator;
+        if handle_query_without_op && !has_search_operator {
             return None;
         }
 
@@ -386,8 +379,7 @@ impl CustomScan for AggregateScan {
         // Use pre-computed filter groups from the scan state
         let filter_groups = &state.custom_state().filter_groups;
 
-        // Show execution strategy and queries based on filter patterns
-        explain_filter_execution_strategy(state, filter_groups, explainer);
+        explain_execution_strategy(state, filter_groups, explainer);
 
         explainer.add_text(
             "Aggregate Definition",
@@ -553,75 +545,33 @@ fn convert_aggregate_value_to_datum(
     }
 }
 
-/// Helper function to get human-readable aggregate descriptions
-fn get_aggregate_descriptions(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
-    let descriptions: Vec<String> = indices
+fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
+    indices
         .iter()
-        .map(|&idx| {
-            let agg_type = &aggregate_types[idx];
-            match agg_type {
-                AggregateType::CountAny { filter } => {
-                    if let Some(filter_expr) = filter {
-                        format!(
-                            "COUNT(*) FILTER (WHERE {})",
-                            filter_expr.serialize_and_clean_query()
-                        )
-                    } else {
-                        "COUNT(*)".to_string()
-                    }
-                }
-                AggregateType::Sum { field, filter, .. } => {
-                    if let Some(filter_expr) = filter {
-                        format!(
-                            "SUM({}) FILTER (WHERE {})",
-                            field,
-                            filter_expr.serialize_and_clean_query()
-                        )
-                    } else {
-                        format!("SUM({field})")
-                    }
-                }
-                AggregateType::Avg { field, filter, .. } => {
-                    if let Some(filter_expr) = filter {
-                        format!(
-                            "AVG({}) FILTER (WHERE {})",
-                            field,
-                            filter_expr.serialize_and_clean_query()
-                        )
-                    } else {
-                        format!("AVG({field})")
-                    }
-                }
-                AggregateType::Min { field, filter, .. } => {
-                    if let Some(filter_expr) = filter {
-                        format!(
-                            "MIN({}) FILTER (WHERE {})",
-                            field,
-                            filter_expr.serialize_and_clean_query()
-                        )
-                    } else {
-                        format!("MIN({field})")
-                    }
-                }
-                AggregateType::Max { field, filter, .. } => {
-                    if let Some(filter_expr) = filter {
-                        format!(
-                            "MAX({}) FILTER (WHERE {})",
-                            field,
-                            filter_expr.serialize_and_clean_query()
-                        )
-                    } else {
-                        format!("MAX({field})")
-                    }
-                }
-            }
-        })
-        .collect();
-    descriptions.join(", ")
+        .map(|&idx| format_aggregate(&aggregate_types[idx]))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
-/// Helper function to explain filter execution strategy
-fn explain_filter_execution_strategy(
+fn format_aggregate(agg: &AggregateType) -> String {
+    let base = match agg {
+        AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
+        AggregateType::Sum { field, .. } => format!("SUM({field})"),
+        AggregateType::Avg { field, .. } => format!("AVG({field})"),
+        AggregateType::Min { field, .. } => format!("MIN({field})"),
+        AggregateType::Max { field, .. } => format!("MAX({field})"),
+    };
+
+    match agg.filter_expr() {
+        Some(filter) => format!(
+            "{base} FILTER (WHERE {})",
+            filter.serialize_and_clean_query()
+        ),
+        None => base,
+    }
+}
+
+fn explain_execution_strategy(
     state: &CustomScanStateWrapper<AggregateScan>,
     filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
     explainer: &mut Explainer,
@@ -647,10 +597,7 @@ fn explain_filter_execution_strategy(
             );
             explainer.add_text(
                 "  Applies to Aggregates",
-                get_aggregate_descriptions(
-                    &state.custom_state().aggregate_types,
-                    aggregate_indices,
-                ),
+                format_aggregates(&state.custom_state().aggregate_types, aggregate_indices),
             );
         }
     } else {
@@ -676,17 +623,14 @@ fn explain_filter_execution_strategy(
             explainer.add_text(&query_label, combined_query.serialize_and_clean_query());
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
-                get_aggregate_descriptions(
-                    &state.custom_state().aggregate_types,
-                    aggregate_indices,
-                ),
+                format_aggregates(&state.custom_state().aggregate_types, aggregate_indices),
             );
         }
     }
 }
 
-/// Helper function to convert filtered aggregates to unfiltered ones
-fn convert_to_unfiltered_aggregates(aggregate_types: &[AggregateType]) -> Vec<AggregateType> {
+/// Helper function to remove filters from filtered aggregates
+fn remove_filters(aggregate_types: &[AggregateType]) -> Vec<AggregateType> {
     aggregate_types
         .iter()
         .map(|agg| agg.convert_filtered_aggregate_to_unfiltered())
@@ -1041,11 +985,9 @@ fn execute(
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
     // Handle the special case of GROUP BY without aggregates
     if state.custom_state().aggregate_types.is_empty() {
-        // No aggregates - just execute a single query for GROUP BY
         return execute_single_query(state, None, vec![]);
     }
 
-    // Use pre-computed filter groups from the scan state
     let filter_groups = &state.custom_state().filter_groups;
 
     if filter_groups.len() == 1 {
@@ -1071,16 +1013,12 @@ fn execute_single_query(
         .combine_query_with_filter(common_filter.as_ref());
 
     // Create unfiltered aggregate types (since filter is moved to query level)
-    let unfiltered_aggregates =
-        convert_to_unfiltered_aggregates(&state.custom_state().aggregate_types);
-
-    // Create temporary state for aggregation JSON generation
+    let unfiltered_aggregates = remove_filters(&state.custom_state().aggregate_types);
     let temp_scan_state =
         create_temp_scan_state(state, unfiltered_aggregates, combined_query.clone(), None);
 
     let agg_json = temp_scan_state.aggregates_to_json();
 
-    // Execute the single query
     let result = execute_aggregate(
         state.custom_state().indexrel(),
         combined_query,
@@ -1091,7 +1029,6 @@ fn execute_single_query(
     )
     .expect(FAILED_TO_EXECUTE_AGGREGATE);
 
-    // Parse results using the temporary state
     temp_scan_state
         .json_to_aggregate_results(result)
         .into_iter()
@@ -1106,11 +1043,9 @@ fn execute_multi_filter_queries(
 
     // Execute one query per filter group
     for (filter_expr, aggregate_indices) in filter_groups {
-        // Determine the query to execute
         let combined_query = if let Some(filter) = filter_expr {
             // If there's a filter, check if we need to combine with base query
             if matches!(state.custom_state().query, SearchQueryInput::All) {
-                // No base WHERE clause - just use the filter directly
                 filter.clone()
             } else {
                 // Combine filter with existing WHERE clause
@@ -1150,7 +1085,6 @@ fn execute_multi_filter_queries(
 
         let agg_json = temp_scan_state.aggregates_to_json();
 
-        // Execute the query for this group
         let result = execute_aggregate(
             state.custom_state().indexrel(),
             combined_query,

@@ -151,23 +151,8 @@ impl AggregateType {
             return None;
         }
 
-        // Handle FILTER clause if present
-        let mut filter_uses_search_operator = false;
-        let filter_expr = if !(*aggref).aggfilter.is_null() {
-            let mut filter_qual_state =
-                crate::postgres::customscan::qual_inspect::QualExtractState::default();
-            let filter_result = crate::postgres::customscan::aggregatescan::extract_filter_clause(
-                (*aggref).aggfilter,
-                bm25_index,
-                root,
-                heap_rti,
-                &mut filter_qual_state,
-            );
-            filter_uses_search_operator = filter_qual_state.uses_our_operator;
-            filter_result
-        } else {
-            None
-        };
+        let (filter_expr, filter_uses_search_operator) =
+            extract_filter_clause_if_present(aggref, bm25_index, root, heap_rti);
 
         if aggfnoid == F_COUNT_ANY {
             return Some((
@@ -179,71 +164,10 @@ impl AggregateType {
         }
 
         let first_arg = args.get_ptr(0)?;
+        let (field, missing) = parse_aggregate_field(first_arg, heaprelid)?;
+        let agg_type = create_aggregate_from_oid(aggfnoid, field, missing, filter_expr)?;
 
-        let (var, missing) = if let Some(coalesce_node) =
-            nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
-        {
-            let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
-            if args.is_empty() {
-                return None;
-            }
-            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-            let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
-            let missing = match TantivyValue::try_from(const_node) {
-                // return None and bail if the conversion is lossy
-                Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
-                Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
-                Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
-                Ok(TantivyValue(OwnedValue::Null)) => None,
-                _ => {
-                    return None;
-                }
-            };
-            (var, missing)
-        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-            (var, None)
-        } else {
-            return None;
-        };
-
-        let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
-
-        let agg =
-            match aggfnoid {
-                F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4
-                | F_AVG_FLOAT8 => AggregateType::Avg {
-                    field,
-                    missing,
-                    filter: filter_expr,
-                },
-                F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8
-                | F_SUM_NUMERIC => AggregateType::Sum {
-                    field,
-                    missing,
-                    filter: filter_expr,
-                },
-                F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-                | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ
-                | F_MAX_NUMERIC => AggregateType::Max {
-                    field,
-                    missing,
-                    filter: filter_expr,
-                },
-                F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-                | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-                | F_MIN_NUMERIC => AggregateType::Min {
-                    field,
-                    missing,
-                    filter: filter_expr,
-                },
-                _ => {
-                    // For unknown function OIDs, we'll reject them for now
-                    pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
-                    return None;
-                }
-            };
-
-        Some((agg, filter_uses_search_operator))
+        Some((agg_type, filter_uses_search_operator))
     }
 
     /// Get the field name for field-based aggregates (None for COUNT)
@@ -505,6 +429,113 @@ impl F64Lossless for i64 {
         if f as i64 == self {
             Some(f)
         } else {
+            None
+        }
+    }
+}
+
+/// Extract filter clause from aggregate if present
+unsafe fn extract_filter_clause_if_present(
+    aggref: *mut pg_sys::Aggref,
+    bm25_index: &crate::postgres::PgSearchRelation,
+    root: *mut pg_sys::PlannerInfo,
+    heap_rti: pg_sys::Index,
+) -> (Option<SearchQueryInput>, bool) {
+    if (*aggref).aggfilter.is_null() {
+        return (None, false);
+    }
+
+    let mut filter_qual_state =
+        crate::postgres::customscan::qual_inspect::QualExtractState::default();
+    let filter_result = crate::postgres::customscan::aggregatescan::extract_filter_clause(
+        (*aggref).aggfilter,
+        bm25_index,
+        root,
+        heap_rti,
+        &mut filter_qual_state,
+    );
+    (filter_result, filter_qual_state.uses_our_operator)
+}
+
+/// Parse field name and missing value from aggregate argument
+unsafe fn parse_aggregate_field(
+    first_arg: *mut pg_sys::TargetEntry,
+    heaprelid: pg_sys::Oid,
+) -> Option<(String, Option<f64>)> {
+    let (var, missing) =
+        if let Some(coalesce_node) = nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr) {
+            parse_coalesce_expression(coalesce_node)?
+        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+            (var, None)
+        } else {
+            return None;
+        };
+
+    let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
+    Some((field, missing))
+}
+
+/// Parse COALESCE expression to extract variable and missing value
+unsafe fn parse_coalesce_expression(
+    coalesce_node: *mut pg_sys::CoalesceExpr,
+) -> Option<(*mut pg_sys::Var, Option<f64>)> {
+    let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
+    if args.is_empty() {
+        return None;
+    }
+
+    let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
+    let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
+    let missing = match TantivyValue::try_from(const_node) {
+        Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
+        Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
+        Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
+        Ok(TantivyValue(OwnedValue::Null)) => None,
+        _ => return None,
+    };
+
+    Some((var, missing))
+}
+
+/// Create appropriate AggregateType from function OID
+fn create_aggregate_from_oid(
+    aggfnoid: u32,
+    field: String,
+    missing: Option<f64>,
+    filter: Option<SearchQueryInput>,
+) -> Option<AggregateType> {
+    match aggfnoid {
+        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
+            Some(AggregateType::Avg {
+                field,
+                missing,
+                filter,
+            })
+        }
+        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
+            Some(AggregateType::Sum {
+                field,
+                missing,
+                filter,
+            })
+        }
+        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
+        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
+            Some(AggregateType::Max {
+                field,
+                missing,
+                filter,
+            })
+        }
+        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
+        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
+        | F_MIN_NUMERIC => Some(AggregateType::Min {
+            field,
+            missing,
+            filter,
+        }),
+        _ => {
+            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid);
             None
         }
     }

@@ -856,7 +856,9 @@ fn extract_aggregates(
     // Convert filter groups to the expected format and sort for deterministic output
     let mut grouped_aggregates: Vec<(Option<SearchQueryInput>, Vec<usize>, String)> = filter_groups
         .into_iter()
-        .map(|(filter_key, indices)| {
+        .map(|(filter_key, mut indices)| {
+            // Sort indices within each group for deterministic ordering
+            indices.sort();
             let filter_expr = if filter_key == NO_FILTER_KEY {
                 None
             } else {

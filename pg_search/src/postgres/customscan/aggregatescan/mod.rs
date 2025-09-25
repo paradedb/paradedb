@@ -54,11 +54,11 @@ use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgTupleDesc};
+use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
 // Constants for better maintainability
-const DEFAULT_BUCKET_LIMIT: u32 = 65000;
 const NO_FILTER_KEY: &str = "NO_FILTER";
 const FAILED_TO_EXECUTE_AGGREGATE: &str = "failed to execute aggregate";
 

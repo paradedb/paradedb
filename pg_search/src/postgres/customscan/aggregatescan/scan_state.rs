@@ -119,12 +119,8 @@ impl AggregateScanState {
                 .aggregate_types
                 .iter()
                 .any(|agg| matches!(agg, AggregateType::Sum { .. }));
-            let has_count = self
-                .aggregate_types
-                .iter()
-                .any(|agg| matches!(agg, AggregateType::CountAny { .. }));
 
-            if has_sum && !has_count {
+            if has_sum {
                 agg_map.insert(
                     "_doc_count".to_string(),
                     serde_json::json!({

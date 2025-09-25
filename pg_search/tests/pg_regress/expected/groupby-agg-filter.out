@@ -192,13 +192,13 @@ SELECT
     MAX(views) AS max_views
 FROM filter_agg_test
 WHERE status @@@ 'available';
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now()
    Index: filter_agg_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"3":{"max":{"field":"views"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"3":{"max":{"field":"views"}},"_doc_count":{"value_count":{"field":"ctid"}}}
 (5 rows)
 
 -- Test 2.2: All aggregates have SAME filter (single query optimization)
@@ -215,7 +215,7 @@ FROM filter_agg_test;
    Index: filter_agg_idx
      Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}), SUM(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}), AVG(rating) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}})
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"rating"}},"_doc_count":{"value_count":{"field":"ctid"}}}
 (6 rows)
 
 -- Test 2.3: Mixed filters - some same, some different (partial optimization)
@@ -239,7 +239,7 @@ FROM filter_agg_test;
      Group 2 Aggregates: COUNT(*) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}), SUM(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}})
      Group 3 Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}}
      Group 3 Aggregates: COUNT(*) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}})
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"value_count":{"field":"ctid"}},"3":{"sum":{"field":"price"}},"4":{"value_count":{"field":"ctid"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"value_count":{"field":"ctid"}},"3":{"sum":{"field":"price"}},"4":{"value_count":{"field":"ctid"}},"_doc_count":{"value_count":{"field":"ctid"}}}
 (11 rows)
 
 -- Test 2.4: Many different filters (multi-query required)
@@ -700,7 +700,7 @@ FROM filter_agg_test;
    Index: filter_agg_idx
      Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}), SUM(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}), AVG(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}), MIN(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}), MAX(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}})
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"price"}},"3":{"min":{"field":"price"}},"4":{"max":{"field":"price"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"avg":{"field":"price"}},"3":{"min":{"field":"price"}},"4":{"max":{"field":"price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
 (6 rows)
 
 SELECT 
@@ -952,7 +952,7 @@ FROM filter_agg_test;
    Index: filter_agg_idx
      Combined Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}
      Applies to Aggregates: COUNT(*) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), SUM(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), MIN(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), MAX(price) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), MIN(rating) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), MAX(rating) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}}), SUM(views) FILTER (WHERE {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Samsung","lenient":null,"conjunction_mode":null}}}})
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"min":{"field":"price"}},"3":{"max":{"field":"price"}},"4":{"min":{"field":"rating"}},"5":{"max":{"field":"rating"}},"6":{"sum":{"field":"views"}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}},"1":{"sum":{"field":"price"}},"2":{"min":{"field":"price"}},"3":{"max":{"field":"price"}},"4":{"min":{"field":"rating"}},"5":{"max":{"field":"rating"}},"6":{"sum":{"field":"views"}},"_doc_count":{"value_count":{"field":"ctid"}}}
 (6 rows)
 
 SELECT 

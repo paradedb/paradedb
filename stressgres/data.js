@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758928399375,
+  "lastUpdate": 1758928948446,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1474,6 +1474,60 @@ window.BENCHMARK_DATA = {
             "value": 162.7421875,
             "unit": "median mem",
             "extra": "avg mem: 153.23296020739764, max mem: 163.4921875, count: 57890"
+          }
+        ]
+      }
+    ],
+    "pg_search background-merge.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48",
+          "message": "ci: fix benchmark links in slack messages (#2875)",
+          "timestamp": "2025-07-17T12:13:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48"
+        },
+        "date": 1758928946869,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 253.825247805844,
+            "unit": "median tps",
+            "extra": "avg tps: 250.07392226259952, max tps: 606.4739799533079, count: 55467"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 140.72784958459772,
+            "unit": "median tps",
+            "extra": "avg tps: 137.37339358202732, max tps: 149.9403669625211, count: 55467"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - tps",
+            "value": 1791.9772725274931,
+            "unit": "median tps",
+            "extra": "avg tps: 1762.0278245674288, max tps: 1893.0948625398678, count: 55467"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 19.26972509004595,
+            "unit": "median tps",
+            "extra": "avg tps: 22.97693581200605, max tps: 73.41186566673635, count: 166401"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 0.5048185422128013,
+            "unit": "median tps",
+            "extra": "avg tps: 0.9517277470698986, max tps: 4.86618095638412, count: 55467"
           }
         ]
       }

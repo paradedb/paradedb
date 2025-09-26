@@ -860,6 +860,9 @@ impl SearchIndexReader {
     /// Create erased Features for the given OrderByInfo.
     ///
     /// See `top_in_segments` and `sort_features!`.
+    ///
+    /// Additionally, if we need scores, this method will ensure that at least one of these features is a ScoreFeature
+    /// (see comment within function below)
     fn erased_features(&self, orderby_infos: Option<&Vec<OrderByInfo>>) -> ErasedFeatures {
         let remainder = orderby_infos.and_then(|oi| oi.get(1..)).unwrap_or(&[]);
         let mut erased_features = ErasedFeatures::default();
@@ -950,7 +953,10 @@ pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableSc
 #[derive(Default)]
 pub struct ErasedFeatures {
     features: Vec<(ErasedFeature, SortDirection)>,
-    score_index: Option<usize>, // which, if any, of the erased features is the score feature
+    // which, if any, of the erased features is the score feature
+    // note: once https://github.com/quickwit-oss/tantivy/pull/2681#issuecomment-3340222261 is resolved,
+    // this will be unnecessary
+    score_index: Option<usize>,
 }
 
 impl ErasedFeatures {

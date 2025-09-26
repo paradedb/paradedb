@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758753875298,
+  "lastUpdate": 1758918343599,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -12946,6 +12946,72 @@ window.BENCHMARK_DATA = {
             "value": 136.45170288951118,
             "unit": "median tps",
             "extra": "avg tps: 161.83394801210864, max tps: 519.7010887218107, count: 55305"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67f35ee649c4e097dfa03a113f040b06a286cca6",
+          "message": "feat: TopN scan can emit scores for any `ORDER BY` (#3230)\n\n# Ticket(s) Closed\n\n- Closes #3227 \n\n## What\n\nAllows the `TopNScanState` to return scores.\n\n## Why\n\nAvoid falling back to the normal exec state, which can be very slow.\n\n## How\n\n## Tests\n\nAdded regression test.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-26T16:08:20-04:00",
+          "tree_id": "b0aec7f56d6788bce86050996a7acb8c0141968c",
+          "url": "https://github.com/paradedb/paradedb/commit/67f35ee649c4e097dfa03a113f040b06a286cca6"
+        },
+        "date": 1758918342036,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 805.7866405676978,
+            "unit": "median tps",
+            "extra": "avg tps: 805.1757893421249, max tps: 826.0927219452568, count: 55048"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3394.6006881047256,
+            "unit": "median tps",
+            "extra": "avg tps: 3331.8367182931215, max tps: 3418.739133052074, count: 55048"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 802.1138908022765,
+            "unit": "median tps",
+            "extra": "avg tps: 800.6872227629462, max tps: 810.9754034801239, count: 55048"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 715.9914295209419,
+            "unit": "median tps",
+            "extra": "avg tps: 713.2999367820859, max tps: 734.5731556998322, count: 55048"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1702.09712674944,
+            "unit": "median tps",
+            "extra": "avg tps: 1683.0979106082907, max tps: 1705.5965923015474, count: 110096"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1309.482523596578,
+            "unit": "median tps",
+            "extra": "avg tps: 1292.1161059866308, max tps: 1317.4099265884574, count: 55048"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 88.99074469894994,
+            "unit": "median tps",
+            "extra": "avg tps: 127.52106710602537, max tps: 567.0213574264488, count: 55048"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758920936929,
+  "lastUpdate": 1758920939681,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -32288,6 +32288,90 @@ window.BENCHMARK_DATA = {
             "value": 155.0390625,
             "unit": "median mem",
             "extra": "avg mem: 180.77201791642577, max mem: 214.8828125, count: 57081"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "edad7384c6a618f8a508c5b960656afe9b995dda",
+          "message": "feat: TopN scan can emit scores for any `ORDER BY` (#3233)\n\n# Ticket(s) Closed\n\n- Closes #3227 \n\n## What\n\nAllows the `TopNScanState` to return scores.\n\n## Why\n\nAvoid falling back to the normal exec state, which can be very slow.\n\n## How\n\n## Tests\n\nAdded regression test.\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-26T16:26:34-04:00",
+          "tree_id": "1bb0827ba31fe76327507d525c36eb3b4c26bb7c",
+          "url": "https://github.com/paradedb/paradedb/commit/edad7384c6a618f8a508c5b960656afe9b995dda"
+        },
+        "date": 1758920938098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.521237509291321, max cpu: 28.318584, count: 56630"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 166.22059193172788, max mem: 167.171875, count: 56630"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 57953,
+            "unit": "median block_count",
+            "extra": "avg block_count: 58636.57277061628, max block_count: 68517.0, count: 56630"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 83,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 89.70688680911178, max segment_count: 187.0, count: 56630"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.978048508453954, max cpu: 23.346306, count: 56630"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 168.046875,
+            "unit": "median mem",
+            "extra": "avg mem: 157.83832139546178, max mem: 168.421875, count: 56630"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.924145345836951, max cpu: 28.09756, count: 56630"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 163.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 161.3824670558891, max mem: 163.80859375, count: 56630"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.73081126525933, max cpu: 33.300297, count: 56630"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 154.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.03346876103654, max mem: 213.54296875, count: 56630"
           }
         ]
       }

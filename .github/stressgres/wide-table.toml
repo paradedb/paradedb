@@ -71,12 +71,45 @@ CREATE OR REPLACE FUNCTION insert_random_data(num_rows INTEGER)
 RETURNS VOID AS $$
 BEGIN
     INSERT INTO wide_table (
-        field_1, field_2, text_1, number_1, text_2, text_3, text_4,
-        timestamp_1, timestamp_2, text_5, date_1, time_1, bool_1,
-        bool_2, timestamp_3, text_6, bool_3, json_1, json_2, text_7,
-        json_3, text_8, text_9, text_10, timestamp_4, timestamp_5,
-        text_11, text_12, text_13, timestamp_6, timestamp_7, number_2,
-        text_14, text_15, json_4, number_3, field_3, field_4, text_16
+        field_1,
+        field_2,
+        text_1,
+        number_1,
+        text_2,
+        text_3,
+        text_4,
+        timestamp_1,
+        timestamp_2,
+        text_5,
+        date_1,
+        time_1,
+        bool_1,
+        bool_2,
+        timestamp_3,
+        text_6,
+        bool_3,
+        json_1,
+        json_2,
+        text_7,
+        json_3,
+        text_8,
+        text_9,
+        text_10,
+        timestamp_4,
+        timestamp_5,
+        text_11,
+        text_12,
+        text_13,
+        timestamp_6,
+        timestamp_7,
+        number_2,
+        text_14,
+        text_15,
+        json_4,
+        number_3,
+        field_3,
+        field_4,
+        text_16
     )
     SELECT
         uuid_generate(),
@@ -91,9 +124,9 @@ BEGIN
         'VENDOR_' || substring(md5(random()::text), 1, 8),
         current_date,
         current_time,
-        (ARRAY[true,false])[(s % 2) + 1], -- Boolean generation unchanged
-        (ARRAY[true,false])[(s % 2) + 1], -- Boolean generation unchanged
-        now(),
+        (ARRAY[true,false])[(s % 2) + 1],
+        (ARRAY[true,false])[(s % 2) + 1],
+        CASE WHEN random() < 0.01 THEN now() ELSE NULL END,
         'CUSTOMER_' || substring(md5(random()::text), 1, 8),
         (ARRAY[true,false])[(s % 2) + 1], -- Boolean generation unchanged
         ('{"meta":"data_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
@@ -206,8 +239,8 @@ SELECT COUNT(*) FROM (
         AND wide_table.bool_1 = true
         AND 1 = 1
         AND true
-        AND wide_table.date_1 >= '2025-09-24'
-        AND wide_table.date_1 <= '2025-09-26'
+        AND wide_table.number_3 >= '100'
+        AND wide_table.number_3 <= '900'
         AND wide_table.timestamp_3 IS NULL
     ORDER BY
         wide_table.date_1 DESC,

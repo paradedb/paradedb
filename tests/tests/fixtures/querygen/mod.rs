@@ -110,6 +110,7 @@ impl Column {
         self
     }
 
+    /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
         self
@@ -125,7 +126,11 @@ pub fn generated_queries_setup(
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
-    let mut setup_sql = String::new();
+    let seed_sql = format!("SET seed TO {};\n", rand::rng().random_range(-1.0..=1.0));
+    seed_sql.as_str().execute(conn);
+
+    let mut setup_sql = seed_sql;
+
     let column_definitions = columns_def
         .iter()
         .map(|col| {

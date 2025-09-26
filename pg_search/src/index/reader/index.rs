@@ -950,7 +950,7 @@ pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableSc
 #[derive(Default)]
 pub struct ErasedFeatures {
     features: Vec<(ErasedFeature, SortDirection)>,
-    score_index: Option<usize>,
+    score_index: Option<usize>, // which, if any, of the erased features is the score feature
 }
 
 impl ErasedFeatures {

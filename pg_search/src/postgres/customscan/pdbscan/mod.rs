@@ -1190,18 +1190,11 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             heaprelid,
             limit,
             orderby_info,
-        } => {
-            let need_scores = builder.custom_state().need_scores();
-            builder.custom_state().assign_exec_method(
-                exec_methods::top_n::TopNScanExecState::new(
-                    heaprelid,
-                    limit,
-                    orderby_info,
-                    need_scores,
-                ),
-                None,
-            )
-        }
+        } => builder.custom_state().assign_exec_method(
+            exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
+            None,
+        ),
+
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,

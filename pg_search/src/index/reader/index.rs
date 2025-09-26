@@ -683,14 +683,17 @@ impl SearchIndexReader {
                 )
                 .into_iter()
                 .map(|((f, erased1), doc)| {
-                    let maybe_score = if erased_features.score_index() == Some(0) {
-                        match erased1 {
+                    let maybe_score = match erased_features.score_index() {
+                        Some(0) => match erased1 {
                             OwnedValue::F64(f) => Some(f as Score),
                             OwnedValue::Null => None,
                             _ => panic!("expected a f64 for the score"),
-                        }
-                    } else {
-                        None
+                        },
+                        None => None,
+                        x => panic!(
+                            "cannot have a score index of {:?} for a single erased feature",
+                            x
+                        ),
                     };
                     ((f, maybe_score), doc)
                 })
@@ -710,7 +713,26 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f, _, _), doc)| ((f, None), doc))
+                .map(|((f, erased1, erased2), doc)| {
+                    let maybe_score = match erased_features.score_index() {
+                        Some(0) => match erased1 {
+                            OwnedValue::F64(f) => Some(f as Score),
+                            OwnedValue::Null => None,
+                            _ => panic!("expected a f64 for the score"),
+                        },
+                        Some(1) => match erased2 {
+                            OwnedValue::F64(f) => Some(f as Score),
+                            OwnedValue::Null => None,
+                            _ => panic!("expected a f64 for the score"),
+                        },
+                        None => None,
+                        x => panic!(
+                            "cannot have a score index of {:?} for two erased features",
+                            x
+                        ),
+                    };
+                    ((f, maybe_score), doc)
+                })
                 .collect()
             }
             x => {

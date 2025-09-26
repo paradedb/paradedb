@@ -130,16 +130,7 @@ impl TopNSearchResults {
         searcher: &Searcher,
         results: impl IntoIterator<Item = ((Option<T>, Option<Score>), DocAddress)>,
     ) -> Self {
-        Self::new_for_score(
-            searcher,
-            results.into_iter().map(|(output, doc)| {
-                if let (_, Some(score)) = output {
-                    (score, doc)
-                } else {
-                    (1.0, doc)
-                }
-            }),
-        )
+        Self::new_for_score(searcher, results.into_iter().map(|(_, doc)| (1.0, doc)))
     }
 
     pub fn original_len(&self) -> usize {

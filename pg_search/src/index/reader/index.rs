@@ -74,6 +74,7 @@ pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 type ErasedFeature = Arc<dyn Feature<Output = OwnedValue, SegmentOutput = Option<u64>>>;
 
 /// A known-size iterator of results for Top-N.
+#[derive(Debug)]
 pub struct TopNSearchResults {
     results_original_len: usize,
     results: std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
@@ -125,11 +126,20 @@ impl TopNSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(
+    fn new_for_discarded_field<T: Debug>(
         searcher: &Searcher,
-        results: impl IntoIterator<Item = (T, DocAddress)>,
+        results: impl IntoIterator<Item = ((Option<T>, Option<Score>), DocAddress)>,
     ) -> Self {
-        Self::new_for_score(searcher, results.into_iter().map(|(_, doc)| (1.0, doc)))
+        Self::new_for_score(
+            searcher,
+            results.into_iter().map(|(output, doc)| {
+                if let (_, Some(score)) = output {
+                    (score, doc)
+                } else {
+                    (1.0, doc)
+                }
+            }),
+        )
     }
 
     pub fn original_len(&self) -> usize {

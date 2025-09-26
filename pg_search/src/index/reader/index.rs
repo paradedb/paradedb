@@ -683,18 +683,7 @@ impl SearchIndexReader {
                 )
                 .into_iter()
                 .map(|((f, erased1), doc)| {
-                    let maybe_score = match erased_features.score_index() {
-                        Some(0) => match erased1 {
-                            OwnedValue::F64(f) => Some(f as Score),
-                            OwnedValue::Null => None,
-                            _ => panic!("expected a f64 for the score"),
-                        },
-                        None => None,
-                        x => panic!(
-                            "cannot have a score index of {:?} for a single erased feature",
-                            x
-                        ),
-                    };
+                    let maybe_score = erased_features.try_get_score(&[erased1]);
                     ((f, maybe_score), doc)
                 })
                 .collect()
@@ -714,23 +703,7 @@ impl SearchIndexReader {
                 )
                 .into_iter()
                 .map(|((f, erased1, erased2), doc)| {
-                    let maybe_score = match erased_features.score_index() {
-                        Some(0) => match erased1 {
-                            OwnedValue::F64(f) => Some(f as Score),
-                            OwnedValue::Null => None,
-                            _ => panic!("expected a f64 for the score"),
-                        },
-                        Some(1) => match erased2 {
-                            OwnedValue::F64(f) => Some(f as Score),
-                            OwnedValue::Null => None,
-                            _ => panic!("expected a f64 for the score"),
-                        },
-                        None => None,
-                        x => panic!(
-                            "cannot have a score index of {:?} for two erased features",
-                            x
-                        ),
-                    };
+                    let maybe_score = erased_features.try_get_score(&[erased1, erased2]);
                     ((f, maybe_score), doc)
                 })
                 .collect()
@@ -925,7 +898,7 @@ impl SearchIndexReader {
         }
 
         if self.need_scores
-            && erased_features.score_index.is_none()
+            && erased_features.score_index().is_none()
             && !orderby_infos
                 .and_then(|oi| oi.first())
                 .map(|oi| oi.is_score())
@@ -1003,5 +976,13 @@ impl ErasedFeatures {
 
     pub fn score_index(&self) -> Option<usize> {
         self.score_index
+    }
+
+    pub fn try_get_score(&self, values: &[OwnedValue]) -> Option<Score> {
+        self.score_index.and_then(|i| match values[i] {
+            OwnedValue::F64(f) => Some(f as Score),
+            OwnedValue::Null => None,
+            _ => panic!("expected a f64 for the score"),
+        })
     }
 }

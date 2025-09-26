@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758919445215,
+  "lastUpdate": 1758919834419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -28620,6 +28620,54 @@ window.BENCHMARK_DATA = {
             "value": 608.9265279751352,
             "unit": "median tps",
             "extra": "avg tps: 612.7711603394079, max tps: 744.651786675155, count: 57851"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67f35ee649c4e097dfa03a113f040b06a286cca6",
+          "message": "feat: TopN scan can emit scores for any `ORDER BY` (#3230)\n\n# Ticket(s) Closed\n\n- Closes #3227 \n\n## What\n\nAllows the `TopNScanState` to return scores.\n\n## Why\n\nAvoid falling back to the normal exec state, which can be very slow.\n\n## How\n\n## Tests\n\nAdded regression test.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-26T16:08:20-04:00",
+          "tree_id": "b0aec7f56d6788bce86050996a7acb8c0141968c",
+          "url": "https://github.com/paradedb/paradedb/commit/67f35ee649c4e097dfa03a113f040b06a286cca6"
+        },
+        "date": 1758919832806,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 470.40445057040387,
+            "unit": "median tps",
+            "extra": "avg tps: 482.72278799995814, max tps: 629.9740666553496, count: 57081"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 516.0478618356569,
+            "unit": "median tps",
+            "extra": "avg tps: 513.9664280996595, max tps: 547.5458960070657, count: 57081"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1048.2704502062147,
+            "unit": "median tps",
+            "extra": "avg tps: 1051.6051509669148, max tps: 1437.373977770558, count: 57081"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 7.360143380108516,
+            "unit": "median tps",
+            "extra": "avg tps: 7.2812956069541395, max tps: 8.502892488458047, count: 57081"
           }
         ]
       }

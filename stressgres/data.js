@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758926793268,
+  "lastUpdate": 1758927491581,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -730,6 +730,42 @@ window.BENCHMARK_DATA = {
             "value": 79.03125,
             "unit": "median mem",
             "extra": "avg mem: 76.25251414591592, max mem: 123.6640625, count: 55239"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48",
+          "message": "ci: fix benchmark links in slack messages (#2875)",
+          "timestamp": "2025-07-17T12:13:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48"
+        },
+        "date": 1758927490007,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 6.53457751229432,
+            "unit": "median tps",
+            "extra": "avg tps: 5.65951014753639, max tps: 8.521944505981049, count: 57240"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.761190839170479,
+            "unit": "median tps",
+            "extra": "avg tps: 5.140821086292144, max tps: 6.497739400783565, count: 57240"
           }
         ]
       }

@@ -34,6 +34,7 @@ use std::ptr::NonNull;
 
 use anyhow::Result;
 use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs, TopOrderable};
+use tantivy::fastfield::FastValue;
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
@@ -127,9 +128,14 @@ impl TopNSearchResults {
     /// query), similar to what we do in fast-fields execution.
     fn new_for_discarded_field<T>(
         searcher: &Searcher,
-        results: impl IntoIterator<Item = (T, DocAddress)>,
+        results: impl IntoIterator<Item = ((Option<T>, Option<Score>), DocAddress)>,
     ) -> Self {
-        Self::new_for_score(searcher, results.into_iter().map(|(_, doc)| (1.0, doc)))
+        Self::new_for_score(
+            searcher,
+            results
+                .into_iter()
+                .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
+        )
     }
 
     pub fn original_len(&self) -> usize {
@@ -603,7 +609,9 @@ impl SearchIndexReader {
                         erased_features,
                         n,
                         offset,
-                    ),
+                    )
+                    .into_iter()
+                    .map(|((f, _), doc)| (f, doc)),
                 )
             }
             Some(OrderByInfo {
@@ -625,6 +633,7 @@ impl SearchIndexReader {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     /// Called by `search_top_n_in_segments`.
     ///
     /// `search_top_n_in_segments` is specialized for all combinations of:
@@ -645,10 +654,11 @@ impl SearchIndexReader {
         segment_ids: impl Iterator<Item = SegmentId>,
         first_feature: F,
         first_sortdir: SortDirection,
-        mut erased_features: Vec<(ErasedFeature, SortDirection)>,
+        mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-    ) -> Vec<(F::Output, DocAddress)> {
+    ) -> Vec<((F::Output, Option<Score>), DocAddress)> {
+        // if last erased feature is score, then we need to return the score
         match erased_features.len() {
             0 => self
                 .top_in_segments_for_orderable(
@@ -658,7 +668,7 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f,), doc)| (f, doc))
+                .map(|((f,), doc)| ((f, None), doc))
                 .collect(),
             1 => {
                 let erased_feature = erased_features.pop().unwrap();
@@ -672,7 +682,10 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f, _), doc)| (f, doc))
+                .map(|((f, erased1), doc)| {
+                    let maybe_score = erased_features.try_get_score(&[erased1]);
+                    ((f, maybe_score), doc)
+                })
                 .collect()
             }
             2 => {
@@ -689,14 +702,24 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f, _, _), doc)| (f, doc))
+                .map(|((f, erased1, erased2), doc)| {
+                    let maybe_score = erased_features.try_get_score(&[erased1, erased2]);
+                    ((f, maybe_score), doc)
+                })
                 .collect()
             }
             x => {
-                panic!(
-                    "Unsupported sort-field count: {}. At most {MAX_TOPN_FEATURES} are supported.",
-                    x + 1,
-                )
+                if erased_features.score_index() == Some(x - 1) {
+                    panic!(
+                        "Unsupported sort-field count: {}. At most {} are supported when `paradedb.score` is requested.",
+                        x, MAX_TOPN_FEATURES - 1
+                    )
+                } else {
+                    panic!(
+                        "Unsupported sort-field count: {}. At most {MAX_TOPN_FEATURES} are supported.",
+                        x + 1,
+                    )
+                }
             }
         }
     }
@@ -837,14 +860,15 @@ impl SearchIndexReader {
     /// Create erased Features for the given OrderByInfo.
     ///
     /// See `top_in_segments` and `sort_features!`.
-    fn erased_features(
-        &self,
-        orderby_infos: Option<&Vec<OrderByInfo>>,
-    ) -> Vec<(ErasedFeature, SortDirection)> {
+    ///
+    /// Additionally, if we need scores, this method will ensure that at least one of these features is a ScoreFeature
+    /// (see comment within function below)
+    fn erased_features(&self, orderby_infos: Option<&Vec<OrderByInfo>>) -> ErasedFeatures {
         let remainder = orderby_infos.and_then(|oi| oi.get(1..)).unwrap_or(&[]);
-        remainder
-            .iter()
-            .map(|orderby_info| match orderby_info {
+        let mut erased_features = ErasedFeatures::default();
+
+        for orderby_info in remainder.iter() {
+            match orderby_info {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
@@ -854,28 +878,48 @@ impl SearchIndexReader {
                         .search_field(sort_field)
                         .expect("sort field should exist in index schema");
 
-                    let feature = match field.field_entry().field_type().value_type() {
-                        tantivy::schema::Type::Str => FieldFeature::string(sort_field).erased(),
-                        tantivy::schema::Type::U64 => FieldFeature::u64(sort_field).erased(),
-                        tantivy::schema::Type::I64 => FieldFeature::i64(sort_field).erased(),
-                        tantivy::schema::Type::F64 => FieldFeature::f64(sort_field).erased(),
-                        tantivy::schema::Type::Bool => FieldFeature::bool(sort_field).erased(),
-                        tantivy::schema::Type::Date => FieldFeature::datetime(sort_field).erased(),
+                    match field.field_entry().field_type().value_type() {
+                        tantivy::schema::Type::Str => erased_features
+                            .push_string_feature(FieldFeature::string(sort_field), *direction),
+                        tantivy::schema::Type::U64 => erased_features
+                            .push_ff_feature(FieldFeature::u64(sort_field), *direction),
+                        tantivy::schema::Type::I64 => erased_features
+                            .push_ff_feature(FieldFeature::i64(sort_field), *direction),
+                        tantivy::schema::Type::F64 => erased_features
+                            .push_ff_feature(FieldFeature::f64(sort_field), *direction),
+                        tantivy::schema::Type::Bool => erased_features
+                            .push_ff_feature(FieldFeature::bool(sort_field), *direction),
+                        tantivy::schema::Type::Date => erased_features
+                            .push_ff_feature(FieldFeature::datetime(sort_field), *direction),
                         x => {
                             // NOTE: This list of supported field types must be synced with
                             // `SearchField::is_sortable`.
                             panic!("Unsupported order-by field type: {x:?}");
                         }
                     };
-
-                    (feature, *direction)
                 }
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
-                } => (ScoreFeature.erased(), *direction),
-            })
-            .collect()
+                } => {
+                    erased_features.push_score_feature(*direction);
+                }
+            }
+        }
+
+        // if we need scores, but there's no score feature in the order by list,
+        // we push an erased score feature to the end of the list for the purpose of holding scores
+        if self.need_scores
+            && erased_features.score_index().is_none()
+            && !orderby_infos
+                .and_then(|oi| oi.first())
+                .map(|oi| oi.is_score())
+                .unwrap_or(false)
+        {
+            erased_features.push_score_feature(SortDirection::Desc);
+        }
+
+        erased_features
     }
 
     fn collect_segments<T>(
@@ -903,5 +947,57 @@ pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableSc
         EnableScoring::enabled_from_searcher(searcher)
     } else {
         EnableScoring::disabled_from_searcher(searcher)
+    }
+}
+
+#[derive(Default)]
+pub struct ErasedFeatures {
+    features: Vec<(ErasedFeature, SortDirection)>,
+    // which, if any, of the erased features is the score feature
+    // note: once https://github.com/quickwit-oss/tantivy/pull/2681#issuecomment-3340222261 is resolved,
+    // this will be unnecessary
+    score_index: Option<usize>,
+}
+
+impl ErasedFeatures {
+    pub fn len(&self) -> usize {
+        self.features.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.features.is_empty()
+    }
+
+    pub fn pop(&mut self) -> Option<(ErasedFeature, SortDirection)> {
+        self.features.pop()
+    }
+
+    pub fn push_ff_feature<T: FastValue>(
+        &mut self,
+        feature: FieldFeature<T>,
+        direction: SortDirection,
+    ) {
+        self.features.push((feature.erased(), direction));
+    }
+
+    pub fn push_string_feature(&mut self, feature: FieldFeature<String>, direction: SortDirection) {
+        self.features.push((feature.erased(), direction));
+    }
+
+    pub fn push_score_feature(&mut self, direction: SortDirection) {
+        self.score_index = Some(self.features.len());
+        self.features.push((ScoreFeature.erased(), direction));
+    }
+
+    pub fn score_index(&self) -> Option<usize> {
+        self.score_index
+    }
+
+    pub fn try_get_score(&self, values: &[OwnedValue]) -> Option<Score> {
+        self.score_index.and_then(|i| match values[i] {
+            OwnedValue::F64(f) => Some(f as Score),
+            OwnedValue::Null => None,
+            _ => panic!("expected a f64 for the score"),
+        })
     }
 }

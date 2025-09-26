@@ -487,7 +487,7 @@ impl CustomScan for PdbScan {
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
                 let pathkeys = topn_pathkey_info.pathkeys().unwrap();
-                custom_private.set_maybe_orderby_info(Some(pathkeys));
+                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.

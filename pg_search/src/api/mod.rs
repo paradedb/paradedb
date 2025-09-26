@@ -296,6 +296,12 @@ pub struct OrderByInfo {
     pub direction: SortDirection,
 }
 
+impl OrderByInfo {
+    pub fn is_score(&self) -> bool {
+        matches!(self.feature, OrderByFeature::Score)
+    }
+}
+
 pub trait ToTantivyJson {
     fn key(&self) -> String;
     fn json_value(&self) -> Option<serde_json::Value>;

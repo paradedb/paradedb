@@ -633,6 +633,7 @@ impl SearchIndexReader {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     /// Called by `search_top_n_in_segments`.
     ///
     /// `search_top_n_in_segments` is specialized for all combinations of:
@@ -903,6 +904,8 @@ impl SearchIndexReader {
             }
         }
 
+        // if we need scores, but there's no score feature in the order by list,
+        // we push an erased score feature to the end of the list for the purpose of holding scores
         if self.need_scores
             && erased_features.score_index().is_none()
             && !orderby_infos

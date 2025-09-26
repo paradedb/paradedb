@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758928948446,
+  "lastUpdate": 1758928951116,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1528,6 +1528,102 @@ window.BENCHMARK_DATA = {
             "value": 0.5048185422128013,
             "unit": "median tps",
             "extra": "avg tps: 0.9517277470698986, max tps: 4.86618095638412, count: 55467"
+          }
+        ]
+      }
+    ],
+    "pg_search background-merge.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48",
+          "message": "ci: fix benchmark links in slack messages (#2875)",
+          "timestamp": "2025-07-17T12:13:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48"
+        },
+        "date": 1758928949588,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.567888522333765, max cpu: 32.71665, count: 55467"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 205.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 203.8202517938594, max mem: 205.37890625, count: 55467"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.418118271519194, max cpu: 23.255816, count: 55467"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 161.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 156.55326745519858, max mem: 170.76953125, count: 55467"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 40392,
+            "unit": "median block_count",
+            "extra": "avg block_count: 41030.39506373159, max block_count: 57834.0, count: 55467"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.94593869191595, max cpu: 9.275363, count: 55467"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 120.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 109.79650379110552, max mem: 137.74609375, count: 55467"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 26.26085780734491, max segment_count: 59.0, count: 55467"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 23.076923,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.46212270404014, max cpu: 32.844578, count: 166401"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 215.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 234.9711652639933, max mem: 457.12890625, count: 166401"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.953489,
+            "unit": "median cpu",
+            "extra": "avg cpu: 15.536323167815674, max cpu: 32.621357, count: 55467"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 193.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 192.29372313999767, max mem: 224.2578125, count: 55467"
           }
         ]
       }

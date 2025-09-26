@@ -489,14 +489,7 @@ impl CustomScan for PdbScan {
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
                 let pathkeys = topn_pathkey_info.pathkeys().unwrap();
-                // we can only (currently) do const projections if the first sort field is a score,
-                // because we currently discard all but the first sort field, and so will not
-                // produce a valid Score value. see TopNSearchResults.
-                let orderby_supported = !maybe_needs_const_projections
-                    || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
-                if orderby_supported {
-                    custom_private.set_maybe_orderby_info(Some(pathkeys));
-                }
+                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
@@ -1195,6 +1188,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
+
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,

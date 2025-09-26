@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758918389029,
+  "lastUpdate": 1758919078272,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -22870,6 +22870,42 @@ window.BENCHMARK_DATA = {
             "value": 5.4516355743896066,
             "unit": "median tps",
             "extra": "avg tps: 4.924753095573022, max tps: 6.0323248048066604, count: 57943"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67f35ee649c4e097dfa03a113f040b06a286cca6",
+          "message": "feat: TopN scan can emit scores for any `ORDER BY` (#3230)\n\n# Ticket(s) Closed\n\n- Closes #3227 \n\n## What\n\nAllows the `TopNScanState` to return scores.\n\n## Why\n\nAvoid falling back to the normal exec state, which can be very slow.\n\n## How\n\n## Tests\n\nAdded regression test.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-26T16:08:20-04:00",
+          "tree_id": "b0aec7f56d6788bce86050996a7acb8c0141968c",
+          "url": "https://github.com/paradedb/paradedb/commit/67f35ee649c4e097dfa03a113f040b06a286cca6"
+        },
+        "date": 1758919076660,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.370881990557614,
+            "unit": "median tps",
+            "extra": "avg tps: 7.1646653189246, max tps: 11.124310386651496, count: 57360"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.272683034243365,
+            "unit": "median tps",
+            "extra": "avg tps: 4.767592037603165, max tps: 5.830318228657691, count: 57360"
           }
         ]
       }

@@ -34,6 +34,7 @@ use std::ptr::NonNull;
 
 use anyhow::Result;
 use tantivy::collector::{Collector, Feature, FieldFeature, ScoreFeature, TopDocs, TopOrderable};
+use tantivy::fastfield::FastValue;
 use tantivy::index::{Index, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
@@ -130,7 +131,12 @@ impl TopNSearchResults {
         searcher: &Searcher,
         results: impl IntoIterator<Item = ((Option<T>, Option<Score>), DocAddress)>,
     ) -> Self {
-        Self::new_for_score(searcher, results.into_iter().map(|(_, doc)| (1.0, doc)))
+        Self::new_for_score(
+            searcher,
+            results
+                .into_iter()
+                .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
+        )
     }
 
     pub fn original_len(&self) -> usize {
@@ -604,7 +610,9 @@ impl SearchIndexReader {
                         erased_features,
                         n,
                         offset,
-                    ),
+                    )
+                    .into_iter()
+                    .map(|((f, _), doc)| (f, doc)),
                 )
             }
             Some(OrderByInfo {
@@ -646,10 +654,11 @@ impl SearchIndexReader {
         segment_ids: impl Iterator<Item = SegmentId>,
         first_feature: F,
         first_sortdir: SortDirection,
-        mut erased_features: Vec<(ErasedFeature, SortDirection)>,
+        mut erased_features: ErasedFeatures,
         n: usize,
         offset: usize,
-    ) -> Vec<(F::Output, DocAddress)> {
+    ) -> Vec<((F::Output, Option<Score>), DocAddress)> {
+        // if last erased feature is score, then we need to return the score
         match erased_features.len() {
             0 => self
                 .top_in_segments_for_orderable(
@@ -659,7 +668,7 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f,), doc)| (f, doc))
+                .map(|((f,), doc)| ((f, None), doc))
                 .collect(),
             1 => {
                 let erased_feature = erased_features.pop().unwrap();
@@ -673,7 +682,18 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f, _), doc)| (f, doc))
+                .map(|((f, erased1), doc)| {
+                    let maybe_score = if erased_features.score_index() == Some(0) {
+                        match erased1 {
+                            OwnedValue::F64(f) => Some(f as Score),
+                            OwnedValue::Null => None,
+                            _ => panic!("expected a f64 for the score"),
+                        }
+                    } else {
+                        None
+                    };
+                    ((f, maybe_score), doc)
+                })
                 .collect()
             }
             2 => {
@@ -690,7 +710,7 @@ impl SearchIndexReader {
                     offset,
                 )
                 .into_iter()
-                .map(|((f, _, _), doc)| (f, doc))
+                .map(|((f, _, _), doc)| ((f, None), doc))
                 .collect()
             }
             x => {
@@ -838,14 +858,12 @@ impl SearchIndexReader {
     /// Create erased Features for the given OrderByInfo.
     ///
     /// See `top_in_segments` and `sort_features!`.
-    fn erased_features(
-        &self,
-        orderby_infos: Option<&Vec<OrderByInfo>>,
-    ) -> Vec<(ErasedFeature, SortDirection)> {
+    fn erased_features(&self, orderby_infos: Option<&Vec<OrderByInfo>>) -> ErasedFeatures {
         let remainder = orderby_infos.and_then(|oi| oi.get(1..)).unwrap_or(&[]);
-        remainder
-            .iter()
-            .map(|orderby_info| match orderby_info {
+        let mut erased_features = ErasedFeatures::default();
+
+        for orderby_info in remainder.iter() {
+            match orderby_info {
                 OrderByInfo {
                     feature: OrderByFeature::Field(sort_field),
                     direction,
@@ -855,28 +873,46 @@ impl SearchIndexReader {
                         .search_field(sort_field)
                         .expect("sort field should exist in index schema");
 
-                    let feature = match field.field_entry().field_type().value_type() {
-                        tantivy::schema::Type::Str => FieldFeature::string(sort_field).erased(),
-                        tantivy::schema::Type::U64 => FieldFeature::u64(sort_field).erased(),
-                        tantivy::schema::Type::I64 => FieldFeature::i64(sort_field).erased(),
-                        tantivy::schema::Type::F64 => FieldFeature::f64(sort_field).erased(),
-                        tantivy::schema::Type::Bool => FieldFeature::bool(sort_field).erased(),
-                        tantivy::schema::Type::Date => FieldFeature::datetime(sort_field).erased(),
+                    match field.field_entry().field_type().value_type() {
+                        tantivy::schema::Type::Str => erased_features
+                            .push_string_feature(FieldFeature::string(sort_field), *direction),
+                        tantivy::schema::Type::U64 => erased_features
+                            .push_ff_feature(FieldFeature::u64(sort_field), *direction),
+                        tantivy::schema::Type::I64 => erased_features
+                            .push_ff_feature(FieldFeature::i64(sort_field), *direction),
+                        tantivy::schema::Type::F64 => erased_features
+                            .push_ff_feature(FieldFeature::f64(sort_field), *direction),
+                        tantivy::schema::Type::Bool => erased_features
+                            .push_ff_feature(FieldFeature::bool(sort_field), *direction),
+                        tantivy::schema::Type::Date => erased_features
+                            .push_ff_feature(FieldFeature::datetime(sort_field), *direction),
                         x => {
                             // NOTE: This list of supported field types must be synced with
                             // `SearchField::is_sortable`.
                             panic!("Unsupported order-by field type: {x:?}");
                         }
                     };
-
-                    (feature, *direction)
                 }
                 OrderByInfo {
                     feature: OrderByFeature::Score,
                     direction,
-                } => (ScoreFeature.erased(), *direction),
-            })
-            .collect()
+                } => {
+                    erased_features.push_score_feature(*direction);
+                }
+            }
+        }
+
+        if self.need_scores
+            && erased_features.score_index.is_none()
+            && !orderby_infos
+                .and_then(|oi| oi.first())
+                .map(|oi| oi.is_score())
+                .unwrap_or(false)
+        {
+            erased_features.push_score_feature(SortDirection::Desc);
+        }
+
+        erased_features
     }
 
     fn collect_segments<T>(
@@ -904,5 +940,46 @@ pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableSc
         EnableScoring::enabled_from_searcher(searcher)
     } else {
         EnableScoring::disabled_from_searcher(searcher)
+    }
+}
+
+#[derive(Default)]
+pub struct ErasedFeatures {
+    features: Vec<(ErasedFeature, SortDirection)>,
+    score_index: Option<usize>,
+}
+
+impl ErasedFeatures {
+    pub fn len(&self) -> usize {
+        self.features.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.features.is_empty()
+    }
+
+    pub fn pop(&mut self) -> Option<(ErasedFeature, SortDirection)> {
+        self.features.pop()
+    }
+
+    pub fn push_ff_feature<T: FastValue>(
+        &mut self,
+        feature: FieldFeature<T>,
+        direction: SortDirection,
+    ) {
+        self.features.push((feature.erased(), direction));
+    }
+
+    pub fn push_string_feature(&mut self, feature: FieldFeature<String>, direction: SortDirection) {
+        self.features.push((feature.erased(), direction));
+    }
+
+    pub fn push_score_feature(&mut self, direction: SortDirection) {
+        self.score_index = Some(self.features.len());
+        self.features.push((ScoreFeature.erased(), direction));
+    }
+
+    pub fn score_index(&self) -> Option<usize> {
+        self.score_index
     }
 }

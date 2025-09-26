@@ -48,6 +48,8 @@ pub struct TopNScanExecState {
     // If parallel, the segments which have been claimed by this worker.
     claimed_segments: RefCell<Option<Vec<SegmentId>>>,
     scale_factor: f64,
+
+    need_scores: bool,
 }
 
 impl TopNScanExecState {
@@ -55,6 +57,7 @@ impl TopNScanExecState {
         heaprelid: pg_sys::Oid,
         limit: usize,
         orderby_info: Option<Vec<OrderByInfo>>,
+        need_scores: bool,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPN_FEATURES) {
             panic!("Cannot sort by more than {MAX_TOPN_FEATURES} features.");
@@ -93,6 +96,7 @@ impl TopNScanExecState {
             chunk_size: 0,
             claimed_segments: RefCell::default(),
             scale_factor,
+            need_scores,
         }
     }
 

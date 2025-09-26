@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758927491581,
+  "lastUpdate": 1758927494374,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -766,6 +766,66 @@ window.BENCHMARK_DATA = {
             "value": 5.761190839170479,
             "unit": "median tps",
             "extra": "avg tps: 5.140821086292144, max tps: 6.497739400783565, count: 57240"
+          }
+        ]
+      }
+    ],
+    "pg_search bulk-updates.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Eric Ridge",
+            "username": "eeeebbbbrrrr",
+            "email": "eebbrr@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48",
+          "message": "ci: fix benchmark links in slack messages (#2875)",
+          "timestamp": "2025-07-17T12:13:25Z",
+          "url": "https://github.com/paradedb/paradedb/commit/1c48d3c6427e9fe7bdb10861a16e04d0cf1a1f48"
+        },
+        "date": 1758927492820,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.58620553859768, max cpu: 42.687748, count: 57240"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 228.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 226.86039066594603, max mem: 233.5, count: 57240"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.212478431593546, max cpu: 33.168808, count: 57240"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 160.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 159.89676997346697, max mem: 161.5, count: 57240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 21991,
+            "unit": "median block_count",
+            "extra": "avg block_count: 20640.8142907058, max block_count: 23594.0, count: 57240"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 67,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 68.29385045422781, max segment_count: 96.0, count: 57240"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1758919834419,
+  "lastUpdate": 1758919837214,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search background-merge.toml Performance - TPS": [
@@ -31898,6 +31898,90 @@ window.BENCHMARK_DATA = {
             "value": 164.1328125,
             "unit": "median mem",
             "extra": "avg mem: 153.23817544208399, max mem: 164.8828125, count: 57851"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67f35ee649c4e097dfa03a113f040b06a286cca6",
+          "message": "feat: TopN scan can emit scores for any `ORDER BY` (#3230)\n\n# Ticket(s) Closed\n\n- Closes #3227 \n\n## What\n\nAllows the `TopNScanState` to return scores.\n\n## Why\n\nAvoid falling back to the normal exec state, which can be very slow.\n\n## How\n\n## Tests\n\nAdded regression test.\n\n---------\n\nSigned-off-by: Ming <ming.ying.nyc@gmail.com>\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2025-09-26T16:08:20-04:00",
+          "tree_id": "b0aec7f56d6788bce86050996a7acb8c0141968c",
+          "url": "https://github.com/paradedb/paradedb/commit/67f35ee649c4e097dfa03a113f040b06a286cca6"
+        },
+        "date": 1758919835585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.611091898761518, max cpu: 28.486649, count: 57081"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.20599653617228, max mem: 171.18359375, count: 57081"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 67627,
+            "unit": "median block_count",
+            "extra": "avg block_count: 67302.36907202046, max block_count: 69283.0, count: 57081"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 82,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 89.50466880398031, max segment_count: 189.0, count: 57081"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.880763046893079, max cpu: 27.906979, count: 57081"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 170.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 164.7646446907684, max mem: 174.15625, count: 57081"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.902508987260212, max cpu: 27.87996, count: 57081"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.987642286838, max mem: 170.88671875, count: 57081"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.552504,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.699258193872726, max cpu: 33.73494, count: 57081"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 180.77201791642577, max mem: 214.8828125, count: 57081"
           }
         ]
       }

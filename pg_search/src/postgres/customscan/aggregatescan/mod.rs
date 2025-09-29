@@ -20,7 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::execute_aggregate;
+use crate::aggregate::{execute_aggregate, execute_aggregate_with_search_input_filters};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -983,19 +983,141 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Handle the special case of GROUP BY without aggregates
-    if state.custom_state().aggregate_types.is_empty() {
-        return execute_single_query(state, None, vec![]);
+    // Debug: Log all aggregate types to see if FILTER clauses are detected
+    pgrx::warning!("=== Aggregate Routing Debug ===");
+    for (i, agg) in state.custom_state().aggregate_types.iter().enumerate() {
+        pgrx::warning!("Aggregate {}: {:?}", i, agg);
+        pgrx::warning!("  Has filter: {}", agg.filter_expr().is_some());
+        if let Some(filter) = agg.filter_expr() {
+            pgrx::warning!("  Filter: {:?}", filter);
+        }
     }
 
-    let filter_groups = &state.custom_state().filter_groups;
-    if filter_groups.len() == 1 {
-        // All aggregates have the same filter (or no filter) - use single query approach
-        let (filter_expr, aggregate_indices) = &filter_groups[0];
-        execute_single_query(state, filter_expr.clone(), aggregate_indices.clone())
+    // Check if any aggregates have FILTER clauses
+    let has_filtered_aggregates = state
+        .custom_state()
+        .aggregate_types
+        .iter()
+        .any(|agg| agg.filter_expr().is_some());
+
+    pgrx::warning!("Has filtered aggregates: {}", has_filtered_aggregates);
+
+    if has_filtered_aggregates {
+        // Use the new FilterAggregation approach for queries with FILTER clauses
+        pgrx::warning!("Routing to FilterAggregation approach");
+        execute_with_filter_aggregations(state)
     } else {
-        // Multiple distinct filters - use multi-query approach
-        execute_multi_filter_queries(state, filter_groups)
+        // Use the regular aggregation approach for queries without FILTER clauses
+        pgrx::warning!("Routing to regular aggregation approach");
+        execute_regular_aggregation(state)
+    }
+}
+
+/// Execute using regular Tantivy aggregation for queries without FILTER clauses
+fn execute_regular_aggregation(
+    state: &CustomScanStateWrapper<AggregateScan>,
+) -> std::vec::IntoIter<GroupedAggregateRow> {
+    let query = &state.custom_state().query;
+    let agg_json = state.custom_state().aggregates_to_json();
+
+    let result = execute_aggregate(
+        state.custom_state().indexrel(),
+        query.clone(),
+        agg_json,
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+    )
+    .expect(FAILED_TO_EXECUTE_AGGREGATE);
+
+    let aggregate_results = state
+        .custom_state()
+        .json_to_aggregate_results(result);
+
+    aggregate_results.into_iter()
+}
+
+/// Execute using Tantivy's Filter Aggregation feature - single query with filter aggregations
+/// Following the efficiency patterns from the filter aggregation documentation:
+/// 1. Use the most selective base conditions as the main search query
+/// 2. Apply FILTER clause conditions as filter aggregations
+/// 3. This minimizes document processing by filtering at the query level first
+fn execute_with_filter_aggregations(
+    state: &CustomScanStateWrapper<AggregateScan>,
+) -> std::vec::IntoIter<GroupedAggregateRow> {
+    // Try FilterAggregation approach for ALL queries (including GROUP BY)
+    let base_query = determine_optimal_base_query(state);
+
+    let result = execute_aggregate_with_search_input_filters(
+        state.custom_state().indexrel(),
+        base_query,
+        state.custom_state().aggregate_types.clone(),
+        state.custom_state().grouping_columns.clone(),
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+        )
+        .expect(FAILED_TO_EXECUTE_AGGREGATE);
+
+    // Debug: Log what we're passing to json_to_filter_aggregation_results
+    pgrx::warning!("=== Passing to json_to_filter_aggregation_results ===");
+    pgrx::warning!("Input JSON: {}", serde_json::to_string_pretty(&result).unwrap_or_else(|e| format!("Failed to serialize: {}", e)));
+
+    let aggregate_results = state
+        .custom_state()
+        .json_to_filter_aggregation_results(result);
+
+    // Debug: Log the processed results
+    pgrx::warning!("=== Processed Aggregate Results ===");
+    pgrx::warning!("Number of results: {}", aggregate_results.len());
+    for (i, row) in aggregate_results.iter().enumerate() {
+        pgrx::warning!("Row {}: {:?}", i, row);
+    }
+
+    aggregate_results.into_iter()
+}
+
+/// Determine the optimal base query following filter aggregation efficiency patterns
+/// This implements the key insight from the documentation: "the main search query is your primary performance lever"
+fn determine_optimal_base_query(state: &CustomScanStateWrapper<AggregateScan>) -> SearchQueryInput {
+    let where_clause = &state.custom_state().query;
+
+    // Collect all filter expressions from FILTER clauses
+    let filter_expressions: Vec<SearchQueryInput> = state
+        .custom_state()
+        .aggregate_types
+        .iter()
+        .filter_map(|agg| {
+            if let Some(filter) = agg.filter_expr() {
+                Some(filter.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Strategy: If we have both WHERE clause and FILTER clauses, we could potentially
+    // move the most selective filter to the base query for better performance
+    // For now, we'll use the WHERE clause as base and apply FILTERs as filter aggregations
+    //
+    // Future optimization: Analyze selectivity and move the most selective condition
+    // to the base query, as suggested in the filter aggregation efficiency guide:
+    // "Use base query to limit the document set as much as possible, then apply
+    // same-level filters for analytical dimensions"
+
+    match where_clause {
+        SearchQueryInput::All if !filter_expressions.is_empty() => {
+            // No WHERE clause but we have FILTER clauses
+            // We could potentially use the most selective filter as base query
+            // For now, keep it simple and use AllQuery with filter aggregations
+            SearchQueryInput::All
+        }
+        _ => {
+            // Use the WHERE clause as the base query
+            // This follows the pattern: base query filters documents, then filter aggregations
+            // analyze the filtered set
+            where_clause.clone()
+        }
     }
 }
 

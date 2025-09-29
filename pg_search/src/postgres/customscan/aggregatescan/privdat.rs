@@ -246,6 +246,21 @@ impl AggregateType {
         }
     }
 
+    /// Generate filter aggregation JSON for this aggregate
+    /// Returns (filter_key, aggregation_name, aggregation_json)
+    pub fn to_filter_aggregation_json(&self, idx: usize) -> (String, String, serde_json::Value) {
+        let filter_key = if let Some(filter) = self.filter_expr() {
+            format!("filter_{}", filter.serialize_and_clean_query().replace(' ', "_"))
+        } else {
+            "no_filter".to_string()
+        };
+        
+        let agg_name = format!("agg_{idx}");
+        let agg_json = self.convert_filtered_aggregate_to_unfiltered().to_json();
+        
+        (filter_key, agg_name, agg_json)
+    }
+
     /// Convert AggregateResult to AggregateValue with empty result set handling.
     ///
     /// This method handles the interaction between aggregate types, document counts,
@@ -281,10 +296,22 @@ impl AggregateType {
         result: AggregateResult,
         doc_count: Option<i64>,
     ) -> AggregateValue {
-        // Handle empty result sets for SUM aggregates specifically
-        // SUM needs doc_count to distinguish empty buckets from buckets with zero values
-        if matches!(self, AggregateType::Sum { .. }) && doc_count == Some(0) {
-            return AggregateValue::Null;
+        // Handle empty result sets (doc_count = 0) based on SQL standard behavior:
+        // - COUNT(*) and COUNT(field) return 0 for empty sets
+        // - All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
+        if doc_count == Some(0) {
+            match self {
+                AggregateType::CountAny { .. } => {
+                    // COUNT of empty set is 0
+                    pgrx::warning!("Empty result set: COUNT aggregate returning 0");
+                    return AggregateValue::Int(0);
+                }
+                _ => {
+                    // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
+                    pgrx::warning!("Empty result set: {:?} aggregate returning NULL", self);
+                    return AggregateValue::Null;
+                }
+            }
         }
 
         // Extract the numeric value from the aggregate result

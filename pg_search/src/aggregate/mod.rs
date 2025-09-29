@@ -311,6 +311,353 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+/// Execute aggregate with SearchQueryInput filters handled natively
+/// This function creates FilterAggregation objects programmatically using SearchQueryInput
+pub fn execute_aggregate_with_search_input_filters(
+    index: &PgSearchRelation,
+    base_query: SearchQueryInput,
+    aggregate_types: Vec<crate::postgres::customscan::aggregatescan::privdat::AggregateType>,
+    grouping_columns: Vec<crate::postgres::customscan::aggregatescan::privdat::GroupingColumn>,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use crate::schema::SearchIndexSchema;
+    use std::ptr::NonNull;
+
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            base_query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        // Get the schema for query conversion
+        let schema = SearchIndexSchema::open(index)?;
+
+        // Check if this is a GROUP BY query
+        let final_aggregations = if grouping_columns.is_empty() {
+            // Simple aggregations (no GROUP BY) - use existing logic
+            build_simple_filter_aggregations(
+                &aggregate_types,
+                &schema,
+                &reader,
+                index,
+                standalone_context,
+            )?
+        } else {
+            // GROUP BY aggregations - build nested structure with FilterAggregations
+            build_grouped_filter_aggregations(
+                &aggregate_types,
+                &grouping_columns,
+                &schema,
+                &reader,
+                index,
+                standalone_context,
+            )?
+        };
+
+        // Execute directly with Tantivy aggregations (bypass JSON serialization)
+        execute_aggregate_with_tantivy_aggregations(
+            index,
+            base_query,
+            final_aggregations,
+            solve_mvcc,
+            memory_limit,
+            bucket_limit,
+        )
+    }
+}
+
+/// Execute aggregate directly with Tantivy Aggregations object (no JSON serialization)
+/// This bypasses the JSON serialization step that causes issues with FilterAggregation::new_with_query
+pub fn execute_aggregate_with_tantivy_aggregations(
+    index: &PgSearchRelation,
+    query: SearchQueryInput,
+    aggregations: tantivy::aggregation::agg_req::Aggregations,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    use crate::aggregate::mvcc_collector::MVCCFilterCollector;
+    use crate::aggregate::vischeck::TSVisibilityChecker;
+    use crate::index::mvcc::MvccSatisfies;
+    use crate::index::reader::index::SearchIndexReader;
+    use std::ptr::NonNull;
+    use tantivy::aggregation::{AggregationCollector, AggregationLimitsGuard};
+
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        // Create aggregation collector with proper limits
+        let base_collector = AggregationCollector::from_aggs(
+            aggregations,
+            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+        );
+
+        // Apply MVCC filtering if requested (same logic as the multi-query approach)
+        let agg_result = if solve_mvcc {
+            let heaprel = index
+                .heap_relation()
+                .expect("index should belong to a heap relation");
+            let mvcc_collector = MVCCFilterCollector::new(
+                base_collector,
+                TSVisibilityChecker::with_rel_and_snap(
+                    heaprel.as_ptr(),
+                    pg_sys::GetActiveSnapshot(),
+                ),
+            );
+            reader.searcher().search(reader.query(), &mvcc_collector)?
+        } else {
+            reader.searcher().search(reader.query(), &base_collector)?
+        };
+
+        // Convert result to JSON
+        let mut result_json = serde_json::to_value(agg_result)?;
+
+        // Flatten FilterAggregation results to match expected structure
+        flatten_filter_aggregation_results(&mut result_json);
+
+        // Debug: Log the final result JSON
+        pgrx::warning!("=== FilterAggregation Result JSON ===");
+        pgrx::warning!("Result: {}", serde_json::to_string_pretty(&result_json).unwrap_or_else(|e| format!("Failed to serialize: {}", e)));
+
+        pg_sys::FreeExprContext(standalone_context, true);
+        Ok(result_json)
+    }
+}
+
+/// Flatten FilterAggregation results to match the expected structure for existing result processing
+/// Converts {"doc_count": X, "filtered_agg": {"value": Y}} to {"value": Y, "doc_count": X}
+/// Preserves doc_count for empty result set detection
+fn flatten_filter_aggregation_results(result_json: &mut serde_json::Value) {
+    if let serde_json::Value::Object(ref mut obj) = result_json {
+        for (_key, value) in obj.iter_mut() {
+            if let serde_json::Value::Object(ref mut agg_obj) = value {
+                // Check if this is a FilterAggregation result with nested structure
+                if agg_obj.contains_key("doc_count") && agg_obj.contains_key("filtered_agg") {
+                    // Extract the nested aggregation result and preserve doc_count
+                    if let (Some(filtered_agg), Some(doc_count)) = (
+                        agg_obj.get("filtered_agg").cloned(),
+                        agg_obj.get("doc_count").cloned()
+                    ) {
+                        // Merge the filtered_agg result with the doc_count
+                        if let serde_json::Value::Object(mut filtered_obj) = filtered_agg {
+                            filtered_obj.insert("doc_count".to_string(), doc_count);
+                            *value = serde_json::Value::Object(filtered_obj);
+                        } else {
+                            // If filtered_agg is not an object, create a new object with both
+                            let mut new_obj = serde_json::Map::new();
+                            new_obj.insert("value".to_string(), filtered_agg);
+                            new_obj.insert("doc_count".to_string(), doc_count);
+                            *value = serde_json::Value::Object(new_obj);
+                        }
+                    }
+                }
+                // Also recursively process any nested objects (for grouped aggregations)
+                else {
+                    flatten_filter_aggregation_results(value);
+                }
+            }
+        }
+    }
+}
+
+/// Build simple filter aggregations (no GROUP BY)
+fn build_simple_filter_aggregations(
+    aggregate_types: &[crate::postgres::customscan::aggregatescan::privdat::AggregateType],
+    schema: &crate::schema::SearchIndexSchema,
+    reader: &crate::index::reader::index::SearchIndexReader,
+    index: &crate::postgres::rel::PgSearchRelation,
+    standalone_context: *mut pg_sys::ExprContext,
+) -> Result<tantivy::aggregation::agg_req::Aggregations, Box<dyn std::error::Error>> {
+    use std::collections::BTreeMap;
+    use std::ptr::NonNull;
+    use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+    use tantivy::aggregation::bucket::FilterAggregation;
+
+    let mut aggregations_map = BTreeMap::new();
+
+    for (idx, aggregate_type) in aggregate_types.iter().enumerate() {
+        let agg_name = idx.to_string(); // Use "0", "1", etc. to match existing result processing
+
+        if let Some(filter_query) = aggregate_type.filter_expr() {
+            // Convert SearchQueryInput to Tantivy Query object
+            let tantivy_query = filter_query.into_tantivy_query(
+                schema,
+                &|| {
+                    tantivy::query::QueryParser::for_index(
+                        reader.searcher().index(),
+                        schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                    )
+                },
+                reader.searcher(),
+                index.oid(),
+                Some(index.heap_relation().ok_or("No heap relation")?.oid()),
+                NonNull::new(standalone_context),
+                None, // planstate
+            )?;
+
+            // Create the base aggregation (without filter) directly as Aggregation object
+            let base_agg_type = aggregate_type.convert_filtered_aggregate_to_unfiltered();
+            let base_agg_json = base_agg_type.to_json();
+            let base_aggregation: Aggregation = serde_json::from_value(base_agg_json)?;
+
+            // Create FilterAggregation using the Tantivy Query object directly
+            let filter_agg = FilterAggregation::new_with_query(tantivy_query);
+
+            // Create sub-aggregations map with the base aggregation
+            let mut sub_aggs_map = std::collections::HashMap::new();
+            sub_aggs_map.insert("filtered_agg".to_string(), base_aggregation);
+            let sub_aggregations = Aggregations::from(sub_aggs_map);
+
+            // Add the filter aggregation to the map
+            aggregations_map.insert(
+                agg_name,
+                Aggregation {
+                    agg: AggregationVariants::Filter(filter_agg),
+                    sub_aggregation: sub_aggregations,
+                },
+            );
+        } else {
+            // No filter - add the aggregation directly
+            let agg_json = aggregate_type.to_json();
+            let aggregation: Aggregation = serde_json::from_value(agg_json)?;
+            aggregations_map.insert(agg_name, aggregation);
+        }
+    }
+
+    // Create the final aggregation request
+    Ok(Aggregations::from(
+        aggregations_map
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>(),
+    ))
+}
+
+/// Build grouped filter aggregations (with GROUP BY)
+fn build_grouped_filter_aggregations(
+    aggregate_types: &[crate::postgres::customscan::aggregatescan::privdat::AggregateType],
+    grouping_columns: &[crate::postgres::customscan::aggregatescan::privdat::GroupingColumn],
+    schema: &crate::schema::SearchIndexSchema,
+    reader: &crate::index::reader::index::SearchIndexReader,
+    index: &crate::postgres::rel::PgSearchRelation,
+    standalone_context: *mut pg_sys::ExprContext,
+) -> Result<tantivy::aggregation::agg_req::Aggregations, Box<dyn std::error::Error>> {
+    use std::collections::BTreeMap;
+    use std::ptr::NonNull;
+    use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
+    use tantivy::aggregation::bucket::FilterAggregation;
+
+    // APPROACH: Put FilterAggregation at the top level to avoid SegmentReader access issues
+    // Each FilterAggregation contains a TermsAggregation as its sub-aggregation
+    let mut root_aggregations_map = BTreeMap::new();
+
+    if let Some(grouping_column) = grouping_columns.first() {
+        let mut base_sub_aggs = std::collections::HashMap::new();
+
+        for (idx, aggregate_type) in aggregate_types.iter().enumerate() {
+            let agg_name = idx.to_string();
+
+            if let Some(filter_query) = aggregate_type.filter_expr() {
+                // Convert SearchQueryInput to Tantivy Query object
+                let tantivy_query = filter_query.into_tantivy_query(
+                    schema,
+                    &|| {
+                        tantivy::query::QueryParser::for_index(
+                            reader.searcher().index(),
+                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                        )
+                    },
+                    reader.searcher(),
+                    index.oid(),
+                    Some(index.heap_relation().ok_or("No heap relation")?.oid()),
+                    NonNull::new(standalone_context),
+                    None, // planstate
+                )?;
+
+                // Create the base aggregation (without filter)
+                let base_agg_type = aggregate_type.convert_filtered_aggregate_to_unfiltered();
+                let base_agg_json = base_agg_type.to_json();
+                let base_aggregation: Aggregation = serde_json::from_value(base_agg_json)?;
+
+                // Create TermsAggregation with the metric as sub-aggregation
+                let terms_json = serde_json::json!({
+                    "terms": {
+                        "field": grouping_column.field_name,
+                        "size": 65000,
+                        "segment_size": 65000
+                    }
+                });
+
+                let mut terms_sub_aggs = std::collections::HashMap::new();
+                terms_sub_aggs.insert(agg_name.clone(), base_aggregation);
+
+                let terms_aggregation = Aggregation {
+                    agg: serde_json::from_value(terms_json)?,
+                    sub_aggregation: Aggregations::from(terms_sub_aggs),
+                };
+
+                // Create FilterAggregation with Tantivy Query and TermsAggregation as sub-aggregation
+                let filter_agg = FilterAggregation::new_with_query(tantivy_query);
+                let mut filter_sub_aggs = std::collections::HashMap::new();
+                filter_sub_aggs.insert("grouped".to_string(), terms_aggregation);
+
+                let filter_aggregation = Aggregation {
+                    agg: AggregationVariants::Filter(filter_agg),
+                    sub_aggregation: Aggregations::from(filter_sub_aggs),
+                };
+
+                // Use a name that includes the original index for result processing
+                root_aggregations_map.insert(format!("filter_{}", idx), filter_aggregation);
+            } else {
+                // No filter - add to base terms aggregation
+                let agg_json = aggregate_type.to_json();
+                let aggregation: Aggregation = serde_json::from_value(agg_json)?;
+                base_sub_aggs.insert(agg_name, aggregation);
+            }
+        }
+
+        // Add base terms aggregation for non-filtered metrics
+        if !base_sub_aggs.is_empty() {
+            let terms_json = serde_json::json!({
+                "terms": {
+                    "field": grouping_column.field_name,
+                    "size": 65000,
+                    "segment_size": 65000
+                }
+            });
+
+            let base_terms_aggregation = Aggregation {
+                agg: serde_json::from_value(terms_json)?,
+                sub_aggregation: Aggregations::from(base_sub_aggs),
+            };
+
+            root_aggregations_map.insert("group_0".to_string(), base_terms_aggregation);
+        }
+    }
+
+    Ok(Aggregations::from(
+        root_aggregations_map
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>(),
+    ))
+}
+
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,

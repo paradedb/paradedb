@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759252193091,
+  "lastUpdate": 1759252928286,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1054,6 +1054,42 @@ window.BENCHMARK_DATA = {
             "value": 5.426808874350691,
             "unit": "median tps",
             "extra": "avg tps: 4.909404548734937, max tps: 6.025537974772346, count: 57912"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5d310fcc28c6c692cbbcf7f8b86f61e806434a5",
+          "message": "feat: introduce ascii folding filter (#3241)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIntroduces the ASCII filter.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-30T12:53:56-04:00",
+          "tree_id": "ec6a192f3de17da7459676d2429d3b2f5640c7b5",
+          "url": "https://github.com/paradedb/paradedb/commit/d5d310fcc28c6c692cbbcf7f8b86f61e806434a5"
+        },
+        "date": 1759252926701,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.247722925487114,
+            "unit": "median tps",
+            "extra": "avg tps: 7.07032069877739, max tps: 11.015676810542592, count: 57763"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.4274481699527835,
+            "unit": "median tps",
+            "extra": "avg tps: 4.888689419717362, max tps: 6.026767799984218, count: 57763"
           }
         ]
       }

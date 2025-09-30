@@ -208,6 +208,14 @@ impl LayeredMergePolicy {
             .collect();
     }
 
+    #[cfg(any(test, feature = "pg_test"))]
+    pub fn set_mergeable_segments_for_test(&mut self, segments: Vec<SegmentMetaEntry>) {
+        self.mergeable_segments = segments
+            .into_iter()
+            .map(|entry| (entry.segment_id(), entry))
+            .collect();
+    }
+
     /// Run a simulation of what tantivy will do if it were to call our [`MergePolicy::compute_merge_candidates`]
     /// implementation
     pub fn simulate(&mut self) -> Vec<MergeCandidate> {
@@ -300,4 +308,131 @@ fn adjusted_byte_size(
             (entry.byte_size() as f64 * fraction_alive) as u64
         })
         .unwrap_or(meta.num_docs() as u64 * avg_doc_size)
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::storage::block::{
+        DeleteEntry, FileEntry, SegmentMetaEntry, SegmentMetaEntryImmutable,
+    };
+    use pgrx::pg_sys;
+    use pgrx::prelude::*;
+    use tantivy::index::SegmentId;
+
+    fn create_segment_meta_entry(
+        byte_size: u64,
+        num_docs: u32,
+        num_deleted_docs: u32,
+    ) -> SegmentMetaEntry {
+        let segment_id = SegmentId::generate_random();
+        let max_doc = num_docs + num_deleted_docs;
+
+        let delete_entry = if num_deleted_docs > 0 {
+            Some(DeleteEntry {
+                file_entry: FileEntry {
+                    starting_block: pg_sys::InvalidBlockNumber,
+                    total_bytes: 0, // assume delete file size is not important for merge policy
+                },
+                num_deleted_docs,
+            })
+        } else {
+            None
+        };
+
+        let immutable = SegmentMetaEntryImmutable {
+            postings: Some(FileEntry {
+                starting_block: pg_sys::InvalidBlockNumber,
+                total_bytes: byte_size as usize, // Corrected to usize
+            }),
+            delete: delete_entry,
+            ..Default::default()
+        };
+        SegmentMetaEntry::new_immutable(
+            segment_id,
+            max_doc,
+            pg_sys::InvalidTransactionId,
+            immutable,
+        )
+    }
+
+    #[pg_test]
+    fn test_layered_merge_policy_simple() {
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let segments = vec![
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(700, 70, 0),
+        ];
+        let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
+
+        policy.set_mergeable_segments_for_test(segments);
+        let candidates = policy.simulate();
+
+        assert_eq!(candidates.len(), 1);
+        let candidate_ids: Vec<_> = candidates[0].0.to_vec();
+        assert_eq!(candidate_ids.len(), 2);
+        assert!(candidate_ids.contains(&segment_ids[0]));
+        assert!(candidate_ids.contains(&segment_ids[1]));
+    }
+
+    #[pg_test]
+    fn test_layered_merge_policy_not_full_enough() {
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        let segments = vec![
+            create_segment_meta_entry(400, 40, 0),
+            create_segment_meta_entry(400, 40, 0),
+            create_segment_meta_entry(400, 40, 0),
+        ];
+
+        policy.set_mergeable_segments_for_test(segments);
+        let candidates = policy.simulate();
+
+        assert_eq!(candidates.len(), 0);
+    }
+
+    #[pg_test]
+    fn test_layered_merge_policy_min_merge_count() {
+        let mut policy = LayeredMergePolicy::new(vec![1000]);
+        policy.min_merge_count = 3;
+        let segments = vec![
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(700, 70, 0),
+        ];
+
+        policy.set_mergeable_segments_for_test(segments);
+        let candidates = policy.simulate();
+
+        assert_eq!(candidates.len(), 0);
+    }
+
+    #[pg_test]
+    fn test_layered_merge_policy_multiple_layers() {
+        let mut policy = LayeredMergePolicy::new(vec![1000, 10000]);
+        let segments = vec![
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(700, 70, 0),
+            create_segment_meta_entry(7000, 700, 0),
+            create_segment_meta_entry(7000, 700, 0),
+        ];
+        let segment_ids: Vec<_> = segments.iter().map(|s| s.segment_id()).collect();
+
+        policy.set_mergeable_segments_for_test(segments);
+        let candidates = policy.simulate();
+
+        assert_eq!(candidates.len(), 2);
+
+        let candidate1_ids: HashSet<_> = candidates[0].0.iter().cloned().collect();
+        let candidate2_ids: HashSet<_> = candidates[1].0.iter().cloned().collect();
+
+        let small_segment_ids: HashSet<_> = segment_ids[0..2].iter().cloned().collect();
+        let large_segment_ids: HashSet<_> = segment_ids[2..4].iter().cloned().collect();
+
+        if candidate1_ids == small_segment_ids {
+            assert_eq!(candidate2_ids, large_segment_ids);
+        } else {
+            assert_eq!(candidate1_ids, large_segment_ids);
+            assert_eq!(candidate2_ids, small_segment_ids);
+        }
+    }
 }

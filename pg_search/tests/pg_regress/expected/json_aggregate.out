@@ -117,18 +117,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as total_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+   Aggregate Definition: {"0":{"sum":{"field":"metadata.price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(5 rows)
 
 -- Execute the query
 SELECT SUM((metadata->>'price')::numeric) as total_price
@@ -144,18 +140,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
-(9 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"sum":{"field":"metadata.price"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(5 rows)
 
 SELECT SUM((metadata->>'price')::numeric) as electronics_total
 FROM json_agg_test 
@@ -170,18 +162,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('data.stock');
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
- Aggregate
-   Output: sum(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: data
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
-(9 rows)
+                                                 QUERY PLAN                                                 
+------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"data.stock"}}}}
+   Aggregate Definition: {"0":{"sum":{"field":"data.stock"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(5 rows)
 
 SELECT SUM((data->>'stock')::integer) as total_stock
 FROM json_agg_test 
@@ -199,26 +187,22 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-                                      QUERY PLAN                                       
----------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+   Aggregate Definition: {"0":{"avg":{"field":"metadata.price"}}}
+(5 rows)
 
 -- Execute the query
 SELECT AVG((metadata->>'price')::numeric) as avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-      avg_price       
-----------------------
- 482.7500000000000000
+ avg_price 
+-----------
+    482.75
 (1 row)
 
 -- Test AVG with brand filter
@@ -226,18 +210,14 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.brand', 'Apple');
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple","is_datetime":false}}}}
-(9 rows)
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.brand","value":"Apple","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"avg":{"field":"metadata.price"}}}
+(5 rows)
 
 SELECT AVG((metadata->>'price')::numeric) as apple_avg_price
 FROM json_agg_test 
@@ -252,25 +232,21 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: avg(((data ->> 'stock'::text))::integer)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: data
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing","is_datetime":false}}}}
-(9 rows)
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"clothing","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"avg":{"field":"data.stock"}}}
+(5 rows)
 
 SELECT AVG((data->>'stock')::integer) as avg_stock
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'clothing');
-      avg_stock      
----------------------
- 25.0000000000000000
+ avg_stock 
+-----------
+        25
 (1 row)
 
 -- =========================================
@@ -283,18 +259,14 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.exists('metadata.price');
-                                              QUERY PLAN                                              
-------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
-(9 rows)
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now(), now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.price"}}}}
+   Aggregate Definition: {"0":{"min":{"field":"metadata.price"}},"1":{"max":{"field":"metadata.price"}}}
+(5 rows)
 
 -- Execute the query
 SELECT 
@@ -314,18 +286,14 @@ SELECT
     MAX((metadata->>'price')::numeric) as max_electronics_price
 FROM json_agg_test 
 WHERE id @@@ paradedb.term('metadata.category', 'electronics');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   Output: min(((metadata ->> 'price'::text))::numeric), max(((metadata ->> 'price'::text))::numeric)
-   ->  Custom Scan (ParadeDB Scan) on public.json_agg_test
-         Output: metadata
-         Table: json_agg_test
-         Index: idx_json_agg
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
-(9 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.json_agg_test
+   Output: now(), now()
+   Index: idx_json_agg
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"metadata.category","value":"electronics","is_datetime":false}}}}
+   Aggregate Definition: {"0":{"min":{"field":"metadata.price"}},"1":{"max":{"field":"metadata.price"}}}
+(5 rows)
 
 SELECT 
     MIN((metadata->>'price')::numeric) as min_electronics_price,

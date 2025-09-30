@@ -22,12 +22,12 @@ use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::{
-    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
-    F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
-    F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
-    F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
-    F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
-    F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
+    F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
+    F_COUNT_ANY, F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8,
+    F_MAX_NUMERIC, F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE,
+    F_MIN_FLOAT4, F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC,
+    F_MIN_TIME, F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8,
+    F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::prelude::*;
 use pgrx::PgList;
@@ -95,12 +95,13 @@ impl AggregateType {
     pub unsafe fn try_from(aggref: *mut pg_sys::Aggref, heaprelid: pg_sys::Oid) -> Option<Self> {
         let aggfnoid = (*aggref).aggfnoid.to_u32();
         let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-        if args.is_empty() {
-            return None;
+
+        if aggfnoid == F_COUNT_ && (*aggref).aggstar {
+            return Some(AggregateType::CountAny);
         }
 
-        if aggfnoid == F_COUNT_ANY && (*aggref).aggstar {
-            return Some(AggregateType::CountAny);
+        if args.is_empty() {
+            return None;
         }
 
         let first_arg = args.get_ptr(0)?;

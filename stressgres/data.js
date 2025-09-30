@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759267011355,
+  "lastUpdate": 1759267726988,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3034,6 +3034,60 @@ window.BENCHMARK_DATA = {
             "value": 17.89303874642869,
             "unit": "median tps",
             "extra": "avg tps: 18.227390943181693, max tps: 23.143779893627137, count: 55373"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da4cfff239fd8e2e318591df7095f4cac4987a4b",
+          "message": "fix: Correctly handle `COUNT(<column>)` (#3243)\n\n# Ticket(s) Closed\n\n- Closes #3196 \n\n## What\n\nBefore, any `COUNT(<column>)` was getting rewritten to a count of the\n\"ctid\" field, which is incorrect because it doesn't correctly handle\nnull values.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-09-30T16:35:47-04:00",
+          "tree_id": "4e13feab234146d47e8e600f153bb9a27fe8383e",
+          "url": "https://github.com/paradedb/paradedb/commit/da4cfff239fd8e2e318591df7095f4cac4987a4b"
+        },
+        "date": 1759267724690,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.02357119292469,
+            "unit": "median tps",
+            "extra": "avg tps: 38.02140321632169, max tps: 39.31080243409729, count: 55519"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 131.2842478753356,
+            "unit": "median tps",
+            "extra": "avg tps: 173.78703072864633, max tps: 2913.468974737234, count: 55519"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1032.8024662274563,
+            "unit": "median tps",
+            "extra": "avg tps: 1024.4692669678816, max tps: 1039.0557613473575, count: 55519"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.36958403034747,
+            "unit": "median tps",
+            "extra": "avg tps: 122.28964651025113, max tps: 787.5872803642854, count: 111038"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.0147682149184,
+            "unit": "median tps",
+            "extra": "avg tps: 18.98140251610371, max tps: 21.652549596782027, count: 55519"
           }
         ]
       }

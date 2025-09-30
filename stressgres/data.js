@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759253691834,
+  "lastUpdate": 1759254417634,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2098,6 +2098,60 @@ window.BENCHMARK_DATA = {
             "value": 18.989050045008536,
             "unit": "median tps",
             "extra": "avg tps: 19.059018510082048, max tps: 19.786499808143727, count: 55435"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5d310fcc28c6c692cbbcf7f8b86f61e806434a5",
+          "message": "feat: introduce ascii folding filter (#3241)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIntroduces the ASCII filter.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-30T12:53:56-04:00",
+          "tree_id": "ec6a192f3de17da7459676d2429d3b2f5640c7b5",
+          "url": "https://github.com/paradedb/paradedb/commit/d5d310fcc28c6c692cbbcf7f8b86f61e806434a5"
+        },
+        "date": 1759254416039,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.77840641645994,
+            "unit": "median tps",
+            "extra": "avg tps: 37.85250838089398, max tps: 39.58243009469522, count: 55468"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 131.75226156594783,
+            "unit": "median tps",
+            "extra": "avg tps: 174.21001285404327, max tps: 2831.49067523266, count: 55468"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1068.7627201342352,
+            "unit": "median tps",
+            "extra": "avg tps: 1062.7604189131312, max tps: 1075.8811998276385, count: 55468"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 118.33143183592924,
+            "unit": "median tps",
+            "extra": "avg tps: 122.78061207028286, max tps: 823.0572174207088, count: 110936"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.99500994631565,
+            "unit": "median tps",
+            "extra": "avg tps: 19.054227674474788, max tps: 19.93306567829608, count: 55468"
           }
         ]
       }

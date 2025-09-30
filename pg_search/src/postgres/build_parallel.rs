@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::FieldName;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
@@ -286,7 +285,6 @@ impl<'a> BuildWorker<'a> {
 struct WorkerBuildState {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
-    key_field_name: FieldName,
     per_row_context: PgMemoryContexts,
     current_xid: pg_sys::FullTransactionId,
     next_xid: pg_sys::FullTransactionId,
@@ -342,11 +340,9 @@ impl WorkerBuildState {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
-        let key_field_name = schema.key_field_name();
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
-            key_field_name,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
@@ -504,7 +500,6 @@ unsafe extern "C-unwind" fn build_callback(
                         categorized,
                     )
                 }),
-            &build_state.key_field_name,
             &mut doc,
         )
         .unwrap_or_else(|e| panic!("{e}"));

@@ -19,7 +19,7 @@ use super::utils::{load_metas, save_new_metas, save_schema, save_settings};
 use crate::api::{HashMap, HashSet};
 use crate::index::reader::segment_component::SegmentComponentReader;
 use crate::index::writer::segment_component::SegmentComponentWriter;
-use crate::postgres::heap::HeapFetchState;
+use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
@@ -28,6 +28,7 @@ use crate::postgres::storage::block::{
 use crate::postgres::storage::buffer::{BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::MAX_BUFFERS_TO_EXTEND_BY;
+use crate::schema::FieldSource;
 use parking_lot::Mutex;
 use pgrx::pg_sys;
 use std::any::Any;
@@ -126,6 +127,7 @@ pub struct MVCCDirectory {
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
     heap_fetch_state: Arc<OnceLock<HeapFetchState>>,
+    expression_state: Arc<OnceLock<ExpressionState>>,
 }
 
 unsafe impl Send for MVCCDirectory {}
@@ -150,6 +152,7 @@ impl MVCCDirectory {
             all_entries: Default::default(),
             total_segment_count: Default::default(),
             heap_fetch_state: Default::default(),
+            expression_state: Default::default(),
         }
     }
 
@@ -205,8 +208,17 @@ impl MVCCDirectory {
                                 .expect("Should have a heap relation.");
                             HeapFetchState::new(&heaprel)
                         });
-                        index_memory_segment(&self.indexrel, &tantivy_meta, &meta, heap_fetch_state)
-                            .expect("Failed to index mutable segment.")
+                        let expression_state = self
+                            .expression_state
+                            .get_or_init(|| ExpressionState::new(&self.indexrel));
+                        index_memory_segment(
+                            &self.indexrel,
+                            &tantivy_meta,
+                            &meta,
+                            heap_fetch_state,
+                            expression_state,
+                        )
+                        .expect("Failed to index mutable segment.")
                     })
                     .get_file_handle(path)?;
                 Ok(file_handle)
@@ -588,6 +600,7 @@ pub fn index_memory_segment(
     segment_meta: &SegmentMeta,
     segment: &SegmentMetaEntry,
     heap_fetch_state: &HeapFetchState,
+    expression_state: &ExpressionState,
 ) -> anyhow::Result<RamDirectory> {
     use crate::index::writer::index::SerialIndexWriter;
     use crate::postgres::utils::{row_to_search_document, u64_to_item_pointer};
@@ -611,7 +624,6 @@ pub fn index_memory_segment(
         .expect("Should have a heap relation.");
     let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
     let search_schema = indexrel.schema()?;
-    let key_field_name = search_schema.key_field_name();
     let categorized_fields = search_schema.categorized_fields();
 
     let mut values = vec![pg_sys::Datum::null(); heaptupdesc.len()];
@@ -652,13 +664,21 @@ pub fn index_memory_segment(
                     isnull.as_mut_ptr(),
                 );
 
+                let expr_results = expression_state.evaluate(heap_fetch_state.slot);
+
                 let mut doc = tantivy::TantivyDocument::new();
                 row_to_search_document(
                     categorized_fields.iter().map(|(field, categorized)| {
-                        let heap_attno = categorized.heap_attno;
-                        (values[heap_attno], isnull[heap_attno], field, categorized)
+                        match categorized.source {
+                            FieldSource::Heap { attno } => {
+                                (values[attno], isnull[attno], field, categorized)
+                            }
+                            FieldSource::Expression { att_idx } => {
+                                let (datum, is_null) = expr_results[att_idx];
+                                (datum, is_null, field, categorized)
+                            }
+                        }
                     }),
-                    &key_field_name,
                     &mut doc,
                 )
                 .unwrap_or_else(|e| {

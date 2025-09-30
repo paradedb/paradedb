@@ -170,10 +170,17 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
 }
 
 #[derive(Debug, Clone)]
+pub enum FieldSource {
+    Heap { attno: usize },
+    Expression { att_idx: usize },
+}
+
+#[derive(Debug, Clone)]
 pub struct CategorizedFieldData {
     pub attno: usize,
-    pub heap_attno: usize,
+    pub source: FieldSource,
     pub base_oid: PgOid,
+    pub is_key_field: bool,
     pub is_array: bool,
     pub is_json: bool,
 }
@@ -275,8 +282,10 @@ impl SearchIndexSchema {
     pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
+            let key_field_name = self.key_field_name();
             let mut categorized = self.categorized.borrow_mut();
             let mut alias_lookup = self.alias_lookup();
+            let mut expr_idx_counter = 0;
             for (
                 attname,
                 ExtractedFieldAttribute {
@@ -307,16 +316,25 @@ impl SearchIndexSchema {
                             tantivy_type.typeoid()
                         )
                     });
+                    let is_key_field = key_field_name == *search_field.field_name();
                     let is_json = matches!(
                         base_oid,
                         PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBOID | pg_sys::BuiltinOid::JSONOID)
                     );
+                    let source = if *heap_attno != usize::MAX {
+                        FieldSource::Heap { attno: *heap_attno }
+                    } else {
+                        let att_idx = expr_idx_counter;
+                        expr_idx_counter += 1;
+                        FieldSource::Expression { att_idx }
+                    };
                     categorized.push((
                         search_field,
                         CategorizedFieldData {
                             attno: *attno,
-                            heap_attno: *heap_attno,
+                            source,
                             base_oid,
+                            is_key_field,
                             is_array,
                             is_json,
                         },

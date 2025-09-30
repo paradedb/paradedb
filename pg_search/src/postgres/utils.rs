@@ -222,7 +222,6 @@ pub unsafe fn row_to_search_document<'a>(
             &'a CategorizedFieldData,
         ),
     >,
-    key_field_name: &FieldName,
     document: &mut tantivy::TantivyDocument,
 ) -> Result<(), IndexError> {
     for (
@@ -231,14 +230,15 @@ pub unsafe fn row_to_search_document<'a>(
         search_field,
         CategorizedFieldData {
             base_oid,
+            is_key_field,
             is_array,
             is_json,
             ..
         },
     ) in categorized_fields
     {
-        if isnull && key_field_name == search_field.field_name() {
-            return Err(IndexError::KeyIdNull(key_field_name.to_string()));
+        if isnull && *is_key_field {
+            return Err(IndexError::KeyIdNull(search_field.field_name().to_string()));
         }
 
         if isnull {

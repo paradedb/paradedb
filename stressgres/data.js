@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759266249504,
+  "lastUpdate": 1759267008808,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2182,6 +2182,54 @@ window.BENCHMARK_DATA = {
             "value": 6.034422942918843,
             "unit": "median tps",
             "extra": "avg tps: 6.06004858914653, max tps: 7.244353563385049, count: 56528"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da4cfff239fd8e2e318591df7095f4cac4987a4b",
+          "message": "fix: Correctly handle `COUNT(<column>)` (#3243)\n\n# Ticket(s) Closed\n\n- Closes #3196 \n\n## What\n\nBefore, any `COUNT(<column>)` was getting rewritten to a count of the\n\"ctid\" field, which is incorrect because it doesn't correctly handle\nnull values.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-09-30T16:35:47-04:00",
+          "tree_id": "4e13feab234146d47e8e600f153bb9a27fe8383e",
+          "url": "https://github.com/paradedb/paradedb/commit/da4cfff239fd8e2e318591df7095f4cac4987a4b"
+        },
+        "date": 1759267007258,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 456.59792844762114,
+            "unit": "median tps",
+            "extra": "avg tps: 443.7155305600575, max tps: 510.9366995816883, count: 56516"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 509.392647768978,
+            "unit": "median tps",
+            "extra": "avg tps: 506.54431623847944, max tps: 536.8359596515688, count: 56516"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 932.2385813573624,
+            "unit": "median tps",
+            "extra": "avg tps: 913.5975146984975, max tps: 1174.3647022440846, count: 56516"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 5.949770018607669,
+            "unit": "median tps",
+            "extra": "avg tps: 5.97986037358285, max tps: 7.16066356494409, count: 56516"
           }
         ]
       }

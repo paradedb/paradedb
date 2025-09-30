@@ -1,0 +1,39 @@
+---
+title: Average
+---
+
+`AVG` computes the average value over a specific column:
+
+```sql
+SELECT AVG(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+<Note>
+  The field being averaged, in this case `rating`, must be indexed as
+  [fast](/documentation/indexing/fast_fields).
+</Note>
+
+By default, `AVG` ignores null values. Use `COALESCE` to include them in the final average:
+
+```sql
+SELECT AVG(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+To verify that `AVG` was pushed down, look for a `ParadeDB Aggregate Scan` with `average` in the `EXPLAIN` output:
+
+```sql
+EXPLAIN SELECT AVG(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+```sql Expected Response
+                                       QUERY PLAN
+----------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=32)
+   Index: search_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"avg":{"field":"rating"}}}
+(4 rows)
+```

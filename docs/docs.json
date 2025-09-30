@@ -153,12 +153,22 @@
                         "group": "Aggregates",
                         "pages": [
                           "documentation/aggregates/overview",
-                          "documentation/aggregates/count",
-                          "documentation/aggregates/sum",
-                          "documentation/aggregates/minmax",
-                          "documentation/aggregates/average",
-                          "documentation/aggregates/terms",
-                          "documentation/aggregates/configuration",
+                          {
+                            "group": "Bucket",
+                            "pages": [
+                              "documentation/aggregates/bucket/terms"
+                            ]
+                          },
+                          {
+                            "group": "Metrics",
+                            "pages": [
+                              "documentation/aggregates/metrics/count",
+                              "documentation/aggregates/metrics/sum",
+                              "documentation/aggregates/metrics/minmax",
+                              "documentation/aggregates/metrics/average"
+                            ]
+                          },
+                          "documentation/aggregates/tuning",
                           "documentation/aggregates/limitations"
                         ]
                       },

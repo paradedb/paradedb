@@ -1,31 +1,22 @@
 ---
-title: Configuration
+title: Performance Tuning
 ---
 
 Several settings can be tuned to improve the performance of aggregates in ParadeDB.
 
 ### Configure Parallel Workers
 
-ParadeDB Enterprise uses Postgres parallel workers. By default, Postgres allows two workers per parallel query.
+ParadeDB uses Postgres parallel workers. By default, Postgres allows two workers per parallel query.
 Increasing the number of [parallel workers](/documentation/configuration/parallel) allows parallel queries to use all of the available hardware on the host machine and can deliver significant
-speedups. For instance, if the host machine has 16 CPUs, `max_worker_processes`, `max_parallel_workers`, and `max_parallel_workers_per_gather`
-should be set to 16.
-
-<Note>
-  Remember to restart Postgres in order for `postgresql.conf` changes to take
-  effect.
-</Note>
+speedups.
 
 ### Run `VACUUM`
 
 `VACUUM` updates the table's [visibility map](https://www.postgresql.org/docs/current/storage-vm.html),
-which speeds up Postgres' visibility checks. Specifying `INDEX_CLEANUP false` allows `VACUUM` to run much
-faster over large tables by skipping the cleanup of dead rows in the index.
-
-<Note>Make sure to pass the table name, not the index name, to `VACUUM`.</Note>
+which speeds up Postgres' visibility checks.
 
 ```sql
-VACUUM (INDEX_CLEANUP false) mock_items;
+VACUUM mock_items;
 ```
 
 If the table experiences frequent updates, we recommend configuring [autovacuum](https://www.postgresql.org/docs/current/routine-vacuuming.html).

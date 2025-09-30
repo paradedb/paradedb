@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759266247011,
+  "lastUpdate": 1759266249504,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1888,6 +1888,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.58170242455957, max segment_count: 106.0, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da4cfff239fd8e2e318591df7095f4cac4987a4b",
+          "message": "fix: Correctly handle `COUNT(<column>)` (#3243)\n\n# Ticket(s) Closed\n\n- Closes #3196 \n\n## What\n\nBefore, any `COUNT(<column>)` was getting rewritten to a count of the\n\"ctid\" field, which is incorrect because it doesn't correctly handle\nnull values.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-09-30T16:35:47-04:00",
+          "tree_id": "4e13feab234146d47e8e600f153bb9a27fe8383e",
+          "url": "https://github.com/paradedb/paradedb/commit/da4cfff239fd8e2e318591df7095f4cac4987a4b"
+        },
+        "date": 1759266247935,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.838305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.48157683237117, max cpu: 42.772278, count: 57347"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 225.86857475107678, max mem: 227.828125, count: 57347"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.39572079216873, max cpu: 33.20158, count: 57347"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 161.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 161.39671511805327, max mem: 163.61328125, count: 57347"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 23991,
+            "unit": "median block_count",
+            "extra": "avg block_count: 22970.98221354212, max block_count: 25942.0, count: 57347"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.59999651245924, max segment_count: 106.0, count: 57347"
           }
         ]
       }

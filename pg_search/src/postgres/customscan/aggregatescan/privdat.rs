@@ -18,7 +18,7 @@
 use crate::api::{AsCStr, OrderByInfo};
 use crate::nodecast;
 use crate::postgres::types::{ConstNode, TantivyValue};
-use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
+use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::{
@@ -106,13 +106,14 @@ impl AggregateType {
 
         let first_arg = args.get_ptr(0)?;
 
-        let (node, missing) = if let Some(coalesce_node) =
+        let (var, missing) = if let Some(coalesce_node) =
             nodecast!(CoalesceExpr, T_CoalesceExpr, (*first_arg).expr)
         {
             let args = PgList::<pg_sys::Node>::from_pg((*coalesce_node).args);
             if args.is_empty() {
                 return None;
             }
+            let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let const_node = ConstNode::try_from(args.get_ptr(1)?)?;
             let missing = match TantivyValue::try_from(const_node) {
                 // return None and bail if the conversion is lossy
@@ -124,13 +125,14 @@ impl AggregateType {
                     return None;
                 }
             };
-            (args.get_ptr(0)?, missing)
+            (var, missing)
+        } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
+            (var, None)
         } else {
-            ((*first_arg).expr as *mut pg_sys::Node, None)
+            return None;
         };
 
-        let (_, fieldname) = find_one_var_and_fieldname(VarContext::from_exec(heaprelid), node)?;
-        let field = fieldname.into_inner();
+        let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
 
         match aggfnoid {
             F_COUNT_ANY => Some(AggregateType::Count { field, missing }),

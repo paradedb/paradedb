@@ -45,13 +45,17 @@ SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
-                                QUERY PLAN                                
---------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on mock_items
-   Index: mock_items_id_description_rating_category_metadata_idx
-   Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"metadata.color"}}}
-(4 rows)
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: mock_items_id_description_rating_category_metadata_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(8 rows)
 
 SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
  count 

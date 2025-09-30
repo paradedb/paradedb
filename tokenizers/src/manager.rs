@@ -699,6 +699,7 @@ mod tests {
             stemmer: None,
             stopwords_language: None,
             stopwords: None,
+            ascii_folding: None,
         });
         assert_eq!(
             tokenizer.name(),
@@ -729,6 +730,7 @@ mod tests {
                     stemmer: None,
                     stopwords_language: None,
                     stopwords: None,
+                    ascii_folding: None,
                 }
             }
         );
@@ -749,6 +751,7 @@ mod tests {
                 stemmer: None,
                 stopwords_language: None,
                 stopwords: None,
+                ascii_folding: None,
             },
         };
 
@@ -789,6 +792,7 @@ mod tests {
                     "花朵".to_string(),
                     "公园".to_string()
                 ]),
+                ascii_folding: None,
             })
         );
 
@@ -837,6 +841,7 @@ mod tests {
                 stemmer: None,
                 stopwords_language: Some(Language::English),
                 stopwords: None,
+                ascii_folding: None,
             })
         );
 

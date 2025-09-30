@@ -37,6 +37,7 @@ use tantivy::schema::OwnedValue;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
     CountAny, // COUNT(*)
+    Count { field: String, missing: Option<f64> },
     Sum { field: String, missing: Option<f64> },
     Avg { field: String, missing: Option<f64> },
     Min { field: String, missing: Option<f64> },
@@ -98,7 +99,7 @@ impl AggregateType {
             return None;
         }
 
-        if aggfnoid == F_COUNT_ANY {
+        if aggfnoid == F_COUNT_ANY && (*aggref).aggstar {
             return Some(AggregateType::CountAny);
         }
 
@@ -133,6 +134,7 @@ impl AggregateType {
         let field = fieldname_from_var(heaprelid, var, (*var).varattno)?.into_inner();
 
         match aggfnoid {
+            F_COUNT_ANY => Some(AggregateType::Count { field, missing }),
             F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
                 Some(AggregateType::Avg { field, missing })
             }
@@ -158,6 +160,7 @@ impl AggregateType {
     pub fn field_name(&self) -> Option<String> {
         match self {
             AggregateType::CountAny => None,
+            AggregateType::Count { field, .. } => Some(field.clone()),
             AggregateType::Sum { field, .. } => Some(field.clone()),
             AggregateType::Avg { field, .. } => Some(field.clone()),
             AggregateType::Min { field, .. } => Some(field.clone()),
@@ -168,6 +171,7 @@ impl AggregateType {
     pub fn missing(&self) -> Option<f64> {
         match self {
             AggregateType::CountAny => None,
+            AggregateType::Count { missing, .. } => *missing,
             AggregateType::Sum { missing, .. } => *missing,
             AggregateType::Avg { missing, .. } => *missing,
             AggregateType::Min { missing, .. } => *missing,
@@ -178,6 +182,7 @@ impl AggregateType {
     pub fn to_json(&self) -> serde_json::Value {
         let (key, field) = match self {
             AggregateType::CountAny => ("value_count", "ctid"),
+            AggregateType::Count { field, .. } => ("value_count", field.as_str()),
             AggregateType::Sum { field, .. } => ("sum", field.as_str()),
             AggregateType::Avg { field, .. } => ("avg", field.as_str()),
             AggregateType::Min { field, .. } => ("min", field.as_str()),
@@ -257,6 +262,7 @@ impl AggregateType {
                 // Determine the appropriate number conversion mode based on aggregate type
                 let processing_type = match self {
                     AggregateType::CountAny => NumberConversionMode::ToInt,
+                    AggregateType::Count { .. } => NumberConversionMode::ToInt,
                     AggregateType::Sum { .. } => NumberConversionMode::Preserve,
                     AggregateType::Avg { .. } => NumberConversionMode::ToFloat,
                     AggregateType::Min { .. } => NumberConversionMode::Preserve,

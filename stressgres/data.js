@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759253689311,
+  "lastUpdate": 1759253691834,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1804,6 +1804,90 @@ window.BENCHMARK_DATA = {
             "value": 162.7421875,
             "unit": "median mem",
             "extra": "avg mem: 153.23296020739764, max mem: 163.4921875, count: 57890"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d5d310fcc28c6c692cbbcf7f8b86f61e806434a5",
+          "message": "feat: introduce ascii folding filter (#3241)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIntroduces the ASCII filter.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-09-30T12:53:56-04:00",
+          "tree_id": "ec6a192f3de17da7459676d2429d3b2f5640c7b5",
+          "url": "https://github.com/paradedb/paradedb/commit/d5d310fcc28c6c692cbbcf7f8b86f61e806434a5"
+        },
+        "date": 1759253690264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.083151021384377, max cpu: 32.65306, count: 57160"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 214.59024558257522, max mem: 240.62109375, count: 57160"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 58474,
+            "unit": "median block_count",
+            "extra": "avg block_count: 62611.963943317, max block_count: 75093.0, count: 57160"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 84,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 90.7, max segment_count: 191.0, count: 57160"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.880170439780515, max cpu: 27.77242, count: 57160"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 170.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.39389296492303, max mem: 171.3125, count: 57160"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.970554129921113, max cpu: 18.82353, count: 57160"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 162.21548620374824, max mem: 165.2578125, count: 57160"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.4375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.78714624516332, max cpu: 33.768845, count: 57160"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 154.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.50948400050297, max mem: 214.74609375, count: 57160"
           }
         ]
       }

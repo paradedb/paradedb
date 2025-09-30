@@ -1,0 +1,14 @@
+---
+title: Count
+---
+
+Counts the number of matches for a query:
+
+```sql
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+<Note>
+Currently, only `COUNT(*)` is pushed down. `COUNT(<column>)` is not.
+</Note>

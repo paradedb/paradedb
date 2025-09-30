@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759254420138,
+  "lastUpdate": 1759256485665,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -322,6 +322,72 @@ window.BENCHMARK_DATA = {
             "value": 118.52060387041244,
             "unit": "median tps",
             "extra": "avg tps: 134.24556558406127, max tps: 622.7991833857108, count: 54533"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98e9eccf356ea70ff614bb8ed1fda12e1ffadfb7",
+          "message": "feat: introduce ascii folding filter (#3242)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIntroduces the ASCII filter.\n\n## Why\n\nUser request\n\n## How\n\n## Tests\n\nAdded regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-09-30T14:05:24-04:00",
+          "tree_id": "4e4d848be0995232f7dfbb9c2a4a681ea5a0025a",
+          "url": "https://github.com/paradedb/paradedb/commit/98e9eccf356ea70ff614bb8ed1fda12e1ffadfb7"
+        },
+        "date": 1759256484084,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 768.8154433321026,
+            "unit": "median tps",
+            "extra": "avg tps: 770.4381725411639, max tps: 807.9778700678829, count: 54604"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3379.531835685177,
+            "unit": "median tps",
+            "extra": "avg tps: 3348.2213285074754, max tps: 3401.0158786550205, count: 54604"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 768.4533400066855,
+            "unit": "median tps",
+            "extra": "avg tps: 767.6183512465074, max tps: 810.2729897675023, count: 54604"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 678.7195873464157,
+            "unit": "median tps",
+            "extra": "avg tps: 678.138239857478, max tps: 710.2770249087937, count: 54604"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1650.5590103077675,
+            "unit": "median tps",
+            "extra": "avg tps: 1669.3079111138334, max tps: 1713.1413952372159, count: 109208"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1243.549970477918,
+            "unit": "median tps",
+            "extra": "avg tps: 1236.4703529128253, max tps: 1246.6140461379373, count: 54604"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 234.30640679940944,
+            "unit": "median tps",
+            "extra": "avg tps: 212.2721631683611, max tps: 564.1583434505729, count: 54604"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759265508255,
+  "lastUpdate": 1759266247011,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1498,6 +1498,42 @@ window.BENCHMARK_DATA = {
             "value": 5.525800589370457,
             "unit": "median tps",
             "extra": "avg tps: 4.987373154653468, max tps: 6.116835680646243, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "da4cfff239fd8e2e318591df7095f4cac4987a4b",
+          "message": "fix: Correctly handle `COUNT(<column>)` (#3243)\n\n# Ticket(s) Closed\n\n- Closes #3196 \n\n## What\n\nBefore, any `COUNT(<column>)` was getting rewritten to a count of the\n\"ctid\" field, which is incorrect because it doesn't correctly handle\nnull values.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression tests",
+          "timestamp": "2025-09-30T16:35:47-04:00",
+          "tree_id": "4e13feab234146d47e8e600f153bb9a27fe8383e",
+          "url": "https://github.com/paradedb/paradedb/commit/da4cfff239fd8e2e318591df7095f4cac4987a4b"
+        },
+        "date": 1759266245474,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.21664821679825,
+            "unit": "median tps",
+            "extra": "avg tps: 7.063840689341735, max tps: 11.037479747432217, count: 57347"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.344184261221868,
+            "unit": "median tps",
+            "extra": "avg tps: 4.828776532409075, max tps: 5.9158397916337915, count: 57347"
           }
         ]
       }

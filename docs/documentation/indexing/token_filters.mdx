@@ -97,3 +97,18 @@ WITH (
     }'
 );
 ```
+
+## ASCII Folding
+
+The ASCII folding filter strips away diacritical marks (accents, umlauts, tildes, etc.) while leaving the base character intact.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "ascii_folding": true}}
+    }'
+);
+```

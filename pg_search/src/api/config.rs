@@ -56,7 +56,7 @@ pub fn field(
     JsonB(json!({ name: config }))
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(name = "tokenizer", immutable, parallel_safe)]
 #[allow(clippy::too_many_arguments)]
 pub fn tokenizer(
     name: &str,
@@ -70,6 +70,7 @@ pub fn tokenizer(
     stemmer: default!(Option<String>, "NULL"),
     stopwords_language: default!(Option<String>, "NULL"),
     stopwords: default!(Option<Vec<String>>, "NULL"),
+    ascii_folding: default!(Option<bool>, "NULL"),
 ) -> JsonB {
     let mut config = Map::new();
 
@@ -94,6 +95,8 @@ pub fn tokenizer(
     language.map(|v| config.insert("language".to_string(), Value::String(v)));
     // Options for type = regex
     pattern.map(|v| config.insert("pattern".to_string(), Value::String(v)));
+
+    ascii_folding.map(|v| config.insert("ascii_folding".to_string(), Value::Bool(v)));
 
     JsonB(json!(config))
 }

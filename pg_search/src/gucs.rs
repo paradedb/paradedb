@@ -82,6 +82,9 @@ static MIXED_FAST_FIELD_EXEC_COLUMN_THRESHOLD_NAME: &CStr =
 /// it logically can.
 static PER_TUPLE_COST: GucSetting<f64> = GucSetting::<f64>::new(100_000_000.0);
 
+static GLOBAL_TARGET_SEGMENT_COUNT: GucSetting<i32> = GucSetting::<i32>::new(0);
+static GLOBAL_ENABLE_BACKGROUND_MERGING: GucSetting<bool> = GucSetting::<bool>::new(true);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -207,6 +210,26 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.global_target_segment_count",
+        c"a global target segment count override",
+        c"Setting this to a non-zero value ignore the `target_segment_count` property on all indexes in favor of this value",
+        &GLOBAL_TARGET_SEGMENT_COUNT,
+        0,
+        8192,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.global_enable_background_merging",
+        c"Enable background merging",
+        c"Enable background merging",
+        &GLOBAL_ENABLE_BACKGROUND_MERGING,
+        GucContext::Sighup,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -253,6 +276,14 @@ pub fn per_tuple_cost() -> f64 {
 
 pub fn max_topn_chunk_size() -> i32 {
     MAX_TOPN_CHUNK_SIZE.get()
+}
+
+pub fn global_target_segment_count() -> i32 {
+    GLOBAL_TARGET_SEGMENT_COUNT.get()
+}
+
+pub fn global_enable_background_merging() -> bool {
+    GLOBAL_ENABLE_BACKGROUND_MERGING.get()
 }
 
 // NB:  These limits come from [`tantivy::index_writer::MEMORY_BUDGET_NUM_BYTES_MAX`], which is not publicly exposed

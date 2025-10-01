@@ -90,6 +90,7 @@
 // | [next_blockno: BlockNumber, xmax: TransactionId]            |
 // +-------------------------------------------------------------+
 
+mod avl;
 pub mod block;
 mod blocklist;
 pub mod buffer;

@@ -23,7 +23,8 @@ use crate::postgres::storage::buffer::{
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::merge::{MergeLock, VacuumList, VacuumSentinel};
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
-use pgrx::pg_sys;
+use pgrx::iter::TableIterator;
+use pgrx::{name, pg_extern, pg_sys, PgRelation};
 
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
@@ -57,12 +58,17 @@ pub struct MetaPageData {
     settings_start: pg_sys::BlockNumber,
     segment_metas_start: pg_sys::BlockNumber,
 
-    /// The block where our FSM starts
-    fsm: pg_sys::BlockNumber,
+    /// The block where our old v1 FSM starts
+    v1_fsm: pg_sys::BlockNumber,
 
     /// The header block for a [`LinkedItemsList<SegmentMergeEntry>]`
     segment_meta_garbage: pg_sys::BlockNumber,
     ambulkdelete_epoch: u32,
+
+    /// The block where our current, v2, FSM starts
+    v2_fsm: pg_sys::BlockNumber,
+
+    bgmerger: pg_sys::BlockNumber,
 }
 
 /// Provides read access to the metadata page
@@ -91,7 +97,7 @@ impl MetaPage {
             metadata.active_vacuum_list = init_new_buffer(indexrel).number();
             metadata.ambulkdelete_sentinel = init_new_buffer(indexrel).number();
             metadata.merge_lock = init_new_buffer(indexrel).number();
-            metadata.fsm = FreeSpaceManager::create(indexrel);
+            metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
             metadata.segment_meta_garbage =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
 
@@ -100,6 +106,7 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+            metadata.bgmerger = init_new_buffer(indexrel).number();
         }
     }
 
@@ -122,8 +129,9 @@ impl MetaPage {
         let may_need_init = !block_number_is_valid(metadata.active_vacuum_list)
             || !block_number_is_valid(metadata.ambulkdelete_sentinel)
             || !block_number_is_valid(metadata.merge_lock)
-            || !block_number_is_valid(metadata.fsm)
-            || !block_number_is_valid(metadata.segment_meta_garbage);
+            || !block_number_is_valid(metadata.v2_fsm)
+            || !block_number_is_valid(metadata.segment_meta_garbage)
+            || !block_number_is_valid(metadata.bgmerger);
 
         drop(buffer);
 
@@ -147,13 +155,30 @@ impl MetaPage {
                     metadata.merge_lock = init_new_buffer(indexrel).number();
                 }
 
-                if !block_number_is_valid(metadata.fsm) {
-                    metadata.fsm = FreeSpaceManager::create(indexrel);
+                if !block_number_is_valid(metadata.v2_fsm) {
+                    metadata.v2_fsm = crate::postgres::storage::fsm::v2::V2FSM::create(indexrel);
+
+                    if block_number_is_valid(metadata.v1_fsm) {
+                        // convert the v1_fsm to v2
+                        let v1_fsm =
+                            crate::postgres::storage::fsm::v1::V1FSM::open(metadata.v1_fsm);
+                        let v2_fsm =
+                            crate::postgres::storage::fsm::v2::V2FSM::open(metadata.v2_fsm);
+
+                        crate::postgres::storage::fsm::convert_v1_to_v2(&mut bman, v1_fsm, v2_fsm);
+
+                        // the v1_fsm is no longer valid
+                        metadata.v1_fsm = pg_sys::InvalidBlockNumber;
+                    }
                 }
 
                 if !block_number_is_valid(metadata.segment_meta_garbage) {
                     metadata.segment_meta_garbage =
                         LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+                }
+
+                if !block_number_is_valid(metadata.bgmerger) {
+                    metadata.bgmerger = init_new_buffer(indexrel).number();
                 }
             }
 
@@ -191,8 +216,8 @@ impl MetaPage {
     }
 
     pub fn fsm(&self) -> pg_sys::BlockNumber {
-        assert!(block_number_is_valid(self.data.fsm));
-        self.data.fsm
+        assert!(block_number_is_valid(self.data.v2_fsm));
+        self.data.v2_fsm
     }
 
     ///
@@ -213,6 +238,13 @@ impl MetaPage {
             self.bman.buffer_access().rel(),
             self.data.segment_meta_garbage,
         ))
+    }
+
+    pub fn bgmerger(&self) -> BgMergerPage {
+        BgMergerPage {
+            bman: self.bman.clone(),
+            blockno: self.data.bgmerger,
+        }
     }
 }
 
@@ -298,4 +330,82 @@ impl MetaPage {
         let metadata = page.contents_mut::<MetaPageData>();
         metadata.ambulkdelete_epoch = metadata.ambulkdelete_epoch.wrapping_add(1);
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(u8)]
+enum BgMergerState {
+    Stopped = 0,
+    Starting = 1,
+    Running = 2,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[repr(C)]
+struct BgMergerPageData {
+    data: (i32, BgMergerState),
+}
+
+pub struct BgMergerPage {
+    bman: BufferManager,
+    blockno: pg_sys::BlockNumber,
+}
+
+impl BgMergerPage {
+    fn data(&self) -> (i32, BgMergerState) {
+        let buffer = self.bman.get_buffer(self.blockno);
+        let page = buffer.page();
+        let contents = page.contents::<BgMergerPageData>();
+        contents.data
+    }
+
+    pub fn try_starting(&mut self) -> bool {
+        let mut buffer = self.bman.get_buffer_mut(self.blockno);
+        let mut page = buffer.page_mut();
+        let contents = page.contents_mut::<BgMergerPageData>();
+        match contents.data {
+            // it's currently stopped
+            (_, BgMergerState::Stopped) => {
+                contents.data = (1, BgMergerState::Starting);
+                true
+            }
+
+            // it's tagged as running but the process doesn't belong to Postgres
+            (pid, BgMergerState::Running) if unsafe { !pg_sys::IsBackendPid(pid) } => {
+                contents.data = (1, BgMergerState::Starting);
+                true
+            }
+
+            _ => false,
+        }
+    }
+
+    pub fn set_running(&mut self) {
+        let mut buffer = self.bman.get_buffer_mut(self.blockno);
+        let mut page = buffer.page_mut();
+        page.contents_mut::<BgMergerPageData>().data =
+            (unsafe { pg_sys::MyProcPid }, BgMergerState::Running);
+    }
+
+    pub fn set_stopped(&mut self) {
+        let mut buffer = self.bman.get_buffer_mut(self.blockno);
+        let mut page = buffer.page_mut();
+        page.contents_mut::<BgMergerPageData>().data = (0, BgMergerState::Stopped);
+    }
+}
+
+#[pg_extern]
+unsafe fn reset_bgworker_state(index: PgRelation) {
+    let index = PgSearchRelation::from_pg(index.as_ptr());
+    let mut bgmerger = MetaPage::open(&index).bgmerger();
+    bgmerger.set_stopped();
+}
+
+#[pg_extern]
+unsafe fn bgmerger_state(
+    index: PgRelation,
+) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
+    let index = PgSearchRelation::from_pg(index.as_ptr());
+    let bgmerger = MetaPage::open(&index).bgmerger().data();
+    TableIterator::new(std::iter::once((bgmerger.0, format!("{:?}", bgmerger.1))))
 }

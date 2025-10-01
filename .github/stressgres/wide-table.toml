@@ -264,10 +264,3 @@ log_tps = false
 refresh_ms = 5
 title = "Background Merger"
 sql = "select count(*) background_merging from pg_stat_activity where query = 'merging';"
-
-[[jobs]]
-log_columns = ["running"]
-log_tps = false
-refresh_ms = 5
-title = "Background Merging?"
-sql = "select pid, (case when state = 'Running' then 1 else 0 end) as running from paradedb.bgmerger_state('wide_table_idx');"

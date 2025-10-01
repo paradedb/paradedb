@@ -176,6 +176,13 @@ impl PdbScan {
                 };
                 new_generator.1.set_max_num_chars(max_num_chars);
 
+                if let Some(limit) = snippet_type.limit() {
+                    new_generator.1.set_limit(limit as usize);
+                }
+                if let Some(offset) = snippet_type.offset() {
+                    new_generator.1.set_offset(offset as usize);
+                }
+
                 *generator = Some(new_generator);
             }
 

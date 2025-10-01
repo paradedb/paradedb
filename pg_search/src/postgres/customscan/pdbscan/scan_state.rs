@@ -269,13 +269,6 @@ impl PdbScanState {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 
-        if let Some(limit) = snippet_type.limit() {
-            snippet.set_limit(limit as usize);
-        }
-        if let Some(offset) = snippet_type.offset() {
-            snippet.set_offset(offset as usize);
-        }
-
         let html = snippet.to_html();
         if html.trim().is_empty() {
             None
@@ -291,15 +284,7 @@ impl PdbScanState {
     ) -> Option<Vec<Vec<i32>>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
-        let mut snippet = generator.snippet(&text);
-
-        if let Some(limit) = snippet_type.limit() {
-            snippet.set_limit(limit as usize);
-        }
-        if let Some(offset) = snippet_type.offset() {
-            snippet.set_offset(offset as usize);
-        }
-
+        let snippet = generator.snippet(&text);
         let highlighted = snippet.highlighted();
 
         if highlighted.is_empty() {

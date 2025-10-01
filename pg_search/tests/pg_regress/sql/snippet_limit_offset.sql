@@ -29,4 +29,6 @@ SELECT paradedb.snippet(content, "limit" => -1), paradedb.snippet_positions(cont
 SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
 SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
 
+-- With max num chars
+SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
 DROP TABLE snippet_test;

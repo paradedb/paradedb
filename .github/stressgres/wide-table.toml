@@ -249,3 +249,18 @@ SELECT COUNT(*) FROM (
     LIMIT 100
 );
 """
+#
+#[[jobs]]
+#refresm_ms = 100
+#title = "FSM Size"
+#log_tps = false
+#log_columns = ["nfsm_blocks", "n_xids", "nfree"]
+#sql = "SELECT paradedb.fsm_size('wide_table_idx') as nfsm_blocks, count(distinct xid::text) as n_xids, count(*) nfree from paradedb.fsm_info('wide_table_idx')"
+
+[[jobs]]
+window_height = 5
+log_columns = ["background_merging"]
+log_tps = false
+refresh_ms = 5
+title = "Background Merger"
+sql = "select count(*) background_merging from pg_stat_activity where query = 'merging';"

@@ -1,5 +1,6 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
+use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
@@ -294,7 +295,7 @@ impl BufferMut {
     pub fn return_to_fsm_with_when_recyclable(
         self,
         bman: &mut BufferManager,
-        when_recyclable: pg_sys::TransactionId,
+        when_recyclable: pg_sys::FullTransactionId,
     ) {
         let blockno = self.number();
         drop(self);
@@ -613,11 +614,11 @@ impl BufferManager {
         }
     }
 
-    pub fn fsm(&mut self) -> FreeSpaceManager {
+    pub fn fsm(&mut self) -> impl FreeSpaceManager {
         let fsm_blockno = *self
             .fsm_blockno
             .get_or_insert_with(|| MetaPage::open(self.rbufacc.rel()).fsm());
-        FreeSpaceManager::open(fsm_blockno)
+        V2FSM::open(fsm_blockno)
     }
 
     pub fn buffer_access(&self) -> &RelationBufferAccess {

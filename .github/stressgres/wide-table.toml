@@ -271,20 +271,3 @@ log_tps = false
 refresh_ms = 5
 title = "Background Merging?"
 sql = "select pid, (case when state = 'Running' then 1 else 0 end) as running from paradedb.bgmerger_state('wide_table_idx');"
-
-[[jobs]]
-window_height = 5
-log_columns = ["byte_size:MB", "merge_count"]
-log_tps = false
-refresh_ms = 5
-title = "Merge Byte Size"
-sql = """
-select pid, sum(byte_size), (count(*) - 1) merge_count
-from (select byte_size, pid
-      from paradedb.merge_info('wide_table_idx') mi
-               inner join paradedb.index_info('wide_table_idx') ii on mi.segno = ii.segno
-      union
-      select 0, 0) x
-where pid <> 0
-group by pid;
-"""

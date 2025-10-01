@@ -20,7 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::execute_aggregate_with_search_input_filters;
+use crate::aggregate::{execute_aggregate, execute_aggregate_with_search_input_filters};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -627,7 +627,6 @@ fn explain_execution_strategy(
     }
 }
 
-
 /// Extract grouping columns from pathkeys and validate they are fast fields
 fn extract_grouping_columns(
     pathkeys: &PgList<pg_sys::PathKey>,
@@ -961,74 +960,63 @@ fn execute(
 fn execute_unified_aggregation(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Determine the optimal base query
-    let base_query = determine_optimal_base_query(state);
-
-    // Execute using the unified FilterAggregation approach
-    let result = execute_aggregate_with_search_input_filters(
-        state.custom_state().indexrel(),
-        base_query,
-        state.custom_state().aggregate_types.clone(),
-        state.custom_state().grouping_columns.clone(),
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .expect(FAILED_TO_EXECUTE_AGGREGATE);
-
-    // Process results using unified result processing
-    let aggregate_results = state
+    // Check if this query has been optimized (all FILTER clauses moved to base query)
+    let has_actual_filters = state
         .custom_state()
-        .process_aggregation_results(result);
+        .aggregate_types
+        .iter()
+        .any(|agg| agg.filter_expr().is_some());
 
-    aggregate_results.into_iter()
+    if has_actual_filters {
+        // Query has FILTER clauses - use FilterAggregation approach
+        let base_query = determine_optimal_base_query(state);
+
+        let result = execute_aggregate_with_search_input_filters(
+            state.custom_state().indexrel(),
+            base_query,
+            state.custom_state().aggregate_types.clone(),
+            state.custom_state().grouping_columns.clone(),
+            true,                                              // solve_mvcc
+            gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+        )
+        .expect(FAILED_TO_EXECUTE_AGGREGATE);
+
+        // Process results using unified result processing
+        let aggregate_results = state.custom_state().process_aggregation_results(result);
+
+        aggregate_results.into_iter()
+    } else {
+        // Query has been optimized (no FILTER clauses) - use traditional approach
+        // This handles the case where identical FILTER clauses were moved to base query
+        let query = &state.custom_state().query;
+        let agg_json = state.custom_state().aggregates_to_json();
+
+        let result = execute_aggregate(
+            state.custom_state().indexrel(),
+            query.clone(),
+            agg_json,
+            true,                                              // solve_mvcc
+            gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+        )
+        .expect(FAILED_TO_EXECUTE_AGGREGATE);
+
+        let aggregate_results = state.custom_state().json_to_aggregate_results(result);
+
+        aggregate_results.into_iter()
+    }
 }
-
 
 /// Determine the optimal base query following filter aggregation efficiency patterns
 /// This implements the key insight from the documentation: "the main search query is your primary performance lever"
 fn determine_optimal_base_query(state: &CustomScanStateWrapper<AggregateScan>) -> SearchQueryInput {
     let where_clause = &state.custom_state().query;
-
-    // Collect all filter expressions from FILTER clauses
-    let filter_expressions: Vec<SearchQueryInput> = state
-        .custom_state()
-        .aggregate_types
-        .iter()
-        .filter_map(|agg| {
-            if let Some(filter) = agg.filter_expr() {
-                Some(filter.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    // Strategy: If we have both WHERE clause and FILTER clauses, we could potentially
-    // move the most selective filter to the base query for better performance
+    // Future optimization: If we have both WHERE clause and FILTER clauses, we could potentially
+    // move the common part of all filter clauses to the base query for better performance
     // For now, we'll use the WHERE clause as base and apply FILTERs as filter aggregations
-    //
-    // Future optimization: Analyze selectivity and move the most selective condition
-    // to the base query, as suggested in the filter aggregation efficiency guide:
-    // "Use base query to limit the document set as much as possible, then apply
-    // same-level filters for analytical dimensions"
-
-    match where_clause {
-        SearchQueryInput::All if !filter_expressions.is_empty() => {
-            // No WHERE clause but we have FILTER clauses
-            // We could potentially use the most selective filter as base query
-            // For now, keep it simple and use AllQuery with filter aggregations
-            SearchQueryInput::All
-        }
-        _ => {
-            // Use the WHERE clause as the base query
-            // This follows the pattern: base query filters documents, then filter aggregations
-            // analyze the filtered set
-            where_clause.clone()
-        }
-    }
+    where_clause.clone()
 }
-
 
 impl ExecMethod for AggregateScan {
     fn exec_methods() -> *const pg_sys::CustomExecMethods {

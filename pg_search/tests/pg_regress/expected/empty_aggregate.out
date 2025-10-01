@@ -63,14 +63,14 @@ SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
 SELECT COUNT(*) FROM empty_test WHERE id @@@ paradedb.all();
  count 
 -------
-      
+     0
 (1 row)
 
 -- Test 2.2: COUNT(column) - should return 0
 SELECT COUNT(value) FROM empty_test WHERE id @@@ paradedb.all();
  count 
 -------
-      
+     0
 (1 row)
 
 -- Test 2.3: SUM - should return NULL
@@ -162,14 +162,14 @@ SELECT COUNT(*), COUNT(value), SUM(value), AVG(value), MIN(value), MAX(value)
 FROM empty_test WHERE id @@@ paradedb.all();
  count | count | sum | avg | min | max 
 -------+-------+-----+-----+-----+-----
-       |       |     |     |     |    
+     0 |     0 |     |     |     |    
 (1 row)
 
 -- Test 2.8: From the original issue report
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
  count 
 -------
-      
+     0
 (1 row)
 
 -- =====================================================================
@@ -515,7 +515,7 @@ FROM empty_test
 WHERE id @@@ paradedb.all();
  high_count | electronics_sum 
 ------------+-----------------
-            |                
+          0 |                
 (1 row)
 
 -- Test 6.4: Multiple tables (though both empty)
@@ -524,8 +524,8 @@ UNION ALL
 SELECT COUNT(*) FROM empty_logs WHERE id @@@ paradedb.all();
  count 
 -------
-      
-      
+     0
+     0
 (2 rows)
 
 -- =====================================================================

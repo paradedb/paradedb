@@ -434,7 +434,11 @@ pub fn execute_aggregate_with_tantivy_aggregations(
 
         // Debug: Log the final result JSON
         pgrx::warning!("=== FilterAggregation Result JSON ===");
-        pgrx::warning!("Result: {}", serde_json::to_string_pretty(&result_json).unwrap_or_else(|e| format!("Failed to serialize: {}", e)));
+        pgrx::warning!(
+            "Result: {}",
+            serde_json::to_string_pretty(&result_json)
+                .unwrap_or_else(|e| format!("Failed to serialize: {e}"))
+        );
 
         pg_sys::FreeExprContext(standalone_context, true);
         Ok(result_json)
@@ -453,7 +457,7 @@ fn flatten_filter_aggregation_results(result_json: &mut serde_json::Value) {
                     // Extract the nested aggregation result and preserve doc_count
                     if let (Some(filtered_agg), Some(doc_count)) = (
                         agg_obj.get("filtered_agg").cloned(),
-                        agg_obj.get("doc_count").cloned()
+                        agg_obj.get("doc_count").cloned(),
                     ) {
                         // Merge the filtered_agg result with the doc_count
                         if let serde_json::Value::Object(mut filtered_obj) = filtered_agg {
@@ -586,35 +590,85 @@ fn build_grouped_filter_aggregations(
     // Each FilterAggregation contains a TermsAggregation as its sub-aggregation
     let mut root_aggregations_map = BTreeMap::new();
 
-    if let Some(grouping_column) = grouping_columns.first() {
-        let mut base_sub_aggs = std::collections::HashMap::new();
+    // Build nested TermsAggregations for multiple GROUP BY columns
+    // Start from the innermost level (metrics) and work outward
+    let mut base_sub_aggs = std::collections::HashMap::new();
 
-        for (idx, aggregate_type) in aggregate_types.iter().enumerate() {
+    // Collect all non-filtered aggregates for the base terms aggregation
+    for (idx, aggregate_type) in aggregate_types.iter().enumerate() {
+        if aggregate_type.filter_expr().is_none() {
+            let agg_name = idx.to_string();
+            let agg_json = aggregate_type.to_json();
+            let aggregation: Aggregation = serde_json::from_value(agg_json)?;
+            base_sub_aggs.insert(agg_name, aggregation);
+        }
+    }
+
+    // Build nested structure for multiple grouping columns
+    let mut current_aggs = if base_sub_aggs.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        base_sub_aggs
+    };
+
+    // Build nested TermsAggregations from innermost to outermost
+    for (i, grouping_column) in grouping_columns.iter().enumerate().rev() {
+        let terms_json = serde_json::json!({
+            "terms": {
+                "field": grouping_column.field_name,
+                "size": 65000,
+                "segment_size": 65000
+            }
+        });
+
+        let terms_aggregation = Aggregation {
+            agg: serde_json::from_value(terms_json)?,
+            sub_aggregation: Aggregations::from(current_aggs.clone()),
+        };
+
+        // Create new level with this terms aggregation
+        let mut new_level = std::collections::HashMap::new();
+        new_level.insert(format!("group_{i}"), terms_aggregation);
+        current_aggs = new_level;
+    }
+
+    // Add the nested structure to root if we have non-filtered aggregates
+    if !current_aggs.is_empty() {
+        root_aggregations_map.extend(current_aggs);
+    }
+
+    // Handle filtered aggregates - create FilterAggregation for each
+    for (idx, aggregate_type) in aggregate_types.iter().enumerate() {
+        if let Some(filter_query) = aggregate_type.filter_expr() {
             let agg_name = idx.to_string();
 
-            if let Some(filter_query) = aggregate_type.filter_expr() {
-                // Convert SearchQueryInput to Tantivy Query object
-                let tantivy_query = filter_query.into_tantivy_query(
-                    schema,
-                    &|| {
-                        tantivy::query::QueryParser::for_index(
-                            reader.searcher().index(),
-                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-                        )
-                    },
-                    reader.searcher(),
-                    index.oid(),
-                    Some(index.heap_relation().ok_or("No heap relation")?.oid()),
-                    NonNull::new(standalone_context),
-                    None, // planstate
-                )?;
+            // Convert SearchQueryInput to Tantivy Query object
+            let tantivy_query = filter_query.into_tantivy_query(
+                schema,
+                &|| {
+                    tantivy::query::QueryParser::for_index(
+                        reader.searcher().index(),
+                        schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
+                    )
+                },
+                reader.searcher(),
+                index.oid(),
+                Some(index.heap_relation().ok_or("No heap relation")?.oid()),
+                NonNull::new(standalone_context),
+                None, // planstate
+            )?;
 
-                // Create the base aggregation (without filter)
-                let base_agg_type = aggregate_type.convert_filtered_aggregate_to_unfiltered();
-                let base_agg_json = base_agg_type.to_json();
-                let base_aggregation: Aggregation = serde_json::from_value(base_agg_json)?;
+            // Create the base aggregation (without filter)
+            let base_agg_type = aggregate_type.convert_filtered_aggregate_to_unfiltered();
+            let base_agg_json = base_agg_type.to_json();
+            let base_aggregation: Aggregation = serde_json::from_value(base_agg_json)?;
 
-                // Create TermsAggregation with the metric as sub-aggregation
+            // Build nested TermsAggregations for this filtered aggregate
+            let mut filter_current_aggs = std::collections::HashMap::new();
+            filter_current_aggs.insert(agg_name.clone(), base_aggregation);
+
+            // Build nested structure for multiple grouping columns
+            for (_i, grouping_column) in grouping_columns.iter().enumerate().rev() {
                 let terms_json = serde_json::json!({
                     "terms": {
                         "field": grouping_column.field_name,
@@ -623,50 +677,26 @@ fn build_grouped_filter_aggregations(
                     }
                 });
 
-                let mut terms_sub_aggs = std::collections::HashMap::new();
-                terms_sub_aggs.insert(agg_name.clone(), base_aggregation);
-
                 let terms_aggregation = Aggregation {
                     agg: serde_json::from_value(terms_json)?,
-                    sub_aggregation: Aggregations::from(terms_sub_aggs),
+                    sub_aggregation: Aggregations::from(filter_current_aggs.clone()),
                 };
 
-                // Create FilterAggregation with Tantivy Query and TermsAggregation as sub-aggregation
-                let filter_agg = FilterAggregation::new_with_query(tantivy_query);
-                let mut filter_sub_aggs = std::collections::HashMap::new();
-                filter_sub_aggs.insert("grouped".to_string(), terms_aggregation);
-
-                let filter_aggregation = Aggregation {
-                    agg: AggregationVariants::Filter(filter_agg),
-                    sub_aggregation: Aggregations::from(filter_sub_aggs),
-                };
-
-                // Use a name that includes the original index for result processing
-                root_aggregations_map.insert(format!("filter_{}", idx), filter_aggregation);
-            } else {
-                // No filter - add to base terms aggregation
-                let agg_json = aggregate_type.to_json();
-                let aggregation: Aggregation = serde_json::from_value(agg_json)?;
-                base_sub_aggs.insert(agg_name, aggregation);
+                // Create new level with this terms aggregation
+                let mut new_level = std::collections::HashMap::new();
+                new_level.insert("grouped".to_string(), terms_aggregation);
+                filter_current_aggs = new_level;
             }
-        }
 
-        // Add base terms aggregation for non-filtered metrics
-        if !base_sub_aggs.is_empty() {
-            let terms_json = serde_json::json!({
-                "terms": {
-                    "field": grouping_column.field_name,
-                    "size": 65000,
-                    "segment_size": 65000
-                }
-            });
-
-            let base_terms_aggregation = Aggregation {
-                agg: serde_json::from_value(terms_json)?,
-                sub_aggregation: Aggregations::from(base_sub_aggs),
+            // Create FilterAggregation with the nested structure
+            let filter_agg = FilterAggregation::new_with_query(tantivy_query);
+            let filter_aggregation = Aggregation {
+                agg: AggregationVariants::Filter(filter_agg),
+                sub_aggregation: Aggregations::from(filter_current_aggs),
             };
 
-            root_aggregations_map.insert("group_0".to_string(), base_terms_aggregation);
+            // Use a name that includes the original index for result processing
+            root_aggregations_map.insert(format!("filter_{idx}"), filter_aggregation);
         }
     }
 

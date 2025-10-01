@@ -147,7 +147,12 @@ pub unsafe fn uses_snippets(
 
             if (*funcexpr).funcid == (*context).snippet_funcoid {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(snippet_type) = extract_snippet_text(args, context) {
+                if let Some(snippet_type) = extract_snippet_text(
+                    args,
+                    (*context).planning_rti,
+                    (*context).snippet_funcoid,
+                    (*context).attname_lookup,
+                ) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
                     panic!("`paradedb.snippet()`'s arguments must be literals")
@@ -156,7 +161,12 @@ pub unsafe fn uses_snippets(
 
             if (*funcexpr).funcid == (*context).snippet_positions_funcoid {
                 let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                if let Some(snippet_type) = extract_snippet_positions(args, context) {
+                if let Some(snippet_type) = extract_snippet_positions(
+                    args,
+                    (*context).planning_rti,
+                    (*context).snippet_positions_funcoid,
+                    (*context).attname_lookup,
+                ) {
                     (*context).snippet_type.push(snippet_type);
                 } else {
                     panic!("`paradedb.snippet_positions()`'s arguments must be literals")
@@ -180,9 +190,11 @@ pub unsafe fn uses_snippets(
 }
 
 #[inline(always)]
-unsafe fn extract_snippet_text(
+pub unsafe fn extract_snippet_text(
     args: PgList<pg_sys::Node>,
-    context: *mut Context,
+    planning_rti: pg_sys::Index,
+    snippet_funcoid: pg_sys::Oid,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
     assert!(args.len() == 4);
 
@@ -194,9 +206,8 @@ unsafe fn extract_snippet_text(
     if let (Some(field_arg), Some(start_arg), Some(end_arg), Some(max_num_chars_arg)) =
         (field_arg, start_arg, end_arg, max_num_chars_arg)
     {
-        let attname = (*context)
-            .attname_lookup
-            .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
+        let attname = attname_lookup
+            .get(&(planning_rti as _, (*field_arg).varattno as _))
             .cloned()
             .expect("Var attname should be in lookup");
         let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
@@ -208,7 +219,7 @@ unsafe fn extract_snippet_text(
 
         Some(SnippetType::Text(
             attname,
-            (*context).snippet_funcoid,
+            snippet_funcoid,
             SnippetConfig {
                 start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
                 end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
@@ -221,25 +232,23 @@ unsafe fn extract_snippet_text(
 }
 
 #[inline(always)]
-unsafe fn extract_snippet_positions(
+pub unsafe fn extract_snippet_positions(
     args: PgList<pg_sys::Node>,
-    context: *mut Context,
+    planning_rti: pg_sys::Index,
+    snippet_positions_funcoid: pg_sys::Oid,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
     assert!(args.len() == 1);
 
     let field_arg = find_one_var(args.get_ptr(0).unwrap());
 
     if let Some(field_arg) = field_arg {
-        let attname = (*context)
-            .attname_lookup
-            .get(&((*context).planning_rti as _, (*field_arg).varattno as _))
+        let attname = attname_lookup
+            .get(&(planning_rti as _, (*field_arg).varattno as _))
             .cloned()
             .expect("Var attname should be in lookup");
 
-        Some(SnippetType::Positions(
-            attname,
-            (*context).snippet_positions_funcoid,
-        ))
+        Some(SnippetType::Positions(attname, snippet_positions_funcoid))
     } else {
         None
     }

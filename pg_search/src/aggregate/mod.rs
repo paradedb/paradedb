@@ -534,10 +534,29 @@ fn build_simple_filter_aggregations(
                 },
             );
         } else {
-            // No filter - add the aggregation directly
+            // No filter - wrap in FilterAggregation with match_all query to get doc_count
             let agg_json = aggregate_type.to_json();
-            let aggregation: Aggregation = serde_json::from_value(agg_json)?;
-            aggregations_map.insert(agg_name, aggregation);
+            let base_aggregation: Aggregation = serde_json::from_value(agg_json)?;
+
+            // Create a match_all query for non-filtered aggregations
+            let match_all_query = Box::new(tantivy::query::AllQuery);
+
+            // Create FilterAggregation with match_all query
+            let filter_agg = FilterAggregation::new_with_query(match_all_query);
+
+            // Create sub-aggregations map with the base aggregation
+            let mut sub_aggs_map = std::collections::HashMap::new();
+            sub_aggs_map.insert("filtered_agg".to_string(), base_aggregation);
+            let sub_aggregations = Aggregations::from(sub_aggs_map);
+
+            // Add the filter aggregation to the map
+            aggregations_map.insert(
+                agg_name,
+                Aggregation {
+                    agg: AggregationVariants::Filter(filter_agg),
+                    sub_aggregation: sub_aggregations,
+                },
+            );
         }
     }
 

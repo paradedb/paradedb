@@ -811,9 +811,6 @@ impl AggregateScanState {
             })
             .collect();
         
-        for (i, row) in final_results.iter().enumerate() {
-        }
-        
         final_results
     }
 

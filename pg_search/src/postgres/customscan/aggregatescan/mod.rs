@@ -807,7 +807,8 @@ fn extract_aggregates(
 
                 // Group aggregates by their filter expression during extraction
                 let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
-                    format!("{filter_expr:?}")
+                    // This is the most reliable way to get a deterministic filter key
+                    filter_expr.serialize_and_clean_query()
                 } else {
                     NO_FILTER_KEY.to_string()
                 };

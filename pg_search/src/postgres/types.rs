@@ -329,6 +329,194 @@ impl TantivyValue {
     ) -> Result<Self, TantivyValueError> {
         Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
     }
+
+    #[inline]
+    pub fn partial_cmp(
+        this: &tantivy::schema::OwnedValue,
+        other: &tantivy::schema::OwnedValue,
+    ) -> Option<Ordering> {
+        match this {
+            tantivy::schema::OwnedValue::Str(string) => {
+                if let tantivy::schema::OwnedValue::Str(other_string) = other {
+                    string.partial_cmp(other_string)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::U64(u64) => {
+                if let tantivy::schema::OwnedValue::U64(other_u64) = other {
+                    u64.partial_cmp(other_u64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::I64(i64) => {
+                if let tantivy::schema::OwnedValue::I64(other_i64) = other {
+                    i64.partial_cmp(other_i64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::F64(f64) => {
+                if let tantivy::schema::OwnedValue::F64(other_f64) = other {
+                    f64.partial_cmp(other_f64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::Bool(bool) => {
+                if let tantivy::schema::OwnedValue::Bool(other_bool) = other {
+                    bool.partial_cmp(other_bool)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::Date(datetime) => {
+                if let tantivy::schema::OwnedValue::Date(other_datetime) = other {
+                    datetime.partial_cmp(other_datetime)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Extended partial comparison for cross-type numeric comparisons.
+    ///
+    /// This is a workaround to handle comparisons between different numeric types.
+    /// This arises in GROUP BY on numeric columns, where the values might be returned
+    /// as a mix of u64 and f64.
+    #[inline]
+    pub fn partial_cmp_extended(
+        this: &tantivy::schema::OwnedValue,
+        other: &tantivy::schema::OwnedValue,
+    ) -> Option<Ordering> {
+        if let Some(cmp) = Self::partial_cmp(this, other) {
+            return Some(cmp);
+        }
+
+        // Handle cross-type numeric comparisons
+        match (this, other) {
+            // U64 vs I64
+            (
+                tantivy::schema::OwnedValue::U64(u64_val),
+                tantivy::schema::OwnedValue::I64(i64_val),
+            ) => {
+                if *i64_val < 0 {
+                    // Negative i64 is always less than any u64
+                    Some(Ordering::Greater)
+                } else {
+                    // Compare u64 with non-negative i64
+                    u64_val.partial_cmp(&(*i64_val as u64))
+                }
+            }
+            (
+                tantivy::schema::OwnedValue::I64(i64_val),
+                tantivy::schema::OwnedValue::U64(u64_val),
+            ) => {
+                if *i64_val < 0 {
+                    // Negative i64 is always less than any u64
+                    Some(Ordering::Less)
+                } else {
+                    // Compare non-negative i64 with u64
+                    (*i64_val as u64).partial_cmp(u64_val)
+                }
+            }
+
+            // U64 vs F64
+            (
+                tantivy::schema::OwnedValue::U64(u64_val),
+                tantivy::schema::OwnedValue::F64(f64_val),
+            ) => (*u64_val as f64).partial_cmp(f64_val),
+            (
+                tantivy::schema::OwnedValue::F64(f64_val),
+                tantivy::schema::OwnedValue::U64(u64_val),
+            ) => f64_val.partial_cmp(&(*u64_val as f64)),
+
+            // I64 vs F64
+            (
+                tantivy::schema::OwnedValue::I64(i64_val),
+                tantivy::schema::OwnedValue::F64(f64_val),
+            ) => (*i64_val as f64).partial_cmp(f64_val),
+            (
+                tantivy::schema::OwnedValue::F64(f64_val),
+                tantivy::schema::OwnedValue::I64(i64_val),
+            ) => f64_val.partial_cmp(&(*i64_val as f64)),
+
+            // No other cross-type comparison available
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cmp::Ordering;
+    use tantivy::schema::OwnedValue;
+
+    #[test]
+    fn test_partial_cmp_extended_cross_type_numeric() {
+        // Test U64 vs I64
+        let u64_val = OwnedValue::U64(100);
+        let i64_positive = OwnedValue::I64(50);
+        let i64_negative = OwnedValue::I64(-10);
+        let i64_equal = OwnedValue::I64(100);
+
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_val, &i64_positive),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_val, &i64_negative),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_val, &i64_equal),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&i64_negative, &u64_val),
+            Some(Ordering::Less)
+        );
+
+        // Test U64 vs F64
+        let f64_val = OwnedValue::F64(75.5);
+        let f64_larger = OwnedValue::F64(150.0);
+
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_val, &f64_val),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_val, &f64_larger),
+            Some(Ordering::Less)
+        );
+
+        // Test I64 vs F64
+        let i64_val = OwnedValue::I64(-25);
+        let f64_negative = OwnedValue::F64(-30.0);
+
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&i64_val, &f64_negative),
+            Some(Ordering::Greater)
+        );
+
+        // Test same-type comparisons still work (should use partial_cmp)
+        let u64_1 = OwnedValue::U64(10);
+        let u64_2 = OwnedValue::U64(20);
+
+        assert_eq!(
+            TantivyValue::partial_cmp_extended(&u64_1, &u64_2),
+            Some(Ordering::Less)
+        );
+
+        // Test non-numeric types return None
+        let str_val = OwnedValue::Str("hello".to_string());
+
+        assert_eq!(TantivyValue::partial_cmp_extended(&u64_val, &str_val), None);
+    }
 }
 
 impl fmt::Display for TantivyValue {
@@ -376,55 +564,7 @@ impl Hash for TantivyValue {
 #[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.tantivy_schema_value() {
-            tantivy::schema::OwnedValue::Str(string) => {
-                if let tantivy::schema::OwnedValue::Str(other_string) = other.tantivy_schema_value()
-                {
-                    string.partial_cmp(&other_string)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::U64(u64) => {
-                if let tantivy::schema::OwnedValue::U64(other_u64) = other.tantivy_schema_value() {
-                    u64.partial_cmp(&other_u64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::I64(i64) => {
-                if let tantivy::schema::OwnedValue::I64(other_i64) = other.tantivy_schema_value() {
-                    i64.partial_cmp(&other_i64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::F64(f64) => {
-                if let tantivy::schema::OwnedValue::F64(other_f64) = other.tantivy_schema_value() {
-                    f64.partial_cmp(&other_f64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Bool(bool) => {
-                if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value()
-                {
-                    bool.partial_cmp(&other_bool)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Date(datetime) => {
-                if let tantivy::schema::OwnedValue::Date(other_datetime) =
-                    other.tantivy_schema_value()
-                {
-                    datetime.partial_cmp(&other_datetime)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
+        TantivyValue::partial_cmp(&self.0, &other.0)
     }
 }
 

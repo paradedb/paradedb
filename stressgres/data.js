@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759361846944,
+  "lastUpdate": 1759362609763,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3358,6 +3358,54 @@ window.BENCHMARK_DATA = {
             "value": 5.860973907455079,
             "unit": "median tps",
             "extra": "avg tps: 5.888969856061533, max tps: 7.319570429636191, count: 57107"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb494d330cfac7ee1db3b904ab5266bd671abadb",
+          "message": "fix: `paradedb.snippet` projects correctly when called multiple times over the same field (#3257)\n\n# Ticket(s) Closed\n\n- Closes #3256 \n\n## What\n\nSee GH issue\n\n## Why\n\n## How\n\nWhen mapping a const node to our list of snippet generators, we were\nmatching only on the field name and function OID, which is not unique\nenough -- it doesn't account for the function arguments.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-01T19:08:56-04:00",
+          "tree_id": "a78e472aad70351c0c799699330da58256d3cbc4",
+          "url": "https://github.com/paradedb/paradedb/commit/bb494d330cfac7ee1db3b904ab5266bd671abadb"
+        },
+        "date": 1759362608175,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 465.99491444247565,
+            "unit": "median tps",
+            "extra": "avg tps: 454.1125464835233, max tps: 515.1148613523089, count: 56700"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 390.83823567172107,
+            "unit": "median tps",
+            "extra": "avg tps: 350.99340444511523, max tps: 427.03528317053696, count: 56700"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 942.8521707916904,
+            "unit": "median tps",
+            "extra": "avg tps: 924.1881743129244, max tps: 1194.536310584637, count: 56700"
+          },
+          {
+            "name": "Top N - Primary - tps",
+            "value": 6.0620743791141045,
+            "unit": "median tps",
+            "extra": "avg tps: 6.09312666914546, max tps: 7.37246516277978, count: 56700"
           }
         ]
       }

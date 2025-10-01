@@ -395,18 +395,20 @@ impl AggregateScanState {
         serde_json::json!({})
     }
 
-    /// Count total number of buckets in a nested grouped structure
+    /// Count total number of buckets in a nested grouped structure (iteratively)
     /// This helps identify which filter has the most comprehensive bucket set
     fn count_total_buckets(grouped: &serde_json::Value) -> usize {
+        let mut stack = vec![grouped];
         let mut count = 0;
 
-        if let Some(buckets) = grouped.get("buckets").and_then(|b| b.as_array()) {
-            count += buckets.len();
-
-            // Count nested buckets recursively
-            for bucket in buckets {
-                if let Some(nested_grouped) = bucket.get("grouped") {
-                    count += Self::count_total_buckets(nested_grouped);
+        while let Some(current) = stack.pop() {
+            if let Some(buckets) = current.get("buckets").and_then(|b| b.as_array()) {
+                count += buckets.len();
+                // Push nested grouped structures onto stack for processing
+                for bucket in buckets {
+                    if let Some(nested) = bucket.get("grouped") {
+                        stack.push(nested);
+                    }
                 }
             }
         }

@@ -62,8 +62,6 @@ use tantivy::Index;
 /// Used to group non-filtered aggregates together during query optimization
 const NO_FILTER_KEY: &str = "NO_FILTER";
 
-const FAILED_TO_EXECUTE_AGGREGATE: &str = "failed to execute aggregate";
-
 /// Result type for aggregate extraction, containing:
 /// - Vec<AggregateType>: The extracted aggregate types
 /// - Vec<FilterGroup>: Groups of aggregates with the same filter
@@ -976,7 +974,7 @@ fn execute_unified_aggregation(
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
     )
-    .expect(FAILED_TO_EXECUTE_AGGREGATE);
+    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
 
     // Process results using unified result processing
     let aggregate_results = state.custom_state().process_aggregation_results(result);

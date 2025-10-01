@@ -58,8 +58,10 @@ use tantivy::aggregation::DEFAULT_BUCKET_LIMIT;
 use tantivy::schema::OwnedValue;
 use tantivy::Index;
 
-// Constants for better maintainability
+/// Sentinel key for aggregates without FILTER clauses  
+/// Used to group non-filtered aggregates together during query optimization
 const NO_FILTER_KEY: &str = "NO_FILTER";
+
 const FAILED_TO_EXECUTE_AGGREGATE: &str = "failed to execute aggregate";
 
 /// Result type for aggregate extraction, containing:

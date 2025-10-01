@@ -740,5 +740,37 @@ WHERE price > 500
 GROUP BY category
 ORDER BY category;
 
+-- =====================================================================
+-- SECTION 12: Edge Cases and Limits
+-- =====================================================================
+
+-- Test 12.1: Empty table with FILTER
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'NonExistent') AS count
+FROM filter_agg_test
+WHERE id > 1000;  -- No matches
+
+-- Test 12.2: All filters match nothing (GROUP BY should still show groups)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'NonExistent') AS nonexistent_count
+FROM filter_agg_test
+WHERE category @@@ 'electronics'
+GROUP BY category;
+
+-- Test 12.3: Very selective WHERE + very selective FILTER
+SELECT 
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
+FROM filter_agg_test
+WHERE id = 1;  -- Only one row
+
+-- Test 12.4: Multiple filters, all matching same documents
+SELECT 
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics1,
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics2,
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics3
+FROM filter_agg_test;
+
 -- Clean up
 DROP TABLE filter_agg_test CASCADE;

@@ -311,8 +311,21 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
-/// Execute aggregate with SearchQueryInput filters handled natively
-/// This function creates FilterAggregation objects programmatically using SearchQueryInput
+/// Execute aggregations with SQL FILTER clause support
+///
+/// Main entry point for aggregations with filter support. Handles both simple aggregations
+/// and GROUP BY using Tantivy's FilterAggregation feature.
+///
+/// # Arguments
+/// * `base_query` - WHERE clause (defines document set to aggregate)
+/// * `aggregate_types` - Aggregates with optional FILTER clauses  
+/// * `grouping_columns` - GROUP BY columns (empty for simple aggregations)
+/// * `solve_mvcc` - Apply MVCC visibility filtering
+/// * `memory_limit` - Max memory for aggregation (typically work_mem)
+/// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
+///
+/// # Returns
+/// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
 pub fn execute_aggregate_with_search_input_filters(
     index: &PgSearchRelation,
     base_query: SearchQueryInput,

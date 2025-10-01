@@ -1243,5 +1243,52 @@ ORDER BY category;
  sports      |           0 |                
 (2 rows)
 
+-- =====================================================================
+-- SECTION 12: Edge Cases and Limits
+-- =====================================================================
+-- Test 12.1: Empty table with FILTER
+SELECT 
+    COUNT(*) FILTER (WHERE brand @@@ 'NonExistent') AS count
+FROM filter_agg_test
+WHERE id > 1000;  -- No matches
+ count 
+-------
+     0
+(1 row)
+
+-- Test 12.2: All filters match nothing (GROUP BY should still show groups)
+SELECT 
+    category,
+    COUNT(*) FILTER (WHERE brand @@@ 'NonExistent') AS nonexistent_count
+FROM filter_agg_test
+WHERE category @@@ 'electronics'
+GROUP BY category;
+  category   | nonexistent_count 
+-------------+-------------------
+ electronics |                 0
+(1 row)
+
+-- Test 12.3: Very selective WHERE + very selective FILTER
+SELECT 
+    COUNT(*) AS total,
+    COUNT(*) FILTER (WHERE brand @@@ 'Apple') AS apple_count
+FROM filter_agg_test
+WHERE id = 1;  -- Only one row
+ total | apple_count 
+-------+-------------
+     1 |           1
+(1 row)
+
+-- Test 12.4: Multiple filters, all matching same documents
+SELECT 
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics1,
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics2,
+    COUNT(*) FILTER (WHERE category @@@ 'electronics') AS electronics3
+FROM filter_agg_test;
+ electronics1 | electronics2 | electronics3 
+--------------+--------------+--------------
+            8 |            8 |            8
+(1 row)
+
 -- Clean up
 DROP TABLE filter_agg_test CASCADE;

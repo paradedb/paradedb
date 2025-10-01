@@ -475,19 +475,29 @@ impl AggregateScanState {
         }
     }
 
-    /// Process results from filter aggregation queries
-    /// This method handles the new filter aggregation result format
-    pub fn json_to_filter_aggregation_results(
+    /// Unified result processing function - handles all aggregation result types
+    /// This replaces the multiple specialized processing functions with a single unified approach
+    pub fn process_aggregation_results(
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
         if self.grouping_columns.is_empty() {
-            // No GROUP BY - simple filter aggregation results
+            // No GROUP BY - simple aggregation results
             self.process_simple_filter_aggregation_results(result)
         } else {
-            // GROUP BY with filter aggregations - process nested results
+            // GROUP BY - process nested results (handles both filtered and non-filtered)
             self.process_grouped_filter_aggregation_results(result)
         }
+    }
+
+    /// Process results from filter aggregation queries
+    /// This method handles the new filter aggregation result format
+    /// DEPRECATED: Use process_aggregation_results instead
+    pub fn json_to_filter_aggregation_results(
+        &self,
+        result: serde_json::Value,
+    ) -> Vec<GroupedAggregateRow> {
+        self.process_aggregation_results(result)
     }
 
     /// Process simple filter aggregation results (no GROUP BY)
@@ -550,9 +560,7 @@ impl AggregateScanState {
                     let agg_result = Self::extract_aggregate_value_from_json(value);
                     
                     // Use result_from_aggregate_with_doc_count for proper empty result handling
-                    pgrx::warning!("FilterAggregation processing aggregate {}: {:?} with doc_count: {:?}", idx, aggregate, doc_count);
                     let agg_value = aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count);
-                    pgrx::warning!("FilterAggregation result for aggregate {}: {:?}", idx, agg_value);
                     aggregate_values[idx] = agg_value;
                 }
             }
@@ -565,38 +573,14 @@ impl AggregateScanState {
     }
 
     /// Process grouped filter aggregation results (with GROUP BY)
+    /// This now uses the unified approach that handles both filtered and non-filtered GROUP BY
     fn process_grouped_filter_aggregation_results(
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        let mut rows = Vec::new();
-
-        // Handle empty results for GROUP BY queries
-        if result.is_null() || (result.is_object() && result.as_object().unwrap().is_empty()) {
-            return rows;
-        }
-
-        // Extract bucket results recursively, but handle filter aggregations at leaf level
-        self.extract_filter_aggregation_bucket_results(
-            &result,
-            0,
-            &mut Vec::new(),
-            &mut rows,
-            None,
-        );
-
-        if self.maybe_truncated && self.was_truncated(&result) {
-            ErrorReport::new(
-                PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-                format!("query cancelled because result was truncated due to more than {} groups being returned", gucs::max_term_agg_buckets()),
-                function_name!(),
-            )
-            .set_detail("any buckets/groups beyond the first `paradedb.max_term_agg_buckets` were truncated")
-            .set_hint("consider lowering the query's `LIMIT` or `OFFSET`")
-            .report(PgLogLevel::ERROR);
-        }
-
-        rows
+        // Use the existing comprehensive GROUP BY processing logic
+        // This handles all GROUP BY scenarios: filtered, non-filtered, and mixed
+        self.json_to_aggregate_results(result)
     }
 
     /// Extract bucket results for filter aggregations (similar to extract_bucket_results but handles filter aggs)
@@ -715,10 +699,7 @@ impl AggregateScanState {
             })
             .collect();
 
-        pgrx::warning!("=== Processing group_0 ===");
-        pgrx::warning!("Non-filtered aggregate indices: {:?}", non_filtered_indices);
         if let Some(group_0) = result_obj.get("group_0") {
-            pgrx::warning!("Raw group_0 JSON: {}", serde_json::to_string_pretty(group_0).unwrap_or_else(|e| format!("Failed to serialize: {}", e)));
             // Create a wrapper object with the expected structure for extract_bucket_results
             let wrapper = serde_json::json!({
                 "group_0": group_0
@@ -727,9 +708,7 @@ impl AggregateScanState {
             // Only extract non-filtered aggregates from group_0
             self.extract_bucket_results(&wrapper, 0, &mut Vec::new(), &mut temp_rows, Some(&non_filtered_indices));
             
-            pgrx::warning!("Extracted {} rows from group_0", temp_rows.len());
             for (i, row) in temp_rows.iter().enumerate() {
-                pgrx::warning!("Row {}: {:?}", i, row);
                 let group_key = row.group_keys.iter()
                     .map(|k| match k {
                         tantivy::schema::OwnedValue::Str(s) => s.clone(),
@@ -746,39 +725,28 @@ impl AggregateScanState {
                 full_aggregate_values.resize(self.aggregate_types.len(), AggregateValue::Null);
                 
                 // Copy the extracted values to their correct positions
-                pgrx::warning!("Mapping extracted values for group key: {}", group_key);
-                pgrx::warning!("Non-filtered indices: {:?}", non_filtered_indices);
-                pgrx::warning!("Extracted aggregate values: {:?}", row.aggregate_values);
                 for (extracted_idx, &aggregate_idx) in non_filtered_indices.iter().enumerate() {
                     if let Some(value) = row.aggregate_values.get(extracted_idx) {
-                        pgrx::warning!("Mapping extracted_idx {} (value: {:?}) to aggregate_idx {}", extracted_idx, value, aggregate_idx);
                         if aggregate_idx < full_aggregate_values.len() {
                             full_aggregate_values[aggregate_idx] = value.clone();
                         }
                     } else {
-                        pgrx::warning!("No value found at extracted_idx {}", extracted_idx);
                     }
                 }
-                pgrx::warning!("Final aggregate values: {:?}", full_aggregate_values);
                 
                 group_buckets.insert(group_key, (row.group_keys.clone(), full_aggregate_values));
             }
         }
 
         // Then, process filtered aggregations and merge them with the base groups
-        pgrx::warning!("=== Processing filter aggregations ===");
         for (key, value) in result_obj {
             if key.starts_with("filter_") {
-                pgrx::warning!("Processing filter key: {}", key);
                 // Extract the aggregate index from the key
                 if let Ok(agg_idx) = key.strip_prefix("filter_").unwrap_or("").parse::<usize>() {
-                    pgrx::warning!("Parsed aggregate index: {}", agg_idx);
                     if agg_idx < self.aggregate_types.len() {
                         // Extract buckets from the filtered aggregation
                         if let Some(grouped) = value.get("grouped") {
-                            pgrx::warning!("Found grouped data for {}", key);
                             if let Some(buckets) = grouped.get("buckets").and_then(|b| b.as_array()) {
-                                pgrx::warning!("Found {} buckets in {}", buckets.len(), key);
                                 for bucket in buckets {
                                     if let Some(bucket_obj) = bucket.as_object() {
                                         // Extract the group key
@@ -817,16 +785,13 @@ impl AggregateScanState {
                                                 AggregateValue::Null
                                             };
                                             
-                                            pgrx::warning!("Extracted from {}: group_key={}, agg_value={:?}", key, group_key_str, aggregate_value);
                                             
                                             // Update the specific aggregate value in the existing group bucket
                                             if let Some((_, aggregate_values)) = group_buckets.get_mut(&group_key_str) {
                                                 if agg_idx < aggregate_values.len() {
-                                                    pgrx::warning!("Updated aggregate {} for group {} with value: {:?}", agg_idx, group_key_str, aggregate_value);
                                                     aggregate_values[agg_idx] = aggregate_value;
                                                 }
                                             } else {
-                                                pgrx::warning!("Group key {} not found in group_buckets for filter {}", group_key_str, key);
                                             }
                                         }
                                     }
@@ -846,10 +811,7 @@ impl AggregateScanState {
             })
             .collect();
         
-        pgrx::warning!("=== Final merged results ===");
-        pgrx::warning!("Number of final results: {}", final_results.len());
         for (i, row) in final_results.iter().enumerate() {
-            pgrx::warning!("Final row {}: {:?}", i, row);
         }
         
         final_results
@@ -867,16 +829,12 @@ impl AggregateScanState {
         // Process each filtered aggregation
         for (key, value) in result_obj {
             if key.starts_with("filter_") {
-                pgrx::warning!("Processing filter key: {}", key);
                 // Extract the aggregate index from the key
                 if let Ok(agg_idx) = key.strip_prefix("filter_").unwrap_or("").parse::<usize>() {
-                    pgrx::warning!("Parsed aggregate index: {}", agg_idx);
                     if agg_idx < self.aggregate_types.len() {
                         // Extract buckets from the filtered aggregation
-                        pgrx::warning!("=== NEW DIRECT JSON EXTRACTION for {} ===", key);
                         if let Some(grouped) = value.get("grouped") {
                             if let Some(buckets) = grouped.get("buckets").and_then(|b| b.as_array()) {
-                                pgrx::warning!("Found {} buckets in {}", buckets.len(), key);
                                 for bucket in buckets {
                                     if let Some(bucket_obj) = bucket.as_object() {
                                         // Extract the group key
@@ -925,7 +883,6 @@ impl AggregateScanState {
                                                 AggregateValue::Null
                                             };
                                             
-                                            pgrx::warning!("Extracted from {}: group_key={}, agg_value={:?}", key, group_key_str, aggregate_value);
                                             
                                             // Get or create the group bucket
                                             let (group_keys, aggregate_values) = group_buckets.entry(group_key_str.clone())
@@ -1056,25 +1013,18 @@ impl AggregateScanState {
                 result_obj.keys().all(|k| k.parse::<usize>().is_ok()) &&
                 result_obj.values().any(|v| v.as_object().map_or(false, |obj| obj.contains_key("doc_count")));
             
-            pgrx::warning!("=== GROUP BY Result Structure Analysis ===");
-            pgrx::warning!("Has filter keys: {}, Has group key: {}, Has simple filter agg: {}", has_filter_keys, has_group_key, has_simple_filter_agg);
-            pgrx::warning!("Keys: {:?}", result_obj.keys().collect::<Vec<_>>());
             
             if has_filter_keys && has_group_key {
                 // This is a mixed FilterAggregation structure - merge the results
-                pgrx::warning!("Using mixed FilterAggregation processing");
                 return self.merge_mixed_filter_aggregation_results(result_obj);
             } else if has_filter_keys && !has_group_key {
                 // Only filtered aggregations - process them
-                pgrx::warning!("Using filter-only processing");
                 return self.process_filter_only_group_results(result_obj);
             } else if has_simple_filter_agg {
                 // Simple FilterAggregation (no GROUP BY) with numeric keys
-                pgrx::warning!("Using simple FilterAggregation processing");
                 return self.process_simple_filter_aggregation_results(result.clone());
             } else if !has_filter_keys && has_group_key {
                 // Only non-filtered GROUP BY - use regular processing
-                pgrx::warning!("Using regular GROUP BY processing (no filters)");
                 // Fall through to regular extract_bucket_results
             }
         }

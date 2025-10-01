@@ -303,12 +303,10 @@ impl AggregateType {
             match self {
                 AggregateType::CountAny { .. } => {
                     // COUNT of empty set is 0
-                    pgrx::warning!("Empty result set: COUNT aggregate returning 0");
                     return AggregateValue::Int(0);
                 }
                 _ => {
                     // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-                    pgrx::warning!("Empty result set: {:?} aggregate returning NULL", self);
                     return AggregateValue::Null;
                 }
             }

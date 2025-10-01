@@ -20,7 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::{execute_aggregate, execute_aggregate_with_search_input_filters};
+use crate::aggregate::execute_aggregate_with_search_input_filters;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -627,38 +627,6 @@ fn explain_execution_strategy(
     }
 }
 
-/// Helper function to remove filters from filtered aggregates
-fn remove_filters(aggregate_types: &[AggregateType]) -> Vec<AggregateType> {
-    aggregate_types
-        .iter()
-        .map(|agg| agg.convert_filtered_aggregate_to_unfiltered())
-        .collect()
-}
-
-/// Helper function to create temporary scan state for query execution
-fn create_temp_scan_state(
-    base_state: &CustomScanStateWrapper<AggregateScan>,
-    aggregate_types: Vec<AggregateType>,
-    query: SearchQueryInput,
-    target_list_mapping: Option<Vec<TargetListEntry>>,
-) -> crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
-    crate::postgres::customscan::aggregatescan::scan_state::AggregateScanState {
-        state: crate::postgres::customscan::aggregatescan::scan_state::ExecutionState::NotStarted,
-        aggregate_types,
-        grouping_columns: base_state.custom_state().grouping_columns.clone(),
-        orderby_info: base_state.custom_state().orderby_info.clone(),
-        target_list_mapping: target_list_mapping
-            .unwrap_or_else(|| base_state.custom_state().target_list_mapping.clone()),
-        query,
-        indexrelid: base_state.custom_state().indexrelid,
-        indexrel: base_state.custom_state().indexrel.clone(),
-        execution_rti: base_state.custom_state().execution_rti,
-        limit: base_state.custom_state().limit,
-        offset: base_state.custom_state().offset,
-        maybe_truncated: false,
-        filter_groups: Vec::new(), // Temporary states don't need filter groups
-    }
-}
 
 /// Extract grouping columns from pathkeys and validate they are fast fields
 fn extract_grouping_columns(
@@ -983,71 +951,20 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Debug: Log all aggregate types to see if FILTER clauses are detected
-    pgrx::warning!("=== Aggregate Routing Debug ===");
-    for (i, agg) in state.custom_state().aggregate_types.iter().enumerate() {
-        pgrx::warning!("Aggregate {}: {:?}", i, agg);
-        pgrx::warning!("  Has filter: {}", agg.filter_expr().is_some());
-        if let Some(filter) = agg.filter_expr() {
-            pgrx::warning!("  Filter: {:?}", filter);
-        }
-    }
-
-    // Check if any aggregates have FILTER clauses
-    let has_filtered_aggregates = state
-        .custom_state()
-        .aggregate_types
-        .iter()
-        .any(|agg| agg.filter_expr().is_some());
-
-    pgrx::warning!("Has filtered aggregates: {}", has_filtered_aggregates);
-
-    if has_filtered_aggregates {
-        // Use the new FilterAggregation approach for queries with FILTER clauses
-        pgrx::warning!("Routing to FilterAggregation approach");
-        execute_with_filter_aggregations(state)
-    } else {
-        // Use the regular aggregation approach for queries without FILTER clauses
-        pgrx::warning!("Routing to regular aggregation approach");
-        execute_regular_aggregation(state)
-    }
+    // Unified execution path - use FilterAggregation approach for all queries
+    // This approach works for both filtered and non-filtered aggregations
+    execute_unified_aggregation(state)
 }
 
-/// Execute using regular Tantivy aggregation for queries without FILTER clauses
-fn execute_regular_aggregation(
+/// Unified execution function - uses FilterAggregation approach for all queries
+/// This approach works efficiently for both filtered and non-filtered aggregations
+fn execute_unified_aggregation(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let query = &state.custom_state().query;
-    let agg_json = state.custom_state().aggregates_to_json();
-
-    let result = execute_aggregate(
-        state.custom_state().indexrel(),
-        query.clone(),
-        agg_json,
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .expect(FAILED_TO_EXECUTE_AGGREGATE);
-
-    let aggregate_results = state
-        .custom_state()
-        .json_to_aggregate_results(result);
-
-    aggregate_results.into_iter()
-}
-
-/// Execute using Tantivy's Filter Aggregation feature - single query with filter aggregations
-/// Following the efficiency patterns from the filter aggregation documentation:
-/// 1. Use the most selective base conditions as the main search query
-/// 2. Apply FILTER clause conditions as filter aggregations
-/// 3. This minimizes document processing by filtering at the query level first
-fn execute_with_filter_aggregations(
-    state: &CustomScanStateWrapper<AggregateScan>,
-) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Try FilterAggregation approach for ALL queries (including GROUP BY)
+    // Determine the optimal base query
     let base_query = determine_optimal_base_query(state);
 
+    // Execute using the unified FilterAggregation approach
     let result = execute_aggregate_with_search_input_filters(
         state.custom_state().indexrel(),
         base_query,
@@ -1056,26 +973,17 @@ fn execute_with_filter_aggregations(
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-        )
-        .expect(FAILED_TO_EXECUTE_AGGREGATE);
+    )
+    .expect(FAILED_TO_EXECUTE_AGGREGATE);
 
-    // Debug: Log what we're passing to json_to_filter_aggregation_results
-    pgrx::warning!("=== Passing to json_to_filter_aggregation_results ===");
-    pgrx::warning!("Input JSON: {}", serde_json::to_string_pretty(&result).unwrap_or_else(|e| format!("Failed to serialize: {}", e)));
-
+    // Process results using unified result processing
     let aggregate_results = state
         .custom_state()
-        .json_to_filter_aggregation_results(result);
-
-    // Debug: Log the processed results
-    pgrx::warning!("=== Processed Aggregate Results ===");
-    pgrx::warning!("Number of results: {}", aggregate_results.len());
-    for (i, row) in aggregate_results.iter().enumerate() {
-        pgrx::warning!("Row {}: {:?}", i, row);
-    }
+        .process_aggregation_results(result);
 
     aggregate_results.into_iter()
 }
+
 
 /// Determine the optimal base query following filter aggregation efficiency patterns
 /// This implements the key insight from the documentation: "the main search query is your primary performance lever"
@@ -1121,110 +1029,6 @@ fn determine_optimal_base_query(state: &CustomScanStateWrapper<AggregateScan>) -
     }
 }
 
-/// Execute a single query when all aggregates have the same filter (or no filter)
-fn execute_single_query(
-    state: &CustomScanStateWrapper<AggregateScan>,
-    common_filter: Option<SearchQueryInput>,
-    _aggregate_indices: Vec<usize>,
-) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Combine base query with common filter (if any)
-    let combined_query = state
-        .custom_state()
-        .query
-        .combine_query_with_filter(common_filter.as_ref());
-
-    // Create unfiltered aggregate types (since filter is moved to query level)
-    let unfiltered_aggregates = remove_filters(&state.custom_state().aggregate_types);
-    let temp_scan_state =
-        create_temp_scan_state(state, unfiltered_aggregates, combined_query.clone(), None);
-
-    let agg_json = temp_scan_state.aggregates_to_json();
-
-    let result = execute_aggregate(
-        state.custom_state().indexrel(),
-        combined_query,
-        agg_json,
-        true,                                              // solve_mvcc
-        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-    )
-    .expect(FAILED_TO_EXECUTE_AGGREGATE);
-
-    temp_scan_state
-        .json_to_aggregate_results(result)
-        .into_iter()
-}
-
-/// Execute multi-query approach, grouping aggregates by filter
-fn execute_multi_filter_queries(
-    state: &CustomScanStateWrapper<AggregateScan>,
-    filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
-) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let mut all_results = Vec::new();
-
-    // Execute one query per filter group
-    for (filter_expr, aggregate_indices) in filter_groups {
-        let combined_query = if let Some(filter) = filter_expr {
-            // If there's a filter, check if we need to combine with base query
-            if matches!(state.custom_state().query, SearchQueryInput::All) {
-                filter.clone()
-            } else {
-                // Combine filter with existing WHERE clause
-                state
-                    .custom_state()
-                    .query
-                    .combine_query_with_filter(Some(filter))
-            }
-        } else {
-            // No filter - use the base query (for unfiltered aggregates)
-            state.custom_state().query.clone()
-        };
-
-        // Create aggregates for this group (unfiltered since filter is in query)
-        let group_aggregates: Vec<AggregateType> = aggregate_indices
-            .iter()
-            .map(|&idx| {
-                state.custom_state().aggregate_types[idx].convert_filtered_aggregate_to_unfiltered()
-            })
-            .collect();
-
-        // Create target list mapping for this group
-        let target_list_mapping = aggregate_indices
-            .iter()
-            .map(|&idx| {
-                crate::postgres::customscan::aggregatescan::privdat::TargetListEntry::Aggregate(idx)
-            })
-            .collect();
-
-        // Create temporary state for this group
-        let temp_scan_state = create_temp_scan_state(
-            state,
-            group_aggregates,
-            combined_query.clone(),
-            Some(target_list_mapping),
-        );
-
-        let agg_json = temp_scan_state.aggregates_to_json();
-
-        let result = execute_aggregate(
-            state.custom_state().indexrel(),
-            combined_query,
-            agg_json,
-            true,                                              // solve_mvcc
-            gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-        )
-        .expect(FAILED_TO_EXECUTE_AGGREGATE);
-
-        all_results.push((result, aggregate_indices.clone()));
-    }
-
-    // Merge results from all groups
-    state
-        .custom_state()
-        .merge_multi_group_results(all_results)
-        .into_iter()
-}
 
 impl ExecMethod for AggregateScan {
     fn exec_methods() -> *const pg_sys::CustomExecMethods {

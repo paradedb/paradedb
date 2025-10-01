@@ -20,7 +20,7 @@ pub mod scan_state;
 
 use std::ffi::CStr;
 
-use crate::aggregate::{execute_aggregate, execute_aggregate_with_search_input_filters};
+use crate::aggregate::execute_aggregate_with_search_input_filters;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -960,52 +960,25 @@ fn execute(
 fn execute_unified_aggregation(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    // Check if this query has been optimized (all FILTER clauses moved to base query)
-    let has_actual_filters = state
-        .custom_state()
-        .aggregate_types
-        .iter()
-        .any(|agg| agg.filter_expr().is_some());
+    // ALL queries now use FilterAggregation approach - no more dual paths
+    // Non-filtered aggregates use AllQuery as their filter for consistency
+    let base_query = determine_optimal_base_query(state);
 
-    if has_actual_filters {
-        // Query has FILTER clauses - use FilterAggregation approach
-        let base_query = determine_optimal_base_query(state);
+    let result = execute_aggregate_with_search_input_filters(
+        state.custom_state().indexrel(),
+        base_query,
+        state.custom_state().aggregate_types.clone(),
+        state.custom_state().grouping_columns.clone(),
+        true,                                              // solve_mvcc
+        gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
+        DEFAULT_BUCKET_LIMIT,                              // bucket_limit
+    )
+    .expect(FAILED_TO_EXECUTE_AGGREGATE);
 
-        let result = execute_aggregate_with_search_input_filters(
-            state.custom_state().indexrel(),
-            base_query,
-            state.custom_state().aggregate_types.clone(),
-            state.custom_state().grouping_columns.clone(),
-            true,                                              // solve_mvcc
-            gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-        )
-        .expect(FAILED_TO_EXECUTE_AGGREGATE);
+    // Process results using unified result processing
+    let aggregate_results = state.custom_state().process_aggregation_results(result);
 
-        // Process results using unified result processing
-        let aggregate_results = state.custom_state().process_aggregation_results(result);
-
-        aggregate_results.into_iter()
-    } else {
-        // Query has been optimized (no FILTER clauses) - use traditional approach
-        // This handles the case where identical FILTER clauses were moved to base query
-        let query = &state.custom_state().query;
-        let agg_json = state.custom_state().aggregates_to_json();
-
-        let result = execute_aggregate(
-            state.custom_state().indexrel(),
-            query.clone(),
-            agg_json,
-            true,                                              // solve_mvcc
-            gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
-            DEFAULT_BUCKET_LIMIT,                              // bucket_limit
-        )
-        .expect(FAILED_TO_EXECUTE_AGGREGATE);
-
-        let aggregate_results = state.custom_state().json_to_aggregate_results(result);
-
-        aggregate_results.into_iter()
-    }
+    aggregate_results.into_iter()
 }
 
 /// Determine the optimal base query following filter aggregation efficiency patterns

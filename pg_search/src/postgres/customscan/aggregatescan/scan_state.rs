@@ -254,42 +254,30 @@ impl AggregateScanState {
 
         let mut aggregate_values = vec![AggregateValue::Null; self.aggregate_types.len()];
 
-        // Process each result in the map
+        // Process each filter aggregation result (ALL aggregates now use filter_X keys)
         for (key, value) in result_map {
             if key.starts_with("filter_") {
-                // This is a filter aggregation result
-                if let Some(filter_aggs) = value.get("aggs").and_then(|v| v.as_object()) {
-                    for (agg_key, agg_result) in filter_aggs {
-                        if let Ok(idx) = agg_key.parse::<usize>() {
-                            if idx < self.aggregate_types.len() {
-                                let aggregate = &self.aggregate_types[idx];
-                                let agg_value = self.extract_aggregate_value_from_result(
-                                    aggregate, agg_result, None,
-                                );
-                                aggregate_values[idx] = agg_value;
-                            }
-                        }
+                // Extract the aggregate index from the filter key
+                if let Ok(idx) = key.strip_prefix("filter_").unwrap_or("").parse::<usize>() {
+                    if idx < self.aggregate_types.len() {
+                        let aggregate = &self.aggregate_types[idx];
+
+                        // Extract doc_count from the FilterAggregation result
+                        let doc_count = value.get("doc_count").and_then(|v| v.as_i64());
+
+                        // Extract the aggregate result from the filtered_agg sub-aggregation
+                        let agg_result = if let Some(filtered_agg) = value.get("filtered_agg") {
+                            Self::extract_aggregate_value_from_json(filtered_agg)
+                        } else {
+                            // Fallback: try to extract directly from the filter result
+                            Self::extract_aggregate_value_from_json(value)
+                        };
+
+                        // Use result_from_aggregate_with_doc_count for proper empty result handling
+                        let agg_value =
+                            aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count);
+                        aggregate_values[idx] = agg_value;
                     }
-                }
-            } else if let Ok(idx) = key.parse::<usize>() {
-                // This is a direct (unfiltered) aggregate result
-                if idx < self.aggregate_types.len() {
-                    let aggregate = &self.aggregate_types[idx];
-
-                    // Extract doc_count if available for empty result set detection
-                    let doc_count = if let Some(agg_obj) = value.as_object() {
-                        agg_obj.get("doc_count").and_then(|v| v.as_i64())
-                    } else {
-                        None
-                    };
-
-                    // Extract the aggregate result
-                    let agg_result = Self::extract_aggregate_value_from_json(value);
-
-                    // Use result_from_aggregate_with_doc_count for proper empty result handling
-                    let agg_value =
-                        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count);
-                    aggregate_values[idx] = agg_value;
                 }
             }
         }
@@ -309,17 +297,6 @@ impl AggregateScanState {
         // Use the existing comprehensive GROUP BY processing logic
         // This handles all GROUP BY scenarios: filtered, non-filtered, and mixed
         self.json_to_aggregate_results(result)
-    }
-
-    /// Extract aggregate value from a result (helper method)
-    fn extract_aggregate_value_from_result(
-        &self,
-        aggregate: &AggregateType,
-        result: &serde_json::Value,
-        doc_count: Option<i64>,
-    ) -> AggregateValue {
-        let agg_result = Self::extract_aggregate_value_from_json(result);
-        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
     /// Transform FilterAggregation structure to regular group structure
@@ -399,190 +376,6 @@ impl AggregateScanState {
         let mut rows = Vec::new();
         self.extract_bucket_results(transformed_result, 0, &mut Vec::new(), &mut rows, None);
         rows
-    }
-
-    /// Recursively extract filtered aggregation buckets from nested grouped structures
-    /// This handles multi-column GROUP BY where filtered aggregations have nested "grouped" objects
-    fn extract_filtered_aggregation_buckets(
-        grouped: &serde_json::Value,
-        agg_idx: usize,
-        current_keys: &mut Vec<String>,
-        group_buckets: &mut std::collections::HashMap<
-            String,
-            (Vec<tantivy::schema::OwnedValue>, AggregateRow),
-        >,
-    ) {
-        if let Some(buckets) = grouped.get("buckets").and_then(|b| b.as_array()) {
-            for bucket in buckets {
-                if let Some(bucket_obj) = bucket.as_object() {
-                    // Extract the group key for this level
-                    if let Some(key_value) = bucket_obj.get("key") {
-                        let key_str = match key_value {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            _ => format!("{key_value:?}"),
-                        };
-
-                        current_keys.push(key_str);
-
-                        // Check if this bucket has a nested "grouped" structure
-                        if let Some(nested_grouped) = bucket_obj.get("grouped") {
-                            // Recurse to the next level
-                            Self::extract_filtered_aggregation_buckets(
-                                nested_grouped,
-                                agg_idx,
-                                current_keys,
-                                group_buckets,
-                            );
-                        } else {
-                            // This is a leaf level - extract the aggregate value
-                            let group_key_str = current_keys.join("|");
-
-                            // Extract the aggregate value at the specific index
-                            let agg_key = agg_idx.to_string();
-                            let aggregate_value = if let Some(agg_obj) = bucket_obj.get(&agg_key) {
-                                if let Some(value_obj) = agg_obj.as_object() {
-                                    if let Some(value) = value_obj.get("value") {
-                                        match value {
-                                            serde_json::Value::Number(n) => {
-                                                if let Some(i) = n.as_i64() {
-                                                    AggregateValue::Int(i)
-                                                } else if let Some(f) = n.as_f64() {
-                                                    AggregateValue::Float(f)
-                                                } else {
-                                                    AggregateValue::Null
-                                                }
-                                            }
-                                            _ => AggregateValue::Null,
-                                        }
-                                    } else {
-                                        AggregateValue::Null
-                                    }
-                                } else {
-                                    AggregateValue::Null
-                                }
-                            } else {
-                                AggregateValue::Null
-                            };
-
-                            // Update the specific aggregate value in the existing group bucket
-                            if let Some((_, aggregate_values)) =
-                                group_buckets.get_mut(&group_key_str)
-                            {
-                                if agg_idx < aggregate_values.len() {
-                                    aggregate_values[agg_idx] = aggregate_value;
-                                }
-                            }
-                        }
-
-                        current_keys.pop();
-                    }
-                }
-            }
-        }
-    }
-
-    /// Merge results from mixed FilterAggregation structure (both filter_X and group_0)
-    fn merge_mixed_filter_aggregation_results(
-        &self,
-        result_obj: &serde_json::Map<String, serde_json::Value>,
-    ) -> Vec<GroupedAggregateRow> {
-        use std::collections::HashMap;
-
-        // First, extract all group buckets from group_0 (non-filtered aggregations)
-        let mut group_buckets: HashMap<String, (Vec<OwnedValue>, AggregateRow)> = HashMap::new();
-
-        // Identify which aggregates are non-filtered (should be in group_0)
-        let non_filtered_indices: Vec<usize> = self
-            .aggregate_types
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, agg)| {
-                if agg.filter_expr().is_none() {
-                    Some(idx)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        if let Some(group_0) = result_obj.get("group_0") {
-            // Create a wrapper object with the expected structure for extract_bucket_results
-            let wrapper = serde_json::json!({
-                "group_0": group_0
-            });
-            let mut temp_rows = Vec::new();
-            // Only extract non-filtered aggregates from group_0
-            self.extract_bucket_results(
-                &wrapper,
-                0,
-                &mut Vec::new(),
-                &mut temp_rows,
-                Some(&non_filtered_indices),
-            );
-
-            for (i, row) in temp_rows.iter().enumerate() {
-                let group_key = row
-                    .group_keys
-                    .iter()
-                    .map(|k| match k {
-                        tantivy::schema::OwnedValue::Str(s) => s.clone(),
-                        tantivy::schema::OwnedValue::I64(i) => i.to_string(),
-                        tantivy::schema::OwnedValue::F64(f) => f.to_string(),
-                        tantivy::schema::OwnedValue::Bool(b) => b.to_string(),
-                        _ => format!("{k:?}"),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("|");
-
-                // Create a full aggregate row with all positions initialized to Null
-                let mut full_aggregate_values = AggregateRow::default();
-                full_aggregate_values.resize(self.aggregate_types.len(), AggregateValue::Null);
-
-                // Copy the extracted values to their correct positions
-                for (extracted_idx, &aggregate_idx) in non_filtered_indices.iter().enumerate() {
-                    if let Some(value) = row.aggregate_values.get(extracted_idx) {
-                        if aggregate_idx < full_aggregate_values.len() {
-                            full_aggregate_values[aggregate_idx] = value.clone();
-                        }
-                    }
-                }
-
-                group_buckets.insert(group_key, (row.group_keys.clone(), full_aggregate_values));
-            }
-        }
-
-        // Then, process filtered aggregations and merge them with the base groups
-        for (key, value) in result_obj {
-            if key.starts_with("filter_") {
-                // Extract the aggregate index from the key
-                if let Ok(agg_idx) = key.strip_prefix("filter_").unwrap_or("").parse::<usize>() {
-                    if agg_idx < self.aggregate_types.len() {
-                        // Extract buckets from the filtered aggregation using recursive processing
-                        if let Some(grouped) = value.get("grouped") {
-                            Self::extract_filtered_aggregation_buckets(
-                                grouped,
-                                agg_idx,
-                                &mut Vec::new(),
-                                &mut group_buckets,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Convert the merged results back to GroupedAggregateRow
-        let final_results: Vec<GroupedAggregateRow> = group_buckets
-            .into_iter()
-            .map(|(_, (group_keys, aggregate_values))| GroupedAggregateRow {
-                group_keys,
-                aggregate_values,
-            })
-            .collect();
-
-        final_results
     }
 
     /// Process results when only filtered aggregations are present (no group_0)
@@ -779,55 +572,40 @@ impl AggregateScanState {
             return rows;
         }
 
-        // Check if this is a FilterAggregation structure
+        // ALL results now use FilterAggregation structure with filter_X keys
         if let Some(result_obj) = result.as_object() {
             let has_filter_keys = result_obj.keys().any(|k| k.starts_with("filter_"));
-            let has_group_key = result_obj.contains_key("group_0");
 
-            // Check if this is a simple FilterAggregation (numeric keys with doc_count)
-            let has_simple_filter_agg = !has_filter_keys
-                && !has_group_key
-                && self.grouping_columns.is_empty()
-                && result_obj.keys().all(|k| k.parse::<usize>().is_ok())
-                && result_obj.values().any(|v| {
-                    v.as_object()
-                        .is_some_and(|obj| obj.contains_key("doc_count"))
-                });
-
-            if has_filter_keys && has_group_key {
-                // This is a mixed FilterAggregation structure - merge the results
-                return self.merge_mixed_filter_aggregation_results(result_obj);
-            } else if has_filter_keys && !has_group_key {
-                // Check if this is a multi-column GROUP BY FilterAggregation
-                // (has nested "grouped" structures)
-                let has_nested_grouped = result_obj.values().any(|v| {
-                    v.get("grouped")
-                        .and_then(|g| g.get("buckets"))
-                        .and_then(|b| b.as_array())
-                        .is_some_and(|buckets| {
-                            buckets.iter().any(|bucket| {
-                                bucket
-                                    .as_object()
-                                    .is_some_and(|obj| obj.contains_key("grouped"))
-                            })
-                        })
-                });
-
-                if has_nested_grouped && self.grouping_columns.len() > 1 {
-                    // Multi-column GROUP BY FilterAggregation - transform and use regular processing
-                    let transformed_result =
-                        self.transform_filter_aggregation_to_group_structure(result_obj);
-                    return self.extract_bucket_results_from_transformed(&transformed_result);
+            if has_filter_keys {
+                // All queries now use FilterAggregation - determine processing based on GROUP BY
+                if self.grouping_columns.is_empty() {
+                    // Simple aggregation (no GROUP BY) - process filter results directly
+                    return self.process_simple_filter_aggregation_results(result.clone());
                 } else {
-                    // Single-column GROUP BY FilterAggregation - use filter-only processing
-                    return self.process_filter_only_group_results(result_obj);
+                    // GROUP BY aggregation - check if multi-column
+                    let has_nested_grouped = result_obj.values().any(|v| {
+                        v.get("grouped")
+                            .and_then(|g| g.get("buckets"))
+                            .and_then(|b| b.as_array())
+                            .is_some_and(|buckets| {
+                                buckets.iter().any(|bucket| {
+                                    bucket
+                                        .as_object()
+                                        .is_some_and(|obj| obj.contains_key("grouped"))
+                                })
+                            })
+                    });
+
+                    if has_nested_grouped && self.grouping_columns.len() > 1 {
+                        // Multi-column GROUP BY FilterAggregation - transform and use regular processing
+                        let transformed_result =
+                            self.transform_filter_aggregation_to_group_structure(result_obj);
+                        return self.extract_bucket_results_from_transformed(&transformed_result);
+                    } else {
+                        // Single-column GROUP BY FilterAggregation - use filter-only processing
+                        return self.process_filter_only_group_results(result_obj);
+                    }
                 }
-            } else if has_simple_filter_agg {
-                // Simple FilterAggregation (no GROUP BY) with numeric keys
-                return self.process_simple_filter_aggregation_results(result.clone());
-            } else if !has_filter_keys && has_group_key {
-                // Only non-filtered GROUP BY - use regular processing
-                // Fall through to regular extract_bucket_results
             }
         }
 

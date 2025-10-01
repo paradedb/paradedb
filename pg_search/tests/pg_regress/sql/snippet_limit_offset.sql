@@ -22,6 +22,7 @@ CREATE INDEX ON snippet_test USING bm25 (
 SELECT paradedb.snippet(content), paradedb.snippet_positions(content) FROM snippet_test WHERE content @@@ 'test';
 SELECT paradedb.snippet(content, "limit" => 1), paradedb.snippet_positions(content, "limit" => 1) FROM snippet_test WHERE content @@@ 'test';
 SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_positions(content, "limit" => 1, "offset" => 1) FROM snippet_test WHERE content @@@ 'test';
+SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
 
 -- Edge cases
 SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
@@ -31,4 +32,6 @@ SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(co
 
 -- With max num chars
 SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+SELECT paradedb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+
 DROP TABLE snippet_test;

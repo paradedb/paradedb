@@ -37,30 +37,39 @@ SELECT paradedb.snippet(content, "limit" => 1, "offset" => 1), paradedb.snippet_
                                    snippet                                   | snippet_positions 
 -----------------------------------------------------------------------------+-------------------
  This is a test <b>test</b> of the snippet function with multiple test words | {"{15,19}"}
- Another test of the snippet snippet function with repeated snippet words    | 
+                                                                             | 
  Yet another test <b>test</b> test of the function function function         | {"{17,21}"}
  test Lorem ipsum dolor sit amet...<b>test</b>                               | {"{34,38}"}
 (4 rows)
 
+SELECT paradedb.snippet(content, "limit" => 5, "offset" => 2), paradedb.snippet_positions(content, "limit" => 5, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+                                   snippet                                   | snippet_positions 
+-----------------------------------------------------------------------------+-------------------
+ This is a test test of the snippet function with multiple <b>test</b> words | {"{58,62}"}
+                                                                             | 
+ Yet another test test <b>test</b> of the function function function         | {"{22,26}"}
+                                                                             | 
+(4 rows)
+
 -- Edge cases
 SELECT paradedb.snippet(content, "limit" => 0), paradedb.snippet_positions(content, "limit" => 0) FROM snippet_test WHERE content @@@ 'test';
-                                 snippet                                  | snippet_positions 
---------------------------------------------------------------------------+-------------------
- This is a test test of the snippet function with multiple test words     | 
- Another test of the snippet snippet function with repeated snippet words | 
- Yet another test test test of the function function function             | 
- test Lorem ipsum dolor sit amet...test                                   | 
+ snippet | snippet_positions 
+---------+-------------------
+         | 
+         | 
+         | 
+         | 
 (4 rows)
 
 SELECT paradedb.snippet(content, "limit" => -1), paradedb.snippet_positions(content, "limit" => -1) FROM snippet_test WHERE content @@@ 'test';
 ERROR:  limit must not be negative
 SELECT paradedb.snippet(content, "offset" => 1000), paradedb.snippet_positions(content, "offset" => 1000) FROM snippet_test WHERE content @@@ 'test';
-                                 snippet                                  | snippet_positions 
---------------------------------------------------------------------------+-------------------
- This is a test test of the snippet function with multiple test words     | 
- Another test of the snippet snippet function with repeated snippet words | 
- Yet another test test test of the function function function             | 
- test Lorem ipsum dolor sit amet...test                                   | 
+ snippet | snippet_positions 
+---------+-------------------
+         | 
+         | 
+         | 
+         | 
 (4 rows)
 
 SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(content, "limit" => null) FROM snippet_test WHERE content @@@ 'test';
@@ -70,6 +79,25 @@ SELECT paradedb.snippet(content, "limit" => null), paradedb.snippet_positions(co
  Another <b>test</b> of the snippet snippet function with repeated snippet words           | {"{8,12}"}
  Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function         | {"{12,16}","{17,21}","{22,26}"}
  <b>test</b> Lorem ipsum dolor sit amet...<b>test</b>                                      | {"{0,4}","{34,38}"}
+(4 rows)
+
+-- With max num chars
+SELECT paradedb.snippet(content, max_num_chars => 20, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+          snippet           
+----------------------------
+ multiple <b>test</b> words
+ 
+ test <b>test</b> of the
+ 
+(4 rows)
+
+SELECT paradedb.snippet(content, max_num_chars => 0, "offset" => 2) FROM snippet_test WHERE content @@@ 'test';
+   snippet   
+-------------
+ <b>test</b>
+ 
+ <b>test</b>
+ 
 (4 rows)
 
 DROP TABLE snippet_test;

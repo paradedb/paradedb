@@ -21,6 +21,7 @@ use crate::postgres::storage::block::{
     block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
 };
 use crate::postgres::storage::buffer::{BufferManager, BufferMut, PinnedBuffer};
+use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::{LinkedBytesList, LinkedItemList};
 use pgrx::{pg_sys, StringInfo};
 use serde::{Deserialize, Serialize};
@@ -291,7 +292,7 @@ impl MergeList {
         self.entries.list()
     }
 
-    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::TransactionId) {
+    pub unsafe fn garbage_collect(&mut self, when_recyclable: pg_sys::FullTransactionId) {
         let recycled_entries = self.entries.garbage_collect(when_recyclable);
 
         let indexrel = self.bman.buffer_access().rel().clone();
@@ -306,7 +307,7 @@ impl MergeList {
     pub unsafe fn add_segment_ids<'a>(
         &mut self,
         segment_ids: impl IntoIterator<Item = &'a SegmentId>,
-        current_xid: pg_sys::TransactionId,
+        current_xid: pg_sys::FullTransactionId,
     ) -> anyhow::Result<MergeEntry> {
         assert!(pg_sys::IsTransactionState());
 
@@ -322,7 +323,7 @@ impl MergeList {
         // fabricate and write the [`MergeEntry`] itself
         let merge_entry = MergeEntry {
             pid: pg_sys::MyProcPid,
-            xmin: current_xid,
+            xmin: pg_sys::TransactionId::from(current_xid.value as u32),
             _unused: pg_sys::InvalidTransactionId,
             segment_ids_start_blockno,
         };

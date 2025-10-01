@@ -58,7 +58,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // been leftover from a cancelled merge or crash during merge
     merge_lock
         .merge_list()
-        .garbage_collect(pg_sys::ReadNextTransactionId());
+        .garbage_collect(pg_sys::ReadNextFullTransactionId());
 
     // and now we should not have any merges happening, and cannot
     assert!(

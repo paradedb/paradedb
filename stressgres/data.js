@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759366505398,
+  "lastUpdate": 1759369783074,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -784,6 +784,72 @@ window.BENCHMARK_DATA = {
             "value": 84.00063923722817,
             "unit": "median tps",
             "extra": "avg tps: 114.6168365150626, max tps: 551.6008836646156, count: 55454"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "850e3a9f88033d64151d6ecfa0d37c1b1f210b27",
+          "message": "fix: `paradedb.snippet` projects correctly when called multiple times over the same field (#3258)\n\n# Ticket(s) Closed\n\n- Closes #3256 \n\n## What\n\nSee GH issue\n\n## Why\n\n## How\n\nWhen mapping a const node to our list of snippet generators, we were\nmatching only on the field name and function OID, which is not unique\nenough -- it doesn't account for the function arguments.\n\n## Tests\n\nAdded regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T21:33:38-04:00",
+          "tree_id": "1f119fb29d59884bd2105114833ca2d34c2acfd9",
+          "url": "https://github.com/paradedb/paradedb/commit/850e3a9f88033d64151d6ecfa0d37c1b1f210b27"
+        },
+        "date": 1759369781526,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Primary - tps",
+            "value": 781.9302213409401,
+            "unit": "median tps",
+            "extra": "avg tps: 780.1643018539881, max tps: 806.911561885554, count: 55198"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3321.381415245117,
+            "unit": "median tps",
+            "extra": "avg tps: 3310.4051543058818, max tps: 3459.320221032682, count: 55198"
+          },
+          {
+            "name": "Index Only Scan - Primary - tps",
+            "value": 793.8685634087634,
+            "unit": "median tps",
+            "extra": "avg tps: 794.4432286873612, max tps: 849.4838606123444, count: 55198"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 650.2472529755773,
+            "unit": "median tps",
+            "extra": "avg tps: 650.9663926909482, max tps: 663.5091249162726, count: 55198"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1688.4380955597098,
+            "unit": "median tps",
+            "extra": "avg tps: 1682.2790156988226, max tps: 1703.6859645183781, count: 110396"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1281.570702932479,
+            "unit": "median tps",
+            "extra": "avg tps: 1269.4776061522255, max tps: 1285.233998818768, count: 55198"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 78.29028931229742,
+            "unit": "median tps",
+            "extra": "avg tps: 94.8064962896591, max tps: 944.5858699399715, count: 55198"
           }
         ]
       }

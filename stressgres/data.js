@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759362612971,
+  "lastUpdate": 1759363330756,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4624,6 +4624,60 @@ window.BENCHMARK_DATA = {
             "value": 18.802898591530987,
             "unit": "median tps",
             "extra": "avg tps: 18.919164549321746, max tps: 20.35295276568134, count: 55507"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bb494d330cfac7ee1db3b904ab5266bd671abadb",
+          "message": "fix: `paradedb.snippet` projects correctly when called multiple times over the same field (#3257)\n\n# Ticket(s) Closed\n\n- Closes #3256 \n\n## What\n\nSee GH issue\n\n## Why\n\n## How\n\nWhen mapping a const node to our list of snippet generators, we were\nmatching only on the field name and function OID, which is not unique\nenough -- it doesn't account for the function arguments.\n\n## Tests\n\nAdded regression test",
+          "timestamp": "2025-10-01T19:08:56-04:00",
+          "tree_id": "a78e472aad70351c0c799699330da58256d3cbc4",
+          "url": "https://github.com/paradedb/paradedb/commit/bb494d330cfac7ee1db3b904ab5266bd671abadb"
+        },
+        "date": 1759363329191,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 38.81906941009015,
+            "unit": "median tps",
+            "extra": "avg tps: 38.81619200187246, max tps: 39.21839231446637, count: 55611"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.91615169414666,
+            "unit": "median tps",
+            "extra": "avg tps: 279.43823677923, max tps: 2827.2205188356374, count: 55611"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1054.2932613047262,
+            "unit": "median tps",
+            "extra": "avg tps: 1049.4788553906, max tps: 1064.0412491350373, count: 55611"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.12511859254494,
+            "unit": "median tps",
+            "extra": "avg tps: 157.83216348820667, max tps: 817.8467025264599, count: 111222"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 19.695908758939026,
+            "unit": "median tps",
+            "extra": "avg tps: 19.760813032863865, max tps: 20.705045975441084, count: 55611"
           }
         ]
       }

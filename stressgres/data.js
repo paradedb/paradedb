@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759365779173,
+  "lastUpdate": 1759365781795,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4474,6 +4474,90 @@ window.BENCHMARK_DATA = {
             "value": 156.1875,
             "unit": "median mem",
             "extra": "avg mem: 169.59656684027777, max mem: 216.43359375, count: 56700"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "762c487685bb5635c789b31781155839d2c65cf0",
+          "message": "feat: Configure a limit/offset for snippets (#3254)",
+          "timestamp": "2025-10-01T20:00:17-04:00",
+          "tree_id": "5dcb534f0e2f513864b19abddc44396ed24760ff",
+          "url": "https://github.com/paradedb/paradedb/commit/762c487685bb5635c789b31781155839d2c65cf0"
+        },
+        "date": 1759365780196,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.790994297125587, max cpu: 28.430405, count: 57096"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 166.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 165.27705531035448, max mem: 166.56640625, count: 57096"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59102,
+            "unit": "median block_count",
+            "extra": "avg block_count: 61275.06634440241, max block_count: 76078.0, count: 57096"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 86,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 92.43116855821773, max segment_count: 194.0, count: 57096"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.896174081577064, max cpu: 28.346458, count: 57096"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 168.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 159.78889686613334, max mem: 168.65625, count: 57096"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.943227550161554, max cpu: 27.961164, count: 57096"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 164.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 162.01539799745166, max mem: 164.4453125, count: 57096"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.483368,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.858555315819224, max cpu: 33.136093, count: 57096"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.4515115578368, max mem: 215.73046875, count: 57096"
           }
         ]
       }

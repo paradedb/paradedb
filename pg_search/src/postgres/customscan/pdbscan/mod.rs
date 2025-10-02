@@ -164,7 +164,7 @@ impl PdbScan {
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field().root(),
-                        query_to_use.clone(),
+                        query_to_use,
                         std::ptr::NonNull::new(expr_context),
                     );
 

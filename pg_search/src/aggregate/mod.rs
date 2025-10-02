@@ -27,10 +27,12 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, GroupingColumn};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
+use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
@@ -326,20 +328,15 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 ///
 /// # Returns
 /// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
-pub fn execute_aggregate_with_search_input_filters(
+pub fn execute_aggregate_with_filters(
     index: &PgSearchRelation,
-    base_query: SearchQueryInput,
-    aggregate_types: Vec<crate::postgres::customscan::aggregatescan::privdat::AggregateType>,
-    grouping_columns: Vec<crate::postgres::customscan::aggregatescan::privdat::GroupingColumn>,
+    base_query: &SearchQueryInput,
+    aggregate_types: &[AggregateType],
+    grouping_columns: &[GroupingColumn],
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::SearchIndexReader;
-    use crate::schema::SearchIndexSchema;
-    use std::ptr::NonNull;
-
     unsafe {
         let standalone_context = pg_sys::CreateStandaloneExprContext();
         let reader = SearchIndexReader::open_with_context(
@@ -357,9 +354,9 @@ pub fn execute_aggregate_with_search_input_filters(
         // Build filter aggregations using unified function (handles both simple and grouped)
         // Note: Ordering is handled at the result processing level, not at Tantivy level
         let final_aggregations = build_filter_aggregations(
-            &base_query,
-            &aggregate_types,
-            &grouping_columns,
+            base_query,
+            aggregate_types,
+            grouping_columns,
             &schema,
             &reader,
             index,
@@ -382,7 +379,7 @@ pub fn execute_aggregate_with_search_input_filters(
 /// This bypasses the JSON serialization step that causes issues with FilterAggregation::new_with_query
 pub fn execute_aggregate_with_tantivy_aggregations(
     index: &PgSearchRelation,
-    query: SearchQueryInput,
+    query: &SearchQueryInput,
     aggregations: tantivy::aggregation::agg_req::Aggregations,
     solve_mvcc: bool,
     memory_limit: u64,
@@ -531,7 +528,7 @@ impl TermsAggregationBuilder {
     /// Returns a map with "grouped" as the key for the outermost terms aggregation
     /// This is used for GROUP BY queries where FilterAggregation is at the top level
     fn build_nested(
-        grouping_columns: &[crate::postgres::customscan::aggregatescan::privdat::GroupingColumn],
+        grouping_columns: &[GroupingColumn],
         leaf_aggs: std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
     ) -> Result<
         std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
@@ -566,7 +563,7 @@ impl TermsAggregationBuilder {
 /// Create base aggregation without filter wrapper
 /// Centralizes the logic for creating unfiltered aggregations
 fn create_base_aggregation(
-    agg_type: &crate::postgres::customscan::aggregatescan::privdat::AggregateType,
+    agg_type: &AggregateType,
 ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn Error>> {
     let unfiltered = if agg_type.filter_expr().is_some() {
         agg_type.convert_filtered_aggregate_to_unfiltered()
@@ -581,8 +578,8 @@ fn create_base_aggregation(
 /// Reduces complexity by having a single code path for all aggregation scenarios
 fn build_filter_aggregations(
     base_query: &crate::query::SearchQueryInput,
-    aggregate_types: &[crate::postgres::customscan::aggregatescan::privdat::AggregateType],
-    grouping_columns: &[crate::postgres::customscan::aggregatescan::privdat::GroupingColumn],
+    aggregate_types: &[AggregateType],
+    grouping_columns: &[GroupingColumn],
     schema: &crate::schema::SearchIndexSchema,
     reader: &crate::index::reader::index::SearchIndexReader,
     index: &crate::postgres::rel::PgSearchRelation,

@@ -22,13 +22,13 @@ use crate::api::operator::{
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
-    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, AnyElement,
-    Internal, IntoDatum, PgList,
+    direct_function_call, extension_sql, opname, pg_extern, pg_operator, pg_sys, Internal,
+    IntoDatum, PgList,
 };
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.###)]
-fn search_with_phrase(_field: AnyElement, terms_to_tokenize: &str) -> bool {
+fn search_with_phrase(_field: &str, terms_to_tokenize: &str) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, TEXT)` operator: `{terms_to_tokenize}`"
     )
@@ -36,7 +36,7 @@ fn search_with_phrase(_field: AnyElement, terms_to_tokenize: &str) -> bool {
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.###)]
-fn search_with_phrase_pdb_query(_field: AnyElement, terms_to_tokenize: pdb::Query) -> bool {
+fn search_with_phrase_pdb_query(_field: &str, terms_to_tokenize: pdb::Query) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, pdb.query)` operator: `{terms_to_tokenize:?}`"
     )
@@ -44,7 +44,7 @@ fn search_with_phrase_pdb_query(_field: AnyElement, terms_to_tokenize: pdb::Quer
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.###)]
-fn search_with_phrase_boost(_field: AnyElement, terms_to_tokenize: BoostType) -> bool {
+fn search_with_phrase_boost(_field: &str, terms_to_tokenize: BoostType) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, boost)` operator: `{terms_to_tokenize:?}`"
     )
@@ -52,7 +52,7 @@ fn search_with_phrase_boost(_field: AnyElement, terms_to_tokenize: BoostType) ->
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000, requires = ["SlopType_final"])]
 #[opname(pg_catalog.###)]
-fn search_with_phrase_slop(_field: AnyElement, terms_to_tokenize: SlopType) -> bool {
+fn search_with_phrase_slop(_field: &str, terms_to_tokenize: SlopType) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, slop)` operator: `{terms_to_tokenize:?}`"
     )

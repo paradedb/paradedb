@@ -385,6 +385,8 @@ where
     let lhs = input_args.get_ptr(0)?;
     let rhs = input_args.get_ptr(1)?;
 
+    pgrx::warning!("{}", pgrx::node_to_string(lhs).unwrap());
+
     let (indexrel, field) = tantivy_field_name_from_node((*srs).root, lhs)?;
     let rhs = rewrite_rhs_to_search_query_input(
         const_rewrite,

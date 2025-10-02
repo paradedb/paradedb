@@ -36,7 +36,9 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
-use crate::postgres::var::{find_one_var, find_var_relation, find_vars};
+use crate::postgres::var::{
+    find_json_path, find_one_var, find_var_relation, find_vars, VarContext,
+};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -250,11 +252,13 @@ pub unsafe fn tantivy_field_name_from_node(
     let indexrel =
         locate_bm25_index_from_heaprel(&heaprel).expect("could not find bm25 index for heaprelid");
 
-    let field_name = field_name_from_node(&heaprel, &indexrel, node)?;
+    let field_name =
+        field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node)?;
     Some((indexrel, Some(field_name)))
 }
 
 unsafe fn field_name_from_node(
+    context: VarContext,
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
     mut node: *mut pg_sys::Node,
@@ -337,15 +341,28 @@ unsafe fn field_name_from_node(
             }
         }
 
-        if let Some(relabel_type) = nodecast!(RelabelType, T_RelabelType, node) {
-            // the node we're evaluating is a RelabelType that doesn't exactly match any expressions
-            // in the index definition.  So try again using its "arg"
-            node = (*relabel_type).arg.cast();
-            continue;
-        } else {
-            // the node we're evaluating doesn't match either an index expression or a direct Var
-            return None;
+        //
+        // the node we're evaluating doesn't match either an index expression or a direct Var
+        //
+
+        // could it be a json(b) path reference like:  json_field->'foo'->>'bar'?
+        let json_path = find_json_path(&context, node);
+        if !json_path.is_empty() {
+            return Some(FieldName::from(json_path.join(".")));
         }
+
+        // maybe it's some other kind of expression
+        // if that expression only has 1 Var node, we'll use that and loop around to try again
+        // could be a simple relabel such as:  text_field::varchar
+        // TODO:  should we limit it to just that?  As written, this code might be a little over optimistic
+        let mut vars = find_vars(node);
+        if vars.len() == 1 {
+            node = vars.pop().unwrap().cast();
+            continue;
+        }
+
+        // whatever they're searching for, it's not something we know how to identify
+        return None;
     }
 }
 

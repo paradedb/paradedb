@@ -171,10 +171,17 @@ impl PdbScan {
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
                 let max_num_chars = match snippet_type {
-                    SnippetType::Text(_, _, config) => config.max_num_chars,
-                    SnippetType::Positions(_, _) => u32::MAX as usize,
+                    SnippetType::Text(_, _, config, _) => config.max_num_chars,
+                    SnippetType::Positions(_, _, _) => u32::MAX as usize,
                 };
                 new_generator.1.set_max_num_chars(max_num_chars);
+
+                if let Some(limit) = snippet_type.limit() {
+                    new_generator.1.set_limit(limit as usize);
+                }
+                if let Some(offset) = snippet_type.offset() {
+                    new_generator.1.set_offset(offset as usize);
+                }
 
                 *generator = Some(new_generator);
             }
@@ -1026,7 +1033,7 @@ impl CustomScan for PdbScan {
                                         &state.custom_state().const_snippet_nodes
                                     {
                                         match snippet_type {
-                                            SnippetType::Text(_, _, config) => {
+                                            SnippetType::Text(_, _, config, _) => {
                                                 let snippet = state
                                                     .custom_state()
                                                     .make_snippet(ctid, snippet_type);

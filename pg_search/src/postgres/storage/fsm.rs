@@ -607,7 +607,7 @@ pub mod v1 {
 /// Draining is the process of asking the FSM for free blocks.  The caller asks for `n` blocks and
 /// the FSM returns an iterator of blocks that can be reused by the current transaction.  "Current
 /// transaction" here literally means the result of `pg_sys::GetCurrentFullTransactionId()`, but
-/// _could_ be a different, father-in-the-past, transaction.
+/// _could_ be a different, further-in-the-past, transaction.
 ///
 /// The drain process takes a shared lock on the root page and finds the entry that is less-than-or-equal-to
 /// the current transaction id.  A transaction can only reuse blocks related to the same or older

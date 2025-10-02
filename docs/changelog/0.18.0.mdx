@@ -1,0 +1,27 @@
+---
+title: 0.18.0
+---
+
+## Performance Improvements 🚀
+
+- Avoid re-querying Top N iterators that have no more results (up to 1.5X speedup)
+- Lazily load bitpacked columns (up to 2X speedup)
+- Use [Arrow](https://arrow.apache.org/) for fast field execution (up to 1.6X speedup)
+- Skip computing scores if not necessary during Top N queries
+
+## Aggregate Query Pushdown
+
+We're making further progress in our roadmap to [push down aggregate queries](/welcome/roadmap#analytics). This release
+pushes down bucketing queries with `GROUP BY` or `GROUP BY...ORDER BY`.
+
+## New SQL UX
+
+We are making progress on [v2 of the new SQL UX](/v2/overview). While not completed, `0.18.0` brings fuzzy, boost, and query builder function
+support to v2. The new UX is still in beta and we would appreciate any community testing/feedback.
+
+## Stability Improvements 💪
+
+- Various correctness fixes to Top N queries
+- Custom scans over partitioned tables don't error if one of the partitioned tables is empty
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.18.0).

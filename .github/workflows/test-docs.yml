@@ -1,0 +1,44 @@
+# workflows/test-docs.yml
+#
+# Test Docs
+# Test our documentation for broken links via Mintlify.
+
+name: Test Docs
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+      - 0.*.x # Release branches
+    paths:
+      - ".github/workflows/test-docs.yml"
+      - "docs/**"
+  workflow_dispatch:
+
+concurrency:
+  group: test-docs-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-docs:
+    name: Test Docs for Broken Links
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v5
+
+      - name: Install Mintlify CLI
+        run: npm install -g mintlify
+
+      - name: Test Docs for Broken Links
+        working-directory: docs/
+        run: |
+          output=$(mintlify broken-links)
+          if [[ "$output" == *"success no broken links found"* ]]; then
+            echo "No broken links found."
+          else
+            echo "$output"
+            exit 1
+          fi

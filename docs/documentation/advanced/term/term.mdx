@@ -1,0 +1,89 @@
+---
+title: Term
+---
+
+A term query treats the query as a single token. Because it does not apply any additional tokenization or processing
+to the query, it is useful when looking for **exact** matches.
+
+The term query should not be confused with the [match](/documentation/advanced/full-text/match) query, which auto-tokenizes
+the query string.
+
+## Basic Usage
+
+Matches documents containing a specified [term](/documentation/concepts/term).
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.term('description', 'shoes');
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "description",
+        "value": "shoes"
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term. If omitted,
+  all indexed fields will be searched.
+</ParamField>
+<ParamField body="value" required>
+  Value to search for in the document field.
+</ParamField>
+
+Numeric, boolean, or datetime fields can also be passed into the `term` query.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.term('rating', 4);
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "rating",
+        "value": 4
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+## Enumerated Types
+
+`term` can be used to filter over custom Postgres [enums](/documentation/indexing/create_index#enumerated-types)
+if the query term is explicitly cast to the enum type. If JSON syntax is used, the underlying ordinal value of the enum must be used.
+
+<CodeGroup>
+```sql Function Syntax
+-- Assume we have indexed an enum called color
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.term('color', 'red'::color);
+```
+```sql JSON Syntax
+-- Assume we have indexed an enum called color and 'red' has an ordinal of 1.0
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "term": {
+        "field": "color",
+        "value": 1.0
+    }
+}'::jsonb;
+```
+</CodeGroup>

@@ -1,0 +1,41 @@
+---
+title: Phrase
+---
+
+Searches for the presence of a [phrase](/documentation/concepts/phrase). The field must be indexed with [record](/documentation/indexing/record) of `position`.
+For more granular controls, see the [phrase query](/documentation/advanced/phrase).
+
+## Basic Usage
+
+Phrases must be wrapped inside double quotes. The following query finds all documents with the word `plastic` followed immediately by `keyboard`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"plastic keyboard"';
+```
+
+Under the hood, the query string is first tokenized in the same way as the field was at index time. Then, a phrase query is executed with the tokenized
+values.
+
+## Slop Operator
+
+The `~` slop operator allows for other words to come in between words in the query phrase. For instance, the following query finds documents containing
+the word `ergonomic` followed by `keyboard`, allowing for a maximum of one word in between.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"ergonomic keyboard"~1';
+```
+
+## Phrase Prefix
+
+The `*` prefix operator allows for the last term in the phrase query to be the prefix of another word. For instance,
+`"plastic keyb"*` matches `plastic keyboard`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ '"plastic keyb"*';
+```

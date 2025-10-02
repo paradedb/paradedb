@@ -1,0 +1,251 @@
+[[server]]
+name = "Primary"
+[server.style.Automatic]
+
+[server.setup]
+sql = """
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET maintenance_work_mem = '8GB';
+
+CREATE OR REPLACE FUNCTION uuid_generate()
+RETURNS uuid AS $$
+DECLARE
+    uuids uuid[] := ARRAY[
+        '123e4567-e89b-12d3-a456-426614174000'::uuid,
+        '987fcdeb-51a2-43e8-b567-890123456789'::uuid,
+        'a1b2c3d4-e5f6-47a8-89b0-123456789abc'::uuid,
+        'b2c3d4e5-f6a7-48b9-90c1-23456789abcd'::uuid,
+        'c3d4e5f6-a7b8-49c0-01d2-3456789abcde'::uuid,
+        gen_random_uuid()
+    ];
+BEGIN
+    RETURN uuids[floor(random() * 6 + 1)]::uuid;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TABLE IF EXISTS wide_table CASCADE;
+CREATE TABLE wide_table (
+    id SERIAL PRIMARY KEY,
+    field_1 uuid NOT NULL,
+    field_2 uuid NOT NULL,
+    text_1 varchar NOT NULL,
+    number_1 bigint NOT NULL,
+    text_2 varchar NOT NULL,
+    text_3 text,
+    text_4 varchar NOT NULL,
+    timestamp_1 timestamp without time zone NOT NULL,
+    timestamp_2 timestamp without time zone NOT NULL,
+    text_5 varchar,
+    date_1 date NOT NULL,
+    time_1 time without time zone,
+    bool_1 boolean NOT NULL,
+    bool_2 boolean NOT NULL DEFAULT false,
+    timestamp_3 timestamp without time zone,
+    text_6 varchar,
+    bool_3 boolean NOT NULL DEFAULT false,
+    json_1 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    json_2 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    text_7 varchar,
+    json_3 jsonb,
+    text_8 varchar,
+    text_9 varchar,
+    text_10 varchar,
+    timestamp_4 timestamp(6) without time zone,
+    timestamp_5 timestamp(6) without time zone,
+    text_11 varchar,
+    text_12 varchar,
+    text_13 varchar,
+    timestamp_6 timestamp without time zone,
+    timestamp_7 timestamp without time zone,
+    number_2 bigint NOT NULL DEFAULT 0,
+    text_14 varchar,
+    text_15 varchar,
+    json_4 jsonb NOT NULL DEFAULT '{}'::jsonb,
+    number_3 bigint NOT NULL,
+    field_3 uuid,
+    field_4 uuid,
+    text_16 varchar NOT NULL
+);
+
+CREATE OR REPLACE FUNCTION insert_random_data(num_rows INTEGER)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO wide_table (
+        field_1,
+        field_2,
+        text_1,
+        number_1,
+        text_2,
+        text_3,
+        text_4,
+        timestamp_1,
+        timestamp_2,
+        text_5,
+        date_1,
+        time_1,
+        bool_1,
+        bool_2,
+        timestamp_3,
+        text_6,
+        bool_3,
+        json_1,
+        json_2,
+        text_7,
+        json_3,
+        text_8,
+        text_9,
+        text_10,
+        timestamp_4,
+        timestamp_5,
+        text_11,
+        text_12,
+        text_13,
+        timestamp_6,
+        timestamp_7,
+        number_2,
+        text_14,
+        text_15,
+        json_4,
+        number_3,
+        field_3,
+        field_4,
+        text_16
+    )
+    SELECT
+        uuid_generate(),
+        uuid_generate(),
+        'CURRENCY_' || substring(md5(random()::text), 1, 3),
+        floor(random() * 10000)::bigint + 1,
+        'direction_' || substring(md5(random()::text), 1, 4),
+        'Company ' || substring(md5(random()::text), 1, 10),
+        'VENDOR_CODE_' || substring(md5(random()::text), 1, 8),
+        now(),
+        now(),
+        'VENDOR_' || substring(md5(random()::text), 1, 8),
+        current_date,
+        current_time,
+        (ARRAY[true,false])[(s % 2) + 1],
+        (ARRAY[true,false])[(s % 2) + 1],
+        CASE WHEN random() < 0.01 THEN now() ELSE NULL END,
+        'CUSTOMER_' || substring(md5(random()::text), 1, 8),
+        (ARRAY[true,false])[(s % 2) + 1], -- Boolean generation unchanged
+        ('{"meta":"data_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        ('{"detail":"detail_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        'CODE_TYPE_' || substring(md5(random()::text), 1, 8),
+        ('{"edi":"edi_data_' || substring(md5(random()::text), 1, 8) || '"}')::jsonb,
+        'UNIQUE_VENDOR_' || substring(md5(random()::text), 1, 8),
+        'strategy_' || substring(md5(random()::text), 1, 8),
+        'v' || floor(random() * 10 + 1),
+        now(),
+        now(),
+        'transactable_type_' || substring(md5(random()::text), 1, 8),
+        'SCHEDULE_' || substring(md5(random()::text), 1, 8),
+        'SOURCE_' || substring(md5(random()::text), 1, 8),
+        now(),
+        now(),
+        0,
+        'TIMEZONE_' || substring(md5(random()::text), 1, 3),
+        'PAYMENT_TYPE_' || substring(md5(random()::text), 1, 8),
+        ('{"id":"identifier_' || substring(md5(random()::text), 1, 10) || '"}')::jsonb,
+        floor(random() * 10000)::bigint + 1,
+        uuid_generate(),
+        uuid_generate(),
+        'CONNECTION_' || substring(md5(random()::text), 1, 8)
+    FROM generate_series(1, num_rows) s;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_random_data(num_rows INTEGER)
+RETURNS VOID AS $$
+DECLARE
+    max_val bigint;
+BEGIN
+    -- 1. Get the maximum ID value once.
+    SELECT max(id) INTO max_val FROM wide_table;
+
+    -- 2. Update rows where the ID is in a randomly generated set.
+    UPDATE wide_table
+    SET timestamp_5 = NOW()
+    WHERE id IN (
+        -- 3. Generate a distinct list of random IDs between 1 and the max ID.
+        -- We generate slightly more than needed to ensure we get a unique set
+        -- after accounting for the small chance of random duplicates.
+        SELECT DISTINCT floor(random() * max_val + 1)::bigint
+        FROM generate_series(1, num_rows * 2)
+        LIMIT num_rows
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT insert_random_data(1_000_000);
+
+CREATE INDEX wide_table_idx ON wide_table USING bm25 (id, text_3, text_2, field_1, field_2, field_4, text_1, text_4, text_5, text_6, text_11, text_15, text_13, number_1, bool_1, bool_3, bool_2, json_1, date_1, timestamp_3)
+WITH (key_field=id, text_fields='{ "text_3": { "normalizer": "lowercase", "tokenizer": { "max_gram": 5, "min_gram": 3, "prefix_only": false, "type": "ngram" } }, "text_2": { "fast": true, "tokenizer": {"type": "raw"} }, "field_1": { "tokenizer": {"type": "raw"} }, "field_2": { "tokenizer": {"type": "raw"} }, "field_4": { "tokenizer": {"type": "raw"} }, "text_1": { "tokenizer": {"type": "raw"} }, "text_4": { "tokenizer": {"type": "raw"} }, "text_5": { "tokenizer": {"type": "raw"} }, "text_6": { "tokenizer": {"type": "raw"} }, "text_11": { "tokenizer": {"type": "raw"} }, "text_15": { "fast": true, "tokenizer": {"type": "raw"} }, "text_13": { "tokenizer": {"type": "raw"} } }', numeric_fields='{"number_1":{}}', boolean_fields='{"bool_1":{}, "bool_3":{}, "bool_2":{}}', json_fields='{ "json_1": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "raw" } }, "json_1_words": { "fast": true, "normalizer": "lowercase", "tokenizer": { "type": "default" }, "column": "json_1" } }', range_fields='{}', datetime_fields='{"date_1":{}, "timestamp_3":{}}', layer_sizes='10kb, 1MB, 100MB');
+"""
+
+[server.teardown]
+sql = """
+DROP TABLE wide_table CASCADE;
+DROP EXTENSION pg_search CASCADE;
+"""
+
+[server.monitor]
+refresh_ms = 10
+title = "Monitor Index Size"
+log_columns = ["block_count", "segment_count"]
+
+# Combined query returning both columns
+sql = """
+SELECT
+    pg_relation_size('wide_table_idx') / current_setting('block_size')::int AS block_count,
+    (
+      SELECT COUNT(*)::bigint
+      FROM paradedb.index_info('wide_table_idx')
+    ) AS segment_count
+"""
+
+[[jobs]]
+refresh_ms = 15
+title = "Single Insert"
+sql = """
+SELECT insert_random_data(1);
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Single Update"
+sql = """
+SELECT update_random_data(1);
+"""
+
+[[jobs]]
+refresh_ms = 5
+title = "Bulk Update"
+sql = """
+SELECT update_random_data(10);
+"""
+
+[[jobs]]
+refresh_ms = 500
+title = "Top N"
+sql = """
+SELECT COUNT(*) FROM (
+    SELECT
+        *
+    FROM
+        wide_table
+    WHERE
+        wide_table.field_1 = '123e4567-e89b-12d3-a456-426614174000'::uuid
+        AND wide_table.bool_1 = true
+        AND 1 = 1
+        AND true
+        AND wide_table.number_3 >= '100'
+        AND wide_table.number_3 <= '900'
+        AND wide_table.timestamp_3 IS NULL
+    ORDER BY
+        wide_table.date_1 DESC,
+        wide_table.timestamp_1 DESC,
+        wide_table.id DESC
+    LIMIT 100
+);
+"""

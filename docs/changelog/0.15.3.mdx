@@ -1,0 +1,23 @@
+---
+title: 0.15.3
+---
+
+## New Features 🎉
+
+- Updated the index tuning settings for memory and parallelism to no longer be restricted to superuser privileges.
+
+## Stability Improvements 💪
+
+- Fixed an issue where `paradedb.score()` returned empty values when using parametrized queries/plans.
+- Fixed an issue where text `key_field` values would get truncated to 255 characters. If you are using a text key field, you must `REINDEX`.
+- Fixed an issue with `paradedb.term()` could not find docs matching a full UUID value.
+- Fixed an issue where the ICU tokenizer would block inserts if `libicu72` was installed.
+- Fixed an issue where, if ParadeDB was running as a logical replica, bulk insert/update statements would take too long and cause the replication stream to freeze.
+
+## Performance Improvements 🚀
+
+- Improved our segment merge policy such that a more optimal segment layout is created when the index experiences frequent inserts/updates
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.15.3).

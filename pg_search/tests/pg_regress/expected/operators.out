@@ -1,0 +1,414 @@
+--
+-- these are designed to validate that the EXPLAIN output is correct
+-- and that each operator returns the expected number of rows
+--
+    
+--
+-- @@@ (parse)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
+                                                                          QUERY PLAN                                                                          
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description @@@ 'running shoes';
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes';
+                                                                          QUERY PLAN                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"_pg_search_3","query_string":"running shoes","lenient":null,"conjunction_mode":null}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) @@@ 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+--
+-- &&& (match conjunction)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description &&& 'running shoes';
+                                                                                                QUERY PLAN                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description &&& 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes';
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) &&& 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+--
+-- ||| (match disjunction)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ||| 'running shoes';
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"description","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description ||| 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes';
+                                                                                                 QUERY PLAN                                                                                                 
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"match":{"field":"_pg_search_3","value":"running shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) ||| 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+--
+-- ### (phrase)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description ### 'running shoes';
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"description","phrase":"running shoes","slop":null}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description ### 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes';
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"tokenized_phrase":{"field":"_pg_search_3","phrase":"running shoes","slop":null}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) ### 'running shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                metadata                |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+----------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"} | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+(1 row)
+
+--
+-- === (term equality)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes';
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes","is_datetime":false}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description === 'shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes';
+                                                   QUERY PLAN                                                    
+-----------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"_pg_search_3","value":"shoes","is_datetime":false}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) === 'shoes' ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+--
+-- === (termset equality)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'];
+                                                QUERY PLAN                                                
+----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"description","terms":["shoes","SHOES"]}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE description === ARRAY['shoes', 'SHOES'] ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'];
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Scan) on mock_items
+   Table: mock_items
+   Index: idxregress_mock_items
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"term_set":{"field":"_pg_search_3","terms":["shoes","SHOES"]}}}}
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE lower(description) === ARRAY['shoes', 'SHOES'] ORDER BY id;
+ id |     description     | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+---------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes       |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+(3 rows)
+
+---
+--- the rhs of the operator is an expression that must be evaluated at execution time
+---
+select * from regress.mock_items where description @@@ case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description &&& case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description ||| case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description ### case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+select * from regress.mock_items where description === case when id = 1 then 'keyboard' else 'DoesNotExist' end;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+(1 row)
+
+--
+-- other supported types on the lhs
+-- these are types that postgres will coerce to TEXT
+--
+SELECT * FROM regress.mock_items WHERE description::varchar @@@ 'keyboard' ORDER BY id;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
+(2 rows)
+
+SELECT * FROM regress.mock_items WHERE description::varchar &&& 'keyboard' ORDER BY id;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
+(2 rows)
+
+SELECT * FROM regress.mock_items WHERE description::varchar ||| 'keyboard' ORDER BY id;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
+(2 rows)
+
+SELECT * FROM regress.mock_items WHERE description::varchar ### 'keyboard' ORDER BY id;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
+(2 rows)
+
+SELECT * FROM regress.mock_items WHERE description::varchar === 'keyboard' ORDER BY id;
+ id |       description        | rating |  category   | in_stock |                     metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+--------------------------+--------+-------------+----------+--------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"} | Mon May 01 09:12:34 2023 | 05-03-2023        | 09:12:34              | [1,10)       | da2fea21-0001-411b-9e8c-2cb64e471293
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}         | Sat Apr 15 13:27:09 2023 | 04-16-2023        | 13:27:09              | (,10)        | da2fea21-0002-411b-9e8c-2cb64e471293
+(2 rows)
+
+SELECT * FROM regress.mock_items WHERE category @@@ 'footwear' ORDER BY id;
+ id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes        |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+ 13 | Sturdy hiking boots  |      4 | Footwear | t        | {"color": "Brown", "location": "United States"} | Fri May 05 13:45:22 2023 | 05-07-2023        | 13:45:22              | [3,9)        | da2fea21-000d-411b-9e8c-2cb64e471293
+ 23 | Comfortable slippers |      3 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Sun Apr 16 09:20:37 2023 | 04-17-2023        | 09:20:37              | (,10)        | da2fea21-0017-411b-9e8c-2cb64e471293
+ 33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE category &&& 'footwear' ORDER BY id;
+ id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes        |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+ 13 | Sturdy hiking boots  |      4 | Footwear | t        | {"color": "Brown", "location": "United States"} | Fri May 05 13:45:22 2023 | 05-07-2023        | 13:45:22              | [3,9)        | da2fea21-000d-411b-9e8c-2cb64e471293
+ 23 | Comfortable slippers |      3 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Sun Apr 16 09:20:37 2023 | 04-17-2023        | 09:20:37              | (,10)        | da2fea21-0017-411b-9e8c-2cb64e471293
+ 33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE category ||| 'footwear' ORDER BY id;
+ id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes        |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+ 13 | Sturdy hiking boots  |      4 | Footwear | t        | {"color": "Brown", "location": "United States"} | Fri May 05 13:45:22 2023 | 05-07-2023        | 13:45:22              | [3,9)        | da2fea21-000d-411b-9e8c-2cb64e471293
+ 23 | Comfortable slippers |      3 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Sun Apr 16 09:20:37 2023 | 04-17-2023        | 09:20:37              | (,10)        | da2fea21-0017-411b-9e8c-2cb64e471293
+ 33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE category ### 'footwear' ORDER BY id;
+ id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes        |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+ 13 | Sturdy hiking boots  |      4 | Footwear | t        | {"color": "Brown", "location": "United States"} | Fri May 05 13:45:22 2023 | 05-07-2023        | 13:45:22              | [3,9)        | da2fea21-000d-411b-9e8c-2cb64e471293
+ 23 | Comfortable slippers |      3 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Sun Apr 16 09:20:37 2023 | 04-17-2023        | 09:20:37              | (,10)        | da2fea21-0017-411b-9e8c-2cb64e471293
+ 33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
+(6 rows)
+
+SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
+ id |     description      | rating | category | in_stock |                    metadata                     |        created_at        | last_updated_date | latest_available_time | weight_range |                 sku                  
+----+----------------------+--------+----------+----------+-------------------------------------------------+--------------------------+-------------------+-----------------------+--------------+--------------------------------------
+  3 | Sleek running shoes  |      5 | Footwear | t        | {"color": "Blue", "location": "China"}          | Fri Apr 28 10:55:43 2023 | 04-29-2023        | 10:55:43              | [2,10)       | da2fea21-0003-411b-9e8c-2cb64e471293
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"} | Thu Apr 20 16:38:02 2023 | 04-22-2023        | 16:38:02              | (,11)        | da2fea21-0004-411b-9e8c-2cb64e471293
+  5 | Generic shoes        |      4 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Tue May 02 08:45:11 2023 | 05-03-2023        | 08:45:11              | [3,)         | da2fea21-0005-411b-9e8c-2cb64e471293
+ 13 | Sturdy hiking boots  |      4 | Footwear | t        | {"color": "Brown", "location": "United States"} | Fri May 05 13:45:22 2023 | 05-07-2023        | 13:45:22              | [3,9)        | da2fea21-000d-411b-9e8c-2cb64e471293
+ 23 | Comfortable slippers |      3 | Footwear | t        | {"color": "Brown", "location": "Canada"}        | Sun Apr 16 09:20:37 2023 | 04-17-2023        | 09:20:37              | (,10)        | da2fea21-0017-411b-9e8c-2cb64e471293
+ 33 | Winter woolen socks  |      5 | Footwear | f        | {"color": "Gray", "location": "China"}          | Tue Apr 25 14:55:08 2023 | 04-27-2023        | 14:55:08              | [4,10)       | da2fea21-0021-411b-9e8c-2cb64e471293
+(6 rows)
+
+--
+-- some unsupported types on the lhs
+-- these will all produce an error
+--
+SELECT * FROM regress.mock_items WHERE id &&& '42';
+ERROR:  operator does not exist: integer &&& unknown at character 43
+SELECT * FROM regress.mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid &&& unknown at character 44
+SELECT * FROM regress.mock_items WHERE in_stock &&& 'true';
+ERROR:  operator does not exist: boolean &&& unknown at character 49
+SELECT * FROM regress.mock_items WHERE last_updated_date &&& now()::date::text;
+ERROR:  operator does not exist: date &&& text at character 58
+SELECT * FROM regress.mock_items WHERE latest_available_time &&& now()::date::text;
+ERROR:  operator does not exist: time without time zone &&& text at character 62
+SELECT * FROM regress.mock_items WHERE id ||| '42';
+ERROR:  operator does not exist: integer ||| unknown at character 43
+SELECT * FROM regress.mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid ||| unknown at character 44
+SELECT * FROM regress.mock_items WHERE in_stock ||| 'true';
+ERROR:  operator does not exist: boolean ||| unknown at character 49
+SELECT * FROM regress.mock_items WHERE last_updated_date ||| now()::date::text;
+ERROR:  operator does not exist: date ||| text at character 58
+SELECT * FROM regress.mock_items WHERE latest_available_time ||| now()::date::text;
+ERROR:  operator does not exist: time without time zone ||| text at character 62
+SELECT * FROM regress.mock_items WHERE id ### '42';
+ERROR:  operator does not exist: integer ### unknown at character 43
+SELECT * FROM regress.mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid ### unknown at character 44
+SELECT * FROM regress.mock_items WHERE in_stock ### 'true';
+ERROR:  operator does not exist: boolean ### unknown at character 49
+SELECT * FROM regress.mock_items WHERE last_updated_date ### now()::date::text;
+ERROR:  operator does not exist: date ### text at character 58
+SELECT * FROM regress.mock_items WHERE latest_available_time ### now()::date::text;
+ERROR:  operator does not exist: time without time zone ### text at character 62
+SELECT * FROM regress.mock_items WHERE id === '42';
+ERROR:  operator does not exist: integer === unknown at character 43
+SELECT * FROM regress.mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
+ERROR:  operator does not exist: uuid === unknown at character 44
+SELECT * FROM regress.mock_items WHERE in_stock === 'true';
+ERROR:  operator does not exist: boolean === unknown at character 49
+SELECT * FROM regress.mock_items WHERE last_updated_date === now()::date::text;
+ERROR:  operator does not exist: date === text at character 58
+SELECT * FROM regress.mock_items WHERE latest_available_time === now()::date::text;
+ERROR:  operator does not exist: time without time zone === text at character 62

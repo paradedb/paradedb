@@ -1,0 +1,71 @@
+\i common/snippet_position_basic_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS snippet_test;
+CREATE TABLE snippet_test (
+    id SERIAL PRIMARY KEY,
+    content TEXT,
+    titles TEXT[],
+    metadata JSONB
+);
+INSERT INTO snippet_test (content, titles, metadata) VALUES
+('This is a test test of the snippet function with multiple test words', ARRAY['test', 'snippet', 'function'], '{"test": "test"}'),
+('Another test of the snippet snippet function with repeated snippet words', ARRAY['test', 'test', 'function'], '{"test": "test"}'),
+('Yet another test test test of the function function function', ARRAY['test', 'snippet', 'test'], '{"test": "test"}'),
+('test Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo. Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur, adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et dolore magnam aliquam quaerat voluptatem. Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit laboriosam, nisi ut aliquid ex ea commodi consequatur? Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse quam nihil molestiae consequatur, vel illum qui dolorem eum fugiat quo voluptas nulla pariatur? test At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident, similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio. Nam libero tempore, cum soluta nobis est eligendi optio cumque nihil impedit quo minus id quod maxime placeat facere possimus, omnis voluptas assumenda est, omnis dolor repellendus. Temporibus autem quibusdam et aut officiis debitis aut rerum necessitatibus saepe eveniet ut et voluptates repudiandae sint et molestiae non recusandae. Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores alias consequatur aut perferendis doloribus asperiores repellat. test', ARRAY['test', 'snippet', 'function'], '{"test": "test"}');
+CREATE INDEX ON snippet_test USING bm25 (
+    id,
+    content,
+    titles
+) WITH (
+    key_field = 'id'
+);
+SELECT id, paradedb.snippet(content), paradedb.snippet_positions(content)
+FROM snippet_test
+WHERE content @@@ 'test' OR content @@@ 'snippet';
+ id |                                                                         snippet                                                                          |             snippet_positions             
+----+----------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------
+  1 | This is a <b>test</b> <b>test</b> of the <b>snippet</b> function with multiple <b>test</b> words                                                         | {"{10,14}","{15,19}","{27,34}","{58,62}"}
+  2 | Another <b>test</b> of the <b>snippet</b> <b>snippet</b> function with repeated <b>snippet</b> words                                                     | {"{8,12}","{20,27}","{28,35}","{59,66}"}
+  3 | Yet another <b>test</b> <b>test</b> <b>test</b> of the function function function                                                                        | {"{12,16}","{17,21}","{22,26}"}
+  4 | <b>test</b> Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{0,4}","{1317,1321}","{2167,2171}"}
+(4 rows)
+
+SELECT id, paradedb.snippet(titles), paradedb.snippet_positions(titles)
+FROM snippet_test
+WHERE titles @@@ 'test' OR titles @@@ 'snippet';
+ id |                snippet                 |      snippet_positions       
+----+----------------------------------------+------------------------------
+  1 | <b>test</b> <b>snippet</b> function    | {"{0,4}","{5,12}"}
+  2 | <b>test</b> <b>test</b> function       | {"{0,4}","{5,9}"}
+  3 | <b>test</b> <b>snippet</b> <b>test</b> | {"{0,4}","{5,12}","{13,17}"}
+  4 | <b>test</b> <b>snippet</b> function    | {"{0,4}","{5,12}"}
+(4 rows)
+
+SELECT id, paradedb.snippet(content) as content_snippet, paradedb.snippet_positions(content) as content_snippet_positions, paradedb.snippet(titles) as titles_snippet, paradedb.snippet_positions(titles) as titles_snippet_positions, paradedb.score(id) as score
+FROM snippet_test
+WHERE titles @@@ 'test' OR content @@@ 'ipsum'
+ORDER BY score DESC
+LIMIT 5;
+ id |                                                                     content_snippet                                                                      | content_snippet_positions |          titles_snippet          | titles_snippet_positions |   score    
+----+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------+----------------------------------+--------------------------+------------
+  4 | test Lorem <b>ipsum</b> dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{11,16}","{860,865}"}   | <b>test</b> snippet function     | {"{0,4}"}                |  1.0748948
+  2 |                                                                                                                                                          |                           | <b>test</b> <b>test</b> function | {"{0,4}","{5,9}"}        | 0.14487077
+  3 |                                                                                                                                                          |                           | <b>test</b> snippet <b>test</b>  | {"{0,4}","{13,17}"}      | 0.14487077
+  1 |                                                                                                                                                          |                           | <b>test</b> snippet function     | {"{0,4}"}                | 0.10536056
+(4 rows)
+
+SELECT id, paradedb.snippet(content) as content_snippet, paradedb.snippet_positions(content) as content_snippet_positions, paradedb.snippet(titles) as titles_snippet, paradedb.snippet_positions(titles) as titles_snippet_positions, paradedb.score(id) as score
+FROM snippet_test
+WHERE titles @@@ 'test' OR content @@@ 'ipsum'
+ORDER BY id ASC
+LIMIT 5;
+ id |                                                                     content_snippet                                                                      | content_snippet_positions |          titles_snippet          | titles_snippet_positions |   score    
+----+----------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------------+----------------------------------+--------------------------+------------
+  1 |                                                                                                                                                          |                           | <b>test</b> snippet function     | {"{0,4}"}                | 0.10536056
+  2 |                                                                                                                                                          |                           | <b>test</b> <b>test</b> function | {"{0,4}","{5,9}"}        | 0.14487077
+  3 |                                                                                                                                                          |                           | <b>test</b> snippet <b>test</b>  | {"{0,4}","{13,17}"}      | 0.14487077
+  4 | test Lorem <b>ipsum</b> dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim | {"{11,16}","{860,865}"}   | <b>test</b> snippet function     | {"{0,4}"}                |  1.0748948
+(4 rows)
+
+\i common/snippet_position_basic_cleanup.sql
+DROP TABLE IF EXISTS snippet_test;

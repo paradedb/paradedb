@@ -1,0 +1,46 @@
+# IDEs
+.vscode/
+.idea/
+*.iml
+*.swp
+
+# macOS
+.DS_Store
+
+# Cargo
+target/
+
+# Docker
+docker/.docker_cache_dev/
+
+# SSH
+*.pem
+*.json
+
+# Code coverage
+*.profraw
+
+# Property test regression state
+*.proptest-regressions
+
+# Binaries
+*.deb
+
+# Ruff
+.ruff_cache/
+
+# pgvector
+pgvector/
+
+# Env files
+.env
+
+# samply
+profile.json*
+
+# patch/diff
+*.orig
+*.rej
+
+# Node
+node_modules/

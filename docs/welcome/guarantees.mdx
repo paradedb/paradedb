@@ -1,0 +1,50 @@
+---
+title: Guarantees
+---
+
+### ACI(D)
+
+All reads and writes go through Postgres’ transaction engine. This means that inserts, updates, and deletes to indexed columns are atomic, consistent, and respect Postgres' [isolation levels](https://www.postgresql.org/docs/current/transaction-iso.html).
+
+Durability — the "D" in ACID — means that once a transaction is committed, its changes will survive crashes or failovers. In PostgreSQL, this guarantee is provided by the write-ahead log (WAL), which ensures that all changes are safely recorded before being applied to disk.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) does **not** write to the WAL, and therefore does not guarantee durability in the face of crashes. For production use cases that require full durability, [ParadeDB Enterprise](/deploy/enterprise) — a closed-source fork of ParadeDB for enterprise customers — includes full WAL integration.
+
+### Concurrency
+
+ParadeDB is designed to support concurrent reads and writes in the same way that Postgres does — by adhering to Postgres' [multi-version
+concurrency control (MVCC)](https://www.postgresql.org/docs/current/mvcc.html) rules. We maintain an internal testing suite that rigorously measures the read and write throughput of the BM25
+index under concurrent load.
+
+Both read and write throughput under concurrent load can be improved by tuning Postgres' settings. For instance, read throughput can be improved
+by configuring the [`max_parallel_worker` pool](/documentation/configuration/parallel#parallel-workers) and [buffer cache size](/documentation/configuration/parallel#shared-buffers),
+whereas writes can be improved by increasing [per-statement memory](/documentation/configuration/write#work-memory).
+
+### Correctness vs. Performance
+
+While ParadeDB optimizes heavily around performance, there are some situations where the database can squeeze more performance by relaxing correctness
+constraints. In these cases, ParadeDB — like Postgres — will guarantee correctness, even if it comes at the cost of slower query execution.
+
+### Replication Safety
+
+ParadeDB distinguishes between logical replication and physical replication.
+
+Logical replication refers to replicating changes from a standard Postgres primary (e.g. AWS RDS) into a ParadeDB instance. This is commonly used when ParadeDB acts as a search node built from upstream Postgres changes.
+
+Physical replication refers to running ParadeDB itself in a multi-node, high-availability (HA) setup using write-ahead log (WAL) shipping.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) supports neither:
+
+- It does not support logical replication from a primary Postgres.
+- The BM25 index does not get physically replicated and won't be available on other nodes in a high availability setup.
+
+[ParadeDB Enterprise](/deploy/enterprise) supports both:
+
+- It can act as a logical replica, ingesting changes from a Postgres primary and indexing them transactionally.
+- It supports physical replication and high availability, ensuring that the BM25 index remains consistent and crash-safe across nodes.
+
+If your deployment requires replication, failover, or ingestion from a primary Postgres database, we recommend using [ParadeDB Enterprise](/deploy/enterprise).
+
+### Data Integrity
+
+All data inserted into the BM25 index must conform to the column’s declared type. ParadeDB relies on Postgres’ type system and input/output functions to ensure validity. For example, invalid data will result in a Postgres error at insert time, not at query time.

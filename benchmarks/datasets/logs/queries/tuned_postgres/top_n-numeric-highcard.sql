@@ -1,0 +1,1 @@
+SELECT * FROM benchmark_logs WHERE to_tsvector('english', message) @@ to_tsquery('english', 'research') AND to_tsvector('english', country) @@ to_tsquery('english', 'Canada') ORDER BY timestamp LIMIT 10;

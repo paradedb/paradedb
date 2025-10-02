@@ -1,0 +1,48 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Development Workflow
+
+## Getting Started
+
+- ParadeDB extension (`pg_search`) is developed using `pgrx`, a framework for Postgres extension development in Rust
+- Install development tools according to the instructions in the `pg_search/README.md` file
+
+## Development Process
+
+1. Implement your changes with appropriate tests
+2. Run all added/modified tests to verify they pass
+
+## Testing
+
+- Don't use `cargo test` directly
+- Use the `scripts/pg_search_test.sh` script for running tests:
+  - Example: `PGVER=17.4 ./scripts/pg_search_test.sh --test sorting`
+  - This runs the specified test (in this example, the "sorting" test)
+  - Possible PGVER values:
+    - 14.17
+    - 15.12
+    - 16.8
+    - 17.4
+  - If PGVER is not specified, it defaults to 17.4
+
+## SQL Queries
+
+- Use the `scripts/pg_search_run.sh` script for running SQL queries:
+  - Example: `PGVER=17.4 ./scripts/pg_search_run.sh -c "SELECT 1"`
+  - This script sets up the proper environment and database connection
+
+## Debugging
+
+- For logging and debugging, use `pgrx::warning!` macro:
+  - These warnings will appear in the output of `scripts/pg_search_run.sh`
+  - Example: `pgrx::warning!("Debug value: {:?}", my_value);`
+  - Useful for tracking execution flow and inspecting variables
+
+## Performance
+
+- Be mindful of performance implications for database operations
+- Consider adding benchmarks for performance-critical code
+- Document any performance considerations or trade-offs

@@ -1,0 +1,19 @@
+---
+title: Term Set
+---
+
+<Note>
+  BM25 scoring is not enabled for term set queries. As a result, the scores
+  returned may not be accurate. This behavior reflects the underlying
+  implementation in Tantivy.
+</Note>
+
+Matches documents containing any [term](/documentation/concepts/term) from a specified set.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ pdb.term_set(ARRAY['shoes', 'keyboard']);
+```
+
+`pdb.term_set` is equivalent to `OR`ing together multiple `pdb.term` queries.

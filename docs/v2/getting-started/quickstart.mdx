@@ -1,0 +1,148 @@
+---
+title: Quickstart
+---
+
+This guide will walk you through a few queries to give you a feel for ParadeDB.
+
+## Create Example Table
+
+ParadeDB comes with a helpful procedure that creates a table populated with mock data to help
+you get started. Once connected with `psql`, run the following commands to create and inspect
+this table.
+
+```sql
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+
+SELECT description, rating, category
+FROM mock_items
+LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+ Sleek running shoes      |      5 | Footwear
+(3 rows)
+```
+</Accordion>
+
+Next, let's create a BM25 index called `search_idx` on this table. A BM25 index is a covering index, which means that multiple columns can be included in the same index.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
+WITH (key_field='id');
+```
+
+<Note>
+As a general rule of thumb, any columns that you want to filter, `COUNT`, `GROUP BY`, or `ORDER BY` as part of a full text query should be added to the index for faster
+performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. Every BM25 index needs a `key_field`,
+  which should be the name of a column that will function as a row's unique
+  identifier within the index. Additionally, the `key_field` must be the first field
+  in the list of columns. See [choosing a key field](/documentation/indexing/create_index#choosing-a-key-field) for more details.
+</Note>
+
+## Match Query
+
+We're now ready to execute a basic text search query. We'll look for matches where `description` matches `running shoes` where `rating` is greater than `2`.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     | rating | category
+---------------------+--------+----------
+ White jogging shoes |      3 | Footwear
+ Generic shoes       |      4 | Footwear
+ Sleek running shoes |      5 | Footwear
+(3 rows)
+```
+</Accordion>
+
+`|||` is ParadeDB's custom [match disjunction](/v2/full-text/match#disjunction) operator, which means "find me all documents containing
+`running OR shoes`.
+
+If we want all documents containing `running AND shoes`, we can use ParadeDB's `&&&` [match conjunction](/v2/full-text/match#conjunction) operator.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'running shoes' AND rating > 2
+ORDER BY rating
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+</Accordion>
+
+## BM25 Scoring
+
+Next, let's add BM25 scoring to the results, which allows us to sort matches by relevance. To do this, we'll use `paradedb.score`.
+
+```sql
+SELECT description, paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     |   score
+---------------------+-----------
+ Sleek running shoes |  6.833782
+ Generic shoes       |  3.901802
+ White jogging shoes | 3.4987166
+(3 rows)
+```
+</Accordion>
+
+## Highlighting
+
+Finally, let's also [highlight](/v2/full-text/highlight) the relevant portions of the documents that were matched.
+To do this, we'll use `paradedb.snippet`.
+
+
+```sql
+SELECT description, paradedb.snippet(description), paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'running shoes' AND rating > 2
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+     description     |              snippet              |   score
+---------------------+-----------------------------------+-----------
+ Sleek running shoes | Sleek <b>running</b> <b>shoes</b> |  6.833782
+ Generic shoes       | Generic <b>shoes</b>              |  3.901802
+ White jogging shoes | White jogging <b>shoes</b>        | 3.4987166
+(3 rows)
+```
+</Accordion>
+
+That's it! Next, let's [load your data](/documentation/getting-started/load) to start running real queries.

@@ -1,0 +1,102 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "keyword"}}}');
+INSERT INTO mock_items (rating, metadata) VALUES (null, null), (null, null);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+                           QUERY PLAN                            
+-----------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items
+   Index: mock_items_id_description_rating_category_metadata_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(4 rows)
+
+SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
+ count 
+-------
+    43
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
+                            QUERY PLAN                            
+------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items
+   Index: mock_items_id_description_rating_category_metadata_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"value_count":{"field":"rating"}}}
+(4 rows)
+
+SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
+ count 
+-------
+    41
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: mock_items_id_description_rating_category_metadata_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(8 rows)
+
+SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
+ count 
+-------
+    41
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
+                                   QUERY PLAN                                   
+--------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items
+   Index: mock_items_id_description_rating_category_metadata_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"value_count":{"field":"rating","missing":0.0}}}
+(4 rows)
+
+SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
+ count 
+-------
+    43
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+                              QUERY PLAN                               
+-----------------------------------------------------------------------
+ Aggregate
+   ->  Custom Scan (ParadeDB Scan) on mock_items
+         Table: mock_items
+         Index: mock_items_id_description_rating_category_metadata_idx
+         Exec Method: NormalScanExecState
+         Scores: false
+         Full Index Scan: true
+         Tantivy Query: {"with_index":{"query":"all"}}
+(8 rows)
+
+SELECT COUNT(COALESCE(metadata->>'color', 'red')) FROM mock_items WHERE id @@@ paradedb.all();
+ count 
+-------
+    43
+(1 row)
+
+DROP TABLE mock_items;

@@ -1,0 +1,39 @@
+---
+title: Sum
+---
+
+`SUM` computes the total over a specific column:
+
+```sql
+SELECT SUM(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+<Note>
+  The field being summed, in this case `rating`, must be indexed as
+  [fast](/documentation/indexing/fast_fields).
+</Note>
+
+By default, `SUM` ignores null values. Use `COALESCE` to include them in the final sum:
+
+```sql
+SELECT SUM(COALESCE(rating, 0)) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+To verify that `SUM` was pushed down, look for a `ParadeDB Aggregate Scan` with `sum` in the `EXPLAIN` output:
+
+```sql
+EXPLAIN SELECT SUM(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+```sql Expected Response
+                                               QUERY PLAN
+--------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
+   Index: search_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"sum":{"field":"rating"}},"_doc_count":{"value_count":{"field":"ctid"}}}
+(4 rows)
+```

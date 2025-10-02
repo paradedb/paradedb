@@ -1,0 +1,45 @@
+---
+title: Configuration
+---
+
+<Note>
+  This section assumes that you have successfully completed the [getting
+  started](/deploy/self-hosted/logical-replication/getting-started) guide.
+</Note>
+
+## Schema Changes
+
+ParadeDB leverages PostgreSQL’s built-in logical replication to provide flexible and efficient data synchronization, and is subject to the same limitations. A well-known caveat of logical replication is that schema changes (DDL commands) are not replicated. This means that any changes to the schema on the source database, such as adding new columns or tables, will not be automatically applied to the subscriber.
+
+```sql
+-- On Publisher
+ALTER TABLE mock_items ADD COLUMN num_stock;
+INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating, num_stock)
+VALUES ('Green running shoes', 'Footwear', true, '14:00:00', '2024-07-09', '{}', '2024-07-09 14:00:00', 2, 900);
+
+-- On Subscriber
+ERROR: logical replication target relation "public.mock_items" is missing some replicated columns
+```
+
+To work around this, pause the subscription on the subscriber, manually apply the schema changes, then resume the subscription:
+
+```sql
+-- On Subscriber
+ALTER SUBSCRIPTION mock_items_sub DISABLE;
+ALTER TABLE entries ADD COLUMN num_stock int;
+ALTER SUBSCRIPTION mock_items_sub ENABLE;
+```
+
+If new tables are added and your publication is not `FOR ALL TABLES`, add them to the publication manually:
+
+```sql
+-- On Publisher
+ALTER PUBLICATION mock_items_pub ADD TABLE newly_added_table;
+
+-- On Subscriber
+ALTER SUBSCRIPTION mock_items_sub REFRESH PUBLICATION;
+```
+
+## Granular Replication
+
+Logical replication can be configured to replicate specific tables, column lists, or rows. Please see the [Postgres documentation](https://www.postgresql.org/docs/current/logical-replication.html).

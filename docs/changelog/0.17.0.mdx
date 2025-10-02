@@ -1,0 +1,66 @@
+---
+title: 0.17.0
+---
+
+## Pushdown for `COUNT`
+
+We're making rapid progress on our [roadmap](/welcome/roadmap#analytics) to fully push down aggregates to the BM25 index. The first aggregate we've pushed down
+is `COUNT`.
+
+This feature is in beta. To test it, first enable the feature flag:
+
+```sql
+SET paradedb.enable_aggregate_custom_scan TO ON;
+```
+
+With this feature enabled, any `COUNT` queries over a single table (no `JOIN`s yet) where `@@@` is present will be pushed down:
+
+```sql
+EXPLAIN SELECT COUNT(*) FROM mock_items
+WHERE description @@@ 'shoes';
+```
+
+<Accordion title="Expected Output">
+```csv
+                                                                      QUERY PLAN
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
+   Index: search_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"shoes","lenient":null,"conjunction_mode":null}}}}
+   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+(4 rows)
+```
+</Accordion>
+
+More aggregates (`SUM`, `COUNT(DISTINCT)`, `GROUP BY`, etc.) are on their way!
+
+## Background Merging
+
+Prior to this release, the compaction, or merging, of the index [LSM tree](/welcome/architecture#lsm-tree) happened in the foreground, blocking
+`INSERT`/`UPDATE` transactions. While this is acceptable for smaller layers of the LSM tree, merging large layers can block transactions for
+long period of time.
+
+With this release, merging large layers happens in the background. This is configurable with the `background_layer_sizes` [index option](/documentation/configuration/segment_size#background-layer-sizes)
+and delivers significant improvements to write throughput for update-heavy tables.
+
+## Non-Indexed Filter Pushdown
+
+Prior to this release, ParadeDB could only efficiently evaluate `WHERE` clauses if all the columns in those claused were present in the BM25 index.
+If any clauses were not indexed, they would be applied as filters post index scan. Additionally, BM25 scoring and snippet
+generation would be skipped if the `WHERE` clauses included non-indexed columns.
+
+With this release, ParadeDB can now push down filters on non-indexed columns directly into the custom scan. This means:
+
+- Filtering happens earlier, improving performance
+- Scores and snippets are now computed correctly, even if the query includes filters on non-indexed columns
+
+## Custom Free Space Map
+
+Prior to this release, the BM25 index relied on the built-in Postgres [free space map (FSM)](https://www.postgresql.org/docs/current/storage-fsm.html) to reclaim
+space during compaction. However, the Postgres FSM is not write-ahead logged. This means that if the instance terminates (i.e. during a failover), the FSM
+can get lost, preventing dead space in the index from being reclaimed by future writes.
+
+To solve this, we implemented our own, write-ahead logged free space map that lives alongside the BM25 index. This FSM is also more optimized than the Postgres
+FSM for bulk writes, which has improved disk write patterns.
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.17.0).

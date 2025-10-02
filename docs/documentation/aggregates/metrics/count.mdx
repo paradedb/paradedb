@@ -1,0 +1,39 @@
+---
+title: Count
+---
+
+Use `COUNT(*)` to count the number of matches for a query:
+
+```sql
+SELECT COUNT(*) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+To exclude null values of a specific field from the final count, pass the field into `COUNT`:
+
+```sql
+SELECT COUNT(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+<Note>
+  The field being counted, in this case `rating`, must be indexed as
+  [fast](/documentation/indexing/fast_fields).
+</Note>
+
+To verify that `COUNT` was pushed down, look for a `ParadeDB Aggregate Scan` with `value_count` in the `EXPLAIN` output:
+
+```sql
+EXPLAIN SELECT COUNT(rating) FROM mock_items
+WHERE id @@@ paradedb.all();
+```
+
+```sql Expected Response
+                                      QUERY PLAN
+---------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mock_items  (cost=0.00..0.00 rows=0 width=8)
+   Index: search_idx
+   Tantivy Query: {"with_index":{"query":"all"}}
+   Aggregate Definition: {"0":{"value_count":{"field":"rating"}}}
+(4 rows)
+```

@@ -1,0 +1,57 @@
+---
+title: Boosting
+---
+
+Boosting increases or decreases the impact of a specific query by multiplying its contribution to the overall BM25 score.
+
+## Constant Boosting
+
+To boost a query, cast the query to the `boost` type. In this example, the `shoes` query is weighted twice as heavily as the `footwear` query.
+
+```sql
+SELECT id, paradedb.score(id), description, category
+FROM mock_items
+WHERE description ||| 'shoes'::boost(2) OR category ||| 'footwear'
+ORDER BY score DESC
+LIMIT 5;
+```
+
+`boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
+
+[Query builder functions](/v2/query-builder/overview) can also be boosted:
+
+```sql
+SELECT id, description, category, paradedb.score(id)
+FROM mock_items
+WHERE description @@@ pdb.regex('key.*')::boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+Boost can be used in conjunction with other type casts, like [fuzzy](/v2/full-text/fuzzy):
+
+```sql
+SELECT id, description, category, paradedb.score(id)
+FROM mock_items
+WHERE description ||| 'shose'::fuzzy(2)::boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
+## Boosting by Field
+
+The following query boosts the score of each row by multiplying it by the row's `rating`. This means that items with
+the same score but a higher `rating` will score higher overall.
+
+```sql
+SELECT id, description, rating, paradedb.score(id) * rating as score
+FROM mock_items
+WHERE description ||| 'shoes'
+ORDER BY score DESC
+LIMIT 5;
+```
+
+<Note>
+  Ordering by `paradedb.score(id) * rating` is less performant than ordering by
+  just `paradedb.score(id)` over large tables.
+</Note>

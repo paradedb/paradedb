@@ -1,0 +1,1 @@
+SELECT * FROM benchmark_logs WHERE to_tsvector('english', message) @@ to_tsquery('english', 'research') AND to_tsvector('english', country) @@ to_tsquery('english', 'Canada') AND severity < 3 LIMIT 10;

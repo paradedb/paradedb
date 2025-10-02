@@ -1,0 +1,50 @@
+\i common/common_setup.sql
+
+CREATE TABLE ascii (
+    id INT PRIMARY KEY,
+    description TEXT
+);
+
+INSERT INTO ascii (id, description) VALUES
+    (1, 'Café résumé mañana canción'),
+    (2, 'Niño jalapeño piñata corazón'),
+    (3, 'Übermäßig schön Straße groß'),
+    (4, 'Français façade naïve élève'),
+    (5, 'Český člověk žlutý kůň příliš'),
+    (6, 'Ångström smörgåsbord blåbär gröt'),
+    (7, 'Málaga fútbol avión océano'),
+    (8, 'Garçon hôtel théâtre rôle dîner'),
+    (9, 'São Paulo açúcar português'),
+    (10, 'Beyoncé déjà vu touché fiancé');
+
+
+CREATE INDEX ON ascii
+USING bm25 (id, description)
+WITH (
+    key_field='id',
+    text_fields='{
+        "description": {"tokenizer": {"type": "default", "ascii_folding": true}}
+    }'
+);
+
+SELECT * FROM ascii WHERE description @@@ 'café' ORDER BY id;
+SELECT * FROM ascii WHERE description @@@ 'cafe' ORDER BY id;
+SELECT * FROM ascii WHERE description @@@ 'Ångström' ORDER BY id;
+SELECT * FROM ascii WHERE description @@@ 'angstrom' ORDER BY id;
+
+SELECT * FROM paradedb.tokenize(
+  paradedb.tokenizer('default', ascii_folding => true),
+  'café'
+);
+
+SELECT * FROM paradedb.tokenize(
+  paradedb.tokenizer('default', ascii_folding => false),
+  'café'
+);
+
+SELECT * FROM paradedb.tokenize(
+  paradedb.tokenizer('default'),
+  'café'
+);
+
+DROP TABLE ascii;

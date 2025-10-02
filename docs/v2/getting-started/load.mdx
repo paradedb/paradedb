@@ -1,0 +1,56 @@
+---
+title: Load Data from Postgres
+---
+
+The easiest way to copy data from another Postgres into ParadeDB is with the `pg_dump` and `pg_restore` utilities. These are
+installed by default when you install `psql`.
+
+This approach is ideal for quickly testing ParadeDB. See the [deployment guide](/deploy) for how to deploy ParadeDB into production.
+
+## Create a Dump
+
+Run `pg_dump` to create a copy of your database. The `pg_dump` version needs be greater than or equal to that of your Postgres database. You can check the version with `pg_dump --version`.
+
+Below, we use the "custom" format (`-Fc`) for both `pg_dump` and `pg_restore`. Please review the [Postgres `pg_dump` documentation](https://www.postgresql.org/docs/current/app-pgdump.html) for other options that may be more appropriate for your environment.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your existing Postgres database
+  credentials. If you deployed ParadeDB within your VPC, the `host` will be the
+  private IP address of your existing Postgres database.
+</Note>
+
+```bash
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    <dbname> > old_db.dump
+```
+
+If your database is large, this can take some time. You can speed this up by dumping specific tables.
+
+```bash
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -t <table_name_1> -t <table_name_2> \
+    <dbname> > old_db.dump
+```
+
+## Restore the Dump
+
+Run `pg_restore` to load this data into ParadeDB. The `pg_restore` version needs be greater than or equal to that of your `pg_dump`. You can check the version with `pg_restore --version`.
+
+<Note>
+  Replace `host`, `username`, and `dbname` with your ParadeDB credentials.
+</Note>
+
+```bash
+pg_restore --verbose --clean --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -d <dbname> \
+    -Fc \
+    old_db.dump
+```
+
+Congratulations! You are now ready to run real queries over your data. To get started, refer to our [full text search documentation](https://docs.paradedb.com/documentation/full-text/overview).

@@ -1,0 +1,71 @@
+---
+title: Phrase
+---
+
+Phrase queries work exactly like [match conjunction](/v2/full-text/match#match-conjunction), but are more strict in that they require the
+order and position of tokens to be the same.
+
+<Note>
+  Phrase queries require that the field is indexed with a
+  [record](/documentation/indexing/record) of `position`.
+</Note>
+
+## Overview
+
+Suppose our query is `running shoes`, and we want to omit results like
+`running sleek shoes` or `shoes running` — these results contain the right tokens, but not in the exact order and position
+that the query specifies.
+
+Enter the `###` phrase operator:
+
+```sql
+INSERT INTO mock_items (description, rating, category) VALUES
+('running sleek shoes', 5, 'Footwear'),
+('shoes running', 5, 'Footwear');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'running shoes';
+```
+
+This query returns:
+
+```csv
+     description     | rating | category
+---------------------+--------+----------
+ Sleek running shoes |      5 | Footwear
+(1 row)
+```
+
+Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
+`shoes` because they appear in the wrong order or with other words in between.
+
+### Examples
+
+Let’s consider a few more hypothetical documents to see whether they would be returned by the phrase query.
+These examples assume that index uses the default tokenizer and token filters, and that the query is
+`running shoes`.
+
+| Original Text       | Tokens                    | Match | Reason                                         | Related                                                    |
+| ------------------- | ------------------------- | ----- | ---------------------------------------------- | ---------------------------------------------------------- |
+| Sleek running shoes | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. |
+| Running shoes sleek | `sleek` `running` `shoes` | ❌    | `running` and `shoes` not in the right order.  | [Match conjunction](/v2/full-text/match#match-conjunction) |
+| SLeeK RUNNING ShOeS | `sleek` `running` `shoes` | ✅    | Contains `running` and `shoes`, in that order. | [Lowercasing](/v2/indexing)                                |
+| Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`.   | [Stemming](/v2/indexing)                                   |
+| Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`.   |
+| White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`.   |
+
+## Slop
+
+Slop allows the token ordering requirement of phrase queries to be relaxed. It specifies how many changes — like extra words in between or transposed word positions — are allowed while still considering the phrase a match:
+
+- An extra word in between (e.g. `sleek shoes` vs. `sleek running shoes`) has a slop of `1`
+- A transposition (e.g. `running shoes` vs. `shoes running`) has a slop of `2`
+
+To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the maximum allowed slop.
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### 'shoes running'::slop(2);
+```

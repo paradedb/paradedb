@@ -1,0 +1,58 @@
+\i common/common_setup.sql
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+SET paradedb.enable_mixed_fast_field_exec = true;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX on mock_items USING bm25 (id, description, rating, category, metadata) WITH (key_field='id', json_fields = '{"metadata": {"fast": true, "tokenizer": {"type": "raw", "lowercase": true}}}');
+SELECT id, description @@@ 'shoes' FROM mock_items ORDER BY id;
+ id | ?column? 
+----+----------
+  1 | f
+  2 | f
+  3 | t
+  4 | t
+  5 | t
+  6 | f
+  7 | f
+  8 | f
+  9 | f
+ 10 | f
+ 11 | f
+ 12 | f
+ 13 | f
+ 14 | f
+ 15 | f
+ 16 | f
+ 17 | f
+ 18 | f
+ 19 | f
+ 20 | f
+ 21 | f
+ 22 | f
+ 23 | f
+ 24 | f
+ 25 | f
+ 26 | f
+ 27 | f
+ 28 | f
+ 29 | f
+ 30 | f
+ 31 | f
+ 32 | f
+ 33 | f
+ 34 | f
+ 35 | f
+ 36 | f
+ 37 | f
+ 38 | f
+ 39 | f
+ 40 | f
+ 41 | f
+(41 rows)
+
+DROP TABLE mock_items;

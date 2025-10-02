@@ -1,0 +1,58 @@
+---
+title: Regex
+---
+
+## Basic Usage
+
+Finds documents containing terms that match a specific regex pattern.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex('description', '(plush|leather)');
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "regex": {
+        "field": "description",
+        "pattern": "(plush|leather)"
+    }
+}'::jsonb;
+```
+</CodeGroup>
+
+<div className="mt-8" />
+
+<ParamField body="field" required>
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="pattern" required>
+  A regex pattern string.
+</ParamField>
+
+## Wildcard Query
+
+The following query finds all documents that match a wildcard pattern.
+
+<CodeGroup>
+```sql Function Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@ paradedb.regex('description', 'key.*rd');
+```
+```sql JSON Syntax
+SELECT description, rating, category
+FROM mock_items
+WHERE id @@@
+'{
+    "regex": {
+        "field": "description",
+        "pattern": "key.*rd"
+    }
+}'::jsonb;
+```
+</CodeGroup>

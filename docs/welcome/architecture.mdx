@@ -1,0 +1,113 @@
+---
+title: Architecture
+---
+
+ParadeDB introduces modern query execution paths and data structures, optimized for high-ingest search and analytics workloads, to Postgres.
+
+## Custom Index
+
+![Custom Index Architecture](/images/architecture_indexam.png)
+
+In Postgres, indexes provide alternative data structures for accessing the data in a table (which Postgres calls a "heap table") more efficiently.
+ParadeDB introduces a custom index called the _BM25 index_.
+
+When a table row is inserted or updated, the BM25 index is immediately notified. These changes are recorded as part of the current transaction, ensuring that index updates are real-time.
+
+## Data Model
+
+![Data Model](/images/architecture_lsm.png)
+
+The BM25 index is laid out as an [LSM tree](#lsm-tree), where each segment in the tree consists of both an inverted index and columnar index.
+The inverted and columnar indexes optimize for fast reads, while the LSM tree optimizes for high-frequency writes.
+
+### Inverted Index
+
+An inverted index is a structure that maps each term (i.e., tokenized word) to a list of documents that contain that term (called a "postings list") along with metadata like term frequency and document frequency.
+[This structure](https://github.com/quickwit-oss/tantivy/blob/main/ARCHITECTURE.md#the-inverted-search-index) allows ParadeDB to efficiently retrieve all documents matching a particular search term or phrase without scanning the entire table.
+
+### Columnar Index
+
+Alongside the inverted index, ParadeDB also maintains a structure that stores fields in a column-oriented format. Columnar formats are standard
+for analytical (i.e. OLAP) databases because they store values contiguously and enable efficient scans over large datasets compared to Postgres'
+row-oriented layout.
+
+In ParadeDB these structures are referred to as [fast fields](/documentation/indexing/fast_fields).
+
+### LSM Tree
+
+To support real-time updates, the BM25 index uses a [Log-Structured Merge (LSM) tree](https://en.wikipedia.org/wiki/Log-structured_merge-tree).
+
+An LSM tree is a write-optimized data structure commonly used in systems like RocksDB and Cassandra. The core idea behind an LSM tree is to turn random writes into sequential ones. Incoming writes are first stored in an in-memory buffer, which is fast to update. Once the buffer fills up or the current statement finishes, it is flushed to disk as an immutable "segment" file.
+
+These segment files are organized by size into layers or levels. Newer data is written to the topmost layer. Over time, data is gradually pushed down into lower levels through a process called merging or compaction, where data from smaller segments is merged, deduplicated, and rewritten into larger segments.
+
+In ParadeDB, every `INSERT`/`UPDATE`/`COPY` statement creates a new segment. Each segment has its own inverted index and columnar index, which means that the BM25 index
+is actually a collection of many inverted/columnar indexes, each of which allows for very dense intersection queries to rapidly filter matches.
+
+## Query Execution
+
+### Custom Operator
+
+ParadeDB introduces a new operator, `@@@`, to Postgres. `@@@` means "find me all rows that match the following full-text query."
+
+```sql
+SELECT * FROM mock_items
+WHERE description @@@ 'running shoes';
+```
+
+ParadeDB’s custom query execution paths are only triggered when `@@@` is present _at least once_ in the query. If the query does not include `@@@`, it is executed entirely by native Postgres.
+
+### Custom Scan
+
+Whenever `@@@` is present in a query, ParadeDB will execute the query using a [custom scan](https://www.postgresql.org/docs/current/custom-scan.html).
+
+Custom scans are execution nodes set aside by Postgres that allow extensions to run custom logic during a query. They are more powerful and versatile than typical Postgres index scans because they
+allow the extension to "take over" large parts of the query, including aggregates, `WHERE`, and even [`GROUP BY` clauses](/welcome/roadmap#analytics).
+
+From a performance perspective, custom scans significantly speed up queries by pushing down filters, aggregates, and other operations directly into the index, rather than applying them afterward in separate phases.
+
+To understand what kind of scan is used, run `EXPLAIN`:
+
+```sql
+-- Native Postgres scan, no @@@
+EXPLAIN SELECT * FROM mock_items
+WHERE description = 'running shoes' AND rating <= 5;
+
+-- Custom scan, @@@ used
+EXPLAIN SELECT * FROM mock_items
+WHERE description @@@ 'running shoes' AND rating <= 5;
+```
+
+As a rule of thumb: if `EXPLAIN` shows a custom scan (or, in rare cases, a BM25 index scan), then that part of query is going through ParadeDB. Otherwise, the query passes through standard Postgres.
+
+### Parallelization
+
+For queries that need to read large amounts of data like "top N" or aggregate queries, the custom scan automatically spawns additional workers to execute the query
+in parallel. To see if a query was parallelized, run `EXPLAIN ANALYZE`:
+
+```sql
+-- "Top N" queries may be parallelized
+EXPLAIN ANALYZE SELECT * FROM mock_items
+WHERE description @@@ 'rating'
+ORDER BY rating LIMIT 5;
+```
+
+<Note>
+  Parallelization also depends on the [number of available
+  workers](/documentation/configuration/parallel).
+</Note>
+
+Parallel workers are another reason why the BM25 index is significantly faster than Postgres' native text search and aggregates,
+which are mostly not capable of parallelization.
+
+## Design Philosophy
+
+- **Keep it Boring**. Use robust extension points in Postgres vs. hacking around the internals. Adopt battle-tested tools, like industry standard file formats and query engine libraries, instead of cutting-edge but less-proven alternatives.
+- **Behave Exactly Like Postgres**. This extends from user-facing aspects, like the SQL query syntax and ORM compatibility, all the way down to low-level integrations with Postgres' storage system and query planner.
+- **Works Out of the Box**. Users should be able to get satisfying search results and performance with minimal tuning or configuration.
+
+## Dependencies
+
+The two main dependencies of `pg_search` are [`pgrx`](https://github.com/pgcentralfoundation/pgrx/tree/develop), the
+library for writing Postgres extensions in Rust, and [Tantivy](https://github.com/quickwit-oss/tantivy), a Rust-based search library
+inspired by [Lucene](https://github.com/apache/lucene).

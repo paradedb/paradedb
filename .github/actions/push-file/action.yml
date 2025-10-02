@@ -1,0 +1,95 @@
+name: Commit and Push File
+description: Checks out the specified remote repository, stages the provided file, commits it if there are changes, and pushes to the given branch.
+
+inputs:
+  repository:
+    description: "Remote repository in owner/name format."
+    required: true
+  branch:
+    description: "Branch to check out and push to."
+    required: false
+    default: "main"
+  repo-path:
+    description: "Local path to check out the repo into."
+    required: false
+    default: "push-file-temp"
+  file-name:
+    description: "File path (relative to repo) to add and commit."
+    required: true
+  commit-message:
+    description: "Commit message to use."
+    required: true
+  push-token:
+    description: "GitHub token (PAT or GITHUB_TOKEN) with permission to push to the target repository."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout target repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repository }}
+        token: ${{ inputs.push-token || github.token }}
+        ref: ${{ inputs.branch }}
+        path: ${{ inputs.repo-path }}
+
+    - name: Configure Git user
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        git config user.name "ParadeDB GitHub Actions"
+        git config user.email "developers@paradedb.com"
+
+    - name: Stage changes
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        cp ../${{ inputs.file-name }} ./
+        git add "${{ inputs.file-name }}"
+
+    - name: Commit changes if needed
+      id: commit
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        if git diff --cached --quiet; then
+          echo "no_changes=true" >> $GITHUB_OUTPUT
+        else
+          git commit -m "${{ inputs.commit-message }}"
+          echo "no_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Push changes with retry
+      if: steps.commit.outputs.no_changes == 'false'
+      shell: bash
+      working-directory: "${{ inputs.repo-path }}"
+      run: |
+        set -euo pipefail
+        max_attempts=5
+
+        for attempt in $(seq 1 $max_attempts); do
+          echo "Attempt $attempt to push changes..."
+          if git push origin HEAD:${{ inputs.branch }}; then
+            echo "Push succeeded"
+            break
+          else
+            echo "Push failed (attempt $attempt)."
+            if [ $attempt -lt $max_attempts ]; then
+              echo "Fetching and rebasing before retry..."
+              git fetch origin "${{ inputs.branch }}"
+              git rebase "origin/${{ inputs.branch }}" || git rebase --abort
+
+              delay=$(( (RANDOM % 60) + 1 ))
+              echo "Retrying in $delay seconds..."
+              sleep $delay
+            else
+              echo "All $max_attempts attempts to retry the push failed."
+              exit 1
+            fi
+          fi
+        done
+
+    - name: Cleanup
+      shell: bash
+      run: rm -rf "${{ inputs.repo-path }}"

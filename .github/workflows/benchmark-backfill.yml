@@ -1,0 +1,88 @@
+# workflows/benchmark-backfill.yml
+#
+# Benchmark Backfill
+# Backfill benchmarks results using an array of git commit hashes
+
+name: Benchmark Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      commits: # JSON array of SHAs
+        description: >
+          Commits to re-run, written as a JSON array.
+          Example: ["6d3c1f0", "a1b2c3d", "deadbeef"]
+
+          Using one hash still requires the JSON array syntax, i.e. ["6d3c1f0"].
+        required: true
+        type: string
+      reset_data:
+        description: Turn on to reset the data before running the benchmarks
+        type: boolean
+        default: true
+
+# The token must be allowed to start other workflows
+permissions:
+  actions: write
+  contents: write
+
+# We don't specify a concurrency group here, as we want all jobs to complete.
+
+jobs:
+  reset:
+    name: Reset the `gh-pages` data.js Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Git Repository at ref=gh-pages
+        if: ${{ inputs.reset_data }}
+        uses: actions/checkout@v5
+        with:
+          ref: gh-pages
+
+      - name: Reset data.js Files
+        if: ${{ inputs.reset_data }}
+        run: |
+          git config user.name "Benchmark Backfill Job"
+          git config user.email "developers@paradedb.com"
+          files=$(git ls-files stressgres/data.js benchmarks/data.js)
+          if [ -n "$files" ]; then
+            echo "$files" | xargs git rm
+            git commit -m "Reset data.js files"
+            git push
+          fi
+
+  # We run one job per commit
+  dispatch:
+    name: Dispatch All Benchmark Jobs
+    runs-on: ubuntu-latest
+    needs: reset
+    strategy:
+      matrix:
+        sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
+
+    steps:
+      - name: Fire Benchmark & Stressgres for ${{ matrix.sha }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const sha   = '${{ matrix.sha }}';
+
+            // Workflows to queue
+            const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
+
+            for (const wf of targets) {
+              /*  createWorkflowDispatch must point at a branch or tag, not a
+                  bare SHA, so we send `ref:"main"` and hand the commit SHA
+                  through an input named `commit`  */
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: wf,
+                ref: 'main',
+                inputs: { commit: sha }
+              });
+              core.info(`queued ${wf} for ${sha}`);
+            }

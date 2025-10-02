@@ -270,6 +270,19 @@ unsafe fn field_name_from_node(
     loop {
         if let Some(var) = nodecast!(Var, T_Var, node) {
             // the expression we're looking for is just a simple Var.
+
+            if (*var).varattno == 0 {
+                // the var references the whole row -- this means the fieldname is the name of the "key_field"
+                return Some(
+                    indexrel
+                        .schema()
+                        .expect("index should have a valid schema")
+                        .key_field_name(),
+                );
+            }
+
+            // otherwise the var might be a specific index attribute or meaning to reference an indexed expression
+
             let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
             let mut expr_no = 0;
             for i in 0..index_info.ii_NumIndexAttrs {

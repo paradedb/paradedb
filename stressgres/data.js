@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759364270413,
+  "lastUpdate": 1759365011081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2572,6 +2572,42 @@ window.BENCHMARK_DATA = {
             "value": 5.319765317823646,
             "unit": "median tps",
             "extra": "avg tps: 4.81587766553116, max tps: 5.909307779517827, count: 57561"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "762c487685bb5635c789b31781155839d2c65cf0",
+          "message": "feat: Configure a limit/offset for snippets (#3254)",
+          "timestamp": "2025-10-01T20:00:17-04:00",
+          "tree_id": "5dcb534f0e2f513864b19abddc44396ed24760ff",
+          "url": "https://github.com/paradedb/paradedb/commit/762c487685bb5635c789b31781155839d2c65cf0"
+        },
+        "date": 1759365009469,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.50559564723408,
+            "unit": "median tps",
+            "extra": "avg tps: 7.261227638261076, max tps: 11.308153628914628, count: 57820"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.226284888106244,
+            "unit": "median tps",
+            "extra": "avg tps: 4.731818993367936, max tps: 5.788977788072201, count: 57820"
           }
         ]
       }

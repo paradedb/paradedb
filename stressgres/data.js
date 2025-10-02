@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759372711224,
+  "lastUpdate": 1759372713869,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3766,6 +3766,66 @@ window.BENCHMARK_DATA = {
             "value": 71,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.59130238376538, max segment_count: 106.0, count: 57556"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ce078f8496ff0152f7373fe94348a9cfcacd5af",
+          "message": "feat: Configure a limit/offset for snippets (#3259)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n`paradedb.snippet` and `paradedb.snippet_positions` now take a limit and\noffset. For instance, if 5 snippets are found in a doc and offset is 1,\nthen the first snippet will be skipped.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T22:10:01-04:00",
+          "tree_id": "904048e17b5e988830cd9302f007cb5d18411d22",
+          "url": "https://github.com/paradedb/paradedb/commit/2ce078f8496ff0152f7373fe94348a9cfcacd5af"
+        },
+        "date": 1759372712322,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.916256,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.762827207775338, max cpu: 42.942345, count: 57297"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 225.125,
+            "unit": "median mem",
+            "extra": "avg mem: 224.75157219455207, max mem: 227.13671875, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.3868793725517, max cpu: 33.267326, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 164.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.98616147005953, max mem: 166.6953125, count: 57297"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24130,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23007.82084576854, max block_count: 25771.0, count: 57297"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 72.4714382951987, max segment_count: 106.0, count: 57297"
           }
         ]
       }

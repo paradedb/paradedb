@@ -24,7 +24,7 @@ mod scan_state;
 mod solve_expr;
 
 use crate::api::operator::{anyelement_query_input_opoid, estimate_selectivity};
-use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo};
+use crate::api::{HashMap, HashSet, OrderByFeature, OrderByInfo, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
@@ -58,10 +58,11 @@ use crate::postgres::customscan::score_funcoid;
 use crate::postgres::customscan::{
     self, range_table, CustomScan, CustomScanState, RelPathlistHookArgs,
 };
+use crate::postgres::heap::{HeapFetchState, VisibilityChecker};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
+use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::var::{find_one_var_and_fieldname, find_var_relation, VarContext};
-use crate::postgres::visibility_checker::VisibilityChecker;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use crate::schema::{SearchField, SearchIndexSchema};
@@ -161,15 +162,26 @@ impl PdbScan {
                     .search_reader
                     .as_ref()
                     .unwrap()
-                    .snippet_generator(snippet_type.field().root(), query_to_use.clone());
+                    .snippet_generator(
+                        snippet_type.field().root(),
+                        query_to_use.clone(),
+                        std::ptr::NonNull::new(expr_context),
+                    );
 
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes
                 let max_num_chars = match snippet_type {
-                    SnippetType::Text(_, _, config) => config.max_num_chars,
-                    SnippetType::Positions(_, _) => u32::MAX as usize,
+                    SnippetType::Text(_, _, config, _) => config.max_num_chars,
+                    SnippetType::Positions(_, _, _) => u32::MAX as usize,
                 };
                 new_generator.1.set_max_num_chars(max_num_chars);
+
+                if let Some(limit) = snippet_type.limit() {
+                    new_generator.1.set_limit(limit as usize);
+                }
+                if let Some(offset) = snippet_type.offset() {
+                    new_generator.1.set_offset(offset as usize);
+                }
 
                 *generator = Some(new_generator);
             }
@@ -482,14 +494,7 @@ impl CustomScan for PdbScan {
             // Determine whether we might be able to sort.
             if is_maybe_topn && topn_pathkey_info.pathkeys().is_some() {
                 let pathkeys = topn_pathkey_info.pathkeys().unwrap();
-                // we can only (currently) do const projections if the first sort field is a score,
-                // because we currently discard all but the first sort field, and so will not
-                // produce a valid Score value. see TopNSearchResults.
-                let orderby_supported = !maybe_needs_const_projections
-                    || matches!(pathkeys.first(), Some(OrderByStyle::Score(..)));
-                if orderby_supported {
-                    custom_private.set_maybe_orderby_info(Some(pathkeys));
-                }
+                custom_private.set_maybe_orderby_info(topn_pathkey_info.pathkeys());
             }
 
             // Choose the exec method type, and make claims about whether it is sorted.
@@ -619,7 +624,7 @@ impl CustomScan for PdbScan {
 
                     // track a triplet of (varno, varattno, attname) as 3 individual
                     // entries in the `attname_lookup` List
-                    attname_lookup.insert(((*var).varno, (*var).varattno), attname);
+                    attname_lookup.insert((rti as Varno, (*var).varattno), attname);
                 }
             }
 
@@ -654,6 +659,11 @@ impl CustomScan for PdbScan {
             builder
                 .custom_private_mut()
                 .set_var_attname_lookup(attname_lookup);
+
+            builder
+                .custom_private_mut()
+                .set_ambulkdelete_epoch(MetaPage::open(&indexrel).ambulkdelete_epoch());
+
             builder.build()
         }
     }
@@ -765,6 +775,9 @@ impl CustomScan for PdbScan {
             .into_iter()
             .map(|field| (field, None))
             .collect();
+
+            builder.custom_state().ambulkdelete_epoch =
+                builder.custom_private().ambulkdelete_epoch();
 
             assign_exec_method(&mut builder);
 
@@ -886,12 +899,14 @@ impl CustomScan for PdbScan {
                 return;
             }
 
-            // setup the structures we need to do mvcc checking
+            // setup the structures we need to do mvcc checking and heap fetching
             state.custom_state_mut().visibility_checker =
                 Some(VisibilityChecker::with_rel_and_snap(
                     state.custom_state().heaprel(),
                     pg_sys::GetActiveSnapshot(),
                 ));
+            state.custom_state_mut().doc_from_heap_state =
+                Some(HeapFetchState::new(state.custom_state().heaprel()));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();
@@ -1007,13 +1022,18 @@ impl CustomScan for PdbScan {
                                 (*const_score_node).constisnull = false;
                             }
 
+                            // TODO: We go _back_ to the heap to get snippet information here
+                            // inside of `make_snippet` and `get_snippet_positions`. It's possible
+                            // that we could use a wider tuple slot to fetch the extra columns that
+                            // we need during our initial lookup above (but then we'd need to copy
+                            // into the correctly shaped slot for this scan).
                             if state.custom_state().need_snippets() {
                                 per_tuple_context.switch_to(|_| {
                                     for (snippet_type, const_snippet_nodes) in
                                         &state.custom_state().const_snippet_nodes
                                     {
                                         match snippet_type {
-                                            SnippetType::Text(_, _, config) => {
+                                            SnippetType::Text(_, _, config, _) => {
                                                 let snippet = state
                                                     .custom_state()
                                                     .make_snippet(ctid, snippet_type);
@@ -1099,6 +1119,7 @@ impl CustomScan for PdbScan {
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
+        drop(state.custom_state_mut().doc_from_heap_state.take());
         drop(state.custom_state_mut().search_reader.take());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
@@ -1180,6 +1201,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<PdbScan, PrivateData>
             exec_methods::top_n::TopNScanExecState::new(heaprelid, limit, orderby_info),
             None,
         ),
+
         ExecMethodType::FastFieldMixed {
             which_fast_fields,
             limit,

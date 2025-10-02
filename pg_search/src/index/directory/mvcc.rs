@@ -94,7 +94,7 @@ pub struct MVCCDirectory {
     // a lazily loaded [`IndexMeta`], which is only created once per MVCCDirectory instance
     // we cannot tolerate tantivy calling `load_metas()` multiple times and giving it a different
     // answer
-    loaded_metas: OnceLock<Arc<tantivy::Result<IndexMeta>>>,
+    loaded_metas: Arc<OnceLock<tantivy::Result<IndexMeta>>>,
     all_entries: Arc<Mutex<HashMap<SegmentId, SegmentMetaEntry>>>,
     pin_cushion: Arc<Mutex<Option<PinCushion>>>,
     total_segment_count: Arc<AtomicUsize>,
@@ -363,7 +363,7 @@ impl Directory for MVCCDirectory {
                     .unwrap_or_else(|e| panic!("{e}"))
                     .tantivy_schema(),
             ) {
-                Err(e) => Arc::new(Err(e)),
+                Err(e) => Err(e),
                 Ok(loaded) => {
                     *self.all_entries.lock() = loaded
                         .entries
@@ -373,7 +373,7 @@ impl Directory for MVCCDirectory {
                     *self.pin_cushion.lock() = Some(loaded.pin_cushion);
                     self.total_segment_count
                         .store(loaded.total_segments, Ordering::Relaxed);
-                    Arc::new(Ok(loaded.meta))
+                    Ok(loaded.meta)
                 }
             }
         });

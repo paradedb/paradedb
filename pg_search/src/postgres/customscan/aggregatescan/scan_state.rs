@@ -333,13 +333,13 @@ impl AggregateScanState {
         doc_count: Option<i64>,
     ) -> AggregateValue {
         let agg_result = match (aggregate, result_source) {
-            (AggregateType::Count, AggregateResultSource::ResultMap(result_map)) => {
+            (AggregateType::CountAny, AggregateResultSource::ResultMap(result_map)) => {
                 let raw_result = result_map
                     .get(&agg_idx.to_string())
                     .expect("missing aggregate result");
                 Self::extract_aggregate_value_from_json(raw_result)
             }
-            (AggregateType::Count, AggregateResultSource::BucketObj(bucket_obj)) => {
+            (AggregateType::CountAny, AggregateResultSource::BucketObj(bucket_obj)) => {
                 let raw_result = bucket_obj.get("doc_count").expect("missing doc_count");
                 Self::extract_aggregate_value_from_json(raw_result)
             }

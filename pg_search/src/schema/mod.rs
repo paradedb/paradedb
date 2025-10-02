@@ -268,7 +268,7 @@ impl SearchIndexSchema {
         lookup
     }
 
-    pub fn categorized_fields(&self) -> Ref<Vec<(SearchField, CategorizedFieldData)>> {
+    pub fn categorized_fields(&self) -> Ref<'_, Vec<(SearchField, CategorizedFieldData)>> {
         let is_empty = self.categorized.borrow().is_empty();
         if is_empty {
             let mut categorized = self.categorized.borrow_mut();

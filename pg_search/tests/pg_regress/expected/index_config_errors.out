@@ -15,7 +15,7 @@ CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
         "some_wrong_key": {"tokenizer": {"type": "default"}}
     }'
     );
-ERROR:  the column `some_wrong_key` does not exist in the table
+ERROR:  the column `some_wrong_key` does not exist in the USING clause
 CREATE INDEX idx_chunks_bm25 ON test_index_config_errors
     USING bm25 (id, name)
     WITH (

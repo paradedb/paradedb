@@ -48,6 +48,7 @@ pub mod customscan;
 pub mod datetime;
 #[cfg(not(feature = "pg17"))]
 pub mod fake_aminsertcleanup;
+pub mod heap;
 pub mod index;
 mod jsonb_support;
 mod parallel;
@@ -58,7 +59,6 @@ pub mod types;
 pub mod types_arrow;
 pub mod utils;
 pub mod var;
-pub mod visibility_checker;
 
 #[repr(u16)] // b/c that's what [`pg_sys::StrategyNumber`] is
 pub enum ScanStrategy {
@@ -410,13 +410,10 @@ impl ParallelScanState {
         }
     }
 
-    pub fn segments(&self) -> HashMap<SegmentId, (u32, u32)> {
+    pub fn segments(&self) -> HashMap<SegmentId, u32> {
         let mut segments = HashMap::default();
         for i in 0..self.nsegments {
-            segments.insert(
-                self.segment_id(i),
-                (self.num_deleted_docs(i), self.segment_max_docs(i)),
-            );
+            segments.insert(self.segment_id(i), self.num_deleted_docs(i));
         }
         segments
     }

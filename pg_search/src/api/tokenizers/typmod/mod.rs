@@ -269,6 +269,7 @@ impl From<&ParsedTypmod> for SearchTokenizerFilters {
             // TODO: handle stopwords
             stopwords_language: None,
             stopwords: None,
+            ascii_folding: value.get("ascii_folding").and_then(|p| p.as_bool()),
         }
     }
 }

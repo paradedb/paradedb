@@ -24,8 +24,10 @@ use crate::api::HashMap;
 use crate::api::Varno;
 use crate::nodecast;
 use crate::postgres::customscan::pdbscan::projections::snippet::{
-    snippet_funcoid, snippet_positions_funcoid, SnippetType,
+    extract_snippet_positions, extract_snippet_text, snippet_funcoid, snippet_positions_funcoid,
+    SnippetType,
 };
+use crate::postgres::customscan::range_table::{rte_is_parent, rte_is_partitioned};
 use crate::postgres::customscan::score_funcoid;
 use crate::postgres::var::{find_one_var, find_one_var_and_fieldname, find_vars, VarContext};
 use pgrx::pg_sys::expression_tree_walker;
@@ -152,7 +154,15 @@ pub unsafe fn pullout_funcexprs(
                     if let Some((var, fieldname)) =
                         find_one_var_and_fieldname(VarContext::Planner(data.root), arg)
                     {
-                        if (*var).varno as i32 == data.rti as i32 {
+                        let same_layer = (*var).varno as i32 == data.rti as i32
+                            || (rte_is_partitioned(data.root, (*var).varno as pg_sys::Index)
+                                && rte_is_parent(
+                                    data.root,
+                                    data.rti as pg_sys::Index,
+                                    (*var).varno as pg_sys::Index,
+                                ));
+
+                        if same_layer {
                             data.matches.push((funcexpr, var, fieldname));
                         }
                     }
@@ -222,11 +232,20 @@ pub unsafe fn inject_placeholders(
                 let var = find_one_var(args.get_ptr(0)?)?;
                 let key = (data.rti as Varno, (*var).varattno);
 
-                if let Some(attname) = data.attname_lookup.get(&key) {
+                let this_snippet_type = if (*funcexpr).funcid == data.snippet_funcoid {
+                    extract_snippet_text(args, data.rti, data.snippet_funcoid, data.attname_lookup)
+                } else {
+                    extract_snippet_positions(
+                        args,
+                        data.rti,
+                        data.snippet_positions_funcoid,
+                        data.attname_lookup,
+                    )
+                };
+
+                if let Some(this_snippet_type) = this_snippet_type {
                     for snippet_type in data.snippet_generators.keys() {
-                        if snippet_type.field() == attname
-                            && snippet_type.funcoid() == (*funcexpr).funcid
-                        {
+                        if this_snippet_type == *snippet_type {
                             let const_ = pg_sys::makeConst(
                                 snippet_type.nodeoid(),
                                 -1,

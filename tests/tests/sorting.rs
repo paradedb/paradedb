@@ -147,55 +147,6 @@ fn sort_by_raw(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn sort_by_row_return_scores(mut conn: PgConnection) {
-    // ensure our custom scan wins against our small test table
-    r#"
-        SET enable_indexscan TO off;
-        CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
-
-        CREATE INDEX bm25_search_idx ON paradedb.bm25_search
-        USING bm25 (id, description, category, rating, in_stock, metadata, created_at, last_updated_date, latest_available_time)
-        WITH (
-            key_field = 'id',
-            text_fields = '{
-                "description": {},
-                "category": {
-                    "fast": true,
-                    "normalizer": "raw"
-                }
-            }',
-            numeric_fields = '{
-                "rating": {}
-            }',
-            boolean_fields = '{
-                "in_stock": {}
-            }',
-            json_fields = '{
-                "metadata": {}
-            }',
-            datetime_fields = '{
-                "created_at": {},
-                "last_updated_date": {},
-                "latest_available_time": {}
-            }'
-        );
-    "#.execute(&mut conn);
-
-    let (plan, ) = "EXPLAIN (ANALYZE, FORMAT JSON) SELECT paradedb.score(id), * FROM paradedb.bm25_search WHERE description @@@ 'keyboard OR shoes' ORDER BY category LIMIT 5".fetch_one::<(Value,)>(&mut conn);
-    eprintln!("{plan:#?}");
-
-    // Get the first plan node in the plans array
-    let plan = plan
-        .pointer("/0/Plan/Plans/0/Plans/0")
-        .unwrap()
-        .as_object()
-        .unwrap();
-
-    assert_eq!(plan.get("   TopN Order By"), None);
-    assert_eq!(plan.get("Scores"), Some(&Value::Bool(true)));
-}
-
-#[rstest]
 async fn test_compound_sort(mut conn: PgConnection) {
     "SET max_parallel_workers to 0;".execute(&mut conn);
 

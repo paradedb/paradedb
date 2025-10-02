@@ -193,9 +193,15 @@ fn validate_field_config(
     }
 
     if field_name.root() == key_field_name.root() {
-        panic!(
-            "cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key"
-        );
+        match config {
+            // we allow the user to change a TEXT key_field tokenizer to "keyword"
+            SearchFieldConfig::Text { tokenizer: SearchTokenizer::Keyword, .. } => {
+                // noop
+            }
+
+            // but not to anything else
+            _ => panic!("cannot override BM25 configuration for key_field '{field_name}', you must use an aliased field name and 'column' configuration key")
+        }
     }
 
     if let Some(alias) = config.alias() {
@@ -217,7 +223,7 @@ fn validate_field_config(
     let field_name = config.alias().unwrap_or(field_name);
     let field_type = options
         .get_field_type(&FieldName::from(field_name.to_string()))
-        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the table"));
+        .unwrap_or_else(|| panic!("the column `{field_name}` does not exist in the USING clause"));
     if !matches(&field_type) {
         panic!("`{field_name}` was configured with the wrong type");
     }

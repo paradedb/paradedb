@@ -17,6 +17,7 @@
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateBuilder;
 use crate::postgres::customscan::CustomScan;
+
 use pgrx::{pg_guard, pg_sys};
 
 /// Allocate a CustomScanState for this CustomScan. The actual allocation will often be larger than

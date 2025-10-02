@@ -201,13 +201,6 @@ impl CustomScan for AggregateScan {
             SearchQueryInput::from(&result?)
         };
 
-        // Check if any GROUP BY field is also being searched (conflicts with Tantivy aggregation)
-        // Tantivy cannot handle having aggregate function columns in the GROUP BY clause (e.g.,
-        // 'SELECT AVG(rating) FROM products GROUP BY rating').
-        if has_search_field_conflicts(&grouping_columns, &query) {
-            return None;
-        }
-
         // Create a new target list which includes grouping columns and replaces aggregates
         // with FuncExprs which will be produced by our CustomScan.
         //
@@ -574,12 +567,6 @@ fn extract_and_validate_aggregates(
     // Validate that all aggregate fields are fast fields and don't conflict with GROUP BY
     for aggregate in &aggregate_types {
         if let Some(field_name) = aggregate.field_name() {
-            // Check for conflict with GROUP BY columns
-            if grouping_field_names.contains(&field_name) {
-                // Aggregate field conflicts with GROUP BY column - causes incompatible fruit types in Tantivy
-                return None;
-            }
-
             // Check if field exists in schema and is a fast field
             if let Some(search_field) = schema.search_field(&field_name) {
                 if !search_field.is_fast() {
@@ -642,14 +629,8 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                     return None;
                 }
 
-                if (*aggref).aggstar {
-                    // COUNT(*) (aggstar)
-                    aggregate_types.push(AggregateType::Count);
-                } else {
-                    // Check for other aggregate functions with arguments
-                    let agg_type = identify_aggregate_function(aggref, relation_oid)?;
-                    aggregate_types.push(agg_type);
-                }
+                let agg_type = AggregateType::try_from(aggref, relation_oid)?;
+                aggregate_types.push(agg_type);
             } else {
                 // Unsupported expression type
                 return None;
@@ -663,99 +644,6 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
     // an empty vector instead of rejecting the plan.
 
     Some(aggregate_types)
-}
-
-/// Identify an aggregate function by its OID and extract field name from its arguments
-unsafe fn identify_aggregate_function(
-    aggref: *mut pg_sys::Aggref,
-    relation_oid: pg_sys::Oid,
-) -> Option<AggregateType> {
-    let aggfnoid = (*aggref).aggfnoid;
-
-    // Get the function name to identify the aggregate
-    let func_name = get_aggregate_function_name(aggfnoid)?;
-
-    // Extract the field name from the first argument
-    let field_name = extract_field_name_from_aggref(aggref, relation_oid);
-
-    match func_name {
-        "count" => Some(AggregateType::Count),
-        "sum" => Some(AggregateType::Sum { field: field_name? }),
-        "avg" => Some(AggregateType::Avg { field: field_name? }),
-        "min" => Some(AggregateType::Min { field: field_name? }),
-        "max" => Some(AggregateType::Max { field: field_name? }),
-        _ => {
-            pgrx::debug1!("Unsupported aggregate function: {func_name}");
-            None
-        }
-    }
-}
-
-/// Get the name of an aggregate function from its OID
-unsafe fn get_aggregate_function_name(aggfnoid: pg_sys::Oid) -> Option<&'static str> {
-    use pgrx::pg_sys::{
-        F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_ANY,
-        F_MAX_DATE, F_MAX_FLOAT4, F_MAX_FLOAT8, F_MAX_INT2, F_MAX_INT4, F_MAX_INT8, F_MAX_NUMERIC,
-        F_MAX_TIME, F_MAX_TIMESTAMP, F_MAX_TIMESTAMPTZ, F_MAX_TIMETZ, F_MIN_DATE, F_MIN_FLOAT4,
-        F_MIN_FLOAT8, F_MIN_INT2, F_MIN_INT4, F_MIN_INT8, F_MIN_MONEY, F_MIN_NUMERIC, F_MIN_TIME,
-        F_MIN_TIMESTAMP, F_MIN_TIMESTAMPTZ, F_MIN_TIMETZ, F_SUM_FLOAT4, F_SUM_FLOAT8, F_SUM_INT2,
-        F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
-    };
-    // Use well-known PostgreSQL function OIDs for standard aggregates
-    // These are consistent across PostgreSQL versions
-    match aggfnoid.to_u32() {
-        F_AVG_INT8 | F_AVG_INT4 | F_AVG_INT2 | F_AVG_NUMERIC | F_AVG_FLOAT4 | F_AVG_FLOAT8 => {
-            Some("avg")
-        }
-        F_SUM_INT8 | F_SUM_INT4 | F_SUM_INT2 | F_SUM_FLOAT4 | F_SUM_FLOAT8 | F_SUM_NUMERIC => {
-            Some("sum")
-        }
-        F_MAX_INT8 | F_MAX_INT4 | F_MAX_INT2 | F_MAX_FLOAT4 | F_MAX_FLOAT8 | F_MAX_DATE
-        | F_MAX_TIME | F_MAX_TIMETZ | F_MAX_TIMESTAMP | F_MAX_TIMESTAMPTZ | F_MAX_NUMERIC => {
-            Some("max")
-        }
-        F_MIN_INT8 | F_MIN_INT4 | F_MIN_INT2 | F_MIN_FLOAT4 | F_MIN_FLOAT8 | F_MIN_DATE
-        | F_MIN_TIME | F_MIN_TIMETZ | F_MIN_MONEY | F_MIN_TIMESTAMP | F_MIN_TIMESTAMPTZ
-        | F_MIN_NUMERIC => Some("min"),
-        F_COUNT_ANY => Some("count"),
-        _ => {
-            // For unknown function OIDs, we'll reject them for now
-            pgrx::debug1!("Unknown aggregate function OID: {}", aggfnoid.to_u32());
-            None
-        }
-    }
-}
-
-/// Extract field name from the first argument of an aggregate function
-unsafe fn extract_field_name_from_aggref(
-    aggref: *mut pg_sys::Aggref,
-    relation_oid: pg_sys::Oid,
-) -> Option<String> {
-    let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
-    if args.is_empty() {
-        return None;
-    }
-
-    let first_arg = args.get_ptr(0)?;
-    if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
-        return get_var_field_name(var, relation_oid);
-    }
-
-    None
-}
-
-/// Get the field name from a Var node
-unsafe fn get_var_field_name(var: *mut pg_sys::Var, relation_oid: pg_sys::Oid) -> Option<String> {
-    let varattno = (*var).varattno;
-
-    // Get the actual column name from the relation
-    let attname = pg_sys::get_attname(relation_oid, varattno, false);
-    if !attname.is_null() {
-        let name = std::ffi::CStr::from_ptr(attname).to_str().ok()?;
-        return Some(name.to_string());
-    }
-
-    None
 }
 
 /// Replace any T_Aggref expressions in the target list with T_FuncExpr placeholders
@@ -837,28 +725,6 @@ impl ExecMethod for AggregateScan {
 }
 
 impl PlainExecCapable for AggregateScan {}
-
-/// Check if any GROUP BY field is also being searched in the WHERE clause
-/// This causes "incompatible fruit types" errors in Tantivy aggregation
-fn has_search_field_conflicts(
-    grouping_columns: &[GroupingColumn],
-    query: &SearchQueryInput,
-) -> bool {
-    if grouping_columns.is_empty() {
-        return false;
-    }
-
-    let grouping_field_names: crate::api::HashSet<String> = grouping_columns
-        .iter()
-        .map(|gc| gc.field_name.clone())
-        .collect();
-
-    let mut search_field_names = crate::api::HashSet::default();
-    query.extract_field_names(&mut search_field_names);
-
-    // Check for conflicts
-    !search_field_names.is_disjoint(&grouping_field_names)
-}
 
 /// Extract pathkeys from ORDER BY clauses to inform PostgreSQL about sorted output
 fn extract_order_by_pathkeys(

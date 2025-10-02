@@ -246,7 +246,7 @@ pub unsafe fn tantivy_field_name_from_node(
 ) -> Option<(PgSearchRelation, Option<FieldName>)> {
     let (heaprelid, _, _) = find_node_relation(node, root);
     if heaprelid == pg_sys::Oid::INVALID {
-        panic!("could not find heap relation for node");
+        return None;
     }
     let heaprel = PgSearchRelation::open(heaprelid);
     let indexrel =

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759365011081,
+  "lastUpdate": 1759365013669,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3202,6 +3202,66 @@ window.BENCHMARK_DATA = {
             "value": 70,
             "unit": "median segment_count",
             "extra": "avg segment_count: 72.17838467017599, max segment_count: 105.0, count: 57561"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "762c487685bb5635c789b31781155839d2c65cf0",
+          "message": "feat: Configure a limit/offset for snippets (#3254)",
+          "timestamp": "2025-10-01T20:00:17-04:00",
+          "tree_id": "5dcb534f0e2f513864b19abddc44396ed24760ff",
+          "url": "https://github.com/paradedb/paradedb/commit/762c487685bb5635c789b31781155839d2c65cf0"
+        },
+        "date": 1759365012082,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 18.658894,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.13005222622509, max cpu: 42.72997, count: 57820"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 226.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 225.59660165708232, max mem: 228.25390625, count: 57820"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.479349153457594, max cpu: 33.267326, count: 57820"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 159.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.88956648867173, max mem: 162.34765625, count: 57820"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 24403,
+            "unit": "median block_count",
+            "extra": "avg block_count: 23176.512279488066, max block_count: 26099.0, count: 57820"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 71,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 73.08400207540643, max segment_count: 107.0, count: 57820"
           }
         ]
       }

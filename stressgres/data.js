@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759371312901,
+  "lastUpdate": 1759371315425,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4888,6 +4888,90 @@ window.BENCHMARK_DATA = {
             "value": 155.49609375,
             "unit": "median mem",
             "extra": "avg mem: 171.4515115578368, max mem: 215.73046875, count: 57096"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "850e3a9f88033d64151d6ecfa0d37c1b1f210b27",
+          "message": "fix: `paradedb.snippet` projects correctly when called multiple times over the same field (#3258)\n\n# Ticket(s) Closed\n\n- Closes #3256 \n\n## What\n\nSee GH issue\n\n## Why\n\n## How\n\nWhen mapping a const node to our list of snippet generators, we were\nmatching only on the field name and function OID, which is not unique\nenough -- it doesn't account for the function arguments.\n\n## Tests\n\nAdded regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T21:33:38-04:00",
+          "tree_id": "1f119fb29d59884bd2105114833ca2d34c2acfd9",
+          "url": "https://github.com/paradedb/paradedb/commit/850e3a9f88033d64151d6ecfa0d37c1b1f210b27"
+        },
+        "date": 1759371313863,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.84339857377726, max cpu: 33.07087, count: 57037"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 167.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.02756167323403, max mem: 167.08984375, count: 57037"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 58668,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60939.896873959005, max block_count: 75818.0, count: 57037"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 84,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 91.06802601819871, max segment_count: 192.0, count: 57037"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.891460301968861, max cpu: 23.575638, count: 57037"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 166.31640625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.75464008012344, max mem: 168.578125, count: 57037"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.994446527791004, max cpu: 28.042841, count: 57037"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 166.875,
+            "unit": "median mem",
+            "extra": "avg mem: 164.5544844382813, max mem: 166.875, count: 57037"
+          },
+          {
+            "name": "Top N - Primary - cpu",
+            "value": 23.575638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.84966015220797, max cpu: 33.768845, count: 57037"
+          },
+          {
+            "name": "Top N - Primary - mem",
+            "value": 155.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.84002338942267, max mem: 214.8515625, count: 57037"
           }
         ]
       }

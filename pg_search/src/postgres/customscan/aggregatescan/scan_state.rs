@@ -658,8 +658,11 @@ impl AggregateScanState {
 
         // No aggregate found - this means the filter didn't match for this bucket
         // Return appropriate empty value based on aggregate type
-        if matches!(aggregate, AggregateType::CountAny { .. }) {
-            // COUNT with no matches returns 0
+        if matches!(
+            aggregate,
+            AggregateType::CountAny { .. } | AggregateType::Count { .. }
+        ) {
+            // COUNT(*) and COUNT(field) with no matches return 0
             AggregateValue::Int(0)
         } else {
             // All other aggregates (SUM, AVG, MIN, MAX) return NULL

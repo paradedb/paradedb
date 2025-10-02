@@ -11,7 +11,7 @@
   "navigation": {
     "versions": [
       {
-        "version": "v0.18.8",
+        "version": "v0.18.10",
         "anchors": [
           {
             "anchor": "Documentation",
@@ -153,7 +153,22 @@
                         "group": "Aggregates",
                         "pages": [
                           "documentation/aggregates/overview",
-                          "documentation/aggregates/common",
+                          {
+                            "group": "Bucket",
+                            "pages": [
+                              "documentation/aggregates/bucket/terms"
+                            ]
+                          },
+                          {
+                            "group": "Metrics",
+                            "pages": [
+                              "documentation/aggregates/metrics/count",
+                              "documentation/aggregates/metrics/sum",
+                              "documentation/aggregates/metrics/minmax",
+                              "documentation/aggregates/metrics/average"
+                            ]
+                          },
+                          "documentation/aggregates/tuning",
                           "documentation/aggregates/limitations"
                         ]
                       },
@@ -330,6 +345,8 @@
               {
                 "group": "Changelog",
                 "pages": [
+                  "changelog/0.18.10",
+                  "changelog/0.18.9",
                   "changelog/0.18.8",
                   "changelog/0.18.7",
                   "changelog/0.18.6",

@@ -1,4 +1,4 @@
-name: Benchmark - Benchmarks
+name: Benchmark - Queries
 description: Run a given benchmark dataset against pg_search and publish metrics
 
 inputs:

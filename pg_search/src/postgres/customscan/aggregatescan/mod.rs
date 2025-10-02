@@ -554,6 +554,7 @@ fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> St
 fn format_aggregate(agg: &AggregateType) -> String {
     let base = match agg {
         AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
+        AggregateType::Count { field, .. } => format!("COUNT({field})"),
         AggregateType::Sum { field, .. } => format!("SUM({field})"),
         AggregateType::Avg { field, .. } => format!("AVG({field})"),
         AggregateType::Min { field, .. } => format!("MIN({field})"),
@@ -769,41 +770,11 @@ fn extract_aggregates(
                     return None;
                 }
 
-                // Check for FILTER clause in aggregate functions
-                // We now support FILTER clauses via multi-query execution!
-
+                // Extract the aggregate with filter support
                 let agg_idx = aggregate_types.len(); // Current index before adding
-                let agg_type = if (*aggref).aggstar {
-                    // COUNT(*) (aggstar) - but check for FILTER clause
-                    if !(*aggref).aggfilter.is_null() {
-                        let mut filter_qual_state = QualExtractState::default();
-                        let filter_expr = extract_filter_clause(
-                            (*aggref).aggfilter,
-                            bm25_index,
-                            args.root,
-                            heap_rti,
-                            &mut filter_qual_state,
-                        );
-                        filter_uses_search_operator =
-                            filter_uses_search_operator || filter_qual_state.uses_our_operator;
-                        AggregateType::CountAny {
-                            filter: filter_expr,
-                        }
-                    } else {
-                        AggregateType::CountAny { filter: None }
-                    }
-                } else {
-                    // Check for other aggregate functions with arguments
-                    let (agg_type, uses_search_op) = AggregateType::try_from(
-                        aggref,
-                        relation_oid,
-                        bm25_index,
-                        args.root,
-                        heap_rti,
-                    )?;
-                    filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
-                    agg_type
-                };
+                let (agg_type, uses_search_op) =
+                    AggregateType::try_from(aggref, relation_oid, bm25_index, args.root, heap_rti)?;
+                filter_uses_search_operator = filter_uses_search_operator || uses_search_op;
 
                 // Group aggregates by their filter expression during extraction
                 let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {

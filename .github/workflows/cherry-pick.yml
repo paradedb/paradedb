@@ -7,25 +7,6 @@ on:
     types: [closed]
 
 jobs:
-  cherry-pick-to-0-17:
-    name: Cherry Pick to 0.17.x
-    if: |
-      github.event.pull_request.merged == true &&
-      contains(github.event.pull_request.labels.*.name, 'cherry-pick/0.17.x')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Cherry Pick
-        uses: carloscastrojumo/github-cherry-pick-action@v1
-        with:
-          branch: "0.17.x"
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
-          inherit_labels: false
-          labels: automated-cherry-pick
-
   cherry-pick-to-0-18:
     name: Cherry Pick to 0.18.x
     if: |

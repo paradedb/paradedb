@@ -1,0 +1,4 @@
+DROP FUNCTION IF EXISTS snippet(field anyelement, start_tag text, end_tag text, max_num_chars pg_catalog.int4);
+CREATE OR REPLACE FUNCTION snippet(field anyelement, start_tag text DEFAULT '<b>', end_tag text DEFAULT '</b>', max_num_chars pg_catalog.int4 DEFAULT '150', "limit" pg_catalog.int4 DEFAULT NULL, "offset" pg_catalog.int4 DEFAULT NULL) RETURNS text AS 'MODULE_PATHNAME', 'snippet_from_relation_wrapper' LANGUAGE c PARALLEL SAFE STABLE;
+DROP FUNCTION IF EXISTS snippet_positions(field anyelement);
+CREATE OR REPLACE FUNCTION snippet_positions(field anyelement, "limit" pg_catalog.int4 DEFAULT NULL, "offset" pg_catalog.int4 DEFAULT NULL) RETURNS pg_catalog.int4[][] AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper' LANGUAGE c PARALLEL SAFE STABLE;

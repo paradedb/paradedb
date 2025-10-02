@@ -265,7 +265,7 @@ impl PdbScanState {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let (field, generator) = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-        if let SnippetType::Text(_, _, config) = snippet_type {
+        if let SnippetType::Text(_, _, config, _) = snippet_type {
             snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
         }
 

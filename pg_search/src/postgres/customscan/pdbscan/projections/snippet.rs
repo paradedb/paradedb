@@ -32,6 +32,12 @@ const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 const DEFAULT_SNIPPET_MAX_NUM_CHARS: i32 = 150;
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
+pub struct SnippetPositionsConfig {
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SnippetConfig {
     pub start_tag: String,
     pub end_tag: String,
@@ -40,30 +46,55 @@ pub struct SnippetConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
-    Text(FieldName, pg_sys::Oid, SnippetConfig),
-    Positions(FieldName, pg_sys::Oid),
+    Text(
+        FieldName,
+        pg_sys::Oid,
+        SnippetConfig,
+        SnippetPositionsConfig,
+    ),
+    Positions(FieldName, pg_sys::Oid, SnippetPositionsConfig),
 }
 
 impl SnippetType {
     pub fn field(&self) -> &FieldName {
         match self {
-            SnippetType::Text(field, _, _) => field,
-            SnippetType::Positions(field, _) => field,
+            SnippetType::Text(field, _, _, _) => field,
+            SnippetType::Positions(field, _, _) => field,
         }
     }
 
     pub fn funcoid(&self) -> pg_sys::Oid {
         match self {
-            SnippetType::Text(_, funcoid, _) => *funcoid,
-            SnippetType::Positions(_, funcoid) => *funcoid,
+            SnippetType::Text(_, funcoid, _, _) => *funcoid,
+            SnippetType::Positions(_, funcoid, _) => *funcoid,
         }
     }
 
     pub fn nodeoid(&self) -> pg_sys::Oid {
         match self {
-            SnippetType::Text(_, _, _) => pg_sys::TEXTOID,
-            SnippetType::Positions(_, _) => pg_sys::INT4ARRAYOID,
+            SnippetType::Text(_, _, _, _) => pg_sys::TEXTOID,
+            SnippetType::Positions(_, _, _) => pg_sys::INT4ARRAYOID,
         }
+    }
+
+    pub fn limit(&self) -> Option<i32> {
+        let limit = match self {
+            SnippetType::Text(_, _, _, positions_config) => positions_config.limit,
+            SnippetType::Positions(_, _, positions_config) => positions_config.limit,
+        };
+
+        assert!(limit.unwrap_or(0) >= 0, "limit must not be negative");
+        limit
+    }
+
+    pub fn offset(&self) -> Option<i32> {
+        let offset = match self {
+            SnippetType::Text(_, _, _, positions_config) => positions_config.offset,
+            SnippetType::Positions(_, _, positions_config) => positions_config.offset,
+        };
+
+        assert!(offset.unwrap_or(0) >= 0, "offset must not be negative");
+        offset
     }
 }
 
@@ -81,12 +112,18 @@ fn snippet_from_relation(
     start_tag: default!(String, "'<b>'"),
     end_tag: default!(String, "'</b>'"),
     max_num_chars: default!(i32, "150"),
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
     None
 }
 
 #[pg_extern(name = "snippet_positions", stable, parallel_safe)]
-fn snippet_positions_from_relation(field: AnyElement) -> Option<Vec<Vec<i32>>> {
+fn snippet_positions_from_relation(
+    field: AnyElement,
+    limit: default!(Option<i32>, "NULL"),
+    offset: default!(Option<i32>, "NULL"),
+) -> Option<Vec<Vec<i32>>> {
     None
 }
 
@@ -110,9 +147,9 @@ pub fn snippet_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet(anyelement, text, text, int)".into_datum()],
+            &[c"paradedb.snippet(anyelement, text, text, int, int, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet(anyelement, text, text, int) type should exist")
+        .expect("the `paradedb.snippet(anyelement, text, text, int, int, int) type should exist")
     }
 }
 
@@ -120,9 +157,9 @@ pub fn snippet_positions_funcoid() -> pg_sys::Oid {
     unsafe {
         direct_function_call::<pg_sys::Oid>(
             pg_sys::regprocedurein,
-            &[c"paradedb.snippet_positions(anyelement)".into_datum()],
+            &[c"paradedb.snippet_positions(anyelement, int, int)".into_datum()],
         )
-        .expect("the `paradedb.snippet_positions(anyelement) type should exist")
+        .expect("the `paradedb.snippet_positions(anyelement, int, int) type should exist")
     }
 }
 
@@ -196,16 +233,30 @@ pub unsafe fn extract_snippet_text(
     snippet_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
-    assert!(args.len() == 4);
+    assert!(args.len() == 6);
 
     let field_arg = find_one_var(args.get_ptr(0).unwrap());
     let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
     let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
     let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
+    let limit_arg = nodecast!(Const, T_Const, args.get_ptr(4).unwrap());
+    let offset_arg = nodecast!(Const, T_Const, args.get_ptr(5).unwrap());
 
-    if let (Some(field_arg), Some(start_arg), Some(end_arg), Some(max_num_chars_arg)) =
-        (field_arg, start_arg, end_arg, max_num_chars_arg)
-    {
+    if let (
+        Some(field_arg),
+        Some(start_arg),
+        Some(end_arg),
+        Some(max_num_chars_arg),
+        Some(limit_arg),
+        Some(offset_arg),
+    ) = (
+        field_arg,
+        start_arg,
+        end_arg,
+        max_num_chars_arg,
+        limit_arg,
+        offset_arg,
+    ) {
         let attname = attname_lookup
             .get(&(planning_rti as _, (*field_arg).varattno as _))
             .cloned()
@@ -216,6 +267,8 @@ pub unsafe fn extract_snippet_text(
             (*max_num_chars_arg).constvalue,
             (*max_num_chars_arg).constisnull,
         );
+        let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
+        let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
 
         Some(SnippetType::Text(
             attname,
@@ -225,6 +278,7 @@ pub unsafe fn extract_snippet_text(
                 end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
                 max_num_chars: max_num_chars.unwrap_or(DEFAULT_SNIPPET_MAX_NUM_CHARS) as usize,
             },
+            SnippetPositionsConfig { limit, offset },
         ))
     } else {
         None
@@ -238,17 +292,27 @@ pub unsafe fn extract_snippet_positions(
     snippet_positions_funcoid: pg_sys::Oid,
     attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
 ) -> Option<SnippetType> {
-    assert!(args.len() == 1);
+    assert!(args.len() == 3);
 
     let field_arg = find_one_var(args.get_ptr(0).unwrap());
+    let limit_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
+    let offset_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
 
-    if let Some(field_arg) = field_arg {
+    if let (Some(field_arg), Some(limit_arg), Some(offset_arg)) = (field_arg, limit_arg, offset_arg)
+    {
         let attname = attname_lookup
             .get(&(planning_rti as _, (*field_arg).varattno as _))
             .cloned()
             .expect("Var attname should be in lookup");
 
-        Some(SnippetType::Positions(attname, snippet_positions_funcoid))
+        let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
+        let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
+
+        Some(SnippetType::Positions(
+            attname,
+            snippet_positions_funcoid,
+            SnippetPositionsConfig { limit, offset },
+        ))
     } else {
         None
     }

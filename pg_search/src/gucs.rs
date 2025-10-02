@@ -214,7 +214,7 @@ pub fn init() {
     GucRegistry::define_int_guc(
         c"paradedb.global_target_segment_count",
         c"a global target segment count override",
-        c"Setting this to a non-zero value ignore the `target_segment_count` property on all indexes in favor of this value",
+        c"Setting this to a non-zero value ignores the `target_segment_count` property on all indexes in favor of this value",
         &GLOBAL_TARGET_SEGMENT_COUNT,
         0,
         8192,

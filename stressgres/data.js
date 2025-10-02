@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759374215508,
+  "lastUpdate": 1759374218098,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7348,6 +7348,114 @@ window.BENCHMARK_DATA = {
             "value": 156.5703125,
             "unit": "median mem",
             "extra": "avg mem: 154.55695239754246, max mem: 157.6875, count: 55523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ce078f8496ff0152f7373fe94348a9cfcacd5af",
+          "message": "feat: Configure a limit/offset for snippets (#3259)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n`paradedb.snippet` and `paradedb.snippet_positions` now take a limit and\noffset. For instance, if 5 snippets are found in a doc and offset is 1,\nthen the first snippet will be skipped.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T22:10:01-04:00",
+          "tree_id": "904048e17b5e988830cd9302f007cb5d18411d22",
+          "url": "https://github.com/paradedb/paradedb/commit/2ce078f8496ff0152f7373fe94348a9cfcacd5af"
+        },
+        "date": 1759374216555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.550726,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.731542569941787, max cpu: 42.39451, count: 55459"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 143.95912584352854, max mem: 155.48046875, count: 55459"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.671031967049345, max cpu: 41.65863, count: 55459"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 111.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 110.79773289727547, max mem: 111.96484375, count: 55459"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.996986098606978, max cpu: 11.302983, count: 55459"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 141.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 120.98388392776646, max mem: 142.53515625, count: 55459"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 30871,
+            "unit": "median block_count",
+            "extra": "avg block_count: 31340.896914837987, max block_count: 64019.0, count: 55459"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.12145224166995, max cpu: 4.669261, count: 55459"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 102.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.70151401260391, max mem: 128.68359375, count: 55459"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.578427306658973, max segment_count: 52.0, count: 55459"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.944786961652406, max cpu: 41.65863, count: 110918"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 148.91796875,
+            "unit": "median mem",
+            "extra": "avg mem: 139.89154745087586, max mem: 155.3046875, count: 110918"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.81537801680051, max cpu: 27.988338, count: 55459"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 154.52069800438161, max mem: 158.4765625, count: 55459"
           }
         ]
       }

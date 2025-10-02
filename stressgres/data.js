@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759372035616,
+  "lastUpdate": 1759372038586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6958,6 +6958,114 @@ window.BENCHMARK_DATA = {
             "value": 156.3359375,
             "unit": "median mem",
             "extra": "avg mem: 154.66892742570914, max mem: 158.19921875, count: 55525"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "850e3a9f88033d64151d6ecfa0d37c1b1f210b27",
+          "message": "fix: `paradedb.snippet` projects correctly when called multiple times over the same field (#3258)\n\n# Ticket(s) Closed\n\n- Closes #3256 \n\n## What\n\nSee GH issue\n\n## Why\n\n## How\n\nWhen mapping a const node to our list of snippet generators, we were\nmatching only on the field name and function OID, which is not unique\nenough -- it doesn't account for the function arguments.\n\n## Tests\n\nAdded regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T21:33:38-04:00",
+          "tree_id": "1f119fb29d59884bd2105114833ca2d34c2acfd9",
+          "url": "https://github.com/paradedb/paradedb/commit/850e3a9f88033d64151d6ecfa0d37c1b1f210b27"
+        },
+        "date": 1759372037052,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.514948,
+            "unit": "median cpu",
+            "extra": "avg cpu: 18.31539076682295, max cpu: 37.944664, count: 55523"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 155.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 140.29643958078185, max mem: 155.953125, count: 55523"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.324588517368293, max cpu: 37.617554, count: 55523"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 113.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 111.96265321634728, max mem: 113.49609375, count: 55523"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.924217043100738, max cpu: 13.967022, count: 55523"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 141.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 114.84291778575995, max mem: 143.4609375, count: 55523"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 27836,
+            "unit": "median block_count",
+            "extra": "avg block_count: 28951.25272409632, max block_count: 60563.0, count: 55523"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.332938884842781, max cpu: 4.7058825, count: 55523"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 89.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 83.60635365918178, max mem: 126.46875, count: 55523"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 31,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 31.39444914720026, max segment_count: 52.0, count: 55523"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.874453577095444, max cpu: 32.526623, count: 111046"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 150.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 137.01055140578003, max mem: 156.51171875, count: 111046"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.565322194429427, max cpu: 28.125, count: 55523"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 156.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.55695239754246, max mem: 157.6875, count: 55523"
           }
         ]
       }

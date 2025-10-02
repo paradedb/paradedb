@@ -536,6 +536,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             SearchTokenizer::Lindera(style, filters) => Some(match style {
@@ -546,6 +547,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
                 LinderaStyle::Japanese => {
                     TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
@@ -554,6 +556,7 @@ impl SearchTokenizer {
                         .filter(filters.stemmer())
                         .filter(filters.stopwords_language())
                         .filter(filters.stopwords())
+                        .filter(filters.ascii_folding())
                         .build()
                 }
                 LinderaStyle::Korean => TextAnalyzer::builder(LinderaKoreanTokenizer::default())
@@ -562,6 +565,7 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             }),
 
@@ -584,6 +588,7 @@ impl SearchTokenizer {
                     .filter(Stemmer::new(*language))
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             #[cfg(feature = "icu")]

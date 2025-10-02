@@ -2,7 +2,6 @@ mod fixtures;
 
 use fixtures::*;
 use rstest::*;
-use rustc_hash::FxHashSet as HashSet;
 use serde_json::Value;
 use sqlx::PgConnection;
 
@@ -80,38 +79,35 @@ fn pushdown_is_true_doesnt_require_scores_with_parallel_custom_scan(mut conn: Pg
 #[rstest]
 fn pushdown(mut conn: PgConnection) {
     const OPERATORS: [&str; 6] = ["=", ">", "<", ">=", "<=", "<>"];
-    const TYPES: &[[&str; 2]] = &[
-        ["int2", "0"],
-        ["int4", "0"],
-        ["int8", "0"],
-        ["float4", "0"],
-        ["float8", "0"],
-        ["date", "now()"],
-        ["time", "now()"],
-        ["timetz", "now()"],
-        ["timestamp", "now()"],
-        ["timestamptz", "now()"],
-        ["text", "'foo'::text"],
-        ["text", "'foo'::varchar"],
-        ["varchar", "'foo'::varchar"],
-        ["varchar", "'foo'::text"],
-        ["uuid", "gen_random_uuid()"],
+
+    // colname, sqltype, default value
+    const TYPES: &[[&str; 3]] = &[
+        ["int2", "int2", "0"],
+        ["int4", "int4", "0"],
+        ["int8", "int8", "0"],
+        ["float4", "float4", "0"],
+        ["float8", "float8", "0"],
+        ["date", "date", "now()"],
+        ["time", "time", "now()"],
+        ["timetz", "timetz", "now()"],
+        ["timestamp", "timestamp", "now()"],
+        ["timestamptz", "timestamptz", "now()"],
+        ["text", "text", "'foo'::text"],
+        ["text_1", "text", "'foo'::varchar"],
+        ["varchar", "varchar", "'foo'::varchar"],
+        ["varchar_1", "varchar", "'foo'::text"],
+        ["uuid", "uuid", "gen_random_uuid()"],
     ];
 
     let sqlname = |sqltype: &str| -> String { String::from("col_") + &sqltype.replace('"', "") };
 
-    let mut used_types = HashSet::<&str>::default();
     let mut sql = String::new();
     sql += "CREATE TABLE test (id SERIAL8 NOT NULL PRIMARY KEY, col_boolean boolean DEFAULT false";
-    for [sqltype, default] in TYPES {
-        if used_types.contains(sqltype) {
-            continue;
-        }
+    for [colname, sqltype, default] in TYPES {
         sql += &format!(
             ", {} {sqltype} NOT NULL DEFAULT {default}",
-            sqlname(sqltype)
+            sqlname(colname)
         );
-        used_types.insert(sqltype);
     }
     sql += ");";
 
@@ -127,7 +123,9 @@ fn pushdown(mut conn: PgConnection) {
                     key_field='id',
                         text_fields = '{{
                             "col_text": {{"tokenizer": {{"type":"keyword"}} }},
-                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }}
+                            "col_text_1": {{"tokenizer": {{"type":"keyword"}} }},
+                            "col_varchar": {{"tokenizer": {{"type":"keyword"}} }},
+                            "col_varchar_1": {{"tokenizer": {{"type":"keyword"}} }}
                          }}'
                     );"#,
         TYPES
@@ -147,8 +145,8 @@ fn pushdown(mut conn: PgConnection) {
     "SET paradedb.enable_custom_scan_without_operator TO on;".execute(&mut conn);
 
     for operator in OPERATORS {
-        for [sqltype, default] in TYPES {
-            let sqlname = sqlname(sqltype);
+        for [colname, sqltype, default] in TYPES {
+            let sqlname = sqlname(colname);
             let sql = format!(
                 r#"
                 EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON)

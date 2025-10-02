@@ -36,7 +36,7 @@ use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
-use crate::postgres::var::{find_var_relation, find_vars};
+use crate::postgres::var::{find_one_var, find_var_relation, find_vars};
 use crate::query::pdb_query::pdb;
 use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
@@ -266,6 +266,7 @@ unsafe fn field_name_from_node(
     if let Some(var) = nodecast!(Var, T_Var, node) {
         // the expression we're looking for is just a simple Var.
         let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+        let mut expr_no = 0;
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
 
@@ -274,8 +275,8 @@ unsafe fn field_name_from_node(
                 return attname_from_var(heaprel, var);
             } else if heap_attno == 0 {
                 // see if the Var we're looking for matches a custom tokenizer definition
-                let Some(expression) = expressions.get_ptr(i as usize) else {
-                    panic!("expected expression for index attribute {i}");
+                let Some(expression) = expressions.get_ptr(expr_no) else {
+                    panic!("expected expression for index attribute {expr_no}");
                 };
 
                 if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
@@ -292,6 +293,7 @@ unsafe fn field_name_from_node(
                             return attname_from_var(heaprel, var);
                         }
                     }
+                    expr_no += 1;
                 }
             }
         }
@@ -319,7 +321,10 @@ unsafe fn field_name_from_node(
                     let parsed = lookup_generic_typmod(typmod)
                         .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
 
-                    parsed.alias().map(FieldName::from)
+                    parsed.alias().map(FieldName::from).or_else(|| {
+                        find_one_var(expression.cast())
+                            .and_then(|var| attname_from_var(heaprel, var.cast()))
+                    })
                 } else {
                     None
                 };

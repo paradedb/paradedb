@@ -65,6 +65,7 @@ impl SearchFieldType {
         match self {
             SearchFieldType::Text(_) => SearchFieldConfig::default_text(),
             SearchFieldType::CustomText(_, _) => {
+                // NB:  check `search_field_config_from_type` to make sure the tokenizer is properly represented
                 panic!("CustomText fields do not have a default config")
             }
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),

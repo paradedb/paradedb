@@ -257,84 +257,96 @@ pub unsafe fn tantivy_field_name_from_node(
 unsafe fn field_name_from_node(
     heaprel: &PgSearchRelation,
     indexrel: &PgSearchRelation,
-    node: *mut pg_sys::Node,
+    mut node: *mut pg_sys::Node,
 ) -> Option<FieldName> {
     use crate::PG_SEARCH_PREFIX;
 
     let index_info = unsafe { *pg_sys::BuildIndexInfo(indexrel.as_ptr()) };
 
-    if let Some(var) = nodecast!(Var, T_Var, node) {
-        // the expression we're looking for is just a simple Var.
+    loop {
+        if let Some(var) = nodecast!(Var, T_Var, node) {
+            // the expression we're looking for is just a simple Var.
+            let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
+            let mut expr_no = 0;
+            for i in 0..index_info.ii_NumIndexAttrs {
+                let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
+
+                if heap_attno == (*var).varattno {
+                    // this is a Var that directly matches an indexed attribute
+                    return attname_from_var(heaprel, var);
+                } else if heap_attno == 0 {
+                    // see if the Var we're looking for matches a custom tokenizer definition
+                    let Some(expression) = expressions.get_ptr(expr_no) else {
+                        panic!("expected expression for index attribute {expr_no}");
+                    };
+
+                    if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
+                        let vars = find_vars(expression.cast());
+                        if vars.len() == 1 && pg_sys::equal(node.cast(), vars[0].cast()) {
+                            // the Var is the expression that matches the Var we're looking for
+                            // but lets make sure the whole expression is one without an alias
+                            // we pick the first un-aliased custom tokenizer expression that uses the
+                            // Var as the matching indexed expression
+                            let typmod = pg_sys::exprTypmod(expression.cast());
+                            let parsed = lookup_generic_typmod(typmod).unwrap_or_else(|e| {
+                                panic!("failed to lookup typmod {typmod}: {e}")
+                            });
+                            if parsed.alias().is_none() {
+                                return attname_from_var(heaprel, var);
+                            }
+                        }
+                        expr_no += 1;
+                    }
+                }
+            }
+
+            return None;
+        }
+
+        //
+        // we're looking for a more complex expression
+        //
+
         let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
-        let mut expr_no = 0;
+        let mut expressions_iter = expressions.iter_ptr();
+
         for i in 0..index_info.ii_NumIndexAttrs {
             let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
-
-            if heap_attno == (*var).varattno {
-                // this is a Var that directly matches an indexed attribute
-                return attname_from_var(heaprel, var);
-            } else if heap_attno == 0 {
-                // see if the Var we're looking for matches a custom tokenizer definition
-                let Some(expression) = expressions.get_ptr(expr_no) else {
-                    panic!("expected expression for index attribute {expr_no}");
+            if heap_attno == 0 {
+                let Some(expression) = expressions_iter.next() else {
+                    panic!("Expected expression for index attribute {i}.");
                 };
 
-                if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
-                    let vars = find_vars(expression.cast());
-                    if vars.len() == 1 && pg_sys::equal(node.cast(), vars[0].cast()) {
-                        // the Var is the expression that matches the Var we're looking for
-                        // but lets make sure the whole expression is one without an alias
-                        // we pick the first un-aliased custom tokenizer expression that uses the
-                        // Var as the matching indexed expression
+                if unsafe { pg_sys::equal(node.cast(), expression.cast()) } {
+                    let field_name = if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
                         let typmod = pg_sys::exprTypmod(expression.cast());
                         let parsed = lookup_generic_typmod(typmod)
                             .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-                        if parsed.alias().is_none() {
-                            return attname_from_var(heaprel, var);
-                        }
-                    }
-                    expr_no += 1;
+
+                        parsed.alias().map(FieldName::from).or_else(|| {
+                            find_one_var(expression.cast())
+                                .and_then(|var| attname_from_var(heaprel, var.cast()))
+                        })
+                    } else {
+                        None
+                    };
+
+                    return field_name
+                        .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
                 }
             }
         }
 
-        return None;
-    }
-
-    //
-    // we're looking for a more complex expression
-    //
-
-    let expressions = unsafe { PgList::<pg_sys::Expr>::from_pg(index_info.ii_Expressions) };
-    let mut expressions_iter = expressions.iter_ptr();
-
-    for i in 0..index_info.ii_NumIndexAttrs {
-        let heap_attno = index_info.ii_IndexAttrNumbers[i as usize];
-        if heap_attno == 0 {
-            let Some(expression) = expressions_iter.next() else {
-                panic!("Expected expression for index attribute {i}.");
-            };
-
-            if unsafe { pg_sys::equal(node.cast(), expression.cast()) } {
-                let field_name = if type_is_tokenizer(pg_sys::exprType(expression.cast())) {
-                    let typmod = pg_sys::exprTypmod(expression.cast());
-                    let parsed = lookup_generic_typmod(typmod)
-                        .unwrap_or_else(|e| panic!("failed to lookup typmod {typmod}: {e}"));
-
-                    parsed.alias().map(FieldName::from).or_else(|| {
-                        find_one_var(expression.cast())
-                            .and_then(|var| attname_from_var(heaprel, var.cast()))
-                    })
-                } else {
-                    None
-                };
-
-                return field_name
-                    .or_else(|| Some(FieldName::from(format!("{PG_SEARCH_PREFIX}{i}"))));
-            }
+        if let Some(relabel_type) = nodecast!(RelabelType, T_RelabelType, node) {
+            // the node we're evaluating is a RelabelType that doesn't exactly match any expressions
+            // in the index definition.  So try again using its "arg"
+            node = (*relabel_type).arg.cast();
+            continue;
+        } else {
+            // the node we're evaluating doesn't match either an index expression or a direct Var
+            return None;
         }
     }
-    None
 }
 
 unsafe fn request_simplify<ConstRewrite, ExecRewrite>(

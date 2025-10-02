@@ -173,11 +173,11 @@ pub struct ExtractedFieldAttribute {
 pub unsafe fn extract_field_attributes(
     indexrel: pg_sys::Relation,
 ) -> HashMap<FieldName, ExtractedFieldAttribute> {
-    let tupdesc = PgTupleDesc::from_pg_unchecked((*indexrel).rd_att);
+    let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
+    let heap_tupdesc = heap_relation.tuple_desc();
     let index_info = pg_sys::BuildIndexInfo(indexrel);
     let expressions = PgList::<pg_sys::Expr>::from_pg((*index_info).ii_Expressions);
     let mut expressions_iter = expressions.iter_ptr();
-    let mut heap_relation = None;
     let mut field_attributes: FxHashMap<FieldName, ExtractedFieldAttribute> = Default::default();
     for attno in 0..(*index_info).ii_NumIndexAttrs {
         let heap_attno = (*index_info).ii_IndexAttrNumbers[attno as usize];
@@ -200,9 +200,6 @@ pub unsafe fn extract_field_attributes(
 
                 attname = parsed_typmod.alias();
                 if attname.is_none() && vars.len() == 1 {
-                    let heap_relation = heap_relation.get_or_insert_with(|| {
-                        PgSearchRelation::from_pg(indexrel).heap_relation().unwrap()
-                    });
                     let var = vars[0];
                     let heap_attname = heap_relation
                         .tuple_desc()
@@ -219,8 +216,10 @@ pub unsafe fn extract_field_attributes(
 
             (attname, typoid, typmod)
         } else {
-            // Is a field.
-            let att = tupdesc.get(attno as usize).expect("attribute should exist");
+            // Is a field -- get the field name from the heap relation.
+            let att = heap_tupdesc
+                .get(heap_attno as usize - 1)
+                .expect("attribute should exist");
             (att.name().to_owned(), att.type_oid().value(), -1)
         };
 

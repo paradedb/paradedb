@@ -52,6 +52,10 @@ pub fn search_field_config_from_type(
         "chinese_compatible" => {
             SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default())
         }
+        "regex" => SearchTokenizer::RegexTokenizer {
+            pattern: "".to_string(),
+            filters: Default::default(),
+        },
         _ => return None,
     };
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1759373494748,
+  "lastUpdate": 1759374215508,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6028,6 +6028,60 @@ window.BENCHMARK_DATA = {
             "value": 18.47717354547076,
             "unit": "median tps",
             "extra": "avg tps: 18.600112128490405, max tps: 19.86316222634254, count: 55523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "developers@paradedb.com",
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2ce078f8496ff0152f7373fe94348a9cfcacd5af",
+          "message": "feat: Configure a limit/offset for snippets (#3259)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\n`paradedb.snippet` and `paradedb.snippet_positions` now take a limit and\noffset. For instance, if 5 snippets are found in a doc and offset is 1,\nthen the first snippet will be skipped.\n\n## Why\n\n## How\n\n## Tests\n\nSee regression test\n\nCo-authored-by: Ming <ming.ying.nyc@gmail.com>",
+          "timestamp": "2025-10-01T22:10:01-04:00",
+          "tree_id": "904048e17b5e988830cd9302f007cb5d18411d22",
+          "url": "https://github.com/paradedb/paradedb/commit/2ce078f8496ff0152f7373fe94348a9cfcacd5af"
+        },
+        "date": 1759374213924,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 37.13681629546143,
+            "unit": "median tps",
+            "extra": "avg tps: 37.18892774074989, max tps: 40.03025403778961, count: 55459"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.41464934604485,
+            "unit": "median tps",
+            "extra": "avg tps: 274.964521636083, max tps: 2941.6753502996908, count: 55459"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 1069.4928462316363,
+            "unit": "median tps",
+            "extra": "avg tps: 1063.0871817262541, max tps: 1077.5917474698838, count: 55459"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 119.93583814808854,
+            "unit": "median tps",
+            "extra": "avg tps: 156.3718751181389, max tps: 820.4627713690927, count: 110918"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.24210111639352,
+            "unit": "median tps",
+            "extra": "avg tps: 18.2249158904113, max tps: 21.850165136446797, count: 55459"
           }
         ]
       }

@@ -904,6 +904,7 @@ fn execute(
         &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
         &state.custom_state().aggregate_types,
         &state.custom_state().grouping_columns,
+        &state.custom_state().orderby_info,
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit

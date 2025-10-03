@@ -209,68 +209,13 @@ impl AggregateScanState {
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        let mut rows = if self.grouping_columns.is_empty() {
+        if self.grouping_columns.is_empty() {
             // No GROUP BY - simple aggregation results
             self.process_simple_filter_aggregation_results(result)
         } else {
             // GROUP BY - process nested results (handles both filtered and non-filtered)
             self.process_grouped_aggregation_results(result)
-        };
-
-        // Apply ORDER BY sorting if we have grouping columns and ordering info
-        if !self.grouping_columns.is_empty() && !self.orderby_info.is_empty() {
-            self.sort_grouped_results(&mut rows);
         }
-
-        rows
-    }
-
-    /// Sort grouped results according to ORDER BY clauses
-    /// This handles ordering at the result processing level since our unified FilterAggregation
-    /// approach doesn't have access to ordering info at the Tantivy aggregation building level
-    fn sort_grouped_results(&self, rows: &mut [GroupedAggregateRow]) {
-        use crate::api::{OrderByFeature, SortDirection};
-
-        // Pre-compute sort key indices to avoid repeated lookups during comparison
-        let sort_key_indices: Vec<(usize, SortDirection)> = self
-            .orderby_info
-            .iter()
-            .filter_map(|orderby| {
-                if let OrderByFeature::Field(field_name) = &orderby.feature {
-                    self.grouping_columns
-                        .iter()
-                        .position(|col| {
-                            crate::api::FieldName::from(col.field_name.clone()) == *field_name
-                        })
-                        .map(|col_idx| (col_idx, orderby.direction))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Use optimized comparison with pre-computed indices
-        rows.sort_by(|a, b| {
-            for &(col_idx, direction) in &sort_key_indices {
-                if col_idx < a.group_keys.len() && col_idx < b.group_keys.len() {
-                    let cmp = TantivyValue::partial_cmp_extended(
-                        &a.group_keys[col_idx],
-                        &b.group_keys[col_idx],
-                    )
-                    .expect("group keys should be comparable");
-
-                    let final_cmp = match direction {
-                        SortDirection::Asc => cmp,
-                        SortDirection::Desc => cmp.reverse(),
-                    };
-
-                    if final_cmp != std::cmp::Ordering::Equal {
-                        return final_cmp;
-                    }
-                }
-            }
-            std::cmp::Ordering::Equal
-        });
     }
 
     /// Process simple filter aggregation results (no GROUP BY)
@@ -556,7 +501,7 @@ impl AggregateScanState {
         let bucket_key =
             scan_state.json_value_to_owned_value(key_json, &grouping_column.field_name);
         matches!(
-            TantivyValue::partial_cmp_extended(&bucket_key, target_key),
+            TantivyValue::partial_cmp(&bucket_key, target_key),
             Some(std::cmp::Ordering::Equal)
         )
     }

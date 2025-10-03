@@ -20,6 +20,8 @@ use std::ptr::NonNull;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
+use crate::api::OrderByInfo;
+use crate::api::{FieldName, OrderByFeature};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -93,6 +95,7 @@ struct ParallelAggregation {
     // For SQL aggregations (with heap filter support)
     aggregate_types_bytes: Vec<u8>,
     grouping_columns_bytes: Vec<u8>,
+    orderby_info_bytes: Vec<u8>,
     // For JSON aggregations (legacy API) - mutually exclusive with above
     agg_json_bytes: Vec<u8>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
@@ -111,6 +114,7 @@ impl ParallelProcess for ParallelAggregation {
             &self.base_query_bytes,
             &self.aggregate_types_bytes,
             &self.grouping_columns_bytes,
+            &self.orderby_info_bytes,
             &self.agg_json_bytes,
             &self.segment_ids,
             &self.ambulkdelete_epoch,
@@ -126,6 +130,7 @@ impl ParallelAggregation {
         base_query: &SearchQueryInput,
         aggregate_types: &[AggregateType],
         grouping_columns: &[GroupingColumn],
+        orderby_info: &[OrderByInfo],
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
@@ -148,6 +153,7 @@ impl ParallelAggregation {
             base_query_bytes: serde_json::to_vec(base_query)?,
             aggregate_types_bytes: serde_json::to_vec(aggregate_types)?,
             grouping_columns_bytes: serde_json::to_vec(grouping_columns)?,
+            orderby_info_bytes: serde_json::to_vec(orderby_info)?,
             agg_json_bytes: Vec::new(), // Empty for filter aggregations
             segment_ids,
             ambulkdelete_epoch,
@@ -182,6 +188,7 @@ impl ParallelAggregation {
             base_query_bytes: serde_json::to_vec(base_query)?,
             aggregate_types_bytes: Vec::new(), // Empty for JSON aggregations
             grouping_columns_bytes: Vec::new(), // Empty for JSON aggregations
+            orderby_info_bytes: Vec::new(),    // Empty for JSON aggregations
             agg_json_bytes: serde_json::to_vec(aggregations)?,
             segment_ids,
             ambulkdelete_epoch,
@@ -196,7 +203,8 @@ struct ParallelAggregationWorker<'a> {
     // For filter aggregations
     aggregate_types: Vec<AggregateType>,
     grouping_columns: Vec<GroupingColumn>,
-    // For JSON aggregations - mutually exclusive with above (aggregate_types and grouping_columns)
+    orderby_info: Vec<OrderByInfo>,
+    // For JSON aggregations - mutually exclusive with above (aggregate_types, grouping_columns, orderby_info)
     agg_json: Option<Aggregations>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
@@ -229,6 +237,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             base_query: query,
             aggregate_types: Vec::new(),
             grouping_columns: Vec::new(),
+            orderby_info: Vec::new(),
             agg_json: Some(aggregation),
             segment_ids,
             ambulkdelete_epoch,
@@ -297,6 +306,7 @@ impl<'a> ParallelAggregationWorker<'a> {
                 &self.base_query,
                 &self.aggregate_types,
                 &self.grouping_columns,
+                &self.orderby_info,
                 &schema,
                 &reader,
                 &indexrel,
@@ -359,16 +369,20 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .slice::<u8>(4)
             .expect("wrong type for grouping_columns_bytes")
             .expect("missing grouping_columns_bytes value");
-        let agg_json_bytes = state_manager
+        let orderby_info_bytes = state_manager
             .slice::<u8>(5)
+            .expect("wrong type for orderby_info_bytes")
+            .expect("missing orderby_info_bytes value");
+        let agg_json_bytes = state_manager
+            .slice::<u8>(6)
             .expect("wrong type for agg_json_bytes")
             .expect("missing agg_json_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(6)
+            .slice::<(SegmentId, NumDeletedDocs)>(7)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
-            .object::<u32>(7)
+            .object::<u32>(8)
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
@@ -376,18 +390,22 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("base_query_bytes should deserialize into SearchQueryInput");
 
         // Check if this is a JSON aggregation or filter aggregation
-        let (aggregate_types, grouping_columns, agg_json) = if !agg_json_bytes.is_empty() {
+        let (aggregate_types, grouping_columns, orderby_info, agg_json) = if !agg_json_bytes
+            .is_empty()
+        {
             // JSON aggregation
             let agg = serde_json::from_slice::<Aggregations>(agg_json_bytes)
                 .expect("agg_json_bytes should deserialize into Aggregations");
-            (Vec::new(), Vec::new(), Some(agg))
+            (Vec::new(), Vec::new(), Vec::new(), Some(agg))
         } else {
             // Filter aggregation
             let agg_types = serde_json::from_slice::<Vec<AggregateType>>(aggregate_types_bytes)
                 .expect("aggregate_types_bytes should deserialize into Vec<AggregateType>");
             let group_cols = serde_json::from_slice::<Vec<GroupingColumn>>(grouping_columns_bytes)
                 .expect("grouping_columns_bytes should deserialize into Vec<GroupingColumn>");
-            (agg_types, group_cols, None)
+            let order_info = serde_json::from_slice::<Vec<OrderByInfo>>(orderby_info_bytes)
+                .expect("orderby_info_bytes should deserialize into Vec<OrderByInfo>");
+            (agg_types, group_cols, order_info, None)
         };
 
         Self {
@@ -396,6 +414,7 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             base_query,
             aggregate_types,
             grouping_columns,
+            orderby_info,
             agg_json,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
@@ -429,17 +448,20 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 /// * `base_query` - WHERE clause (defines document set to aggregate)
 /// * `aggregate_types` - Aggregates with optional FILTER clauses  
 /// * `grouping_columns` - GROUP BY columns (empty for simple aggregations)
+/// * `orderby_info` - ORDER BY clauses for GROUP BY (empty for simple aggregations or no ordering)
 /// * `solve_mvcc` - Apply MVCC visibility filtering
 /// * `memory_limit` - Max memory for aggregation (typically work_mem)
 /// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
 ///
 /// # Returns
 /// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
+#[allow(clippy::too_many_arguments)]
 pub fn execute_aggregation(
     index: &PgSearchRelation,
     base_query: &SearchQueryInput,
     aggregate_types: &[AggregateType],
     grouping_columns: &[GroupingColumn],
+    orderby_info: &[OrderByInfo],
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
@@ -455,6 +477,7 @@ pub fn execute_aggregation(
         base_query,
         aggregate_types,
         grouping_columns,
+        orderby_info,
         &schema,
         &reader,
         index,
@@ -472,6 +495,7 @@ pub fn execute_aggregation(
             base_query,
             aggregate_types,
             grouping_columns,
+            orderby_info,
             solve_mvcc,
             memory_limit,
             bucket_limit,
@@ -657,10 +681,12 @@ pub fn execute_aggregate_json(
 /// Build Tantivy aggregations with consistent FilterAggregation structure
 /// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
 /// This ensures result processing is unified and simple
+#[allow(clippy::too_many_arguments)]
 fn build_aggregation_query(
     base_query: &crate::query::SearchQueryInput,
     aggregate_types: &[AggregateType],
     grouping_columns: &[GroupingColumn],
+    orderby_info: &[OrderByInfo],
     schema: &crate::schema::SearchIndexSchema,
     reader: &crate::index::reader::index::SearchIndexReader,
     index: &crate::postgres::rel::PgSearchRelation,
@@ -672,7 +698,11 @@ fn build_aggregation_query(
 
     // Build nested terms structure if we have grouping columns
     let nested_terms = if !grouping_columns.is_empty() {
-        Some(build_nested_terms(grouping_columns, HashMap::new())?)
+        Some(build_nested_terms(
+            grouping_columns,
+            orderby_info,
+            HashMap::new(),
+        )?)
     } else {
         None
     };
@@ -701,7 +731,7 @@ fn build_aggregation_query(
         let sub_aggs = if nested_terms.is_some() {
             // GROUP BY: filter -> grouped -> buckets -> metric
             let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(grouping_columns, metric_leaf)?
+            build_nested_terms(grouping_columns, orderby_info, metric_leaf)?
         } else {
             // No GROUP BY: filter -> filtered_agg (metric)
             HashMap::from([("filtered_agg".to_string(), base)])
@@ -723,19 +753,35 @@ fn build_aggregation_query(
 /// Returns map with "grouped" key containing the outermost terms aggregation
 fn build_nested_terms(
     grouping_columns: &[GroupingColumn],
+    orderby_info: &[OrderByInfo],
     leaf_aggs: HashMap<String, Aggregation>,
 ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
     let mut current = leaf_aggs;
 
     for column in grouping_columns.iter().rev() {
+        // Find ORDER BY info for this column
+        let orderby = orderby_info.iter().find(|info| {
+            if let OrderByFeature::Field(field_name) = &info.feature {
+                field_name == &FieldName::from(column.field_name.clone())
+            } else {
+                false
+            }
+        });
+
+        // Build terms aggregation JSON with optional ORDER BY
+        let mut terms_json = serde_json::json!({
+            "field": column.field_name,
+            "size": 65000,
+            "segment_size": 65000
+        });
+
+        // Add order if specified
+        if let Some(orderby) = orderby {
+            terms_json["order"] = serde_json::json!({ "_key": orderby.direction.as_ref() });
+        }
+
         let terms_agg = Aggregation {
-            agg: serde_json::from_value(serde_json::json!({
-                "terms": {
-                    "field": column.field_name,
-                    "size": 65000,
-                    "segment_size": 65000
-                }
-            }))?,
+            agg: serde_json::from_value(serde_json::json!({ "terms": terms_json }))?,
             sub_aggregation: current,
         };
 

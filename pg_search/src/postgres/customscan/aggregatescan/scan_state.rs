@@ -444,12 +444,8 @@ impl AggregateScanState {
 
             if depth + 1 == self.grouping_columns.len() {
                 // Leaf level - extract aggregate values
-                let aggregate_values = self.extract_aggregates_for_group(
-                    bucket_obj,
-                    filter_results,
-                    group_keys,
-                    depth,
-                );
+                let aggregate_values =
+                    self.extract_aggregates_for_group(filter_results, group_keys);
 
                 output_rows.push(GroupedAggregateRow {
                     group_keys: group_keys.clone(),
@@ -475,10 +471,8 @@ impl AggregateScanState {
     /// Extract aggregate values for a specific group by looking them up in filter results
     fn extract_aggregates_for_group(
         &self,
-        _sentinel_bucket: &serde_json::Map<String, serde_json::Value>,
         filter_results: &[(usize, &serde_json::Value)],
         group_keys: &[OwnedValue],
-        _depth: usize,
     ) -> AggregateRow {
         if self.aggregate_types.is_empty() {
             return AggregateRow::default();

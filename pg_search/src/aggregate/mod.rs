@@ -34,6 +34,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::utils::ExprContextGuard;
+use crate::query::QueryContext;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
@@ -46,6 +47,14 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
+
+/// Bundle of query building parameters (SQL aggregation definition)
+pub struct AggQueryParams<'a> {
+    pub base_query: &'a SearchQueryInput,
+    pub aggregate_types: &'a [AggregateType],
+    pub grouping_columns: &'a [GroupingColumn],
+    pub orderby_info: &'a [OrderByInfo],
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -124,13 +133,9 @@ impl ParallelProcess for ParallelAggregation {
 
 impl ParallelAggregation {
     /// Create for SQL aggregations
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         indexrelid: pg_sys::Oid,
-        base_query: &SearchQueryInput,
-        aggregate_types: &[AggregateType],
-        grouping_columns: &[GroupingColumn],
-        orderby_info: &[OrderByInfo],
+        qparams: &AggQueryParams,
         solve_mvcc: bool,
         memory_limit: u64,
         bucket_limit: u32,
@@ -150,10 +155,10 @@ impl ParallelAggregation {
                 memory_limit,
                 bucket_limit,
             },
-            base_query_bytes: serde_json::to_vec(base_query)?,
-            aggregate_types_bytes: serde_json::to_vec(aggregate_types)?,
-            grouping_columns_bytes: serde_json::to_vec(grouping_columns)?,
-            orderby_info_bytes: serde_json::to_vec(orderby_info)?,
+            base_query_bytes: serde_json::to_vec(qparams.base_query)?,
+            aggregate_types_bytes: serde_json::to_vec(qparams.aggregate_types)?,
+            grouping_columns_bytes: serde_json::to_vec(qparams.grouping_columns)?,
+            orderby_info_bytes: serde_json::to_vec(qparams.orderby_info)?,
             agg_json_bytes: Vec::new(), // Empty for filter aggregations
             segment_ids,
             ambulkdelete_epoch,
@@ -302,17 +307,23 @@ impl<'a> ParallelAggregationWorker<'a> {
             let schema = indexrel
                 .schema()
                 .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
-            build_aggregation_query(
-                &self.base_query,
-                &self.aggregate_types,
-                &self.grouping_columns,
-                &self.orderby_info,
-                &schema,
-                &reader,
-                &indexrel,
-                standalone_context.as_ptr(),
-            )
-            .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
+
+            let qparams = AggQueryParams {
+                base_query: &self.base_query,
+                aggregate_types: &self.aggregate_types,
+                grouping_columns: &self.grouping_columns,
+                orderby_info: &self.orderby_info,
+            };
+
+            let qctx = QueryContext {
+                schema: &schema,
+                reader: &reader,
+                index: &indexrel,
+                context: standalone_context.as_ptr(),
+            };
+
+            build_aggregation_query(&qctx, &qparams)
+                .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
         };
 
         let base_collector = DistributedAggregationCollector::from_aggs(
@@ -445,44 +456,36 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 /// Supports parallel execution.
 ///
 /// # Arguments
-/// * `base_query` - WHERE clause (defines document set to aggregate)
-/// * `aggregate_types` - Aggregates with optional FILTER clauses  
-/// * `grouping_columns` - GROUP BY columns (empty for simple aggregations)
-/// * `orderby_info` - ORDER BY clauses for GROUP BY (empty for simple aggregations or no ordering)
+/// * `index` - Postgres relation to aggregate over
+/// * `qparams` - SQL aggregation query parameters (base_query, aggregate_types, grouping_columns, orderby_info)
 /// * `solve_mvcc` - Apply MVCC visibility filtering
 /// * `memory_limit` - Max memory for aggregation (typically work_mem)
 /// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
 ///
 /// # Returns
 /// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
-#[allow(clippy::too_many_arguments)]
 pub fn execute_aggregation(
     index: &PgSearchRelation,
-    base_query: &SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
-    orderby_info: &[OrderByInfo],
+    qparams: &AggQueryParams,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
-        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
+        open_index_for_aggregation(index, qparams.base_query, MvccSatisfies::Snapshot)?;
 
     let schema = index
         .schema()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    let aggregations = build_aggregation_query(
-        base_query,
-        aggregate_types,
-        grouping_columns,
-        orderby_info,
-        &schema,
-        &reader,
+    let qctx = QueryContext {
+        schema: &schema,
+        reader: &reader,
         index,
-        standalone_context.as_ptr(),
-    )?;
+        context: standalone_context.as_ptr(),
+    };
+
+    let aggregations = build_aggregation_query(&qctx, qparams)?;
 
     // Determine if we can use parallel execution
     let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
@@ -492,10 +495,7 @@ pub fn execute_aggregation(
         // Parallel execution
         let process = ParallelAggregation::new(
             index.oid(),
-            base_query,
-            aggregate_types,
-            grouping_columns,
-            orderby_info,
+            qparams,
             solve_mvcc,
             memory_limit,
             bucket_limit,
@@ -512,7 +512,7 @@ pub fn execute_aggregation(
     // Sequential execution (or fallback from parallel)
     execute_sequential(
         aggregations,
-        base_query,
+        qparams.base_query,
         ambulkdelete_epoch,
         segment_ids,
         index.oid(),
@@ -681,26 +681,18 @@ pub fn execute_aggregate_json(
 /// Build Tantivy aggregations with consistent FilterAggregation structure
 /// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
 /// This ensures result processing is unified and simple
-#[allow(clippy::too_many_arguments)]
 fn build_aggregation_query(
-    base_query: &crate::query::SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
-    orderby_info: &[OrderByInfo],
-    schema: &crate::schema::SearchIndexSchema,
-    reader: &crate::index::reader::index::SearchIndexReader,
-    index: &crate::postgres::rel::PgSearchRelation,
-    context: *mut pg_sys::ExprContext,
+    qctx: &QueryContext,
+    qparams: &AggQueryParams,
 ) -> Result<Aggregations, Box<dyn Error>> {
     let mut result = HashMap::new();
-    let base_query_tantivy =
-        SearchQueryInput::to_tantivy_query(Some(base_query), schema, reader, index, context)?;
+    let base_query_tantivy = SearchQueryInput::to_tantivy_query(qctx, Some(qparams.base_query))?;
 
     // Build nested terms structure if we have grouping columns
-    let nested_terms = if !grouping_columns.is_empty() {
+    let nested_terms = if !qparams.grouping_columns.is_empty() {
         Some(build_nested_terms(
-            grouping_columns,
-            orderby_info,
+            qparams.grouping_columns,
+            qparams.orderby_info,
             HashMap::new(),
         )?)
     } else {
@@ -718,20 +710,14 @@ fn build_aggregation_query(
     );
 
     // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
-    for (idx, agg) in aggregate_types.iter().enumerate() {
-        let query = SearchQueryInput::to_tantivy_query(
-            agg.filter_expr().as_ref(),
-            schema,
-            reader,
-            index,
-            context,
-        )?;
+    for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
+        let query = SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())?;
         let base = AggregateType::to_tantivy_agg(agg)?;
 
         let sub_aggs = if nested_terms.is_some() {
             // GROUP BY: filter -> grouped -> buckets -> metric
             let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(grouping_columns, orderby_info, metric_leaf)?
+            build_nested_terms(qparams.grouping_columns, qparams.orderby_info, metric_leaf)?
         } else {
             // No GROUP BY: filter -> filtered_agg (metric)
             HashMap::from([("filtered_agg".to_string(), base)])

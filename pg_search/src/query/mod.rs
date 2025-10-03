@@ -53,6 +53,14 @@ use tantivy::{
 };
 use thiserror::Error;
 
+/// Bundle of context parameters for query conversion
+pub struct QueryContext<'a> {
+    pub schema: &'a SearchIndexSchema,
+    pub reader: &'a SearchIndexReader,
+    pub index: &'a PgSearchRelation,
+    pub context: *mut pg_sys::ExprContext,
+}
+
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -907,25 +915,22 @@ impl SearchQueryInput {
 
     /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
     pub fn to_tantivy_query(
+        qctx: &QueryContext,
         filter: Option<&SearchQueryInput>,
-        schema: &SearchIndexSchema,
-        reader: &SearchIndexReader,
-        index: &PgSearchRelation,
-        context: *mut pg_sys::ExprContext,
     ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
         Ok(match filter {
             Some(query) => query.clone().into_tantivy_query(
-                schema,
+                qctx.schema,
                 &|| {
                     tantivy::query::QueryParser::for_index(
-                        reader.searcher().index(),
-                        schema.fields().map(|(f, _)| f).collect(),
+                        qctx.reader.searcher().index(),
+                        qctx.schema.fields().map(|(f, _)| f).collect(),
                     )
                 },
-                reader.searcher(),
-                index.oid(),
-                index.heap_relation().map(|r| r.oid()),
-                std::ptr::NonNull::new(context),
+                qctx.reader.searcher(),
+                qctx.index.oid(),
+                qctx.index.heap_relation().map(|r| r.oid()),
+                std::ptr::NonNull::new(qctx.context),
                 None,
             )?,
             None => Box::new(tantivy::query::AllQuery),

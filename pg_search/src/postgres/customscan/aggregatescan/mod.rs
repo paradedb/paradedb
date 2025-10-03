@@ -899,12 +899,16 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
+    let qparams = crate::aggregate::AggQueryParams {
+        base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
+        aggregate_types: &state.custom_state().aggregate_types,
+        grouping_columns: &state.custom_state().grouping_columns,
+        orderby_info: &state.custom_state().orderby_info,
+    };
+
     let result = execute_aggregation(
         state.custom_state().indexrel(),
-        &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
-        &state.custom_state().aggregate_types,
-        &state.custom_state().grouping_columns,
-        &state.custom_state().orderby_info,
+        &qparams,
         true,                                              // solve_mvcc
         gucs::adjust_work_mem().get().try_into().unwrap(), // memory_limit
         DEFAULT_BUCKET_LIMIT,                              // bucket_limit

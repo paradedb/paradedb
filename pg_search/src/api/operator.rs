@@ -34,6 +34,7 @@ use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::nodecast;
+use crate::postgres::catalog::lookup_type_name;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
 use crate::postgres::var::{
@@ -44,6 +45,7 @@ use crate::query::proximity::ProximityClause;
 use crate::query::SearchQueryInput;
 use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
@@ -385,8 +387,9 @@ unsafe fn request_simplify<ConstRewrite, ExecRewrite>(
     exec_rewrite: ExecRewrite,
 ) -> Option<ReturnedNodePointer>
 where
-    ConstRewrite: FnOnce(Option<FieldName>, RHSValue) -> SearchQueryInput,
-    ExecRewrite: FnOnce(Option<FieldName>, *mut pg_sys::Node) -> pg_sys::FuncExpr,
+    ConstRewrite: FnOnce(*mut pg_sys::Node, Option<FieldName>, RHSValue) -> SearchQueryInput,
+    ExecRewrite:
+        FnOnce(Option<FieldName>, *mut pg_sys::Node, *mut pg_sys::Node) -> pg_sys::FuncExpr,
 {
     let srs = nodecast!(SupportRequestSimplify, T_SupportRequestSimplify, arg)?;
     if (*srs).root.is_null() {
@@ -403,6 +406,7 @@ where
         const_rewrite,
         exec_rewrite,
         search_query_input_typoid,
+        lhs,
         rhs,
         field,
     );
@@ -528,12 +532,14 @@ unsafe fn rewrite_rhs_to_search_query_input<ConstRewrite, ExecRewrite>(
     const_rewrite: ConstRewrite,
     exec_rewrite: ExecRewrite,
     search_query_input_typoid: pg_sys::Oid,
+    lhs: *mut pg_sys::Node,
     rhs: *mut pg_sys::Node,
     field: Option<FieldName>,
 ) -> *mut pg_sys::Node
 where
-    ConstRewrite: FnOnce(Option<FieldName>, RHSValue) -> SearchQueryInput,
-    ExecRewrite: FnOnce(Option<FieldName>, *mut pg_sys::Node) -> pg_sys::FuncExpr,
+    ConstRewrite: FnOnce(*mut pg_sys::Node, Option<FieldName>, RHSValue) -> SearchQueryInput,
+    ExecRewrite:
+        FnOnce(Option<FieldName>, *mut pg_sys::Node, *mut pg_sys::Node) -> pg_sys::FuncExpr,
 {
     let rhs: *mut pg_sys::Node = if get_expr_result_type(rhs) == search_query_input_typoid {
         // the rhs is already of type SearchQueryInput, so we can use it directly
@@ -592,12 +598,12 @@ where
             other => panic!("operator does not support rhs type {other}"),
         };
 
-        let query: *mut pg_sys::Const = const_rewrite(field, rhs_value).into();
+        let query: *mut pg_sys::Const = const_rewrite(lhs, field, rhs_value).into();
         query.cast()
     } else {
         // the rhs is a complex expression that needs to be evaluated at runtime
         // but its return type is not SearchQueryInput, so we need to rewrite it
-        exec_rewrite(field, rhs).palloc().cast()
+        exec_rewrite(field, lhs, rhs).palloc().cast()
     };
     rhs
 }
@@ -645,6 +651,30 @@ unsafe fn attname_from_var(heaprel: &PgSearchRelation, var: *mut pg_sys::Var) ->
             .map(|attribute| attribute.name().into())
     };
     attname
+}
+
+#[track_caller]
+#[inline]
+unsafe fn validate_lhs_type_as_text_compatible(lhs: *mut pg_sys::Node, operator_name: &str) {
+    #[inline]
+    pub fn type_is_text_compatible(oid: pg_sys::Oid) -> bool {
+        oid == pg_sys::TEXTOID
+            || oid == pg_sys::VARCHAROID
+            || oid == pg_sys::TEXTARRAYOID
+            || oid == pg_sys::VARCHARARRAYOID
+            || type_is_tokenizer(oid)
+    }
+
+    let typoid = pg_sys::exprType(lhs);
+    if !type_is_text_compatible(typoid) {
+        let typname = lookup_type_name(typoid).unwrap_or_else(|| String::from("<unknown type>"));
+        ErrorReport::new(
+            PgSqlErrorCode::ERRCODE_SYNTAX_ERROR,
+            format!("type `{typname}` is not compatible with the `{operator_name}` operator"),
+            function_name!(),
+        )
+        .report(PgLogLevel::ERROR);
+    }
 }
 
 extension_sql!(

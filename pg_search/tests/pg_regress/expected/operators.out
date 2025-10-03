@@ -373,42 +373,42 @@ SELECT * FROM regress.mock_items WHERE category === 'footwear' ORDER BY id;
 -- these will all produce an error
 --
 SELECT * FROM regress.mock_items WHERE id &&& '42';
-ERROR:  operator does not exist: integer &&& unknown at character 43
+ERROR:  type `int4` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE sku &&& 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid &&& unknown at character 44
+ERROR:  type `uuid` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE in_stock &&& 'true';
-ERROR:  operator does not exist: boolean &&& unknown at character 49
+ERROR:  type `bool` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date &&& now()::date::text;
-ERROR:  operator does not exist: date &&& text at character 58
+ERROR:  type `date` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time &&& now()::date::text;
-ERROR:  operator does not exist: time without time zone &&& text at character 62
+ERROR:  type `time` is not compatible with the `&&&` operator
 SELECT * FROM regress.mock_items WHERE id ||| '42';
-ERROR:  operator does not exist: integer ||| unknown at character 43
+ERROR:  type `int4` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE sku ||| 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid ||| unknown at character 44
+ERROR:  type `uuid` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE in_stock ||| 'true';
-ERROR:  operator does not exist: boolean ||| unknown at character 49
+ERROR:  type `bool` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date ||| now()::date::text;
-ERROR:  operator does not exist: date ||| text at character 58
+ERROR:  type `date` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time ||| now()::date::text;
-ERROR:  operator does not exist: time without time zone ||| text at character 62
+ERROR:  type `time` is not compatible with the `|||` operator
 SELECT * FROM regress.mock_items WHERE id ### '42';
-ERROR:  operator does not exist: integer ### unknown at character 43
+ERROR:  type `int4` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE sku ### 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid ### unknown at character 44
+ERROR:  type `uuid` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE in_stock ### 'true';
-ERROR:  operator does not exist: boolean ### unknown at character 49
+ERROR:  type `bool` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date ### now()::date::text;
-ERROR:  operator does not exist: date ### text at character 58
+ERROR:  type `date` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time ### now()::date::text;
-ERROR:  operator does not exist: time without time zone ### text at character 62
+ERROR:  type `time` is not compatible with the `###` operator
 SELECT * FROM regress.mock_items WHERE id === '42';
-ERROR:  operator does not exist: integer === unknown at character 43
+ERROR:  type `int4` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE sku === 'da2fea21-000e-411b-9e8c-2cb64e471293';
-ERROR:  operator does not exist: uuid === unknown at character 44
+ERROR:  type `uuid` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE in_stock === 'true';
-ERROR:  operator does not exist: boolean === unknown at character 49
+ERROR:  type `bool` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE last_updated_date === now()::date::text;
-ERROR:  operator does not exist: date === text at character 58
+ERROR:  type `date` is not compatible with the `===` operator
 SELECT * FROM regress.mock_items WHERE latest_available_time === now()::date::text;
-ERROR:  operator does not exist: time without time zone === text at character 62
+ERROR:  type `time` is not compatible with the `===` operator

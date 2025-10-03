@@ -18,7 +18,8 @@ use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
+    get_expr_result_type, request_simplify, searchqueryinput_typoid,
+    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
@@ -67,7 +68,8 @@ fn search_with_phrase_slop(_field: AnyElement, terms_to_tokenize: SlopType) -> b
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, to_tokenize| {
+        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |lhs, field, to_tokenize| {
+            validate_lhs_type_as_text_compatible(lhs, "###");
             let field = field
                 .expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
             match to_tokenize {
@@ -93,7 +95,8 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
 
                 _ => panic!("The right-hand side of the `###(field, TEXT)` operator must be a text value."),
             }
-        }, |field, rhs| {
+        }, |field, lhs, rhs| {
+            validate_lhs_type_as_text_compatible(lhs, "###");
             let field = field.expect("The left hand side of the `###(field, TEXT)` operator must be a field.");
             assert!(get_expr_result_type(rhs) == pg_sys::TEXTOID, "The right-hand side of the `###(field, TEXT)` operator must be a text value");
             let mut args = PgList::<pg_sys::Node>::new();

@@ -18,7 +18,8 @@ use crate::api::builder_fns::{term_set_str, term_str};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
-    get_expr_result_type, request_simplify, searchqueryinput_typoid, RHSValue, ReturnedNodePointer,
+    get_expr_result_type, request_simplify, searchqueryinput_typoid,
+    validate_lhs_type_as_text_compatible, RHSValue, ReturnedNodePointer,
 };
 use crate::query::pdb_query::{pdb, to_search_query_input};
 use pgrx::{
@@ -59,23 +60,25 @@ fn search_with_term_fuzzy(_field: AnyElement, term: FuzzyType) -> bool {
 #[pg_extern(immutable, parallel_safe)]
 fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
-        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |field, term| {
+        request_simplify(arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(), |lhs, field, term| {
+            validate_lhs_type_as_text_compatible(lhs, "===");
+
             let field = field
                 .expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
 
             match term {
                 RHSValue::Text(term) => to_search_query_input(field, term_str(term)),
                 RHSValue::TextArray(terms) => to_search_query_input(field, term_set_str(terms)),
-                RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
+                RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
                     let mut query = *query;
-                    if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
+                    if let pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data } = query {
                         query = term_str(string);
                         query.apply_fuzzy_data(fuzzy_data);
                         query.apply_slop_data(slop_data);
                     }
-                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost})
+                    to_search_query_input(field, pdb::Query::Boost { query: Box::new(query), boost })
                 }
-                RHSValue::PdbQuery(pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data}) => {
+                RHSValue::PdbQuery(pdb::Query::UnclassifiedString { string, fuzzy_data, slop_data }) => {
                     let mut query = term_str(string);
                     query.apply_fuzzy_data(fuzzy_data);
                     query.apply_slop_data(slop_data);
@@ -83,11 +86,12 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 }
                 _ => unreachable!("The right-hand side of the `===(field, TEXT)` operator must be a text or text array value")
             }
-        }, |field, rhs| {
+        }, |field, lhs, rhs| {
+            validate_lhs_type_as_text_compatible(lhs, "===");
             let field = field.expect("The left hand side of the `===(field, TEXT)` operator must be a field.");
             let expr_type = get_expr_result_type(rhs);
             assert!({
-                expr_type  == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
+                        expr_type == pg_sys::TEXTOID || expr_type == pg_sys::VARCHAROID || expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID
                     }, "The right-hand side of the `===(field, TEXT)` operator must be a text or text array value");
             let is_array = expr_type == pg_sys::TEXTARRAYOID || expr_type == pg_sys::VARCHARARRAYOID;
 
@@ -120,7 +124,7 @@ fn search_with_term_support(arg: Internal) -> ReturnedNodePointer {
                 location: -1,
             }
         })
-        .unwrap_or(ReturnedNodePointer(None))
+            .unwrap_or(ReturnedNodePointer(None))
     }
 }
 

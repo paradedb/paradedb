@@ -36,6 +36,45 @@ extern "C-unwind" {
     pub fn IsTransactionState() -> bool;
 }
 
+/// RAII guard for PostgreSQL standalone expression context
+/// Automatically frees the context when dropped
+///
+/// # Example
+/// ```rust,no_run
+/// use pg_search::postgres::utils::ExprContextGuard;
+///
+/// let context_guard = ExprContextGuard::new();
+/// // Use context_guard.as_ptr() to get the raw pointer
+/// // Context is automatically freed when context_guard goes out of scope
+/// ```
+pub struct ExprContextGuard(*mut pg_sys::ExprContext);
+
+impl ExprContextGuard {
+    /// Creates a new standalone expression context
+    pub fn new() -> Self {
+        unsafe { Self(pg_sys::CreateStandaloneExprContext()) }
+    }
+
+    /// Returns the raw pointer to the expression context
+    pub fn as_ptr(&self) -> *mut pg_sys::ExprContext {
+        self.0
+    }
+}
+
+impl Drop for ExprContextGuard {
+    fn drop(&mut self) {
+        unsafe {
+            pg_sys::FreeExprContext(self.0, true);
+        }
+    }
+}
+
+impl Default for ExprContextGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// TransactionIdPrecedesOrEquals --- is id1 logically <= id2?
 ///
 /// Ported to rust from the Postgres sources to avoid the pgrx FFI overhead

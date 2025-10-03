@@ -121,10 +121,7 @@ impl AggregateType {
         };
 
         match self.filter_expr() {
-            Some(filter) => format!(
-                "{base} FILTER (WHERE {})",
-                filter.serialize_and_clean_query()
-            ),
+            Some(filter) => format!("{base} FILTER (WHERE {})", filter.canonical_query_string()),
             None => base,
         }
     }

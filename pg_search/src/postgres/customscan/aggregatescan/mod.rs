@@ -563,10 +563,7 @@ fn explain_execution_strategy(
                 .custom_state()
                 .query
                 .combine_query_with_filter(filter_expr.as_ref());
-            explainer.add_text(
-                "  Combined Query",
-                combined_query.serialize_and_clean_query(),
-            );
+            explainer.add_text("  Combined Query", combined_query.canonical_query_string());
             explainer.add_text(
                 "  Applies to Aggregates",
                 AggregateType::format_aggregates(
@@ -595,7 +592,7 @@ fn explain_execution_strategy(
             } else {
                 format!("  Group {} Query (No Filter)", group_idx + 1)
             };
-            explainer.add_text(&query_label, combined_query.serialize_and_clean_query());
+            explainer.add_text(&query_label, combined_query.canonical_query_string());
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
                 AggregateType::format_aggregates(
@@ -758,7 +755,7 @@ fn extract_aggregates(
                 // Group aggregates by their filter expression during extraction
                 let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
                     // This is the most reliable way to get a deterministic filter key
-                    filter_expr.serialize_and_clean_query()
+                    filter_expr.canonical_query_string()
                 } else {
                     NO_FILTER_KEY.to_string()
                 };

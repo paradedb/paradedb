@@ -426,7 +426,7 @@ impl SearchQueryInput {
         }
     }
 
-    pub fn serialize_and_clean_query(&self) -> String {
+    pub fn canonical_query_string(&self) -> String {
         let mut cleaned_query = serde_json::to_value(self)
             .unwrap_or_else(|_| serde_json::Value::String(ERROR_SERIALIZING_QUERY.to_string()));
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);

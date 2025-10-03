@@ -565,33 +565,26 @@ impl AggregateScanState {
     }
 
     /// Process grouped aggregation results (with GROUP BY)
-    /// Handles the various GROUP BY result structures from Tantivy
+    /// All GROUP BY queries use: filter_sentinel/filter_X -> grouped -> buckets
     fn process_grouped_aggregation_results(
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        let mut rows = Vec::new();
-
-        // Handle empty results for GROUP BY queries
+        // Handle empty results
         if result.is_null() || (result.is_object() && result.as_object().unwrap().is_empty()) {
-            return rows;
+            return Vec::new();
         }
 
-        // Check if we have filter_X keys (FilterAggregation structure)
-        if let Some(result_obj) = result.as_object() {
-            let has_filter_keys = result_obj.keys().any(|k| k.starts_with("filter_"));
+        // All GROUP BY queries use FilterAggregation structure
+        let result_obj = result
+            .as_object()
+            .expect("GROUP BY results should be an object");
 
-            if has_filter_keys {
-                // New structure: filter_X -> grouped -> buckets
-                // Transform to group_0 -> buckets for processing
-                let transformed = self.transform_filter_aggregation_to_group_structure(result_obj);
-                return self.extract_bucket_results_from_transformed(&transformed);
-            }
-        }
+        // Transform filter_X -> grouped structure to group_0 -> buckets for processing
+        let transformed = self.transform_filter_aggregation_to_group_structure(result_obj);
+        let rows = self.extract_bucket_results_from_transformed(&transformed);
 
-        // Fallback: Standard group_X structure (GROUP BY without aggregates)
-        self.extract_bucket_results(&result, 0, &mut Vec::new(), &mut rows, None);
-
+        // Check for truncation
         if self.maybe_truncated && self.was_truncated(&result) {
             ErrorReport::new(
                 PgSqlErrorCode::ERRCODE_PROGRAM_LIMIT_EXCEEDED,

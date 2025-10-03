@@ -654,8 +654,9 @@ pub fn execute_aggregate_json(
     )
 }
 
-/// Build Tantivy aggregations with FilterAggregation wrappers
-/// Handles all cases: simple aggregates, GROUP BY, and GROUP BY without aggregates
+/// Build Tantivy aggregations with consistent FilterAggregation structure
+/// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
+/// This ensures result processing is unified and simple
 fn build_aggregation_query(
     base_query: &crate::query::SearchQueryInput,
     aggregate_types: &[AggregateType],
@@ -665,68 +666,28 @@ fn build_aggregation_query(
     index: &crate::postgres::rel::PgSearchRelation,
     context: *mut pg_sys::ExprContext,
 ) -> Result<Aggregations, Box<dyn Error>> {
-    // Helper closure to wrap aggregation in FilterAggregation
-    let wrap_in_filter = |name: String, query, sub_aggs| -> (String, Aggregation) {
-        (
-            name,
-            Aggregation {
-                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(query)),
-                sub_aggregation: Aggregations::from(sub_aggs),
-            },
-        )
-    };
-
-    // Special case: GROUP BY without aggregates - just build nested terms
-    if aggregate_types.is_empty() && !grouping_columns.is_empty() {
-        let mut result = HashMap::new();
-        for (i, col) in grouping_columns.iter().enumerate().rev() {
-            let terms_agg = Aggregation {
-                agg: serde_json::from_value(serde_json::json!({
-                    "terms": {"field": col.field_name, "size": 65000, "segment_size": 65000}
-                }))?,
-                sub_aggregation: result,
-            };
-            result = HashMap::from([(format!("group_{i}"), terms_agg)]);
-        }
-        return Ok(Aggregations::from(result));
-    }
-
-    // Simple aggregates (no GROUP BY): filter_0, filter_1, ...
-    if grouping_columns.is_empty() {
-        let mut result = HashMap::new();
-        for (idx, agg) in aggregate_types.iter().enumerate() {
-            let query = SearchQueryInput::to_tantivy_query(
-                agg.filter_expr().as_ref(),
-                schema,
-                reader,
-                index,
-                context,
-            )?;
-            let base = AggregateType::to_tantivy_agg(agg)?;
-            let sub_aggs = HashMap::from([("filtered_agg".to_string(), base)]);
-            let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, sub_aggs);
-            result.insert(name, filter_agg);
-        }
-        return Ok(Aggregations::from(result));
-    }
-
-    // GROUP BY with aggregates: add sentinel + filter_0, filter_1, ...
-    // Sentinel ensures ALL groups appear (even those with no matching filtered aggregates)
     let mut result = HashMap::new();
-
-    // Sentinel: FilterAggregation(base_query) -> nested terms
     let base_query_tantivy =
         SearchQueryInput::to_tantivy_query(Some(base_query), schema, reader, index, context)?;
-    let sentinel_terms = build_nested_terms(grouping_columns, HashMap::new())?;
+
+    // Build nested terms structure if we have grouping columns
+    let nested_terms = if !grouping_columns.is_empty() {
+        Some(build_nested_terms(grouping_columns, HashMap::new())?)
+    } else {
+        None
+    };
+
+    // Sentinel filter: always present, ensures we get ALL groups (or single row for simple aggs)
+    // Uses base_query to match all documents in the WHERE clause
     result.insert(
         "filter_sentinel".to_string(),
         Aggregation {
             agg: AggregationVariants::Filter(FilterAggregation::new_with_query(base_query_tantivy)),
-            sub_aggregation: Aggregations::from(sentinel_terms),
+            sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
         },
     );
 
-    // Each aggregate: FilterAggregation(filter) -> nested terms -> metric
+    // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
     for (idx, agg) in aggregate_types.iter().enumerate() {
         let query = SearchQueryInput::to_tantivy_query(
             agg.filter_expr().as_ref(),
@@ -736,11 +697,23 @@ fn build_aggregation_query(
             context,
         )?;
         let base = AggregateType::to_tantivy_agg(agg)?;
-        let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-        let terms_structure = build_nested_terms(grouping_columns, metric_leaf)?;
 
-        let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, terms_structure);
-        result.insert(name, filter_agg);
+        let sub_aggs = if nested_terms.is_some() {
+            // GROUP BY: filter -> grouped -> buckets -> metric
+            let metric_leaf = HashMap::from([(idx.to_string(), base)]);
+            build_nested_terms(grouping_columns, metric_leaf)?
+        } else {
+            // No GROUP BY: filter -> filtered_agg (metric)
+            HashMap::from([("filtered_agg".to_string(), base)])
+        };
+
+        result.insert(
+            format!("filter_{idx}"),
+            Aggregation {
+                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(query)),
+                sub_aggregation: Aggregations::from(sub_aggs),
+            },
+        );
     }
 
     Ok(Aggregations::from(result))

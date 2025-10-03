@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::phrase_string;
+use crate::api::builder_fns::{phrase_array, phrase_string};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::slop::SlopType;
 use crate::api::operator::{
@@ -32,6 +32,12 @@ fn search_with_phrase(_field: &str, terms_to_tokenize: &str) -> bool {
     panic!(
         "query is incompatible with pg_search's `###(field, TEXT)` operator: `{terms_to_tokenize}`"
     )
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.###)]
+fn search_with_phrase_array(_field: &str, tokens: Vec<String>) -> bool {
+    panic!("query is incompatible with pg_search's `###(field, TEXT[])` operator: `{tokens:?}`")
 }
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
@@ -68,6 +74,9 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::Text(text) => {
                     to_search_query_input(field, phrase_string(text))
                 },
+                RHSValue::TextArray(tokens) => {
+                    to_search_query_input(field, phrase_array(tokens))
+                }
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
                     let mut query = *query;
                     if let pdb::Query::UnclassifiedString {string, slop_data, ..} = query {
@@ -116,6 +125,7 @@ fn search_with_phrase_support(arg: Internal) -> ReturnedNodePointer {
 extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_phrase SUPPORT paradedb.search_with_phrase_support;
+        ALTER FUNCTION paradedb.search_with_phrase_array SUPPORT paradedb.search_with_phrase_support;
         ALTER FUNCTION paradedb.search_with_phrase_pdb_query SUPPORT paradedb.search_with_phrase_support;
         ALTER FUNCTION paradedb.search_with_phrase_boost SUPPORT paradedb.search_with_phrase_support;
         ALTER FUNCTION paradedb.search_with_phrase_slop SUPPORT paradedb.search_with_phrase_support;
@@ -123,6 +133,7 @@ extension_sql!(
     name = "search_with_phrase_support_fn",
     requires = [
         search_with_phrase,
+        search_with_phrase_array,
         search_with_phrase_pdb_query,
         search_with_phrase_boost,
         search_with_phrase_support

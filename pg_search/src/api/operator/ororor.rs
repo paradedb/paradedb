@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::match_disjunction;
+use crate::api::builder_fns::{match_disjunction, match_disjunction_array};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
@@ -33,6 +33,15 @@ fn search_with_match_disjunction(_field: &str, terms_to_tokenize: &str) -> bool 
         "query is incompatible with pg_search's `|||(field, TEXT)` operator: `{terms_to_tokenize}`"
     )
 }
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.|||)]
+fn search_with_match_disjunction_array(_field: &str, exact_tokens: Vec<String>) -> bool {
+    panic!(
+        "query is incompatible with pg_search's `|||(field, TEXT[])` operator: `{exact_tokens:?}`"
+    )
+}
+
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.|||)]
 fn search_with_match_disjunction_pdb_query(_field: &str, terms_to_tokenize: pdb::Query) -> bool {
@@ -64,6 +73,9 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
                 RHSValue::Text(text) => {
                     to_search_query_input(field, match_disjunction(text))
                 },
+                RHSValue::TextArray(tokens) => {
+                    to_search_query_input(field, match_disjunction_array(tokens))
+                }
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost}) => {
                     let mut query = *query;
                     if let pdb::Query::UnclassifiedString {string, fuzzy_data, slop_data} = query {
@@ -114,6 +126,7 @@ fn search_with_match_disjunction_support(arg: Internal) -> ReturnedNodePointer {
 extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_match_disjunction SUPPORT paradedb.search_with_match_disjunction_support;
+        ALTER FUNCTION paradedb.search_with_match_disjunction_array SUPPORT paradedb.search_with_match_disjunction_support;
         ALTER FUNCTION paradedb.search_with_match_disjunction_pdb_query SUPPORT paradedb.search_with_match_disjunction_support;
         ALTER FUNCTION paradedb.search_with_match_disjunction_boost SUPPORT paradedb.search_with_match_disjunction_support;
         ALTER FUNCTION paradedb.search_with_match_disjunction_fuzzy SUPPORT paradedb.search_with_match_disjunction_support;
@@ -121,6 +134,7 @@ extension_sql!(
     name = "search_with_match_disjunction_support_fn",
     requires = [
         search_with_match_disjunction,
+        search_with_match_disjunction_array,
         search_with_match_disjunction_pdb_query,
         search_with_match_disjunction_boost,
         search_with_match_disjunction_fuzzy,

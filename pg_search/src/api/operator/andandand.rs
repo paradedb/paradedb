@@ -14,7 +14,7 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
-use crate::api::builder_fns::match_conjunction;
+use crate::api::builder_fns::{match_conjunction, match_conjunction_array};
 use crate::api::operator::boost::BoostType;
 use crate::api::operator::fuzzy::FuzzyType;
 use crate::api::operator::{
@@ -31,6 +31,14 @@ use pgrx::{
 fn search_with_match_conjunction(_field: &str, terms_to_tokenize: &str) -> bool {
     panic!(
         "query is incompatible with pg_search's `&&&(field, TEXT)` operator: `{terms_to_tokenize}`"
+    )
+}
+
+#[pg_operator(immutable, parallel_safe, cost = 1000000000)]
+#[opname(pg_catalog.&&&)]
+fn search_with_match_conjunction_array(_field: &str, exact_tokens: Vec<String>) -> bool {
+    panic!(
+        "query is incompatible with pg_search's `&&&(field, TEXT[])` operator: `{exact_tokens:?}`"
     )
 }
 
@@ -66,6 +74,9 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
             match to_tokenize {
                 RHSValue::Text(text) => {
                     to_search_query_input(field, match_conjunction(text))
+                }
+                RHSValue::TextArray(tokens) => {
+                    to_search_query_input(field, match_conjunction_array(tokens))
                 }
                 RHSValue::PdbQuery(pdb::Query::Boost { query, boost }) => {
                     let mut query = *query;
@@ -117,6 +128,7 @@ fn search_with_match_conjunction_support(arg: Internal) -> ReturnedNodePointer {
 extension_sql!(
     r#"
         ALTER FUNCTION paradedb.search_with_match_conjunction SUPPORT paradedb.search_with_match_conjunction_support;
+        ALTER FUNCTION paradedb.search_with_match_conjunction_array SUPPORT paradedb.search_with_match_conjunction_support;
         ALTER FUNCTION paradedb.search_with_match_conjunction_pdb_query SUPPORT paradedb.search_with_match_conjunction_support;
         ALTER FUNCTION paradedb.search_with_match_conjunction_boost SUPPORT paradedb.search_with_match_conjunction_support;
         ALTER FUNCTION paradedb.search_with_match_conjunction_fuzzy SUPPORT paradedb.search_with_match_conjunction_support;
@@ -124,6 +136,7 @@ extension_sql!(
     name = "search_with_match_conjunction_support_fn",
     requires = [
         search_with_match_conjunction,
+        search_with_match_conjunction_array,
         search_with_match_conjunction_pdb_query,
         search_with_match_conjunction_boost,
         search_with_match_conjunction_fuzzy,

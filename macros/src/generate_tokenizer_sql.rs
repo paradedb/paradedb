@@ -41,7 +41,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
 
     let pgrx_cast_to_text_array_name = format!("{}_cast_to_text_array", sql_name.value());
     let create_cast_to_text_array = format!(
-        "CREATE CAST ({sql_name} AS TEXT[]) WITH FUNCTION {cast_name} AS ASSIGNMENT;",
+        "CREATE CAST ({sql_name} AS TEXT[]) WITH FUNCTION {cast_name} AS IMPLICIT;",
         sql_name = sql_name.value(),
         cast_name = cast_name
     );

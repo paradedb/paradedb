@@ -330,7 +330,6 @@ impl<'a> ParallelAggregationWorker<'a> {
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-        // standalone_context is automatically freed here
         Ok(Some(intermediate_results))
     }
 }
@@ -442,7 +441,6 @@ pub fn execute_aggregation(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    // Open index and build aggregations once
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
 
@@ -600,6 +598,58 @@ fn execute_sequential(
     }
 }
 
+/// Execute aggregations from JSON (legacy API used by aggregate() SQL function)
+///
+/// This is for raw Tantivy aggregation JSON without SQL FILTER clause support.
+/// Uses ParallelAggregation infrastructure which can serialize Aggregations directly
+/// (works because legacy JSON API doesn't contain Query objects).
+pub fn execute_aggregate_json(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    agg_json: serde_json::Value,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let (_reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, query, MvccSatisfies::Snapshot)?;
+
+    let agg_req: Aggregations = serde_json::from_value(agg_json)?;
+
+    // Determine if we can use parallel execution
+    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
+
+    // Execute aggregation (parallel or sequential)
+    if can_use_parallel {
+        let process = ParallelAggregation::new_json(
+            index.oid(),
+            query,
+            &agg_req,
+            solve_mvcc,
+            memory_limit,
+            bucket_limit,
+            segment_ids.clone(),
+            ambulkdelete_epoch,
+        )?;
+
+        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
+            return merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit);
+        }
+        // If parallel execution failed, fall through to sequential
+    }
+
+    // Sequential execution (or fallback from parallel)
+    execute_sequential(
+        agg_req,
+        query,
+        ambulkdelete_epoch,
+        segment_ids,
+        index.oid(),
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    )
+}
 /// Helper for converting SearchQueryInput to Tantivy Query
 /// Eliminates duplication of query conversion logic
 struct QueryConverter<'a> {
@@ -797,59 +847,6 @@ fn build_filter_aggregations(
     }
 
     Ok(Aggregations::from(root_aggs))
-}
-
-/// Execute aggregations from JSON (legacy API used by aggregate() SQL function)
-///
-/// This is for raw Tantivy aggregation JSON without SQL FILTER clause support.
-/// Uses ParallelAggregation infrastructure which can serialize Aggregations directly
-/// (works because legacy JSON API doesn't contain Query objects).
-pub fn execute_aggregate_json(
-    index: &PgSearchRelation,
-    query: &SearchQueryInput,
-    agg_json: serde_json::Value,
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    let (_reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
-        open_index_for_aggregation(index, query, MvccSatisfies::Snapshot)?;
-
-    let agg_req: Aggregations = serde_json::from_value(agg_json)?;
-
-    // Determine if we can use parallel execution
-    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
-
-    // Execute aggregation (parallel or sequential)
-    if can_use_parallel {
-        let process = ParallelAggregation::new_json(
-            index.oid(),
-            query,
-            &agg_req,
-            solve_mvcc,
-            memory_limit,
-            bucket_limit,
-            segment_ids.clone(),
-            ambulkdelete_epoch,
-        )?;
-
-        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
-            return merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit);
-        }
-        // If parallel execution failed, fall through to sequential
-    }
-
-    // Sequential execution (or fallback from parallel)
-    execute_sequential(
-        agg_req,
-        query,
-        ambulkdelete_epoch,
-        segment_ids,
-        index.oid(),
-        solve_mvcc,
-        memory_limit,
-        bucket_limit,
-    )
 }
 
 /// Type alias for the return value of open_index_for_aggregation

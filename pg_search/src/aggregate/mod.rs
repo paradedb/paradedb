@@ -268,7 +268,6 @@ impl<'a> ParallelAggregationWorker<'a> {
         if segment_ids.is_empty() {
             return Ok(None);
         }
-
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
         let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };

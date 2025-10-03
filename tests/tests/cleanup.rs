@@ -62,8 +62,10 @@ fn create_and_drop_builtin_index(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn bulk_insert_merge_behavior(mut conn: PgConnection) {
-    r#"
+fn bulk_insert_segments_behavior(mut conn: PgConnection) {
+    let mutable_segments_size = 10;
+    format!(
+        r#"
         SET maintenance_work_mem = '1GB';
         SET work_mem = '1GB';
         DROP TABLE IF EXISTS test_table;
@@ -73,23 +75,30 @@ fn bulk_insert_merge_behavior(mut conn: PgConnection) {
         USING bm25 (id, value)
         WITH (
             key_field = 'id',
-            text_fields = '{
-                "value": {}
-            }'
+            mutable_segments_size = {mutable_segments_size}
         );
     "#
+    )
     .execute(&mut conn);
 
-    "INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, 100000)"
-        .execute(&mut conn);
-
+    // Insert less than the mutable segments size, and confirm that we have 1 segment.
+    format!(
+        "INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, {})",
+        1
+    )
+    .execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;
     assert_eq!(nsegments, 1);
 
-    "INSERT INTO test_table (value) SELECT md5(random()::text)".execute(&mut conn);
-
+    // Insert more than the mutable segments size, and confirm that it fills the first mutable
+    // segment, and then produces one additional (immutable) segment.
+    format!(
+        "INSERT INTO test_table (value) SELECT md5(random()::text) FROM generate_series(1, {})",
+        4 * mutable_segments_size
+    )
+    .execute(&mut conn);
     let nsegments = "SELECT COUNT(*) FROM paradedb.index_info('idxtest_table');"
         .fetch_one::<(i64,)>(&mut conn)
         .0 as usize;

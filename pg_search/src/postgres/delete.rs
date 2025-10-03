@@ -16,13 +16,16 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::index::fast_fields_helper::FFType;
-use crate::index::mvcc::MvccSatisfies;
+use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::block::SegmentMetaEntryContent;
 use crate::postgres::storage::metadata::MetaPage;
 
 use anyhow::Result;
+use pgrx::pg_sys;
 use pgrx::{pg_sys::ItemPointerData, *};
+use tantivy::index::SegmentId;
 use tantivy::indexer::delete_queue::DeleteQueue;
 use tantivy::indexer::{advance_deletes, DeleteOperation, SegmentEntry};
 use tantivy::SegmentMeta;
@@ -83,7 +86,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     let mut new_metas = Vec::new();
 
     let directory = MvccSatisfies::Vacuum.directory(&index_relation);
-    let index = Index::open(directory).unwrap();
+    let index = Index::open(directory.clone()).unwrap();
     let searchable_segment_metas = index.searchable_segment_metas().unwrap();
 
     for segment_reader in reader.segment_readers() {
@@ -101,7 +104,7 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             .iter()
             .find(|meta| meta.id() == segment_id)
             .unwrap_or_else(|| panic!("segment meta not found for segment_id: {segment_id:?}"));
-        let mut deleter = SegmentDeleter::open(segment_meta)
+        let mut deleter = SegmentDeleter::open(&index_relation, &directory, segment_meta)
             .expect("ambulkdelete: should be able to open a SegmentDeleter");
         let ctid_ff = FFType::new_ctid(segment_reader.fast_fields());
         let mut needs_commit = false;
@@ -115,16 +118,18 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
             let ctid = ctid_ff.as_u64(doc_id).expect("ctid should be present");
             if callback(ctid) {
                 needs_commit = true;
-                deleter.delete_document(doc_id);
+                deleter.delete_document(ctid, doc_id);
             }
         }
 
         if needs_commit {
-            let (old_meta, new_meta) = deleter
+            let meta_change = deleter
                 .commit(&index)
                 .expect("ambulkdelete: segment deletercommit should succeed");
-            old_metas.push(old_meta);
-            new_metas.push(new_meta);
+            if let Some((old_meta, new_meta)) = meta_change {
+                old_metas.push(old_meta);
+                new_metas.push(new_meta);
+            }
         }
     }
     // no need to keep the reader around.  Also, it holds a pin on the CLEANUP_LOCK, which
@@ -168,43 +173,93 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     stats.into_pg()
 }
 
-struct SegmentDeleter {
+struct SegmentDeleterImmutable {
     delete_queue: DeleteQueue,
     segment_entry: SegmentEntry,
     opstamp: Opstamp,
 }
 
+struct SegmentDeleterMutable {
+    indexrel: PgSearchRelation,
+    segment_id: SegmentId,
+    deleted_ctids: Vec<u64>,
+}
+
+enum SegmentDeleter {
+    Immutable(SegmentDeleterImmutable),
+    Mutable(SegmentDeleterMutable),
+}
+
 impl SegmentDeleter {
-    pub fn open(segment_meta: &SegmentMeta) -> Result<Self> {
-        let delete_queue = DeleteQueue::new();
-        let delete_cursor = delete_queue.cursor();
-        let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
+    pub fn open(
+        indexrel: &PgSearchRelation,
+        directory: &MVCCDirectory,
+        segment_meta: &SegmentMeta,
+    ) -> Result<Self> {
+        if directory.is_mutable(&segment_meta.id()) {
+            Ok(Self::Mutable(SegmentDeleterMutable {
+                indexrel: indexrel.clone(),
+                segment_id: segment_meta.id(),
+                deleted_ctids: Vec::default(),
+            }))
+        } else {
+            let delete_queue = DeleteQueue::new();
+            let delete_cursor = delete_queue.cursor();
+            let opstamp = segment_meta.delete_opstamp().unwrap_or_default();
 
-        // It's important to set the entry/cursor at the beginning vs. when commit() is called,
-        // because the delete cursor can only look forward
-        let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
+            // It's important to set the entry/cursor at the beginning vs. when commit() is called,
+            // because the delete cursor can only look forward
+            let segment_entry = SegmentEntry::new(segment_meta.clone(), delete_cursor, None);
 
-        Ok(Self {
-            delete_queue,
-            segment_entry,
-            opstamp,
-        })
+            Ok(Self::Immutable(SegmentDeleterImmutable {
+                delete_queue,
+                segment_entry,
+                opstamp,
+            }))
+        }
     }
 
-    pub fn delete_document(&mut self, doc_id: DocId) {
-        self.opstamp += 1;
-        self.delete_queue.push(DeleteOperation::ByAddress {
-            opstamp: self.opstamp,
-            segment_id: self.segment_entry.meta().id(),
-            doc_id,
-        });
+    pub fn delete_document(&mut self, ctid: u64, doc_id: DocId) {
+        match self {
+            Self::Immutable(inner) => {
+                inner.opstamp += 1;
+                inner.delete_queue.push(DeleteOperation::ByAddress {
+                    opstamp: inner.opstamp,
+                    segment_id: inner.segment_entry.meta().id(),
+                    doc_id,
+                });
+            }
+            Self::Mutable(inner) => {
+                inner.deleted_ctids.push(ctid);
+            }
+        }
     }
 
-    pub fn commit(mut self, index: &Index) -> Result<(SegmentMeta, SegmentMeta)> {
-        let old_meta = self.segment_entry.meta().clone();
-        let segment = index.segment(self.segment_entry.meta().clone());
-        advance_deletes(segment, &mut self.segment_entry, self.opstamp + 1)?;
-        Ok((old_meta, self.segment_entry.meta().clone()))
+    pub fn commit(self, index: &Index) -> Result<Option<(SegmentMeta, SegmentMeta)>> {
+        match self {
+            Self::Immutable(mut inner) => {
+                let old_meta = inner.segment_entry.meta().clone();
+                let segment = index.segment(inner.segment_entry.meta().clone());
+                advance_deletes(segment, &mut inner.segment_entry, inner.opstamp + 1)?;
+                Ok(Some((old_meta, inner.segment_entry.meta().clone())))
+            }
+            Self::Mutable(inner) => unsafe {
+                MetaPage::open(&inner.indexrel)
+                    .segment_metas()
+                    .update_item(
+                        |entry| {
+                            entry.segment_id() == inner.segment_id
+                                && matches!(entry.content, SegmentMetaEntryContent::Mutable(_))
+                        },
+                        |entry| {
+                            entry
+                                .mutable_delete_items(&inner.indexrel, inner.deleted_ctids)
+                                .expect("update_item guard not executed properly")
+                        },
+                    )?;
+                Ok(None)
+            },
+        }
     }
 }
 

@@ -417,6 +417,47 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+/// Type alias for the return value of open_index_for_aggregation
+type IndexAggregationContext = (
+    SearchIndexReader,
+    *mut pg_sys::ExprContext,
+    u32,
+    Vec<(SegmentId, NumDeletedDocs)>,
+);
+
+/// Helper to open index reader with standalone context
+/// Returns (reader, standalone_context, ambulkdelete_epoch, segment_ids)
+///
+/// # Safety
+/// The caller is responsible for freeing the standalone_context using:
+/// `pg_sys::FreeExprContext(standalone_context, true)`
+fn open_index_for_aggregation(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    mvcc_satisfies: MvccSatisfies,
+) -> Result<IndexAggregationContext, Box<dyn Error>> {
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            query.clone(),
+            false,
+            mvcc_satisfies,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
+
+        Ok((reader, standalone_context, ambulkdelete_epoch, segment_ids))
+    }
+}
+
 /// Execute aggregations (with parallelization)
 ///
 /// Main entry point for SQL aggregations. Handles both simple aggregations and GROUP BY.
@@ -441,24 +482,10 @@ pub fn execute_aggregation(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            base_query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
+    let (_reader, standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
 
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
+    let result = unsafe {
         // limit number of workers to the number of segments
         let mut nworkers =
             (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len());
@@ -493,10 +520,16 @@ pub fn execute_aggregation(
                 bucket_limit,
             )
         }
+    };
+
+    unsafe {
+        pg_sys::FreeExprContext(standalone_context, true);
     }
+
+    result
 }
 
-/// Parallel execution path for filter aggregations (multiple workers)
+/// Parallel execution path for SQL aggregations (multiple workers)
 #[allow(clippy::too_many_arguments)]
 fn execute_aggregation_parallel(
     index: &PgSearchRelation,
@@ -523,16 +556,9 @@ fn execute_aggregation_parallel(
     )?;
 
     if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-        // Need to build aggregations to merge results (can't serialize Query objects)
-        let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            base_query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
+        // Need to rebuild aggregations to merge results (can't serialize Query objects)
+        let (reader, standalone_context, _, _) =
+            open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
         let schema = SearchIndexSchema::open(index)?;
 
         let aggregations = build_filter_aggregations(
@@ -546,7 +572,13 @@ fn execute_aggregation_parallel(
         )
         .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
 
-        return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
+        let result = merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
+        
+        unsafe {
+            pg_sys::FreeExprContext(standalone_context, true);
+        }
+        
+        return result;
     }
 
     // Parallel execution not available, fall back to sequential
@@ -631,47 +663,38 @@ fn execute_aggregation_sequential(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
+    let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
+
+    let schema = SearchIndexSchema::open(index)?;
+
+    // Build filter aggregations
+    let aggregations = build_filter_aggregations(
+        base_query,
+        aggregate_types,
+        grouping_columns,
+        &schema,
+        &reader,
+        index,
+        standalone_context,
+    )?;
+
+    let result = execute_aggregation_sequential_helper(
+        index,
+        base_query,
+        aggregations,
+        ambulkdelete_epoch,
+        segment_ids,
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    );
+
     unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            base_query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-
-        let schema = SearchIndexSchema::open(index)?;
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
-        // Build filter aggregations
-        let aggregations = build_filter_aggregations(
-            base_query,
-            aggregate_types,
-            grouping_columns,
-            &schema,
-            &reader,
-            index,
-            standalone_context,
-        )?;
-
-        execute_aggregation_sequential_helper(
-            index,
-            base_query,
-            aggregations,
-            ambulkdelete_epoch,
-            segment_ids,
-            solve_mvcc,
-            memory_limit,
-            bucket_limit,
-        )
+        pg_sys::FreeExprContext(standalone_context, true);
     }
+
+    result
 }
 
 /// Helper for converting SearchQueryInput to Tantivy Query
@@ -886,27 +909,13 @@ pub fn execute_aggregate_json(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
+    let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, query, MvccSatisfies::Snapshot)?;
 
-        // Parse JSON into Tantivy Aggregations (no Query objects, so serializable)
-        let agg_req: Aggregations = serde_json::from_value(agg_json)?;
+    // Parse JSON into Tantivy Aggregations (no Query objects, so serializable)
+    let agg_req: Aggregations = serde_json::from_value(agg_json)?;
 
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
+    let result = unsafe {
         let process = ParallelAggregation::new_json(
             index.oid(),
             query,
@@ -941,7 +950,13 @@ pub fn execute_aggregate_json(
                 bucket_limit,
             )
         }
+    };
+
+    unsafe {
+        pg_sys::FreeExprContext(standalone_context, true);
     }
+
+    result
 }
 
 /// Merge parallel aggregation results into final JSON

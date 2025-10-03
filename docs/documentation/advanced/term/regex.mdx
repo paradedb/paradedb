@@ -6,6 +6,18 @@ title: Regex
 
 Finds documents containing terms that match a specific regex pattern.
 
+ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:
+
+1. Lazy quantifiers such as `+?`
+2. Word boundaries such as `\b`
+
+Otherwise, the full syntax of the [regex](https://docs.rs/regex/latest/regex/) crate is supported, including all Unicode support and relevant flags.
+
+A list of regex flags and grouping options can be [found here](https://docs.rs/regex/latest/regex/#grouping-and-flags), which includes:
+- named and numbered capture groups
+- case insensitivty flag (i)
+- multi-line mode (m)
+
 <CodeGroup>
 ```sql Function Syntax
 SELECT description, rating, category

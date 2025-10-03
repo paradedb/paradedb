@@ -25,7 +25,7 @@ use serde::Serialize;
 
 /// Trait for objects that can be formatted for EXPLAIN output
 ///
-/// Implementors should provide a deterministic string representation
+/// Implementers should provide a deterministic string representation
 /// suitable for display to users and regression tests.
 pub trait ExplainFormat {
     /// Format this object for EXPLAIN output (deterministic, user-friendly)

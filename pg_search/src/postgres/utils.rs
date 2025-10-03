@@ -220,7 +220,11 @@ pub unsafe fn extract_field_attributes(
             let att = heap_tupdesc
                 .get(heap_attno as usize - 1)
                 .expect("attribute should exist");
-            (att.name().to_owned(), att.type_oid().value(), -1)
+            (
+                att.name().to_owned(),
+                att.type_oid().value(),
+                att.type_mod(),
+            )
         };
 
         if field_attributes.contains_key(&FieldName::from(&attname)) {

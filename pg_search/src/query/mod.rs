@@ -30,6 +30,7 @@ use crate::api::HashMap;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -54,11 +55,32 @@ use tantivy::{
 use thiserror::Error;
 
 /// Bundle of context parameters for query conversion
+///
+/// This struct owns an ExprContextGuard and provides references to the components needed
+/// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
+/// remains valid for the lifetime of this struct.
 pub struct QueryContext<'a> {
     pub schema: &'a SearchIndexSchema,
     pub reader: &'a SearchIndexReader,
     pub index: &'a PgSearchRelation,
-    pub context: *mut pg_sys::ExprContext,
+    pub context: ExprContextGuard,
+}
+
+impl<'a> QueryContext<'a> {
+    /// Create a new QueryContext, taking ownership of the provided ExprContextGuard
+    pub fn new(
+        schema: &'a SearchIndexSchema,
+        reader: &'a SearchIndexReader,
+        index: &'a PgSearchRelation,
+        context: ExprContextGuard,
+    ) -> Self {
+        Self {
+            schema,
+            reader,
+            index,
+            context,
+        }
+    }
 }
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
@@ -930,7 +952,7 @@ impl SearchQueryInput {
                 qctx.reader.searcher(),
                 qctx.index.oid(),
                 qctx.index.heap_relation().map(|r| r.oid()),
-                std::ptr::NonNull::new(qctx.context),
+                std::ptr::NonNull::new(qctx.context.as_ptr()),
                 None,
             )?,
             None => Box::new(tantivy::query::AllQuery),

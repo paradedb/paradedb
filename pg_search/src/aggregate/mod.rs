@@ -307,19 +307,12 @@ impl<'a> ParallelAggregationWorker<'a> {
             let schema = indexrel
                 .schema()
                 .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
-
+            let qctx = QueryContext::new(&schema, &reader, &indexrel, standalone_context);
             let qparams = AggQueryParams {
                 base_query: &self.base_query,
                 aggregate_types: &self.aggregate_types,
                 grouping_columns: &self.grouping_columns,
                 orderby_info: &self.orderby_info,
-            };
-
-            let qctx = QueryContext {
-                schema: &schema,
-                reader: &reader,
-                index: &indexrel,
-                context: standalone_context.as_ptr(),
             };
 
             build_aggregation_query(&qctx, &qparams)
@@ -478,12 +471,7 @@ pub fn execute_aggregation(
         .schema()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    let qctx = QueryContext {
-        schema: &schema,
-        reader: &reader,
-        index,
-        context: standalone_context.as_ptr(),
-    };
+    let qctx = QueryContext::new(&schema, &reader, index, standalone_context);
 
     let aggregations = build_aggregation_query(&qctx, qparams)?;
 

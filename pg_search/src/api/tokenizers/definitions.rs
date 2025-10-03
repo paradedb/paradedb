@@ -140,6 +140,15 @@ define_tokenizer_type!(
 );
 
 define_tokenizer_type!(
+    Exact,
+    SearchTokenizer::Keyword,
+    tokenize_exact,
+    "exact",
+    preferred = false,
+    custom_tymod = false
+);
+
+define_tokenizer_type!(
     ChineseCompatabile,
     SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
     tokenize_chinese_compatible,

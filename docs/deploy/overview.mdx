@@ -15,7 +15,7 @@ For production environments, we recommend deploying the [ParadeDB Enterprise](/d
 <Note>
 Running ParadeDB Community in a production environment is discouraged.
 
-This is because ParadeDB Community does not have write-ahead log (WAL) support. Without WALs, the index is not guaranteed to be durable. This means that data can be lost or the
+This is because ParadeDB Community [does not have write-ahead log (WAL) support](/deploy/enterprise). Without WALs, the index is not guaranteed to be durable. This means that data can be lost or the
 entire index can become corrupt if the server crashes or restarts, which is common during failovers or upgrades. For more details, see [guarantees](/welcome/guarantees#aci-d).
 
 When you are ready to deploy in ParadeDB to production, [contact us](mailto:sales@paradedb.com) for access to ParadeDB Enterprise, which has WAL support.

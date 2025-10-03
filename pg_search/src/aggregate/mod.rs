@@ -287,7 +287,6 @@ impl<'a> ParallelAggregationWorker<'a> {
             agg_json.clone()
         } else {
             // Filter aggregations: rebuild with Query objects in this worker
-            // Use cached schema from PgSearchRelation
             let schema = indexrel
                 .schema()
                 .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
@@ -419,47 +418,6 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
-/// Type alias for the return value of open_index_for_aggregation
-type IndexAggregationContext = (
-    SearchIndexReader,
-    *mut pg_sys::ExprContext,
-    u32,
-    Vec<(SegmentId, NumDeletedDocs)>,
-);
-
-/// Helper to open index reader with standalone context
-/// Returns (reader, standalone_context, ambulkdelete_epoch, segment_ids)
-///
-/// # Safety
-/// The caller is responsible for freeing the standalone_context using:
-/// `pg_sys::FreeExprContext(standalone_context, true)`
-fn open_index_for_aggregation(
-    index: &PgSearchRelation,
-    query: &SearchQueryInput,
-    mvcc_satisfies: MvccSatisfies,
-) -> Result<IndexAggregationContext, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            query.clone(),
-            false,
-            mvcc_satisfies,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
-        Ok((reader, standalone_context, ambulkdelete_epoch, segment_ids))
-    }
-}
-
 /// Execute aggregations (with parallelization)
 ///
 /// Main entry point for SQL aggregations. Handles both simple aggregations and GROUP BY.
@@ -561,8 +519,6 @@ fn execute_aggregation_parallel(
         // Need to rebuild aggregations to merge results (can't serialize Query objects)
         let (reader, standalone_context, _, _) =
             open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-
-        // Use cached schema from PgSearchRelation
         let schema = index
             .schema()
             .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
@@ -671,8 +627,6 @@ fn execute_aggregation_sequential(
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-
-    // Use cached schema from PgSearchRelation
     let schema = index
         .schema()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
@@ -966,6 +920,47 @@ pub fn execute_aggregate_json(
     }
 
     result
+}
+
+/// Type alias for the return value of open_index_for_aggregation
+type IndexAggregationContext = (
+    SearchIndexReader,
+    *mut pg_sys::ExprContext,
+    u32,
+    Vec<(SegmentId, NumDeletedDocs)>,
+);
+
+/// Helper to open index reader with standalone context
+/// Returns (reader, standalone_context, ambulkdelete_epoch, segment_ids)
+///
+/// # Safety
+/// The caller is responsible for freeing the standalone_context using:
+/// `pg_sys::FreeExprContext(standalone_context, true)`
+fn open_index_for_aggregation(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    mvcc_satisfies: MvccSatisfies,
+) -> Result<IndexAggregationContext, Box<dyn Error>> {
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            query.clone(),
+            false,
+            mvcc_satisfies,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
+
+        Ok((reader, standalone_context, ambulkdelete_epoch, segment_ids))
+    }
 }
 
 /// Merge parallel aggregation results into final JSON

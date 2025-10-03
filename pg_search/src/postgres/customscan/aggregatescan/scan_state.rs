@@ -110,7 +110,6 @@ impl AggregateScanState {
                 .aggregate_types
                 .iter()
                 .any(|agg| matches!(agg, AggregateType::Sum { .. }));
-
             if has_sum {
                 agg_map.insert(
                     "_doc_count".to_string(),
@@ -279,18 +278,14 @@ impl AggregateScanState {
         &self,
         result: serde_json::Value,
     ) -> Vec<GroupedAggregateRow> {
-        let result_map = match result.as_object() {
+        let result_obj = match result.as_object() {
             Some(obj) => obj,
             None => {
-                // Handle null or empty results
+                // Handle null or empty results - return appropriate empty values
                 let row = self
                     .aggregate_types
                     .iter()
-                    .map(|aggregate| {
-                        // For empty tables, return appropriate empty values
-                        let empty_result = AggregateResult::Null;
-                        aggregate.result_from_aggregate_with_doc_count(empty_result, Some(0))
-                    })
+                    .map(|aggregate| self.empty_aggregate_value(aggregate))
                     .collect::<AggregateRow>();
                 return vec![GroupedAggregateRow {
                     group_keys: vec![],
@@ -299,40 +294,55 @@ impl AggregateScanState {
             }
         };
 
-        let mut aggregate_values = vec![AggregateValue::Null; self.aggregate_types.len()];
+        // Collect filter results for lookup
+        let filter_results: Vec<(usize, &serde_json::Value)> = result_obj
+            .iter()
+            .filter_map(|(key, value)| {
+                key.strip_prefix("filter_")
+                    .and_then(|idx_str| idx_str.parse::<usize>().ok())
+                    .map(|idx| (idx, value))
+            })
+            .collect();
 
-        // Process each filter aggregation result (ALL aggregates now use filter_X keys)
-        for (key, value) in result_map {
-            if key.starts_with("filter_") {
-                // Extract the aggregate index from the filter key
-                if let Ok(idx) = key.strip_prefix("filter_").unwrap_or("").parse::<usize>() {
-                    if idx < self.aggregate_types.len() {
-                        let aggregate = &self.aggregate_types[idx];
-
-                        // Extract doc_count from the FilterAggregation result
-                        let doc_count = value.get("doc_count").and_then(|v| v.as_i64());
-
-                        // Extract the aggregate result from the filtered_agg sub-aggregation
-                        let agg_result = if let Some(filtered_agg) = value.get("filtered_agg") {
-                            Self::extract_aggregate_value_from_json(filtered_agg)
-                        } else {
-                            // Fallback: try to extract directly from the filter result
-                            Self::extract_aggregate_value_from_json(value)
-                        };
-
-                        // Use result_from_aggregate_with_doc_count for proper empty result handling
-                        let agg_value =
-                            aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count);
-                        aggregate_values[idx] = agg_value;
-                    }
+        // Extract aggregate values
+        let aggregate_values = self
+            .aggregate_types
+            .iter()
+            .enumerate()
+            .map(|(idx, aggregate)| {
+                // Look up the filter result for this aggregate
+                if let Some((_, filter_value)) = filter_results.iter().find(|(i, _)| *i == idx) {
+                    self.extract_simple_aggregate_value(filter_value, aggregate)
+                } else {
+                    // No filter result for this aggregate (shouldn't happen)
+                    self.empty_aggregate_value(aggregate)
                 }
-            }
-        }
+            })
+            .collect();
 
         vec![GroupedAggregateRow {
             group_keys: vec![],
-            aggregate_values: aggregate_values.into_iter().collect(),
+            aggregate_values,
         }]
+    }
+
+    /// Extract aggregate value from a simple (non-grouped) filter result
+    fn extract_simple_aggregate_value(
+        &self,
+        filter_value: &serde_json::Value,
+        aggregate: &AggregateType,
+    ) -> AggregateValue {
+        let doc_count = filter_value.get("doc_count").and_then(|v| v.as_i64());
+
+        // Look for the aggregate result in filtered_agg or directly
+        let agg_result = if let Some(filtered_agg) = filter_value.get("filtered_agg") {
+            Self::extract_aggregate_value_from_json(filtered_agg)
+        } else {
+            // Fallback: extract directly (shouldn't normally happen)
+            Self::extract_aggregate_value_from_json(filter_value)
+        };
+
+        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count)
     }
 
     // ====================================================================================

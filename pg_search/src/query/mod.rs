@@ -53,8 +53,6 @@ use tantivy::{
 };
 use thiserror::Error;
 
-const ERROR_SERIALIZING_QUERY: &str = "Error serializing query";
-
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchQueryInput {
@@ -428,7 +426,7 @@ impl SearchQueryInput {
 
     pub fn canonical_query_string(&self) -> String {
         let mut cleaned_query = serde_json::to_value(self)
-            .unwrap_or_else(|_| serde_json::Value::String(ERROR_SERIALIZING_QUERY.to_string()));
+            .unwrap_or_else(|_| serde_json::Value::String("Error serializing query".to_string()));
         cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
         serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
     }

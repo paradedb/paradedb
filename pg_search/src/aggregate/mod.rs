@@ -36,7 +36,10 @@ use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
+use std::collections::HashMap;
 use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
@@ -651,35 +654,6 @@ pub fn execute_aggregate_json(
     )
 }
 
-/// Build nested TermsAggregations from innermost to outermost
-/// Returns map with "grouped" key containing the outermost terms aggregation
-fn build_nested_terms(
-    grouping_columns: &[GroupingColumn],
-    leaf_aggs: std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
-) -> Result<
-    std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
-    Box<dyn Error>,
-> {
-    let mut current = leaf_aggs;
-
-    for column in grouping_columns.iter().rev() {
-        let terms_agg = tantivy::aggregation::agg_req::Aggregation {
-            agg: serde_json::from_value(serde_json::json!({
-                "terms": {
-                    "field": column.field_name,
-                    "size": 65000,
-                    "segment_size": 65000
-                }
-            }))?,
-            sub_aggregation: tantivy::aggregation::agg_req::Aggregations::from(current),
-        };
-
-        current = std::collections::HashMap::from([("grouped".to_string(), terms_agg)]);
-    }
-
-    Ok(current)
-}
-
 /// Build Tantivy aggregations with FilterAggregation wrappers
 /// Handles all cases: simple aggregates, GROUP BY, and GROUP BY without aggregates
 fn build_aggregation_query(
@@ -690,10 +664,7 @@ fn build_aggregation_query(
     reader: &crate::index::reader::index::SearchIndexReader,
     index: &crate::postgres::rel::PgSearchRelation,
     context: *mut pg_sys::ExprContext,
-) -> Result<tantivy::aggregation::agg_req::Aggregations, Box<dyn Error>> {
-    use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
-    use tantivy::aggregation::bucket::FilterAggregation;
-
+) -> Result<Aggregations, Box<dyn Error>> {
     // Helper closure to wrap aggregation in FilterAggregation
     let wrap_in_filter = |name: String, query, sub_aggs| -> (String, Aggregation) {
         (
@@ -707,22 +678,22 @@ fn build_aggregation_query(
 
     // Special case: GROUP BY without aggregates - just build nested terms
     if aggregate_types.is_empty() && !grouping_columns.is_empty() {
-        let mut result = std::collections::HashMap::new();
+        let mut result = HashMap::new();
         for (i, col) in grouping_columns.iter().enumerate().rev() {
             let terms_agg = Aggregation {
                 agg: serde_json::from_value(serde_json::json!({
                     "terms": {"field": col.field_name, "size": 65000, "segment_size": 65000}
                 }))?,
-                sub_aggregation: Aggregations::from(result.clone()),
+                sub_aggregation: result,
             };
-            result = std::collections::HashMap::from([(format!("group_{i}"), terms_agg)]);
+            result = HashMap::from([(format!("group_{i}"), terms_agg)]);
         }
         return Ok(Aggregations::from(result));
     }
 
     // Simple aggregates (no GROUP BY): filter_0, filter_1, ...
     if grouping_columns.is_empty() {
-        let mut result = std::collections::HashMap::new();
+        let mut result = HashMap::new();
         for (idx, agg) in aggregate_types.iter().enumerate() {
             let query = SearchQueryInput::to_tantivy_query(
                 agg.filter_expr().as_ref(),
@@ -732,7 +703,7 @@ fn build_aggregation_query(
                 context,
             )?;
             let base = AggregateType::to_tantivy_agg(agg)?;
-            let sub_aggs = std::collections::HashMap::from([("filtered_agg".to_string(), base)]);
+            let sub_aggs = HashMap::from([("filtered_agg".to_string(), base)]);
             let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, sub_aggs);
             result.insert(name, filter_agg);
         }
@@ -741,12 +712,12 @@ fn build_aggregation_query(
 
     // GROUP BY with aggregates: add sentinel + filter_0, filter_1, ...
     // Sentinel ensures ALL groups appear (even those with no matching filtered aggregates)
-    let mut result = std::collections::HashMap::new();
+    let mut result = HashMap::new();
 
     // Sentinel: FilterAggregation(base_query) -> nested terms
     let base_query_tantivy =
         SearchQueryInput::to_tantivy_query(Some(base_query), schema, reader, index, context)?;
-    let sentinel_terms = build_nested_terms(grouping_columns, std::collections::HashMap::new())?;
+    let sentinel_terms = build_nested_terms(grouping_columns, HashMap::new())?;
     result.insert(
         "filter_sentinel".to_string(),
         Aggregation {
@@ -765,7 +736,7 @@ fn build_aggregation_query(
             context,
         )?;
         let base = AggregateType::to_tantivy_agg(agg)?;
-        let metric_leaf = std::collections::HashMap::from([(idx.to_string(), base)]);
+        let metric_leaf = HashMap::from([(idx.to_string(), base)]);
         let terms_structure = build_nested_terms(grouping_columns, metric_leaf)?;
 
         let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, terms_structure);
@@ -773,6 +744,32 @@ fn build_aggregation_query(
     }
 
     Ok(Aggregations::from(result))
+}
+
+/// Build nested TermsAggregations from innermost to outermost
+/// Returns map with "grouped" key containing the outermost terms aggregation
+fn build_nested_terms(
+    grouping_columns: &[GroupingColumn],
+    leaf_aggs: HashMap<String, Aggregation>,
+) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
+    let mut current = leaf_aggs;
+
+    for column in grouping_columns.iter().rev() {
+        let terms_agg = Aggregation {
+            agg: serde_json::from_value(serde_json::json!({
+                "terms": {
+                    "field": column.field_name,
+                    "size": 65000,
+                    "segment_size": 65000
+                }
+            }))?,
+            sub_aggregation: current,
+        };
+
+        current = HashMap::from([("grouped".to_string(), terms_agg)]);
+    }
+
+    Ok(current)
 }
 
 /// Type alias for the return value of open_index_for_aggregation

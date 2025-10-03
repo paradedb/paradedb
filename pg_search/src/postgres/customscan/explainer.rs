@@ -20,7 +20,8 @@ use std::ptr::NonNull;
 use pgrx::pg_sys;
 use pgrx::pg_sys::AsPgCStr;
 
-use crate::query::{cleanup_variabilities_from_tantivy_query, SearchQueryInput};
+use crate::postgres::customscan::explain::ExplainFormat;
+use crate::query::SearchQueryInput;
 
 pub struct Explainer {
     state: NonNull<pg_sys::ExplainState>,
@@ -44,9 +45,12 @@ impl Explainer {
     }
 
     pub fn add_query(&mut self, query: &SearchQueryInput) {
-        let mut json_value = serde_json::to_value(query).expect("query should serialize to json");
-        cleanup_variabilities_from_tantivy_query(&mut json_value);
-        self.add_json("Tantivy Query", json_value)
+        self.add_explainable("Tantivy Query", query);
+    }
+
+    /// Add an explainable object to the output
+    pub fn add_explainable<T: ExplainFormat>(&mut self, key: &str, value: &T) {
+        self.add_text(key, value.explain_format());
     }
 
     pub fn add_json<T: serde::Serialize>(&mut self, key: &str, value: T) {

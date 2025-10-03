@@ -39,6 +39,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
@@ -563,7 +564,7 @@ fn explain_execution_strategy(
                 .custom_state()
                 .query
                 .combine_query_with_filter(filter_expr.as_ref());
-            explainer.add_text("  Combined Query", combined_query.canonical_query_string());
+            explainer.add_text("  Combined Query", combined_query.explain_format());
             explainer.add_text(
                 "  Applies to Aggregates",
                 AggregateType::format_aggregates(
@@ -592,7 +593,7 @@ fn explain_execution_strategy(
             } else {
                 format!("  Group {} Query (No Filter)", group_idx + 1)
             };
-            explainer.add_text(&query_label, combined_query.canonical_query_string());
+            explainer.add_text(&query_label, combined_query.explain_format());
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
                 AggregateType::format_aggregates(
@@ -755,7 +756,7 @@ fn extract_aggregates(
                 // Group aggregates by their filter expression during extraction
                 let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
                     // This is the most reliable way to get a deterministic filter key
-                    filter_expr.canonical_query_string()
+                    filter_expr.explain_format()
                 } else {
                     NO_FILTER_KEY.to_string()
                 };

@@ -290,7 +290,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             let schema = indexrel
                 .schema()
                 .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
-            build_filter_aggregations(
+            build_aggregation_query(
                 &self.base_query,
                 &self.aggregate_types,
                 &self.grouping_columns,
@@ -448,7 +448,7 @@ pub fn execute_aggregation(
         .schema()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    let aggregations = build_filter_aggregations(
+    let aggregations = build_aggregation_query(
         base_query,
         aggregate_types,
         grouping_columns,
@@ -682,7 +682,7 @@ fn build_nested_terms(
 
 /// Build Tantivy aggregations with FilterAggregation wrappers
 /// Handles all cases: simple aggregates, GROUP BY, and GROUP BY without aggregates
-fn build_filter_aggregations(
+fn build_aggregation_query(
     base_query: &crate::query::SearchQueryInput,
     aggregate_types: &[AggregateType],
     grouping_columns: &[GroupingColumn],

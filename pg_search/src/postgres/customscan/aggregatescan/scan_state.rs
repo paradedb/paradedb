@@ -512,58 +512,82 @@ impl AggregateScanState {
             .collect()
     }
 
-    /// Recursively find aggregate value in filter result by matching group keys
+    /// Find aggregate value in filter result by matching group keys (iterative)
+    /// This iterates through grouping levels to avoid stack overflow with deep nesting
     fn find_aggregate_value_in_filter(
         &self,
-        grouped: &serde_json::Value,
+        mut grouped: &serde_json::Value,
         group_keys: &[OwnedValue],
         depth: usize,
         aggregate: &AggregateType,
     ) -> Option<AggregateValue> {
-        if depth >= group_keys.len() {
-            return None;
-        }
+        // Iterate through each grouping level instead of recursing
+        for level in depth..group_keys.len() {
+            let buckets = grouped.get("buckets")?.as_array()?;
+            let target_key = &group_keys[level];
+            let grouping_column = &self.grouping_columns[level];
 
-        let buckets = grouped.get("buckets")?.as_array()?;
-        let target_key = &group_keys[depth];
+            // Find bucket matching this group key
+            let matching_bucket = buckets.iter().find_map(|bucket| {
+                let bucket_obj = bucket.as_object()?;
+                let key_json = bucket_obj.get("key")?;
 
-        // Find bucket matching this group key
-        let matching_bucket = buckets.iter().find_map(|bucket| {
-            let bucket_obj = bucket.as_object()?;
-            let key_json = bucket_obj.get("key")?;
-            let grouping_column = &self.grouping_columns[depth];
-            let bucket_key = self.json_value_to_owned_value(key_json, &grouping_column.field_name);
-
-            // Compare keys using Tantivy's comparison
-            match TantivyValue::partial_cmp_extended(&bucket_key, target_key) {
-                Some(std::cmp::Ordering::Equal) => Some(bucket_obj),
-                _ => None,
-            }
-        })?;
-
-        // If this is the last grouping level, extract the aggregate value
-        if depth + 1 == group_keys.len() {
-            let doc_count = matching_bucket.get("doc_count").and_then(|d| d.as_i64());
-
-            // Look for the aggregate value - could be a numeric key or named sub-aggregation
-            for (key, value) in matching_bucket.iter() {
-                if key.parse::<usize>().is_ok()
-                    || matches!(key.as_str(), "value" | "avg" | "sum" | "min" | "max")
-                {
-                    let agg_result = Self::extract_aggregate_value_from_json(value);
-                    return Some(
-                        aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count),
-                    );
+                if Self::keys_match(key_json, target_key, grouping_column, self) {
+                    Some(bucket_obj)
+                } else {
+                    None
                 }
+            })?;
+
+            // If this is the last grouping level, extract the aggregate value
+            if level + 1 == group_keys.len() {
+                return self.extract_aggregate_from_bucket(matching_bucket, aggregate);
             }
 
-            // No aggregate found in this bucket
-            return None;
+            // Move to nested grouped for next iteration
+            grouped = matching_bucket.get("grouped")?;
         }
 
-        // Recurse into nested grouped
-        let nested_grouped = matching_bucket.get("grouped")?;
-        self.find_aggregate_value_in_filter(nested_grouped, group_keys, depth + 1, aggregate)
+        None
+    }
+
+    /// Check if a JSON key matches a target OwnedValue key
+    #[inline]
+    fn keys_match(
+        key_json: &serde_json::Value,
+        target_key: &OwnedValue,
+        grouping_column: &GroupingColumn,
+        scan_state: &AggregateScanState,
+    ) -> bool {
+        let bucket_key =
+            scan_state.json_value_to_owned_value(key_json, &grouping_column.field_name);
+        matches!(
+            TantivyValue::partial_cmp_extended(&bucket_key, target_key),
+            Some(std::cmp::Ordering::Equal)
+        )
+    }
+
+    /// Extract aggregate value from a bucket at the leaf level
+    #[inline]
+    fn extract_aggregate_from_bucket(
+        &self,
+        bucket: &serde_json::Map<String, serde_json::Value>,
+        aggregate: &AggregateType,
+    ) -> Option<AggregateValue> {
+        let doc_count = bucket.get("doc_count").and_then(|d| d.as_i64());
+
+        // Look for the aggregate value - could be a numeric key or named sub-aggregation
+        for (key, value) in bucket.iter() {
+            if key.parse::<usize>().is_ok()
+                || matches!(key.as_str(), "value" | "avg" | "sum" | "min" | "max")
+            {
+                let agg_result = Self::extract_aggregate_value_from_json(value);
+                return Some(aggregate.result_from_aggregate_with_doc_count(agg_result, doc_count));
+            }
+        }
+
+        // No aggregate found in this bucket
+        None
     }
 
     /// Return appropriate empty value for aggregate type

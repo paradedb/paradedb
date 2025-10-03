@@ -442,6 +442,7 @@ pub fn execute_aggregation(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
+    // Open index and build aggregations once
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
 
@@ -449,7 +450,6 @@ pub fn execute_aggregation(
         .schema()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
-    // Build filter aggregations once - will be reused for both parallel and sequential execution
     let aggregations = build_filter_aggregations(
         base_query,
         aggregate_types,
@@ -460,95 +460,45 @@ pub fn execute_aggregation(
         standalone_context.as_ptr(),
     )?;
 
-    unsafe {
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len());
+    // Determine if we can use parallel execution
+    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
 
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
+    // Execute aggregation (parallel or sequential)
+    if can_use_parallel {
+        // Parallel execution
+        let process = ParallelAggregation::new(
+            index.oid(),
+            base_query,
+            aggregate_types,
+            grouping_columns,
+            solve_mvcc,
+            memory_limit,
+            bucket_limit,
+            segment_ids.clone(),
+            ambulkdelete_epoch,
+        )?;
+
+        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
+            return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
         }
-
-        // Use parallel execution if we have multiple segments and parallel workers are enabled
-        if nworkers > 0 && segment_ids.len() > 1 {
-            execute_aggregation_parallel(
-                index,
-                base_query,
-                aggregate_types,
-                grouping_columns,
-                solve_mvcc,
-                memory_limit,
-                bucket_limit,
-                segment_ids,
-                ambulkdelete_epoch,
-                nworkers,
-                aggregations,
-            )
-        } else {
-            execute_aggregation_sequential(
-                index,
-                base_query,
-                aggregations,
-                ambulkdelete_epoch,
-                segment_ids,
-                solve_mvcc,
-                memory_limit,
-                bucket_limit,
-            )
-        }
-    }
-}
-
-/// Parallel execution path for SQL aggregations (multiple workers)
-#[allow(clippy::too_many_arguments)]
-fn execute_aggregation_parallel(
-    index: &PgSearchRelation,
-    base_query: &SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
-    ambulkdelete_epoch: u32,
-    nworkers: usize,
-    aggregations: Aggregations,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    let process = ParallelAggregation::new(
-        index.oid(),
-        base_query,
-        aggregate_types,
-        grouping_columns,
-        solve_mvcc,
-        memory_limit,
-        bucket_limit,
-        segment_ids,
-        ambulkdelete_epoch,
-    )?;
-
-    if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-        return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
+        // If parallel execution failed, fall through to sequential
     }
 
-    // Parallel execution not available, fall back to sequential
-    let (_, _, ambulkdelete_epoch_fallback, segment_ids_fallback) =
-        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-
-    execute_aggregation_sequential(
-        index,
-        base_query,
+    // Sequential execution (or fallback from parallel)
+    execute_sequential(
         aggregations,
-        ambulkdelete_epoch_fallback,
-        segment_ids_fallback,
+        base_query,
+        ambulkdelete_epoch,
+        segment_ids,
+        index.oid(),
         solve_mvcc,
         memory_limit,
         bucket_limit,
     )
 }
 
-/// Common parallel execution helper for all aggregations
-fn execute_aggregation_parallel_helper(
+/// Execute parallel aggregation and return intermediate results
+fn execute_parallel_helper(
     process: ParallelAggregation,
     nworkers: usize,
 ) -> ParallelAggregationResult {
@@ -607,19 +557,19 @@ fn execute_aggregation_parallel_helper(
     }
 }
 
-/// Sequential execution path with pre-built aggregations (single worker)
+/// Execute sequential aggregation using pre-built aggregations
 #[allow(clippy::too_many_arguments)]
-fn execute_aggregation_sequential(
-    index: &PgSearchRelation,
-    base_query: &SearchQueryInput,
+fn execute_sequential(
     aggregations: Aggregations,
+    base_query: &SearchQueryInput,
     ambulkdelete_epoch: u32,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    indexrelid: pg_sys::Oid,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
+    pgrx::debug1!("executing aggregation sequentially");
 
     let mut state = State {
         mutex: Spinlock::default(),
@@ -632,7 +582,7 @@ fn execute_aggregation_sequential(
         base_query.clone(),
         segment_ids,
         ambulkdelete_epoch,
-        index.oid(),
+        indexrelid,
         solve_mvcc,
         memory_limit,
         bucket_limit,
@@ -862,13 +812,16 @@ pub fn execute_aggregate_json(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let (reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
+    let (_reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, query, MvccSatisfies::Snapshot)?;
 
-    // Parse JSON into Tantivy Aggregations (no Query objects, so serializable)
     let agg_req: Aggregations = serde_json::from_value(agg_json)?;
 
-    unsafe {
+    // Determine if we can use parallel execution
+    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
+
+    // Execute aggregation (parallel or sequential)
+    if can_use_parallel {
         let process = ParallelAggregation::new_json(
             index.oid(),
             query,
@@ -880,30 +833,23 @@ pub fn execute_aggregate_json(
             ambulkdelete_epoch,
         )?;
 
-        // Limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            nworkers -= 1;
+        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
+            return merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit);
         }
-
-        if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-            merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit)
-        } else {
-            // No parallel execution available, fall back to sequential
-            execute_aggregation_sequential(
-                index,
-                query,
-                agg_req,
-                ambulkdelete_epoch,
-                segment_ids,
-                solve_mvcc,
-                memory_limit,
-                bucket_limit,
-            )
-        }
+        // If parallel execution failed, fall through to sequential
     }
+
+    // Sequential execution (or fallback from parallel)
+    execute_sequential(
+        agg_req,
+        query,
+        ambulkdelete_epoch,
+        segment_ids,
+        index.oid(),
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    )
 }
 
 /// Type alias for the return value of open_index_for_aggregation
@@ -958,6 +904,19 @@ fn merge_parallel_results(
         AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
     )?;
     Ok(serde_json::to_value(merged)?)
+}
+
+/// Determine if parallel execution is possible based on available workers and segments
+fn can_parallelize(segment_ids: &[(SegmentId, NumDeletedDocs)]) -> (bool, usize) {
+    let mut nworkers =
+        unsafe { (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len()) };
+
+    if nworkers > 0 && unsafe { pg_sys::parallel_leader_participation } {
+        nworkers -= 1;
+    }
+
+    let can_use_parallel = nworkers > 0 && segment_ids.len() > 1;
+    (can_use_parallel, nworkers)
 }
 
 pub mod mvcc_collector {

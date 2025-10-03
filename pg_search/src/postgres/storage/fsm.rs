@@ -826,7 +826,7 @@ pub mod v2 {
                         }
                         cnt += contents.len as usize;
 
-                        // should we unlink this block from the chain? -- only if it's the head and now empty
+                        // should we unlink this block from the chain? -- only if it's the head and _we_ made it empty
                         blockno == head_blockno
                             && contents.len == 0
                             && next_blockno != pg_sys::InvalidBlockNumber

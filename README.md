@@ -105,7 +105,7 @@ If you need commercial support, please [contact the ParadeDB team](mailto:sales@
 
 We welcome community contributions, big or small, and are here to guide you along
 the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-32abtyjg4-yoYoi~RPh9MSW8tDbl0BQw). Once you contribute, ping us in Slack and  we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
 [Contributing Guide](/CONTRIBUTING.md).

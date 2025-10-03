@@ -417,10 +417,10 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
-/// Execute aggregations with SQL FILTER clause support (with parallelization)
+/// Execute aggregations (with parallelization)
 ///
-/// Main entry point for aggregations with filter support. Handles both simple aggregations
-/// and GROUP BY using Tantivy's FilterAggregation feature. Supports parallel execution.
+/// Main entry point for SQL aggregations. Handles both simple aggregations and GROUP BY.
+/// Supports parallel execution.
 ///
 /// # Arguments
 /// * `base_query` - WHERE clause (defines document set to aggregate)
@@ -493,59 +493,6 @@ pub fn execute_aggregation(
                 bucket_limit,
             )
         }
-    }
-}
-
-/// Sequential execution path for filter aggregations (single worker)
-fn execute_aggregation_sequential(
-    index: &PgSearchRelation,
-    base_query: &SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            base_query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-
-        let schema = SearchIndexSchema::open(index)?;
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
-        // Build filter aggregations
-        let aggregations = build_filter_aggregations(
-            base_query,
-            aggregate_types,
-            grouping_columns,
-            &schema,
-            &reader,
-            index,
-            standalone_context,
-        )?;
-
-        execute_aggregation_sequential_helper(
-            index,
-            base_query,
-            aggregations,
-            ambulkdelete_epoch,
-            segment_ids,
-            solve_mvcc,
-            memory_limit,
-            bucket_limit,
-        )
     }
 }
 
@@ -671,6 +618,59 @@ fn execute_aggregation_parallel_helper(
         Ok(Some(agg_results))
     } else {
         Ok(None)
+    }
+}
+
+/// Sequential execution path for filter aggregations (single worker)
+fn execute_aggregation_sequential(
+    index: &PgSearchRelation,
+    base_query: &SearchQueryInput,
+    aggregate_types: &[AggregateType],
+    grouping_columns: &[GroupingColumn],
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            base_query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        let schema = SearchIndexSchema::open(index)?;
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
+
+        // Build filter aggregations
+        let aggregations = build_filter_aggregations(
+            base_query,
+            aggregate_types,
+            grouping_columns,
+            &schema,
+            &reader,
+            index,
+            standalone_context,
+        )?;
+
+        execute_aggregation_sequential_helper(
+            index,
+            base_query,
+            aggregations,
+            ambulkdelete_epoch,
+            segment_ids,
+            solve_mvcc,
+            memory_limit,
+            bucket_limit,
+        )
     }
 }
 

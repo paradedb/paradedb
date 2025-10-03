@@ -497,7 +497,6 @@ pub fn execute_aggregation(
 }
 
 /// Sequential execution path for filter aggregations (single worker)
-/// Uses ParallelAggregationWorker::new_local to maintain consistency with parallel path
 fn execute_aggregation_sequential(
     index: &PgSearchRelation,
     base_query: &SearchQueryInput,
@@ -507,8 +506,6 @@ fn execute_aggregation_sequential(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
-
     unsafe {
         let standalone_context = pg_sys::CreateStandaloneExprContext();
         let reader = SearchIndexReader::open_with_context(
@@ -539,33 +536,16 @@ fn execute_aggregation_sequential(
             standalone_context,
         )?;
 
-        let mut state = State {
-            mutex: Spinlock::default(),
-            nlaunched: 1,
-            remaining_segments: segment_ids.len(),
-        };
-
-        let mut worker = ParallelAggregationWorker::new_local(
-            aggregations.clone(),
-            base_query.clone(),
-            segment_ids,
+        execute_aggregation_sequential_helper(
+            index,
+            base_query,
+            aggregations,
             ambulkdelete_epoch,
-            index.oid(),
+            segment_ids,
             solve_mvcc,
             memory_limit,
             bucket_limit,
-            &mut state,
-        );
-
-        if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
-            let result = agg_results.into_final_result(
-                aggregations,
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-            )?;
-            Ok(serde_json::to_value(result)?)
-        } else {
-            Ok(serde_json::Value::Null)
-        }
+        )
     }
 }
 
@@ -596,45 +576,30 @@ fn execute_aggregation_parallel(
     )?;
 
     if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-        // Have tantivy finalize the intermediate results from each worker
-        let merged = {
-            // Need to rebuild aggregations to get a DistributedAggregationCollector
-            // We need to do this because we can't serialize the Aggregations with Query objects
-            let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
-            let reader = SearchIndexReader::open_with_context(
-                index,
-                base_query.clone(),
-                false,
-                MvccSatisfies::Snapshot,
-                NonNull::new(standalone_context),
-                None,
-            )?;
-            let schema = SearchIndexSchema::open(index)?;
+        // Need to build aggregations to merge results (can't serialize Query objects)
+        let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            base_query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+        let schema = SearchIndexSchema::open(index)?;
 
-            let aggregations = build_filter_aggregations(
-                base_query,
-                aggregate_types,
-                grouping_columns,
-                &schema,
-                &reader,
-                index,
-                standalone_context,
-            )
-            .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
+        let aggregations = build_filter_aggregations(
+            base_query,
+            aggregate_types,
+            grouping_columns,
+            &schema,
+            &reader,
+            index,
+            standalone_context,
+        )
+        .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
 
-            let collector = DistributedAggregationCollector::from_aggs(
-                aggregations.clone(),
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-            );
-            let intermediate = collector.merge_fruits(agg_results)?;
-            let result = intermediate.into_final_result(
-                aggregations,
-                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-            )?;
-            serde_json::to_value(result)?
-        };
-
-        return Ok(merged);
+        return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
     }
 
     // Parallel execution not available, fall back to sequential
@@ -949,7 +914,7 @@ pub fn execute_aggregate_json(
             solve_mvcc,
             memory_limit,
             bucket_limit,
-            segment_ids,
+            segment_ids.clone(),
             ambulkdelete_epoch,
         )?;
 
@@ -962,57 +927,83 @@ pub fn execute_aggregate_json(
         }
 
         if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-            // Merge intermediate results
-            let merged = {
-                let collector = DistributedAggregationCollector::from_aggs(
-                    agg_req.clone(),
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                );
-                collector.merge_fruits(agg_results)?.into_final_result(
-                    agg_req,
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?
-            };
-
-            Ok(serde_json::to_value(merged)?)
+            merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit)
         } else {
-            // No parallel execution available, execute locally
-            pgrx::debug1!("parallel execution not available, executing locally");
-
-            let segment_ids = reader
-                .segment_readers()
-                .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
-                .collect::<Vec<_>>();
-
-            let mut state = State {
-                mutex: Spinlock::default(),
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
-
-            let mut worker = ParallelAggregationWorker::new_local(
-                agg_req.clone(),
-                query.clone(),
-                segment_ids,
+            // No parallel execution available, fall back to sequential
+            execute_aggregation_sequential_helper(
+                index,
+                query,
+                agg_req,
                 ambulkdelete_epoch,
-                index.oid(),
+                segment_ids,
                 solve_mvcc,
                 memory_limit,
                 bucket_limit,
-                &mut state,
-            );
-
-            if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
-                let result = agg_results.into_final_result(
-                    agg_req,
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?;
-                Ok(serde_json::to_value(result)?)
-            } else {
-                Ok(serde_json::Value::Null)
-            }
+            )
         }
+    }
+}
+
+/// Merge parallel aggregation results into final JSON
+/// Common helper for both SQL and JSON aggregations
+fn merge_parallel_results(
+    aggregations: Aggregations,
+    agg_results: Vec<tantivy::Result<IntermediateAggregationResults>>,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let collector = DistributedAggregationCollector::from_aggs(
+        aggregations.clone(),
+        AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+    );
+    let merged = collector.merge_fruits(agg_results)?.into_final_result(
+        aggregations,
+        AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+    )?;
+    Ok(serde_json::to_value(merged)?)
+}
+
+/// Sequential execution helper using ParallelAggregationWorker::new_local
+/// This provides a common execution path for both filter and JSON aggregations
+#[allow(clippy::too_many_arguments)]
+fn execute_aggregation_sequential_helper(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    aggregations: Aggregations,
+    ambulkdelete_epoch: u32,
+    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
+
+    let mut state = State {
+        mutex: Spinlock::default(),
+        nlaunched: 1,
+        remaining_segments: segment_ids.len(),
+    };
+
+    let mut worker = ParallelAggregationWorker::new_local(
+        aggregations.clone(),
+        query.clone(),
+        segment_ids,
+        ambulkdelete_epoch,
+        index.oid(),
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+        &mut state,
+    );
+
+    if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+        let result = agg_results.into_final_result(
+            aggregations,
+            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+        )?;
+        Ok(serde_json::to_value(result)?)
+    } else {
+        Ok(serde_json::Value::Null)
     }
 }
 

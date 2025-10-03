@@ -109,6 +109,33 @@ impl AggregateType {
             },
         }
     }
+
+    fn format_aggregate(&self) -> String {
+        let base = match self {
+            AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
+            AggregateType::Count { field, .. } => format!("COUNT({field})"),
+            AggregateType::Sum { field, .. } => format!("SUM({field})"),
+            AggregateType::Avg { field, .. } => format!("AVG({field})"),
+            AggregateType::Min { field, .. } => format!("MIN({field})"),
+            AggregateType::Max { field, .. } => format!("MAX({field})"),
+        };
+
+        match self.filter_expr() {
+            Some(filter) => format!(
+                "{base} FILTER (WHERE {})",
+                filter.serialize_and_clean_query()
+            ),
+            None => base,
+        }
+    }
+
+    pub fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
+        indices
+            .iter()
+            .map(|&idx| aggregate_types[idx].format_aggregate())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

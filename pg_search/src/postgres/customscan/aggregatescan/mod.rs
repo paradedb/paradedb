@@ -543,33 +543,6 @@ fn convert_aggregate_value_to_datum(
     }
 }
 
-fn format_aggregates(aggregate_types: &[AggregateType], indices: &[usize]) -> String {
-    indices
-        .iter()
-        .map(|&idx| format_aggregate(&aggregate_types[idx]))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-fn format_aggregate(agg: &AggregateType) -> String {
-    let base = match agg {
-        AggregateType::CountAny { .. } => "COUNT(*)".to_string(),
-        AggregateType::Count { field, .. } => format!("COUNT({field})"),
-        AggregateType::Sum { field, .. } => format!("SUM({field})"),
-        AggregateType::Avg { field, .. } => format!("AVG({field})"),
-        AggregateType::Min { field, .. } => format!("MIN({field})"),
-        AggregateType::Max { field, .. } => format!("MAX({field})"),
-    };
-
-    match agg.filter_expr() {
-        Some(filter) => format!(
-            "{base} FILTER (WHERE {})",
-            filter.serialize_and_clean_query()
-        ),
-        None => base,
-    }
-}
-
 fn explain_execution_strategy(
     state: &CustomScanStateWrapper<AggregateScan>,
     filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
@@ -596,7 +569,10 @@ fn explain_execution_strategy(
             );
             explainer.add_text(
                 "  Applies to Aggregates",
-                format_aggregates(&state.custom_state().aggregate_types, aggregate_indices),
+                AggregateType::format_aggregates(
+                    &state.custom_state().aggregate_types,
+                    aggregate_indices,
+                ),
             );
         }
     } else {
@@ -622,7 +598,10 @@ fn explain_execution_strategy(
             explainer.add_text(&query_label, combined_query.serialize_and_clean_query());
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
-                format_aggregates(&state.custom_state().aggregate_types, aggregate_indices),
+                AggregateType::format_aggregates(
+                    &state.custom_state().aggregate_types,
+                    aggregate_indices,
+                ),
             );
         }
     }
@@ -787,6 +766,7 @@ fn extract_aggregates(
 
                 aggregate_types.push(agg_type);
             } else {
+                // Unsupported expression type
                 return None;
             }
         }

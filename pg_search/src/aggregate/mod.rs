@@ -32,7 +32,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::query::SearchQueryInput;
-use crate::schema::SearchIndexSchema;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
@@ -288,7 +287,10 @@ impl<'a> ParallelAggregationWorker<'a> {
             agg_json.clone()
         } else {
             // Filter aggregations: rebuild with Query objects in this worker
-            let schema = SearchIndexSchema::open(&indexrel)?;
+            // Use cached schema from PgSearchRelation
+            let schema = indexrel
+                .schema()
+                .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
             build_filter_aggregations(
                 &self.base_query,
                 &self.aggregate_types,
@@ -559,7 +561,11 @@ fn execute_aggregation_parallel(
         // Need to rebuild aggregations to merge results (can't serialize Query objects)
         let (reader, standalone_context, _, _) =
             open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-        let schema = SearchIndexSchema::open(index)?;
+
+        // Use cached schema from PgSearchRelation
+        let schema = index
+            .schema()
+            .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
         let aggregations = build_filter_aggregations(
             base_query,
@@ -573,11 +579,11 @@ fn execute_aggregation_parallel(
         .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
 
         let result = merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
-        
+
         unsafe {
             pg_sys::FreeExprContext(standalone_context, true);
         }
-        
+
         return result;
     }
 
@@ -666,7 +672,10 @@ fn execute_aggregation_sequential(
     let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
 
-    let schema = SearchIndexSchema::open(index)?;
+    // Use cached schema from PgSearchRelation
+    let schema = index
+        .schema()
+        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 
     // Build filter aggregations
     let aggregations = build_filter_aggregations(

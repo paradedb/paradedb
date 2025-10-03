@@ -329,58 +329,6 @@ impl TantivyValue {
     ) -> Result<Self, TantivyValueError> {
         Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
     }
-
-    #[inline]
-    pub fn partial_cmp(
-        this: &tantivy::schema::OwnedValue,
-        other: &tantivy::schema::OwnedValue,
-    ) -> Option<Ordering> {
-        match this {
-            tantivy::schema::OwnedValue::Str(string) => {
-                if let tantivy::schema::OwnedValue::Str(other_string) = other {
-                    string.partial_cmp(other_string)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::U64(u64) => {
-                if let tantivy::schema::OwnedValue::U64(other_u64) = other {
-                    u64.partial_cmp(other_u64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::I64(i64) => {
-                if let tantivy::schema::OwnedValue::I64(other_i64) = other {
-                    i64.partial_cmp(other_i64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::F64(f64) => {
-                if let tantivy::schema::OwnedValue::F64(other_f64) = other {
-                    f64.partial_cmp(other_f64)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Bool(bool) => {
-                if let tantivy::schema::OwnedValue::Bool(other_bool) = other {
-                    bool.partial_cmp(other_bool)
-                } else {
-                    None
-                }
-            }
-            tantivy::schema::OwnedValue::Date(datetime) => {
-                if let tantivy::schema::OwnedValue::Date(other_datetime) = other {
-                    datetime.partial_cmp(other_datetime)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
 }
 
 impl fmt::Display for TantivyValue {
@@ -428,7 +376,55 @@ impl Hash for TantivyValue {
 #[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for TantivyValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        TantivyValue::partial_cmp(&self.0, &other.0)
+        match self.tantivy_schema_value() {
+            tantivy::schema::OwnedValue::Str(string) => {
+                if let tantivy::schema::OwnedValue::Str(other_string) = other.tantivy_schema_value()
+                {
+                    string.partial_cmp(&other_string)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::U64(u64) => {
+                if let tantivy::schema::OwnedValue::U64(other_u64) = other.tantivy_schema_value() {
+                    u64.partial_cmp(&other_u64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::I64(i64) => {
+                if let tantivy::schema::OwnedValue::I64(other_i64) = other.tantivy_schema_value() {
+                    i64.partial_cmp(&other_i64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::F64(f64) => {
+                if let tantivy::schema::OwnedValue::F64(other_f64) = other.tantivy_schema_value() {
+                    f64.partial_cmp(&other_f64)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::Bool(bool) => {
+                if let tantivy::schema::OwnedValue::Bool(other_bool) = other.tantivy_schema_value()
+                {
+                    bool.partial_cmp(&other_bool)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::Date(datetime) => {
+                if let tantivy::schema::OwnedValue::Date(other_datetime) =
+                    other.tantivy_schema_value()
+                {
+                    datetime.partial_cmp(&other_datetime)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 }
 

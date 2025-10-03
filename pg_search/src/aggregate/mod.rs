@@ -442,8 +442,23 @@ pub fn execute_aggregation(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let (_reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
+    let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
         open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
+
+    let schema = index
+        .schema()
+        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+
+    // Build filter aggregations once - will be reused for both parallel and sequential execution
+    let aggregations = build_filter_aggregations(
+        base_query,
+        aggregate_types,
+        grouping_columns,
+        &schema,
+        &reader,
+        index,
+        standalone_context.as_ptr(),
+    )?;
 
     unsafe {
         // limit number of workers to the number of segments
@@ -468,13 +483,15 @@ pub fn execute_aggregation(
                 segment_ids,
                 ambulkdelete_epoch,
                 nworkers,
+                aggregations,
             )
         } else {
             execute_aggregation_sequential(
                 index,
                 base_query,
-                aggregate_types,
-                grouping_columns,
+                aggregations,
+                ambulkdelete_epoch,
+                segment_ids,
                 solve_mvcc,
                 memory_limit,
                 bucket_limit,
@@ -496,6 +513,7 @@ fn execute_aggregation_parallel(
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
     nworkers: usize,
+    aggregations: Aggregations,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     let process = ParallelAggregation::new(
         index.oid(),
@@ -510,33 +528,19 @@ fn execute_aggregation_parallel(
     )?;
 
     if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
-        // Need to rebuild aggregations to merge results (can't serialize Query objects)
-        let (reader, standalone_context, _, _) =
-            open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-        let schema = index
-            .schema()
-            .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
-
-        let aggregations = build_filter_aggregations(
-            base_query,
-            aggregate_types,
-            grouping_columns,
-            &schema,
-            &reader,
-            index,
-            standalone_context.as_ptr(),
-        )
-        .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
-
         return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
     }
 
     // Parallel execution not available, fall back to sequential
+    let (_, _, ambulkdelete_epoch_fallback, segment_ids_fallback) =
+        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
+
     execute_aggregation_sequential(
         index,
         base_query,
-        aggregate_types,
-        grouping_columns,
+        aggregations,
+        ambulkdelete_epoch_fallback,
+        segment_ids_fallback,
         solve_mvcc,
         memory_limit,
         bucket_limit,
@@ -603,43 +607,47 @@ fn execute_aggregation_parallel_helper(
     }
 }
 
-/// Sequential execution path for filter aggregations (single worker)
+/// Sequential execution path with pre-built aggregations (single worker)
+#[allow(clippy::too_many_arguments)]
 fn execute_aggregation_sequential(
     index: &PgSearchRelation,
     base_query: &SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
+    aggregations: Aggregations,
+    ambulkdelete_epoch: u32,
+    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
-        open_index_for_aggregation(index, base_query, MvccSatisfies::Snapshot)?;
-    let schema = index
-        .schema()
-        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
 
-    // Build filter aggregations
-    let aggregations = build_filter_aggregations(
-        base_query,
-        aggregate_types,
-        grouping_columns,
-        &schema,
-        &reader,
-        index,
-        standalone_context.as_ptr(),
-    )?;
+    let mut state = State {
+        mutex: Spinlock::default(),
+        nlaunched: 1,
+        remaining_segments: segment_ids.len(),
+    };
 
-    execute_aggregation_sequential_helper(
-        index,
-        base_query,
-        aggregations,
-        ambulkdelete_epoch,
+    let mut worker = ParallelAggregationWorker::new_local(
+        aggregations.clone(),
+        base_query.clone(),
         segment_ids,
+        ambulkdelete_epoch,
+        index.oid(),
         solve_mvcc,
         memory_limit,
         bucket_limit,
-    )
+        &mut state,
+    );
+
+    if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+        let result = agg_results.into_final_result(
+            aggregations,
+            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+        )?;
+        Ok(serde_json::to_value(result)?)
+    } else {
+        Ok(serde_json::Value::Null)
+    }
 }
 
 /// Helper for converting SearchQueryInput to Tantivy Query
@@ -884,7 +892,7 @@ pub fn execute_aggregate_json(
             merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit)
         } else {
             // No parallel execution available, fall back to sequential
-            execute_aggregation_sequential_helper(
+            execute_aggregation_sequential(
                 index,
                 query,
                 agg_req,
@@ -950,50 +958,6 @@ fn merge_parallel_results(
         AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
     )?;
     Ok(serde_json::to_value(merged)?)
-}
-
-/// Sequential execution helper using ParallelAggregationWorker::new_local
-/// This provides a common execution path for both filter and JSON aggregations
-#[allow(clippy::too_many_arguments)]
-fn execute_aggregation_sequential_helper(
-    index: &PgSearchRelation,
-    query: &SearchQueryInput,
-    aggregations: Aggregations,
-    ambulkdelete_epoch: u32,
-    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
-
-    let mut state = State {
-        mutex: Spinlock::default(),
-        nlaunched: 1,
-        remaining_segments: segment_ids.len(),
-    };
-
-    let mut worker = ParallelAggregationWorker::new_local(
-        aggregations.clone(),
-        query.clone(),
-        segment_ids,
-        ambulkdelete_epoch,
-        index.oid(),
-        solve_mvcc,
-        memory_limit,
-        bucket_limit,
-        &mut state,
-    );
-
-    if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
-        let result = agg_results.into_final_result(
-            aggregations,
-            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-        )?;
-        Ok(serde_json::to_value(result)?)
-    } else {
-        Ok(serde_json::Value::Null)
-    }
 }
 
 pub mod mvcc_collector {

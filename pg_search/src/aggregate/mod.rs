@@ -324,13 +324,11 @@ impl<'a> ParallelAggregationWorker<'a> {
         } else {
             reader.collect(base_collector)
         };
-
         pgrx::debug1!(
             "Worker #{}: collected {segment_ids:?} in {:?}",
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
-
         unsafe { pg_sys::FreeExprContext(standalone_context, true) };
         Ok(Some(intermediate_results))
     }
@@ -499,6 +497,7 @@ pub fn execute_aggregation(
 }
 
 /// Sequential execution path for filter aggregations (single worker)
+/// Uses ParallelAggregationWorker::new_local to maintain consistency with parallel path
 fn execute_aggregation_sequential(
     index: &PgSearchRelation,
     base_query: &SearchQueryInput,
@@ -508,6 +507,8 @@ fn execute_aggregation_sequential(
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
+    pgrx::debug1!("executing aggregation sequentially with ParallelAggregationWorker::new_local");
+
     unsafe {
         let standalone_context = pg_sys::CreateStandaloneExprContext();
         let reader = SearchIndexReader::open_with_context(
@@ -519,12 +520,16 @@ fn execute_aggregation_sequential(
             None,
         )?;
 
-        // Get the schema for query conversion
         let schema = SearchIndexSchema::open(index)?;
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
 
-        // Build filter aggregations using unified function (handles both simple and grouped)
-        // Note: Ordering is handled at the result processing level, not at Tantivy level
-        let final_aggregations = build_filter_aggregations(
+        // Build filter aggregations
+        let aggregations = build_filter_aggregations(
             base_query,
             aggregate_types,
             grouping_columns,
@@ -534,15 +539,33 @@ fn execute_aggregation_sequential(
             standalone_context,
         )?;
 
-        // Execute directly with Tantivy aggregations (bypass JSON serialization)
-        execute_aggregate_with_tantivy_aggregations(
-            index,
-            base_query,
-            final_aggregations,
+        let mut state = State {
+            mutex: Spinlock::default(),
+            nlaunched: 1,
+            remaining_segments: segment_ids.len(),
+        };
+
+        let mut worker = ParallelAggregationWorker::new_local(
+            aggregations.clone(),
+            base_query.clone(),
+            segment_ids,
+            ambulkdelete_epoch,
+            index.oid(),
             solve_mvcc,
             memory_limit,
             bucket_limit,
-        )
+            &mut state,
+        );
+
+        if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+            let result = agg_results.into_final_result(
+                aggregations,
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+            )?;
+            Ok(serde_json::to_value(result)?)
+        } else {
+            Ok(serde_json::Value::Null)
+        }
     }
 }
 
@@ -626,79 +649,6 @@ fn execute_aggregation_parallel(
     )
 }
 
-/// Execute aggregate directly with Tantivy Aggregations object (no JSON serialization)
-/// This bypasses the JSON serialization step that causes issues with FilterAggregation::new_with_query
-pub fn execute_aggregate_with_tantivy_aggregations(
-    index: &PgSearchRelation,
-    query: &SearchQueryInput,
-    aggregations: tantivy::aggregation::agg_req::Aggregations,
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    use crate::aggregate::mvcc_collector::MVCCFilterCollector;
-    use crate::aggregate::vischeck::TSVisibilityChecker;
-    use crate::index::mvcc::MvccSatisfies;
-    use crate::index::reader::index::SearchIndexReader;
-    use std::ptr::NonNull;
-    use tantivy::aggregation::{AggregationCollector, AggregationLimitsGuard};
-
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-
-        // Create aggregation collector with proper limits
-        let base_collector = AggregationCollector::from_aggs(
-            aggregations,
-            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-        );
-
-        // Apply MVCC filtering if requested
-        let agg_result = if solve_mvcc {
-            let heaprel = index
-                .heap_relation()
-                .expect("index should belong to a heap relation");
-            let mvcc_collector = MVCCFilterCollector::new(
-                base_collector,
-                TSVisibilityChecker::with_rel_and_snap(
-                    heaprel.as_ptr(),
-                    pg_sys::GetActiveSnapshot(),
-                ),
-            );
-            reader.searcher().search(reader.query(), &mvcc_collector)?
-        } else {
-            reader.searcher().search(reader.query(), &base_collector)?
-        };
-
-        // Convert result to JSON
-        let mut result_json = serde_json::to_value(agg_result)?;
-
-        // Flatten FilterAggregation results to match expected structure
-        flatten_filter_aggregation_results(&mut result_json);
-
-        // Debug: Log the final result JSON
-        #[cfg(feature = "dev-debug")]
-        {
-            pgrx::warning!("=== FilterAggregation Result JSON ===");
-            pgrx::warning!(
-                "Result: {}",
-                serde_json::to_string_pretty(&result_json)
-                    .unwrap_or_else(|e| format!("Failed to serialize: {e}"))
-            );
-        }
-
-        pg_sys::FreeExprContext(standalone_context, true);
-        Ok(result_json)
-    }
-}
-
 /// Common parallel execution helper for all aggregations
 fn execute_aggregation_parallel_helper(
     process: ParallelAggregation,
@@ -756,42 +706,6 @@ fn execute_aggregation_parallel_helper(
         Ok(Some(agg_results))
     } else {
         Ok(None)
-    }
-}
-
-/// Flatten FilterAggregation results to match the expected structure for existing result processing
-/// Converts {"doc_count": X, "filtered_agg": {"value": Y}} to {"value": Y, "doc_count": X}
-/// Preserves doc_count for empty result set detection
-fn flatten_filter_aggregation_results(result_json: &mut serde_json::Value) {
-    if let serde_json::Value::Object(ref mut obj) = result_json {
-        for (_key, value) in obj.iter_mut() {
-            if let serde_json::Value::Object(ref mut agg_obj) = value {
-                // Check if this is a FilterAggregation result with nested structure
-                if agg_obj.contains_key("doc_count") && agg_obj.contains_key("filtered_agg") {
-                    // Extract the nested aggregation result and preserve doc_count
-                    if let (Some(filtered_agg), Some(doc_count)) = (
-                        agg_obj.get("filtered_agg").cloned(),
-                        agg_obj.get("doc_count").cloned(),
-                    ) {
-                        // Merge the filtered_agg result with the doc_count
-                        if let serde_json::Value::Object(mut filtered_obj) = filtered_agg {
-                            filtered_obj.insert("doc_count".to_string(), doc_count);
-                            *value = serde_json::Value::Object(filtered_obj);
-                        } else {
-                            // If filtered_agg is not an object, create a new object with both
-                            let mut new_obj = serde_json::Map::new();
-                            new_obj.insert("value".to_string(), filtered_agg);
-                            new_obj.insert("doc_count".to_string(), doc_count);
-                            *value = serde_json::Value::Object(new_obj);
-                        }
-                    }
-                }
-                // Also recursively process any nested objects (for grouped aggregations)
-                else {
-                    flatten_filter_aggregation_results(value);
-                }
-            }
-        }
     }
 }
 

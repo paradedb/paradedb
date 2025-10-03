@@ -67,6 +67,15 @@ pub enum AggregateType {
 }
 
 impl AggregateType {
+    pub fn empty_value(&self) -> AggregateValue {
+        match self {
+            // COUNT of empty set is 0
+            AggregateType::CountAny { .. } | AggregateType::Count { .. } => AggregateValue::Int(0),
+            // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
+            _ => AggregateValue::Null,
+        }
+    }
+
     /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
     pub fn to_tantivy_agg(
         &self,
@@ -337,16 +346,7 @@ impl AggregateType {
         // - COUNT(*) and COUNT(field) return 0 for empty sets
         // - All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
         if doc_count == Some(0) {
-            match self {
-                AggregateType::CountAny { .. } | AggregateType::Count { .. } => {
-                    // COUNT of empty set is 0
-                    return AggregateValue::Int(0);
-                }
-                _ => {
-                    // All other aggregates (SUM, AVG, MIN, MAX) return NULL for empty sets
-                    return AggregateValue::Null;
-                }
-            }
+            return self.empty_value();
         }
 
         // Extract the numeric value from the aggregate result

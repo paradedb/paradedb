@@ -592,14 +592,7 @@ impl AggregateScanState {
 
     /// Return appropriate empty value for aggregate type
     fn empty_aggregate_value(&self, aggregate: &AggregateType) -> AggregateValue {
-        if matches!(
-            aggregate,
-            AggregateType::CountAny { .. } | AggregateType::Count { .. }
-        ) {
-            AggregateValue::Int(0)
-        } else {
-            AggregateValue::Null
-        }
+        aggregate.empty_value()
     }
 
     /// Extract aggregate value from JSON using serde deserialization

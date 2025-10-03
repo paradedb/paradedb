@@ -285,7 +285,7 @@ impl AggregateScanState {
                 let row = self
                     .aggregate_types
                     .iter()
-                    .map(|aggregate| self.empty_aggregate_value(aggregate))
+                    .map(|aggregate| aggregate.empty_value())
                     .collect::<AggregateRow>();
                 return vec![GroupedAggregateRow {
                     group_keys: vec![],
@@ -315,7 +315,7 @@ impl AggregateScanState {
                     self.extract_simple_aggregate_value(filter_value, aggregate)
                 } else {
                     // No filter result for this aggregate (shouldn't happen)
-                    self.empty_aggregate_value(aggregate)
+                    aggregate.empty_value()
                 }
             })
             .collect();
@@ -502,11 +502,11 @@ impl AggregateScanState {
                         value
                     } else {
                         // Filter didn't match this group
-                        self.empty_aggregate_value(aggregate)
+                        aggregate.empty_value()
                     }
                 } else {
                     // No filter result for this aggregate (shouldn't happen)
-                    self.empty_aggregate_value(aggregate)
+                    aggregate.empty_value()
                 }
             })
             .collect()
@@ -588,11 +588,6 @@ impl AggregateScanState {
 
         // No aggregate found in this bucket
         None
-    }
-
-    /// Return appropriate empty value for aggregate type
-    fn empty_aggregate_value(&self, aggregate: &AggregateType) -> AggregateValue {
-        aggregate.empty_value()
     }
 
     /// Extract aggregate value from JSON using serde deserialization

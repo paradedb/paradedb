@@ -127,7 +127,6 @@ async fn generated_joins_small(database: Db) {
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         (join, where_expr) in arb_joins_and_wheres(
@@ -179,7 +178,6 @@ async fn generated_joins_large_limit(database: Db) {
         .map(|(table, _)| table)
         .collect::<Vec<_>>();
     let setup_sql = generated_queries_setup(&mut pool.pull(), &tables_and_sizes, COLUMNS);
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         (join, where_expr) in arb_joins_and_wheres(
@@ -229,7 +227,6 @@ async fn generated_single_relation(database: Db) {
 
     let table_name = "users";
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 10)], COLUMNS);
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         where_expr in arb_wheres(
@@ -273,7 +270,6 @@ async fn generated_group_by_aggregates(database: Db) {
 
     let table_name = "users";
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 50)], COLUMNS);
-    eprintln!("{setup_sql}");
 
     // Columns that can be used for grouping (must have fast: true in index)
     let columns: Vec<_> = COLUMNS
@@ -377,7 +373,6 @@ async fn generated_paging_small(database: Db) {
 
     let table_name = "users";
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 1000)], COLUMNS);
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         where_expr in arb_wheres(vec![table_name], &columns_named(vec!["name"])),
@@ -416,7 +411,6 @@ async fn generated_paging_large(database: Db) {
 
     let table_name = "users";
     let setup_sql = generated_queries_setup(&mut pool.pull(), &[(table_name, 100000)], COLUMNS);
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         paging_exprs in arb_paging_exprs(table_name, vec![], vec!["uuid"]),
@@ -454,7 +448,6 @@ async fn generated_subquery(database: Db) {
         &[(outer_table_name, 10), (inner_table_name, 10)],
         COLUMNS,
     );
-    eprintln!("{setup_sql}");
 
     proptest!(|(
         outer_where_expr in arb_wheres(

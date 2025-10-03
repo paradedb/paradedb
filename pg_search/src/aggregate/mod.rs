@@ -76,7 +76,7 @@ impl State {
 
 type NumDeletedDocs = u32;
 
-/// Type alias for complex parallel aggregation result type
+/// Type alias for parallel aggregation result type
 type ParallelAggregationResult = Result<
     Option<Vec<Result<IntermediateAggregationResults, tantivy::TantivyError>>>,
     Box<dyn Error>,
@@ -326,7 +326,7 @@ impl<'a> ParallelAggregationWorker<'a> {
         };
 
         pgrx::debug1!(
-            "Filter Worker #{}: collected {segment_ids:?} in {:?}",
+            "Worker #{}: collected {segment_ids:?} in {:?}",
             unsafe { pg_sys::ParallelWorkerNumber },
             start.elapsed()
         );
@@ -419,8 +419,87 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
+/// Execute aggregations with SQL FILTER clause support (with parallelization)
+///
+/// Main entry point for aggregations with filter support. Handles both simple aggregations
+/// and GROUP BY using Tantivy's FilterAggregation feature. Supports parallel execution.
+///
+/// # Arguments
+/// * `base_query` - WHERE clause (defines document set to aggregate)
+/// * `aggregate_types` - Aggregates with optional FILTER clauses  
+/// * `grouping_columns` - GROUP BY columns (empty for simple aggregations)
+/// * `solve_mvcc` - Apply MVCC visibility filtering
+/// * `memory_limit` - Max memory for aggregation (typically work_mem)
+/// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
+///
+/// # Returns
+/// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
+pub fn execute_aggregation(
+    index: &PgSearchRelation,
+    base_query: &SearchQueryInput,
+    aggregate_types: &[AggregateType],
+    grouping_columns: &[GroupingColumn],
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    unsafe {
+        let standalone_context = pg_sys::CreateStandaloneExprContext();
+        let reader = SearchIndexReader::open_with_context(
+            index,
+            base_query.clone(),
+            false,
+            MvccSatisfies::Snapshot,
+            NonNull::new(standalone_context),
+            None,
+        )?;
+
+        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+        let segment_ids = reader
+            .segment_readers()
+            .iter()
+            .map(|r| (r.segment_id(), r.num_deleted_docs()))
+            .collect::<Vec<_>>();
+
+        // limit number of workers to the number of segments
+        let mut nworkers =
+            (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len());
+
+        if nworkers > 0 && pg_sys::parallel_leader_participation {
+            // make sure to account for the leader being a worker too
+            nworkers -= 1;
+        }
+
+        // Use parallel execution if we have multiple segments and parallel workers are enabled
+        if nworkers > 0 && segment_ids.len() > 1 {
+            execute_aggregation_parallel(
+                index,
+                base_query,
+                aggregate_types,
+                grouping_columns,
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+                segment_ids,
+                ambulkdelete_epoch,
+                nworkers,
+            )
+        } else {
+            execute_aggregation_sequential(
+                index,
+                base_query,
+                aggregate_types,
+                grouping_columns,
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+            )
+        }
+    }
+}
+
 /// Sequential execution path for filter aggregations (single worker)
-fn execute_aggregate_with_filters_sequential(
+fn execute_aggregation_sequential(
     index: &PgSearchRelation,
     base_query: &SearchQueryInput,
     aggregate_types: &[AggregateType],
@@ -467,131 +546,67 @@ fn execute_aggregate_with_filters_sequential(
     }
 }
 
-/// Common parallel execution helper for all aggregations
-fn execute_parallel_aggregation(
-    process: ParallelAggregation,
-    nworkers: usize,
-) -> ParallelAggregationResult {
-    pgrx::debug1!(
-        "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
-        unsafe { *std::ptr::addr_of!(pg_sys::parallel_leader_participation) }
-    );
-
-    if let Some(mut process) = launch_parallel_process!(
-        ParallelAggregation<ParallelAggregationWorker>,
-        process,
-        WorkerStyle::Query,
-        nworkers,
-        16384
-    ) {
-        // Signal workers with the actual number launched
-        let mut nlaunched = process.launched_workers();
-        pgrx::debug1!("launched {nlaunched} parallel workers");
-
-        if unsafe { pg_sys::parallel_leader_participation } {
-            nlaunched += 1;
-            pgrx::debug1!(
-                "with parallel_leader_participation=true, actual worker count={nlaunched}"
-            );
-        }
-
-        process
-            .state_manager_mut()
-            .object::<State>(0)?
-            .unwrap()
-            .set_launched_workers(nlaunched);
-
-        // Leader participation
-        let mut agg_results = Vec::with_capacity(nlaunched);
-        if unsafe { pg_sys::parallel_leader_participation } {
-            let mut worker =
-                ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
-            match worker.execute_aggregate(QueryWorkerStyle::ParallelLeader) {
-                Ok(Some(result)) => agg_results.push(Ok(result)),
-                Ok(None) => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        // Wait for workers to finish, collecting their intermediate aggregate results
-        for (_worker_number, message) in process {
-            match postcard::from_bytes::<IntermediateAggregationResults>(&message) {
-                Ok(worker_results) => agg_results.push(Ok(worker_results)),
-                Err(e) => return Err(e.into()),
-            }
-        }
-
-        Ok(Some(agg_results))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Parameters for parallel filter aggregation execution
-struct ParallelFilterParams<'a> {
-    index: &'a PgSearchRelation,
-    base_query: &'a SearchQueryInput,
-    aggregate_types: &'a [AggregateType],
-    grouping_columns: &'a [GroupingColumn],
+/// Parallel execution path for filter aggregations (multiple workers)
+#[allow(clippy::too_many_arguments)]
+fn execute_aggregation_parallel(
+    index: &PgSearchRelation,
+    base_query: &SearchQueryInput,
+    aggregate_types: &[AggregateType],
+    grouping_columns: &[GroupingColumn],
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
     nworkers: usize,
-}
-
-/// Parallel execution path for filter aggregations (multiple workers)
-fn execute_aggregate_with_filters_parallel(
-    params: ParallelFilterParams,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
     let process = ParallelAggregation::new(
-        params.index.oid(),
-        params.base_query,
-        params.aggregate_types,
-        params.grouping_columns,
-        params.solve_mvcc,
-        params.memory_limit,
-        params.bucket_limit,
-        params.segment_ids,
-        params.ambulkdelete_epoch,
+        index.oid(),
+        base_query,
+        aggregate_types,
+        grouping_columns,
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+        segment_ids,
+        ambulkdelete_epoch,
     )?;
 
-    if let Some(agg_results) = execute_parallel_aggregation(process, params.nworkers)? {
+    if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
         // Have tantivy finalize the intermediate results from each worker
         let merged = {
             // Need to rebuild aggregations to get a DistributedAggregationCollector
             // We need to do this because we can't serialize the Aggregations with Query objects
             let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
             let reader = SearchIndexReader::open_with_context(
-                params.index,
-                params.base_query.clone(),
+                index,
+                base_query.clone(),
                 false,
                 MvccSatisfies::Snapshot,
                 NonNull::new(standalone_context),
                 None,
             )?;
-            let schema = SearchIndexSchema::open(params.index)?;
+            let schema = SearchIndexSchema::open(index)?;
 
             let aggregations = build_filter_aggregations(
-                params.base_query,
-                params.aggregate_types,
-                params.grouping_columns,
+                base_query,
+                aggregate_types,
+                grouping_columns,
                 &schema,
                 &reader,
-                params.index,
+                index,
                 standalone_context,
             )
             .map_err(|e| -> Box<dyn Error> { Box::new(std::io::Error::other(e.to_string())) })?;
 
             let collector = DistributedAggregationCollector::from_aggs(
                 aggregations.clone(),
-                AggregationLimitsGuard::new(Some(params.memory_limit), Some(params.bucket_limit)),
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
             );
             let intermediate = collector.merge_fruits(agg_results)?;
             let result = intermediate.into_final_result(
                 aggregations,
-                AggregationLimitsGuard::new(Some(params.memory_limit), Some(params.bucket_limit)),
+                AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
             )?;
             serde_json::to_value(result)?
         };
@@ -600,14 +615,14 @@ fn execute_aggregate_with_filters_parallel(
     }
 
     // Parallel execution not available, fall back to sequential
-    execute_aggregate_with_filters_sequential(
-        params.index,
-        params.base_query,
-        params.aggregate_types,
-        params.grouping_columns,
-        params.solve_mvcc,
-        params.memory_limit,
-        params.bucket_limit,
+    execute_aggregation_sequential(
+        index,
+        base_query,
+        aggregate_types,
+        grouping_columns,
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
     )
 }
 
@@ -681,6 +696,66 @@ pub fn execute_aggregate_with_tantivy_aggregations(
 
         pg_sys::FreeExprContext(standalone_context, true);
         Ok(result_json)
+    }
+}
+
+/// Common parallel execution helper for all aggregations
+fn execute_aggregation_parallel_helper(
+    process: ParallelAggregation,
+    nworkers: usize,
+) -> ParallelAggregationResult {
+    pgrx::debug1!(
+        "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
+        unsafe { *std::ptr::addr_of!(pg_sys::parallel_leader_participation) }
+    );
+
+    if let Some(mut process) = launch_parallel_process!(
+        ParallelAggregation<ParallelAggregationWorker>,
+        process,
+        WorkerStyle::Query,
+        nworkers,
+        16384
+    ) {
+        // Signal workers with the actual number launched
+        let mut nlaunched = process.launched_workers();
+        pgrx::debug1!("launched {nlaunched} parallel workers");
+
+        if unsafe { pg_sys::parallel_leader_participation } {
+            nlaunched += 1;
+            pgrx::debug1!(
+                "with parallel_leader_participation=true, actual worker count={nlaunched}"
+            );
+        }
+
+        process
+            .state_manager_mut()
+            .object::<State>(0)?
+            .unwrap()
+            .set_launched_workers(nlaunched);
+
+        // Leader participation
+        let mut agg_results = Vec::with_capacity(nlaunched);
+        if unsafe { pg_sys::parallel_leader_participation } {
+            let mut worker =
+                ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
+            match worker.execute_aggregate(QueryWorkerStyle::ParallelLeader) {
+                Ok(Some(result)) => agg_results.push(Ok(result)),
+                Ok(None) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        // Wait for workers to finish, collecting their intermediate aggregate results
+        for (_worker_number, message) in process {
+            match postcard::from_bytes::<IntermediateAggregationResults>(&message) {
+                Ok(worker_results) => agg_results.push(Ok(worker_results)),
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        Ok(Some(agg_results))
+    } else {
+        Ok(None)
     }
 }
 
@@ -972,7 +1047,7 @@ pub fn execute_aggregate_json(
             nworkers -= 1;
         }
 
-        if let Some(agg_results) = execute_parallel_aggregation(process, nworkers)? {
+        if let Some(agg_results) = execute_aggregation_parallel_helper(process, nworkers)? {
             // Merge intermediate results
             let merged = {
                 let collector = DistributedAggregationCollector::from_aggs(
@@ -1023,85 +1098,6 @@ pub fn execute_aggregate_json(
             } else {
                 Ok(serde_json::Value::Null)
             }
-        }
-    }
-}
-
-/// Execute aggregations with SQL FILTER clause support (with parallelization)
-///
-/// Main entry point for aggregations with filter support. Handles both simple aggregations
-/// and GROUP BY using Tantivy's FilterAggregation feature. Supports parallel execution.
-///
-/// # Arguments
-/// * `base_query` - WHERE clause (defines document set to aggregate)
-/// * `aggregate_types` - Aggregates with optional FILTER clauses  
-/// * `grouping_columns` - GROUP BY columns (empty for simple aggregations)
-/// * `solve_mvcc` - Apply MVCC visibility filtering
-/// * `memory_limit` - Max memory for aggregation (typically work_mem)
-/// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
-///
-/// # Returns
-/// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
-pub fn execute_aggregate_with_filters(
-    index: &PgSearchRelation,
-    base_query: &SearchQueryInput,
-    aggregate_types: &[AggregateType],
-    grouping_columns: &[GroupingColumn],
-    solve_mvcc: bool,
-    memory_limit: u64,
-    bucket_limit: u32,
-) -> Result<serde_json::Value, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            base_query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
-
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
-        }
-
-        // Use parallel execution if we have multiple segments and parallel workers are enabled
-        if nworkers > 0 && segment_ids.len() > 1 {
-            execute_aggregate_with_filters_parallel(ParallelFilterParams {
-                index,
-                base_query,
-                aggregate_types,
-                grouping_columns,
-                solve_mvcc,
-                memory_limit,
-                bucket_limit,
-                segment_ids,
-                ambulkdelete_epoch,
-                nworkers,
-            })
-        } else {
-            execute_aggregate_with_filters_sequential(
-                index,
-                base_query,
-                aggregate_types,
-                grouping_columns,
-                solve_mvcc,
-                memory_limit,
-                bucket_limit,
-            )
         }
     }
 }

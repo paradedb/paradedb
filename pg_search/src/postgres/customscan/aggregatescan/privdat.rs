@@ -274,24 +274,6 @@ impl AggregateType {
         }
     }
 
-    /// Generate filter aggregation JSON for this aggregate
-    /// Returns (filter_key, aggregation_name, aggregation_json)
-    pub fn to_filter_aggregation_json(&self, idx: usize) -> (String, String, serde_json::Value) {
-        let filter_key = if let Some(filter) = self.filter_expr() {
-            format!(
-                "filter_{}",
-                filter.serialize_and_clean_query().replace(' ', "_")
-            )
-        } else {
-            "no_filter".to_string()
-        };
-
-        let agg_name = format!("agg_{idx}");
-        let agg_json = self.convert_filtered_aggregate_to_unfiltered().to_json();
-
-        (filter_key, agg_name, agg_json)
-    }
-
     /// Convert AggregateResult to AggregateValue with empty result set handling.
     ///
     /// This method handles the interaction between aggregate types, document counts,

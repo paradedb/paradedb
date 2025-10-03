@@ -12,6 +12,16 @@ inside [Kubernetes](/deploy/self-hosted/kubernetes), or as an [extension](/deplo
 For production environments, we recommend deploying the [ParadeDB Enterprise](/deploy/enterprise) binary inside Kubernetes. This unlocks support for
 [logical replication](/deploy/self-hosted/logical-replication) and [high availability](/deploy/self-hosted/high-availability), which must be configured separately.
 
+<Note>
+Running ParadeDB Community in a production environment is discouraged.
+
+This is because ParadeDB Community does not have write-ahead log (WAL) support. Without WALs, the index is not guaranteed to be durable. This means that data can be lost or the
+entire index can become corrupt if the server crashes or restarts, which is common during failovers or upgrades. For more details, see [guarantees](/welcome/guarantees#aci-d).
+
+When you are ready to deploy in ParadeDB to production, [contact us](mailto:sales@paradedb.com) for access to ParadeDB Enterprise, which has WAL support.
+
+</Note>
+
 ## ParadeDB BYOC
 
 [ParadeDB BYOC (Bring Your Own Cloud)](/deploy/byoc) is a managed deployment of ParadeDB Enterprise inside your AWS or GCP account.

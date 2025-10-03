@@ -27,6 +27,8 @@ use heap_field_filter::HeapFieldFilter;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
@@ -903,6 +905,33 @@ impl SearchQueryInput {
                 query.into_tantivy_query(field, schema, parser, searcher)
             }
         }
+    }
+
+    /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
+    pub fn to_tantivy_query(
+        filter: Option<&SearchQueryInput>,
+        schema: &SearchIndexSchema,
+        reader: &SearchIndexReader,
+        index: &PgSearchRelation,
+        context: *mut pg_sys::ExprContext,
+    ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
+        Ok(match filter {
+            Some(query) => query.clone().into_tantivy_query(
+                schema,
+                &|| {
+                    tantivy::query::QueryParser::for_index(
+                        reader.searcher().index(),
+                        schema.fields().map(|(f, _)| f).collect(),
+                    )
+                },
+                reader.searcher(),
+                index.oid(),
+                index.heap_relation().map(|r| r.oid()),
+                std::ptr::NonNull::new(context),
+                None,
+            )?,
+            None => Box::new(tantivy::query::AllQuery),
+        })
     }
 }
 

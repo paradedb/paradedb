@@ -650,98 +650,38 @@ pub fn execute_aggregate_json(
         bucket_limit,
     )
 }
-/// Helper for converting SearchQueryInput to Tantivy Query
-/// Eliminates duplication of query conversion logic
-struct QueryConverter<'a> {
-    schema: &'a crate::schema::SearchIndexSchema,
-    reader: &'a SearchIndexReader,
-    index: &'a PgSearchRelation,
-    context: *mut pg_sys::ExprContext,
-}
 
-impl<'a> QueryConverter<'a> {
-    /// Convert filter expression or use AllQuery for non-filtered aggregates
-    fn convert_filter(
-        &self,
-        filter: Option<&SearchQueryInput>,
-    ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn Error>> {
-        Ok(match filter {
-            Some(query) => query.clone().into_tantivy_query(
-                self.schema,
-                &|| {
-                    tantivy::query::QueryParser::for_index(
-                        self.reader.searcher().index(),
-                        self.schema.fields().map(|(f, _)| f).collect(),
-                    )
-                },
-                self.reader.searcher(),
-                self.index.oid(),
-                self.index.heap_relation().map(|r| r.oid()),
-                NonNull::new(self.context),
-                None,
-            )?,
-            None => Box::new(tantivy::query::AllQuery),
-        })
+/// Build nested TermsAggregations from innermost to outermost
+/// Returns map with "grouped" key containing the outermost terms aggregation
+fn build_nested_terms(
+    grouping_columns: &[GroupingColumn],
+    leaf_aggs: std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
+) -> Result<
+    std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
+    Box<dyn Error>,
+> {
+    let mut current = leaf_aggs;
+
+    for column in grouping_columns.iter().rev() {
+        let terms_agg = tantivy::aggregation::agg_req::Aggregation {
+            agg: serde_json::from_value(serde_json::json!({
+                "terms": {
+                    "field": column.field_name,
+                    "size": 65000,
+                    "segment_size": 65000
+                }
+            }))?,
+            sub_aggregation: tantivy::aggregation::agg_req::Aggregations::from(current),
+        };
+
+        current = std::collections::HashMap::from([("grouped".to_string(), terms_agg)]);
     }
+
+    Ok(current)
 }
 
-/// Helper for building nested TermsAggregations
-/// Eliminates duplication of nested aggregation building logic
-struct TermsAggregationBuilder;
-
-impl TermsAggregationBuilder {
-    /// Build nested TermsAggregations from innermost to outermost
-    /// Returns a map with "grouped" as the key for the outermost terms aggregation
-    /// This is used for GROUP BY queries where FilterAggregation is at the top level
-    fn build_nested(
-        grouping_columns: &[GroupingColumn],
-        leaf_aggs: std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
-    ) -> Result<
-        std::collections::HashMap<String, tantivy::aggregation::agg_req::Aggregation>,
-        Box<dyn Error>,
-    > {
-        let mut current = leaf_aggs;
-
-        // Build from innermost to outermost, reversing the order
-        for column in grouping_columns.iter().rev() {
-            let terms_agg = tantivy::aggregation::agg_req::Aggregation {
-                agg: serde_json::from_value(serde_json::json!({
-                    "terms": {
-                        "field": column.field_name,
-                        "size": 65000,
-                        "segment_size": 65000
-                    }
-                }))?,
-                sub_aggregation: tantivy::aggregation::agg_req::Aggregations::from(current),
-            };
-
-            let mut next_level = std::collections::HashMap::new();
-            // Use "grouped" as the key name for all levels
-            // The transformation function will convert this to group_0, group_1, etc.
-            next_level.insert("grouped".to_string(), terms_agg);
-            current = next_level;
-        }
-
-        Ok(current)
-    }
-}
-
-/// Create base aggregation without filter wrapper
-/// Centralizes the logic for creating unfiltered aggregations
-fn create_base_aggregation(
-    agg_type: &AggregateType,
-) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn Error>> {
-    let unfiltered = if agg_type.filter_expr().is_some() {
-        agg_type.convert_filtered_aggregate_to_unfiltered()
-    } else {
-        agg_type.clone()
-    };
-    Ok(serde_json::from_value(unfiltered.to_json())?)
-}
-
-/// Unified function to build filter aggregations - works for both simple and grouped cases
-/// This replaces both build_simple_filter_aggregations and build_grouped_filter_aggregations
-/// Reduces complexity by having a single code path for all aggregation scenarios
+/// Build Tantivy aggregations with FilterAggregation wrappers
+/// Handles all cases: simple aggregates, GROUP BY, and GROUP BY without aggregates
 fn build_filter_aggregations(
     base_query: &crate::query::SearchQueryInput,
     aggregate_types: &[AggregateType],
@@ -754,99 +694,85 @@ fn build_filter_aggregations(
     use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants, Aggregations};
     use tantivy::aggregation::bucket::FilterAggregation;
 
-    let converter = QueryConverter {
-        schema,
-        reader,
-        index,
-        context,
+    // Helper closure to wrap aggregation in FilterAggregation
+    let wrap_in_filter = |name: String, query, sub_aggs| -> (String, Aggregation) {
+        (
+            name,
+            Aggregation {
+                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(query)),
+                sub_aggregation: Aggregations::from(sub_aggs),
+            },
+        )
     };
 
-    // Special case: GROUP BY without aggregates
+    // Special case: GROUP BY without aggregates - just build nested terms
     if aggregate_types.is_empty() && !grouping_columns.is_empty() {
-        // Build nested terms aggregations with group_X naming at each level
-        let mut current_aggs = std::collections::HashMap::new();
-        for (i, grouping_column) in grouping_columns.iter().enumerate().rev() {
-            let terms_json = serde_json::json!({
-                "terms": {
-                    "field": grouping_column.field_name,
-                    "size": 65000,
-                    "segment_size": 65000
-                }
-            });
-
-            let terms_aggregation = Aggregation {
-                agg: serde_json::from_value(terms_json)?,
-                sub_aggregation: Aggregations::from(current_aggs.clone()),
+        let mut result = std::collections::HashMap::new();
+        for (i, col) in grouping_columns.iter().enumerate().rev() {
+            let terms_agg = Aggregation {
+                agg: serde_json::from_value(serde_json::json!({
+                    "terms": {"field": col.field_name, "size": 65000, "segment_size": 65000}
+                }))?,
+                sub_aggregation: Aggregations::from(result.clone()),
             };
-
-            let mut new_level = std::collections::HashMap::new();
-            new_level.insert(format!("group_{i}"), terms_aggregation);
-            current_aggs = new_level;
+            result = std::collections::HashMap::from([(format!("group_{i}"), terms_agg)]);
         }
-
-        return Ok(Aggregations::from(current_aggs));
+        return Ok(Aggregations::from(result));
     }
 
-    // If no grouping, build simple filter aggregations
+    // Simple aggregates (no GROUP BY): filter_0, filter_1, ...
     if grouping_columns.is_empty() {
-        let mut leaf_aggs = std::collections::HashMap::new();
-        for (idx, agg_type) in aggregate_types.iter().enumerate() {
-            let filter_query = converter.convert_filter(agg_type.filter_expr().as_ref())?;
-            let base_agg = create_base_aggregation(agg_type)?;
-
-            // Wrap in FilterAggregation
-            let mut filter_sub_aggs = std::collections::HashMap::new();
-            filter_sub_aggs.insert("filtered_agg".to_string(), base_agg);
-
-            let filter_agg = Aggregation {
-                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(filter_query)),
-                sub_aggregation: Aggregations::from(filter_sub_aggs),
-            };
-
-            leaf_aggs.insert(format!("filter_{idx}"), filter_agg);
+        let mut result = std::collections::HashMap::new();
+        for (idx, agg) in aggregate_types.iter().enumerate() {
+            let query = SearchQueryInput::to_tantivy_query(
+                agg.filter_expr().as_ref(),
+                schema,
+                reader,
+                index,
+                context,
+            )?;
+            let base = AggregateType::to_tantivy_agg(agg)?;
+            let sub_aggs = std::collections::HashMap::from([("filtered_agg".to_string(), base)]);
+            let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, sub_aggs);
+            result.insert(name, filter_agg);
         }
-        return Ok(Aggregations::from(leaf_aggs));
+        return Ok(Aggregations::from(result));
     }
 
-    // For GROUP BY: Put FilterAggregation at the TOP level with TermsAggregations inside
-    // This is required because FilterAggregation needs direct SegmentReader access
-    // Structure: filter_0 -> grouped -> buckets -> [leaf metrics]
-    let mut root_aggs = std::collections::HashMap::new();
+    // GROUP BY with aggregates: add sentinel + filter_0, filter_1, ...
+    // Sentinel ensures ALL groups appear (even those with no matching filtered aggregates)
+    let mut result = std::collections::HashMap::new();
 
-    // Always add a sentinel aggregation to ensure all groups are present
-    // This is necessary because filtered aggregates only generate groups that match their filters
-    // The sentinel uses the base query (WHERE clause) to generate ALL groups matching the query
-    // This ensures we get ALL groups from the base result set, not just those matching aggregate filters
-    let base_query_tantivy = converter.convert_filter(Some(base_query))?;
-    let sentinel_terms =
-        TermsAggregationBuilder::build_nested(grouping_columns, std::collections::HashMap::new())?;
-    let sentinel_filter = Aggregation {
-        agg: AggregationVariants::Filter(FilterAggregation::new_with_query(base_query_tantivy)),
-        sub_aggregation: Aggregations::from(sentinel_terms),
-    };
-    root_aggs.insert("filter_sentinel".to_string(), sentinel_filter);
+    // Sentinel: FilterAggregation(base_query) -> nested terms
+    let base_query_tantivy =
+        SearchQueryInput::to_tantivy_query(Some(base_query), schema, reader, index, context)?;
+    let sentinel_terms = build_nested_terms(grouping_columns, std::collections::HashMap::new())?;
+    result.insert(
+        "filter_sentinel".to_string(),
+        Aggregation {
+            agg: AggregationVariants::Filter(FilterAggregation::new_with_query(base_query_tantivy)),
+            sub_aggregation: Aggregations::from(sentinel_terms),
+        },
+    );
 
-    for (idx, agg_type) in aggregate_types.iter().enumerate() {
-        let filter_query = converter.convert_filter(agg_type.filter_expr().as_ref())?;
-        let base_agg = create_base_aggregation(agg_type)?;
+    // Each aggregate: FilterAggregation(filter) -> nested terms -> metric
+    for (idx, agg) in aggregate_types.iter().enumerate() {
+        let query = SearchQueryInput::to_tantivy_query(
+            agg.filter_expr().as_ref(),
+            schema,
+            reader,
+            index,
+            context,
+        )?;
+        let base = AggregateType::to_tantivy_agg(agg)?;
+        let metric_leaf = std::collections::HashMap::from([(idx.to_string(), base)]);
+        let terms_structure = build_nested_terms(grouping_columns, metric_leaf)?;
 
-        // Create leaf with the metric aggregation
-        let mut metric_aggs = std::collections::HashMap::new();
-        metric_aggs.insert(idx.to_string(), base_agg);
-
-        // Build nested TermsAggregations with metric at the leaf
-        let terms_structure = TermsAggregationBuilder::build_nested(grouping_columns, metric_aggs)?;
-
-        // Wrap in FilterAggregation
-        let filter_agg = Aggregation {
-            agg: AggregationVariants::Filter(FilterAggregation::new_with_query(filter_query)),
-            sub_aggregation: Aggregations::from(terms_structure),
-        };
-
-        root_aggs.insert(format!("filter_{idx}"), filter_agg);
+        let (name, filter_agg) = wrap_in_filter(format!("filter_{idx}"), query, terms_structure);
+        result.insert(name, filter_agg);
     }
 
-    Ok(Aggregations::from(root_aggs))
+    Ok(Aggregations::from(result))
 }
 
 /// Type alias for the return value of open_index_for_aggregation

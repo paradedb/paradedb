@@ -67,8 +67,19 @@ pub enum AggregateType {
 }
 
 impl AggregateType {
+    /// Create base Tantivy aggregation from AggregateType (without filter wrapper)
+    pub fn to_tantivy_agg(
+        &self,
+    ) -> Result<tantivy::aggregation::agg_req::Aggregation, Box<dyn std::error::Error>> {
+        let unfiltered = if self.filter_expr().is_some() {
+            self.convert_filtered_aggregate_to_unfiltered()
+        } else {
+            self.clone()
+        };
+        Ok(serde_json::from_value(unfiltered.to_json())?)
+    }
     /// Helper function to convert a single filtered aggregate to unfiltered
-    pub fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
+    fn convert_filtered_aggregate_to_unfiltered(&self) -> Self {
         match self {
             Self::CountAny { .. } => Self::CountAny { filter: None },
             Self::Count { field, missing, .. } => Self::Count {

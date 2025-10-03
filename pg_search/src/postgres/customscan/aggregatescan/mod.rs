@@ -642,14 +642,8 @@ fn extract_aggregates(args: &CreateUpperPathsHookArgs) -> Option<Vec<AggregateTy
                     return None;
                 }
 
-                if (*aggref).aggstar {
-                    // COUNT(*) (aggstar)
-                    aggregate_types.push(AggregateType::Count);
-                } else {
-                    // Check for other aggregate functions with arguments
-                    let agg_type = identify_aggregate_function(aggref, relation_oid)?;
-                    aggregate_types.push(agg_type);
-                }
+                let agg_type = AggregateType::try_from(aggref, relation_oid)?;
+                aggregate_types.push(agg_type);
             } else {
                 // Unsupported expression type
                 return None;

@@ -36,7 +36,7 @@ fn search_with_match_disjunction(_field: AnyElement, terms_to_tokenize: &str) ->
 
 #[pg_operator(immutable, parallel_safe, cost = 1000000000)]
 #[opname(pg_catalog.|||)]
-fn search_with_match_disjunction_array(_field: &str, exact_tokens: Vec<String>) -> bool {
+fn search_with_match_disjunction_array(_field: AnyElement, exact_tokens: Vec<String>) -> bool {
     panic!(
         "query is incompatible with pg_search's `|||(field, TEXT[])` operator: `{exact_tokens:?}`"
     )

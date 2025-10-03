@@ -1,4 +1,3 @@
-use crate::api::tokenizers::typmod::{load_typmod, save_typmod};
 use crate::api::tokenizers::{CowString, DatumWrapper};
 use macros::generate_tokenizer_sql;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
@@ -6,15 +5,26 @@ use pgrx::nullable::Nullable;
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
 };
-use pgrx::{extension_sql, pg_extern, pg_sys, Array, FromDatum, IntoDatum};
-use std::ffi::{CStr, CString};
+use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
+use std::ffi::CString;
 use tantivy::tokenizer::Language;
 use tokenizers::manager::{LinderaStyle, SearchTokenizerFilters};
 use tokenizers::SearchTokenizer;
 
+pub trait TokenizerCtor {
+    fn make_search_tokenizer() -> SearchTokenizer;
+}
+
 macro_rules! define_tokenizer_type {
     ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_tymod = $custom_typmod:literal) => {
         pub struct $rust_name(pg_sys::Datum);
+
+        impl TokenizerCtor for $rust_name {
+            #[inline(always)]
+            fn make_search_tokenizer() -> SearchTokenizer {
+                $tokenizer_conf
+            }
+        }
 
         impl DatumWrapper for $rust_name {
             fn from_datum(datum: pg_sys::Datum) -> Self {
@@ -85,7 +95,7 @@ macro_rules! define_tokenizer_type {
 
         #[pg_extern(immutable, parallel_safe)]
         fn $cast_name(s: $rust_name, fcinfo: pg_sys::FunctionCallInfo) -> Vec<String> {
-            let mut tokenizer = $tokenizer_conf;
+            let mut tokenizer = $rust_name::make_search_tokenizer();
 
             unsafe {
                 let func_expr = (*(*fcinfo).flinfo).fn_expr.cast::<pg_sys::FuncExpr>();
@@ -222,14 +232,3 @@ define_tokenizer_type!(
     preferred = false,
     custom_tymod = false
 );
-
-#[pg_extern(immutable, parallel_safe)]
-fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
-    save_typmod(typmod_parts.iter()).expect("should not fail to save typmod")
-}
-
-#[pg_extern(immutable, parallel_safe)]
-pub fn generic_typmod_out(typmod: i32) -> CString {
-    let parsed = load_typmod(typmod).expect("should not fail to load typmod");
-    CString::new(format!("({parsed})")).unwrap()
-}

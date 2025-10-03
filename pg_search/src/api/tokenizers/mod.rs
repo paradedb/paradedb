@@ -105,7 +105,12 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = lindera_typmod.filters;
         }
 
-        SearchTokenizer::Default(filters)
+        #[allow(deprecated)]
+        SearchTokenizer::Raw(filters)
+        | SearchTokenizer::Default(filters)
+        | SearchTokenizer::EnStem(filters)
+        | SearchTokenizer::Lowercase(filters)
+        | SearchTokenizer::SourceCode(filters)
         | SearchTokenizer::WhiteSpace(filters)
         | SearchTokenizer::ChineseCompatible(filters)
         | SearchTokenizer::ChineseLindera(filters)
@@ -117,7 +122,14 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *filters = generic_typmod.filters;
         }
 
-        _ => {}
+        #[cfg(feature = "icu")]
+        SearchTokenizer::ICUTokenizer(filters) => {
+            let generic_typmod =
+                lookup_generic_typmod(typmod).expect("typmod lookup should not fail");
+            *filters = generic_typmod.filters;
+        }
+
+        SearchTokenizer::Keyword => {}
     }
 }
 

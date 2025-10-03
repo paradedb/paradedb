@@ -4,9 +4,9 @@ use parking_lot::Mutex;
 use pgrx::datum::DatumWithOid;
 use pgrx::pg_sys::BuiltinOid;
 use pgrx::spi::{OwnedPreparedStatement, Query};
-use pgrx::{extension_sql, pg_sys, Array, PgOid, Spi};
+use pgrx::{extension_sql, pg_extern, pg_sys, Array, PgOid, Spi};
 use std::collections::hash_map::Entry;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::fmt::Display;
 use std::ops::Index;
 use std::str::FromStr;
@@ -17,6 +17,17 @@ use tokenizers::manager::SearchTokenizerFilters;
 
 pub use definitions::lookup_generic_typmod;
 pub use definitions::*;
+
+#[pg_extern(immutable, parallel_safe)]
+fn generic_typmod_in(typmod_parts: Array<&CStr>) -> i32 {
+    save_typmod(typmod_parts.iter()).expect("should not fail to save typmod")
+}
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn generic_typmod_out(typmod: i32) -> CString {
+    let parsed = load_typmod(typmod).expect("should not fail to load typmod");
+    CString::new(format!("({parsed})")).unwrap()
+}
 
 pub type Typmod = i32;
 

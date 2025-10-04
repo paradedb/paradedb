@@ -474,6 +474,10 @@ impl ParallelScanState {
     }
 }
 
+extern "C" {
+    pub fn IsLogicalWorker() -> bool;
+}
+
 /// The ParallelScanState is torn down after `shutdown_custom_scan`, but before
 /// `explain_custom_scan` runs. This struct contains any per-worker state that should be captured
 /// from the ParallelScanState for the purposes of EXPLAIN.

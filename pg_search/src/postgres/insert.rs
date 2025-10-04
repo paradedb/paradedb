@@ -22,6 +22,7 @@ use crate::index::writer::index::{IndexWriterConfig, SerialIndexWriter};
 use crate::postgres::merge::{do_merge, MergeStyle};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{item_pointer_to_u64, row_to_search_document};
+use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use std::panic::{catch_unwind, resume_unwind};
@@ -53,7 +54,15 @@ impl InsertState {
         let key_field_name = schema.key_field_name();
 
         let per_row_context = pg_sys::AllocSetContextCreateExtended(
-            PgMemoryContexts::CurrentMemoryContext.value(),
+            if cfg!(feature = "pg17") {
+                if IsLogicalWorker() {
+                    PgMemoryContexts::TopTransactionContext.value()
+                } else {
+                    PgMemoryContexts::CurrentMemoryContext.value()
+                }
+            } else {
+                PgMemoryContexts::CurrentMemoryContext.value()
+            },
             c"pg_search aminsert context".as_ptr(),
             pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
             pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
@@ -90,28 +99,70 @@ unsafe fn init_insert_state(
 }
 
 #[cfg(feature = "pg17")]
+#[allow(static_mut_refs)]
+unsafe fn logical_worker_state() -> &'static mut rustc_hash::FxHashMap<pg_sys::Oid, InsertState> {
+    static mut LOGICAL_WORKER_STATE: Option<rustc_hash::FxHashMap<pg_sys::Oid, InsertState>> = None;
+
+    if LOGICAL_WORKER_STATE.is_none() {
+        LOGICAL_WORKER_STATE = Some(Default::default());
+        pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::PreCommit, || {
+            // on transaction commit, take ownership of the LOGICAL_WORKER_STATE,
+            // running each `InsertState` it contains through the normal `paradedb_aminsertcleanup()`
+            // process.  Effectively deferring tantivy index commits to the end of the postgres transaction
+            if let Some(lwstate) = LOGICAL_WORKER_STATE.take() {
+                for (_, mut insert_state) in lwstate {
+                    paradedb_aminsertcleanup(insert_state.writer.take());
+                }
+            }
+        });
+        pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, || {
+            LOGICAL_WORKER_STATE = None
+        });
+    }
+
+    LOGICAL_WORKER_STATE.as_mut().unwrap()
+}
+
+#[cfg(feature = "pg17")]
 pub unsafe fn init_insert_state(
     index_relation: pg_sys::Relation,
     index_info: &mut pg_sys::IndexInfo,
 ) -> &mut InsertState {
-    if index_info.ii_AmCache.is_null() {
-        // we don't have any cached state yet, so create it now
-        let index_relation = PgSearchRelation::from_pg(index_relation);
-        let state = InsertState::new(&index_relation)
-            .expect("should be able to open new SearchIndex for writing");
+    if IsLogicalWorker() {
+        logical_worker_state()
+            .entry((*index_relation).rd_id)
+            .or_insert_with(|| {
+                // When in a Logical Apply Worker, we need to keep the index open through the entire
+                // transaction up to the PRE_COMMIT hook, where we do our final tantivy commit and cleanup.
+                // This is because Postgres closes relations earlier, before our final cleanup work is complete.
+                let index_relation = PgSearchRelation::with_lock(
+                    (*index_relation).rd_id,
+                    pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                );
+                InsertState::new(&index_relation)
+                    .expect("should be able to open new SearchIndex for writing")
+            })
+    } else {
+        if index_info.ii_AmCache.is_null() {
+            // we don't have any cached state yet, so create it now
+            let index_relation = PgSearchRelation::from_pg(index_relation);
+            let state = InsertState::new(&index_relation)
+                .expect("should be able to open new SearchIndex for writing");
 
-        // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
-        //
-        // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
-        // of the changes made during `aminsert`
-        //
-        // SAFETY: `leak_and_drop_on_delete` palloc's memory in CurrentMemoryContext, but in this
-        // case we want the thing it allocates to be palloc'd in the `ii_Context`
-        pgrx::PgMemoryContexts::For(index_info.ii_Context)
-            .switch_to(|mcxt| index_info.ii_AmCache = mcxt.leak_and_drop_on_delete(state).cast())
-    };
+            // leak it into the MemoryContext for this scan (as specified by the IndexInfo argument)
+            //
+            // When that memory context is freed by Postgres is when we'll do our tantivy commit/abort
+            // of the changes made during `aminsert`
+            //
+            // SAFETY: `leak_and_drop_on_delete` palloc's memory in CurrentMemoryContext, but in this
+            // case we want the thing it allocates to be palloc'd in the `ii_Context`
+            pgrx::PgMemoryContexts::For(index_info.ii_Context).switch_to(|mcxt| {
+                index_info.ii_AmCache = mcxt.leak_and_drop_on_delete(state).cast()
+            })
+        };
 
-    &mut *index_info.ii_AmCache.cast()
+        &mut *index_info.ii_AmCache.cast()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -126,8 +177,25 @@ pub unsafe extern "C-unwind" fn aminsert(
     _index_unchanged: bool,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    if pg_sys::IsLogicalWorker() {
-        panic!("pg_search logical replication is an enterprise feature");
+    aminsert_internal(index_relation, values, isnull, ctid, index_info)
+}
+
+#[inline(always)]
+unsafe fn aminsert_internal(
+    index_relation: pg_sys::Relation,
+    values: *mut pg_sys::Datum,
+    isnull: *mut bool,
+    ctid: pg_sys::ItemPointer,
+    index_info: *mut pg_sys::IndexInfo,
+) -> bool {
+    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+    {
+        // Postgres 17 introduced the `aminsertcleanup()` function, which is critical for logical
+        // replication to work.  As such, if this isn't v17+ and we're being called from a logical
+        // worker, we must fail.  Users will need to upgrade to v17 to support logical replication
+        if IsLogicalWorker() {
+            panic!("pg_search logical replication is only supported on Postgres v17+")
+        }
     }
 
     let result = catch_unwind(|| {
@@ -174,12 +242,17 @@ pub unsafe extern "C-unwind" fn aminsertcleanup(
     _index_relation: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) {
-    let state = (*index_info).ii_AmCache.cast::<InsertState>();
-    if state.is_null() {
-        return;
-    }
+    if IsLogicalWorker() {
+        // do nothing -- doing the work of "aminsertcleanup()" is handled by the commit hook
+        // added in `logical_worker_state()`
+    } else {
+        let state = (*index_info).ii_AmCache.cast::<InsertState>();
+        if state.is_null() {
+            return;
+        }
 
-    paradedb_aminsertcleanup(state.as_mut().and_then(|state| state.writer.take()));
+        paradedb_aminsertcleanup(state.as_mut().and_then(|state| state.writer.take()));
+    }
 }
 
 pub fn paradedb_aminsertcleanup(mut writer: Option<SerialIndexWriter>) {

@@ -169,6 +169,191 @@ impl EphemeralPostgres {
     }
 }
 
+// Test function to test the ephemeral PostgreSQL setup
+#[rstest]
+async fn test_logical_replication() -> Result<()> {
+    let config = "
+        wal_level = logical
+        max_replication_slots = 4
+        max_wal_senders = 4
+        shared_preload_libraries = 'pg_search'
+    ";
+
+    let source_postgres = EphemeralPostgres::new(Some(config), None);
+    let target_postgres = EphemeralPostgres::new(Some(config), None);
+
+    let mut source_conn = source_postgres.connection().await?;
+    let mut target_conn = target_postgres.connection().await?;
+
+    let major_version: (i32,) = "
+        SELECT split_part(setting, '.', 1)::int AS major_version
+        FROM pg_catalog.pg_settings
+        WHERE name = 'server_version';
+        "
+    .fetch_one(&mut source_conn);
+
+    // Logical replication for versions < 17 is not implemented
+    if major_version.0 < 17 {
+        return Ok(());
+    }
+
+    // Create pg_search extension on both source and target databases
+    "CREATE EXTENSION pg_search".execute(&mut source_conn);
+    "CREATE EXTENSION pg_search".execute(&mut target_conn);
+
+    // Create the mock_items table schema
+    let schema = "
+        CREATE TABLE mock_items (
+          id SERIAL PRIMARY KEY,
+          description TEXT,
+          rating INTEGER CHECK (rating BETWEEN 1 AND 5),
+          category VARCHAR(255),
+          in_stock BOOLEAN,
+          metadata JSONB,
+          created_at TIMESTAMP,
+          last_updated_date DATE,
+          latest_available_time TIME
+        )
+    ";
+    schema.execute(&mut source_conn);
+    schema.execute(&mut target_conn);
+
+    // Create the bm25 index on the description field
+    "CREATE INDEX mock_items_bm25_idx ON public.mock_items
+    USING bm25 (id, description) WITH (key_field='id');
+    "
+    .execute(&mut source_conn);
+    "CREATE INDEX mock_items_bm25_idx ON public.mock_items
+    USING bm25 (id, description) WITH (key_field='id');
+    "
+    .execute(&mut target_conn);
+
+    // Create publication and subscription for replication
+    "CREATE PUBLICATION mock_items_pub FOR TABLE mock_items".execute(&mut source_conn);
+    format!(
+        "CREATE SUBSCRIPTION mock_items_sub
+         CONNECTION 'host={} port={} dbname={}'
+         PUBLICATION mock_items_pub;",
+        source_postgres.host, source_postgres.port, source_postgres.dbname
+    )
+    .execute(&mut target_conn);
+
+    // Verify initial state of the search results
+    let source_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
+            .fetch(&mut source_conn);
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
+            .fetch(&mut target_conn);
+
+    assert_eq!(source_results.len(), 0);
+    assert_eq!(target_results.len(), 0);
+
+    // Insert a new item into the source database
+    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+    VALUES ('Red sports shoes', 'Footwear', true, '12:00:00', '2024-07-10', '{}', '2024-07-10 12:00:00', 1)".execute(&mut source_conn);
+
+    // Verify the insert is replicated to the target database
+    let source_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'"
+            .fetch(&mut source_conn);
+
+    // Wait for the replication to complete
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| !result.is_empty(),
+        );
+
+    assert_eq!(source_results.len(), 1);
+    assert_eq!(target_results.len(), 1);
+
+    // Additional insert test
+    "INSERT INTO mock_items (description, category, in_stock, latest_available_time, last_updated_date, metadata, created_at, rating)
+    VALUES ('Blue running shoes', 'Footwear', true, '14:00:00', '2024-07-10', '{}', '2024-07-10 14:00:00', 2)".execute(&mut source_conn);
+
+    // Verify the additional insert is replicated to the target database
+    let source_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:\"running shoes\"'"
+            .fetch(&mut source_conn);
+
+    // Wait for the replication to complete
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE id @@@ 'description:\"running shoes\"'"
+            .fetch(&mut target_conn);
+
+    assert_eq!(source_results.len(), 1);
+    assert_eq!(target_results.len(), 1);
+
+    // Update test
+    "UPDATE mock_items SET rating = 5 WHERE description = 'Red sports shoes'"
+        .execute(&mut source_conn);
+
+    // Verify the update is replicated to the target database
+    let source_results: Vec<(i32,)> =
+        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'"
+            .fetch(&mut source_conn);
+
+    std::thread::sleep(std::time::Duration::from_secs(5)); // give a little time for the data to replicate
+
+    let target_results: Vec<(i32,)> =
+        "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| !result.is_empty(),
+        );
+
+    assert_eq!(source_results.len(), 1);
+    assert_eq!(target_results.len(), 1);
+    assert_eq!(source_results[0], target_results[0]);
+
+    // Delete test
+    "DELETE FROM mock_items WHERE description = 'Red sports shoes'".execute(&mut source_conn);
+
+    // Verify the delete is replicated to the target database
+    let source_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'"
+            .fetch(&mut source_conn);
+
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
+            &mut target_conn,
+            5,
+            1000,
+            |result| !result.is_empty(),
+        );
+
+    assert_eq!(source_results.len(), 0);
+    assert_eq!(target_results.len(), 0);
+
+    // COPY test
+    let mut copyin = source_conn
+        .copy_in_raw("COPY mock_items(description) FROM STDIN")
+        .await?;
+    copyin
+        .send("replicated1\nreplicated2\nreplicated3".as_bytes())
+        .await?;
+    copyin.finish().await?;
+
+    // verify the COPY worked
+    let source_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
+            .fetch(&mut source_conn);
+    assert_eq!(source_results.len(), 3);
+
+    std::thread::sleep(std::time::Duration::from_secs(1)); // give a little time for the data to replicate
+    let target_results: Vec<(String,)> =
+        "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
+            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
+    assert_eq!(target_results.len(), 3);
+
+    Ok(())
+}
+
 #[rstest]
 async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
     let config = "

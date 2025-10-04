@@ -21,6 +21,7 @@ pub mod scan_state;
 use std::ffi::CStr;
 
 use crate::aggregate::execute_aggregation;
+use crate::aggregate::AggQueryParams;
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::api::{HashMap, HashSet, OrderByFeature};
 use crate::gucs;
@@ -899,7 +900,7 @@ unsafe fn placeholder_procid() -> pg_sys::Oid {
 fn execute(
     state: &CustomScanStateWrapper<AggregateScan>,
 ) -> std::vec::IntoIter<GroupedAggregateRow> {
-    let qparams = crate::aggregate::AggQueryParams {
+    let qparams = AggQueryParams {
         base_query: &state.custom_state().query, // WHERE clause or AllQuery if no WHERE clause
         aggregate_types: &state.custom_state().aggregate_types,
         grouping_columns: &state.custom_state().grouping_columns,

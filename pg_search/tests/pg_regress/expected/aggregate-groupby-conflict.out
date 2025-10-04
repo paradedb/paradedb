@@ -46,14 +46,15 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY rating
 ORDER BY rating;
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: rating, now(), now()
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"avg":{"field":"rating"}}}}}
-(5 rows)
+     Applies to Aggregates: AVG(rating), COUNT(*)
+     Group By: rating
+(6 rows)
 
 -- Execute the query
 SELECT rating, AVG(rating) as avg_rating, COUNT(*) as count
@@ -79,14 +80,15 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY price
 ORDER BY price;
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: price, now(), now()
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"price","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"sum":{"field":"price"}}}}}
-(5 rows)
+     Applies to Aggregates: SUM(price), COUNT(*)
+     Group By: price
+(6 rows)
 
 -- Execute the query
 SELECT price, SUM(price) as total_price, COUNT(*) as count
@@ -118,14 +120,15 @@ FROM groupby_conflict_test
 WHERE title @@@ 'Product'
 GROUP BY views
 ORDER BY views;
-                                                                                              QUERY PLAN                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: views, now(), now()
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Product","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"views","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"max":{"field":"views"}},"agg_1":{"min":{"field":"views"}}}}}
-(5 rows)
+     Applies to Aggregates: MAX(views), MIN(views)
+     Group By: views
+(6 rows)
 
 -- Execute the query
 SELECT views, MAX(views) as max_views, MIN(views) as min_views
@@ -162,14 +165,15 @@ FROM groupby_conflict_test
 WHERE category @@@ 'electronics'
 GROUP BY rating
 ORDER BY rating;
-                                                                                                                 QUERY PLAN                                                                                                                  
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.groupby_conflict_test
    Output: rating, now(), now(), now(), now()
    Index: groupby_conflict_idx
    Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
-   Aggregate Definition: {"group_0":{"terms":{"field":"rating","order":{"_key":"asc"},"size":65000,"segment_size":65000},"aggs":{"agg_0":{"avg":{"field":"rating"}},"agg_1":{"min":{"field":"rating"}},"agg_2":{"max":{"field":"rating"}}}}}
-(5 rows)
+     Applies to Aggregates: AVG(rating), MIN(rating), MAX(rating), COUNT(*)
+     Group By: rating
+(6 rows)
 
 -- Execute the query
 SELECT rating, 

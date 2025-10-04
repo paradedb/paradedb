@@ -54,7 +54,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
     unsafe {
         request_simplify(
             arg.unwrap().unwrap().cast_mut_ptr::<pg_sys::Node>(),
-            |field, query_value| match query_value {
+            |_, field, query_value| match query_value {
                 RHSValue::Text(query_string) => match field {
                     Some(field) => to_search_query_input(field, parse_with_field(query_string, None, None)),
                     None => parse(query_string, None, None),
@@ -90,7 +90,7 @@ pub fn atatat_support(arg: Internal) -> ReturnedNodePointer {
                     )
                 }
             },
-            |field, rhs| {
+            |field, _, rhs| {
                 let search_query_input_typoid = searchqueryinput_typoid();
                 let expr_type = get_expr_result_type(rhs);
 

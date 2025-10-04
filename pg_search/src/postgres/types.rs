@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
@@ -309,17 +310,20 @@ impl TantivyValue {
                 ),
                 _ => Err(TantivyValueError::UnsupportedOid(oid.value())),
             },
-            PgOid::Custom(custom) => {
-                if pgrx::pg_sys::type_is_enum(*custom) {
-                    let (_, _, ordinal) = pgrx::enum_helper::lookup_enum_by_oid(
-                        pgrx::pg_sys::Oid::from_datum(datum, false)
-                            .ok_or(TantivyValueError::DatumDeref)?,
-                    );
-                    TantivyValue::try_from(ordinal)
-                } else {
-                    Err(TantivyValueError::UnsupportedOid(oid.value()))
-                }
+            PgOid::Custom(custom) if pg_sys::type_is_enum(*custom) => {
+                let (_, _, ordinal) = pgrx::enum_helper::lookup_enum_by_oid(
+                    pgrx::pg_sys::Oid::from_datum(datum, false)
+                        .ok_or(TantivyValueError::DatumDeref)?,
+                );
+                TantivyValue::try_from(ordinal)
             }
+
+            PgOid::Custom(custom) if type_is_tokenizer(*custom) => TantivyValue::try_from(
+                String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
+            ),
+
+            PgOid::Custom(_) => Err(TantivyValueError::UnsupportedOid(oid.value())),
+
             _ => Err(TantivyValueError::InvalidOid),
         }
     }

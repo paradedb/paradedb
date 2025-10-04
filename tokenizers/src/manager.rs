@@ -265,6 +265,17 @@ pub enum SearchTokenizer {
     #[strum(serialize = "icu")]
     ICUTokenizer(SearchTokenizerFilters),
     Jieba(SearchTokenizerFilters),
+
+    Lindera(LinderaStyle, SearchTokenizerFilters),
+}
+
+#[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
+pub enum LinderaStyle {
+    #[default]
+    Unspecified,
+    Chinese,
+    Japanese,
+    Korean,
 }
 
 impl Default for SearchTokenizer {
@@ -312,6 +323,12 @@ impl SearchTokenizer {
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => json!({ "type": "icu" }),
             SearchTokenizer::Jieba(_filters) => json!({ "type": "jieba" }),
+            SearchTokenizer::Lindera(style, _filters) => match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaStyle::Chinese => json!({ "type": "chinese_lindera" }),
+                LinderaStyle::Japanese => json!({ "type": "japanese_lindera" }),
+                LinderaStyle::Korean => json!({ "type": "korean_lindera" }),
+            },
         };
 
         // Serialize filters to the enclosing json object.
@@ -519,8 +536,39 @@ impl SearchTokenizer {
                     .filter(filters.stemmer())
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
+            SearchTokenizer::Lindera(style, filters) => Some(match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaStyle::Chinese => TextAnalyzer::builder(LinderaChineseTokenizer::default())
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
+                    .filter(filters.stopwords_language())
+                    .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
+                    .build(),
+                LinderaStyle::Japanese => {
+                    TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
+                        .filter(filters.remove_long_filter())
+                        .filter(filters.lower_caser())
+                        .filter(filters.stemmer())
+                        .filter(filters.stopwords_language())
+                        .filter(filters.stopwords())
+                        .filter(filters.ascii_folding())
+                        .build()
+                }
+                LinderaStyle::Korean => TextAnalyzer::builder(LinderaKoreanTokenizer::default())
+                    .filter(filters.remove_long_filter())
+                    .filter(filters.lower_caser())
+                    .filter(filters.stemmer())
+                    .filter(filters.stopwords_language())
+                    .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
+                    .build(),
+            }),
+
             // Deprecated, use `stemmer` filter instead
             SearchTokenizer::EnStem(filters) => Some(
                 TextAnalyzer::builder(SimpleTokenizer::default())
@@ -540,6 +588,7 @@ impl SearchTokenizer {
                     .filter(Stemmer::new(*language))
                     .filter(filters.stopwords_language())
                     .filter(filters.stopwords())
+                    .filter(filters.ascii_folding())
                     .build(),
             ),
             #[cfg(feature = "icu")]
@@ -583,6 +632,7 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseLindera(filters) => filters,
             SearchTokenizer::JapaneseLindera(filters) => filters,
             SearchTokenizer::KoreanLindera(filters) => filters,
+            SearchTokenizer::Lindera(_, filters) => filters,
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba(filters) => filters,
@@ -647,6 +697,12 @@ impl SearchTokenizer {
                 format!("japanese_lindera{filters_suffix}")
             }
             SearchTokenizer::KoreanLindera(_filters) => format!("korean_lindera{filters_suffix}"),
+            SearchTokenizer::Lindera(style, _filters) => match style {
+                LinderaStyle::Unspecified => panic!("LinderaStyle::Unspecified is not supported"),
+                LinderaStyle::Chinese => format!("chinese_lindera{filters_suffix}"),
+                LinderaStyle::Japanese => format!("japanese_lindera{filters_suffix}"),
+                LinderaStyle::Korean => format!("korean_lindera{filters_suffix}"),
+            }
             #[cfg(feature = "icu")]
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba(_filters) => format!("jieba{filters_suffix}"),

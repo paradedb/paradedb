@@ -116,8 +116,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                                      QUERY PLAN                                                                       
+-------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Scan) on test_partial_index
          Table: test_partial_index
@@ -126,7 +126,7 @@ ORDER BY rating LIMIT 20;
          Scores: false
             TopN Order By: rating asc
             TopN Limit: 20
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (9 rows)
 
 SELECT description, rating, category 
@@ -154,8 +154,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 1
@@ -166,7 +166,7 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT description, rating, category 
@@ -190,8 +190,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 1
@@ -202,7 +202,7 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT description, rating, category 
@@ -225,8 +225,8 @@ SELECT description, rating, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'rating:>1'
 ORDER BY rating LIMIT 20;
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -237,7 +237,7 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"rating:>1","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT description, rating, category 
@@ -260,8 +260,8 @@ SELECT description, category
 FROM paradedb.test_partial_index
 WHERE test_partial_index @@@ 'category:Footwear AND rating:>1'
 ORDER BY rating LIMIT 20;
-                                                                        QUERY PLAN                                                                         
------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                    QUERY PLAN                                                                                     
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Gather Merge
          Workers Planned: 2
@@ -272,7 +272,7 @@ ORDER BY rating LIMIT 20;
                Scores: false
                   TopN Order By: rating asc
                   TopN Limit: 20
-               Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:Footwear AND rating:>1","lenient":null,"conjunction_mode":null}}}}
 (11 rows)
 
 SELECT description, category 

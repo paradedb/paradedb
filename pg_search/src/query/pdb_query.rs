@@ -193,6 +193,13 @@ pub mod pdb {
             prefix: Option<bool>,
             conjunction_mode: Option<bool>,
         },
+        MatchArray {
+            tokens: Vec<String>,
+            distance: Option<u8>,
+            transposition_cost_one: Option<bool>,
+            prefix: Option<bool>,
+            conjunction_mode: Option<bool>,
+        },
         ParseWithField {
             query_string: String,
             lenient: Option<bool>,
@@ -202,6 +209,10 @@ pub mod pdb {
         },
         Phrase {
             phrases: Vec<String>,
+            slop: Option<u32>,
+        },
+        PhraseArray {
+            tokens: Vec<String>,
             slop: Option<u32>,
         },
         PhrasePrefix {
@@ -450,6 +461,21 @@ impl pdb::Query {
                 prefix,
                 conjunction_mode,
             )?,
+            pdb::Query::MatchArray {
+                tokens: value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                conjunction_mode,
+            } => match_array_query(
+                &field,
+                schema,
+                value,
+                distance,
+                transposition_cost_one,
+                prefix,
+                conjunction_mode,
+            )?,
             pdb::Query::ParseWithField {
                 query_string,
                 lenient,
@@ -468,6 +494,7 @@ impl pdb::Query {
             pdb::Query::Phrase { phrases, slop } => {
                 phrase(&field, schema, searcher, phrases, slop)?
             }
+            pdb::Query::PhraseArray { tokens, slop } => phrase_array(&field, schema, tokens, slop)?,
 
             pdb::Query::PhrasePrefix {
                 phrases,
@@ -1387,6 +1414,52 @@ fn phrase(
     Ok(Box::new(query))
 }
 
+fn phrase_array(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    mut tokens: Vec<String>,
+    slop: Option<u32>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
+
+    let mut terms = Vec::with_capacity(tokens.len());
+
+    if tokens.len() == 1 {
+        let term = value_to_term(
+            search_field.field(),
+            &OwnedValue::Str(tokens.pop().unwrap()),
+            field_type,
+            field.path().as_deref(),
+            false,
+        )?;
+        Ok(Box::new(TermQuery::new(
+            term,
+            IndexRecordOption::WithFreqsAndPositions.into(),
+        )))
+    } else {
+        for token in tokens {
+            let term = value_to_term(
+                search_field.field(),
+                &OwnedValue::Str(token),
+                field_type,
+                field.path().as_deref(),
+                false,
+            )?;
+
+            terms.push(term);
+        }
+
+        let mut query = PhraseQuery::new(terms);
+        if let Some(slop) = slop {
+            query.set_slop(slop)
+        }
+        Ok(Box::new(query))
+    }
+}
+
 fn parse<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
     parser: &QueryParserCtor,
@@ -1463,6 +1536,61 @@ fn match_query(
 
     while stream.advance() {
         let token = stream.token().text.clone();
+        let term = value_to_term(
+            search_field.field(),
+            &OwnedValue::Str(token),
+            field_type,
+            field.path().as_deref(),
+            false,
+        )?;
+        let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
+            (0, _) => Box::new(TermQuery::new(
+                term,
+                IndexRecordOption::WithFreqsAndPositions.into(),
+            )),
+            (distance, true) => Box::new(FuzzyTermQuery::new_prefix(
+                term,
+                distance,
+                transposition_cost_one,
+            )),
+            (distance, false) => {
+                Box::new(FuzzyTermQuery::new(term, distance, transposition_cost_one))
+            }
+        };
+
+        let occur = if conjunction_mode {
+            Occur::Must
+        } else {
+            Occur::Should
+        };
+
+        terms.push((occur, term_query));
+    }
+
+    Ok(Box::new(BooleanQuery::new(terms)))
+}
+#[allow(clippy::too_many_arguments)]
+fn match_array_query(
+    field: &FieldName,
+    schema: &SearchIndexSchema,
+    tokens: Vec<String>,
+    distance: Option<u8>,
+    transposition_cost_one: Option<bool>,
+    prefix: Option<bool>,
+    conjunction_mode: Option<bool>,
+) -> anyhow::Result<Box<dyn TantivyQuery>> {
+    let distance = distance.unwrap_or(0);
+    let transposition_cost_one = transposition_cost_one.unwrap_or(true);
+    let conjunction_mode = conjunction_mode.unwrap_or(false);
+    let prefix = prefix.unwrap_or(false);
+
+    let search_field = schema
+        .search_field(field.root())
+        .ok_or(QueryError::NonIndexedField(field.clone()))?;
+    let field_type = search_field.field_entry().field_type();
+    let mut terms = Vec::with_capacity(tokens.len());
+
+    for token in tokens {
         let term = value_to_term(
             search_field.field(),
             &OwnedValue::Str(token),

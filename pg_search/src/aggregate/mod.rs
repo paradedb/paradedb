@@ -22,6 +22,7 @@ use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
 use crate::api::OrderByInfo;
 use crate::api::{FieldName, OrderByFeature};
+use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -54,6 +55,8 @@ pub struct AggQueryParams<'a> {
     pub aggregate_types: &'a [AggregateType],
     pub grouping_columns: &'a [GroupingColumn],
     pub orderby_info: &'a [OrderByInfo],
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
 }
 
 #[repr(C)]
@@ -105,6 +108,7 @@ struct ParallelAggregation {
     aggregate_types_bytes: Vec<u8>,
     grouping_columns_bytes: Vec<u8>,
     orderby_info_bytes: Vec<u8>,
+    limit_offset_bytes: Vec<u8>, // Serialized (Option<u32>, Option<u32>)
     // For JSON aggregations (legacy API) - mutually exclusive with above
     agg_json_bytes: Vec<u8>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
@@ -124,6 +128,7 @@ impl ParallelProcess for ParallelAggregation {
             &self.aggregate_types_bytes,
             &self.grouping_columns_bytes,
             &self.orderby_info_bytes,
+            &self.limit_offset_bytes,
             &self.agg_json_bytes,
             &self.segment_ids,
             &self.ambulkdelete_epoch,
@@ -159,6 +164,7 @@ impl ParallelAggregation {
             aggregate_types_bytes: serde_json::to_vec(qparams.aggregate_types)?,
             grouping_columns_bytes: serde_json::to_vec(qparams.grouping_columns)?,
             orderby_info_bytes: serde_json::to_vec(qparams.orderby_info)?,
+            limit_offset_bytes: serde_json::to_vec(&(qparams.limit, qparams.offset))?,
             agg_json_bytes: Vec::new(), // Empty for filter aggregations
             segment_ids,
             ambulkdelete_epoch,
@@ -194,6 +200,7 @@ impl ParallelAggregation {
             aggregate_types_bytes: Vec::new(), // Empty for JSON aggregations
             grouping_columns_bytes: Vec::new(), // Empty for JSON aggregations
             orderby_info_bytes: Vec::new(),    // Empty for JSON aggregations
+            limit_offset_bytes: Vec::new(),    // Empty for JSON aggregations
             agg_json_bytes: serde_json::to_vec(aggregations)?,
             segment_ids,
             ambulkdelete_epoch,
@@ -209,7 +216,10 @@ struct ParallelAggregationWorker<'a> {
     aggregate_types: Vec<AggregateType>,
     grouping_columns: Vec<GroupingColumn>,
     orderby_info: Vec<OrderByInfo>,
-    // For JSON aggregations - mutually exclusive with above (aggregate_types, grouping_columns, orderby_info)
+    limit: Option<u32>,
+    offset: Option<u32>,
+    // For JSON aggregations - mutually exclusive with above
+    // (aggregate_types, grouping_columns, orderby_info, limit, offset)
     agg_json: Option<Aggregations>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
@@ -243,6 +253,8 @@ impl<'a> ParallelAggregationWorker<'a> {
             aggregate_types: Vec::new(),
             grouping_columns: Vec::new(),
             orderby_info: Vec::new(),
+            limit: None,
+            offset: None,
             agg_json: Some(aggregation),
             segment_ids,
             ambulkdelete_epoch,
@@ -313,6 +325,8 @@ impl<'a> ParallelAggregationWorker<'a> {
                 aggregate_types: &self.aggregate_types,
                 grouping_columns: &self.grouping_columns,
                 orderby_info: &self.orderby_info,
+                limit: self.limit,
+                offset: self.offset,
             };
 
             build_aggregation_query(&qctx, &qparams)
@@ -377,16 +391,20 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .slice::<u8>(5)
             .expect("wrong type for orderby_info_bytes")
             .expect("missing orderby_info_bytes value");
-        let agg_json_bytes = state_manager
+        let limit_offset_bytes = state_manager
             .slice::<u8>(6)
+            .expect("wrong type for limit_offset_bytes")
+            .expect("missing limit_offset_bytes value");
+        let agg_json_bytes = state_manager
+            .slice::<u8>(7)
             .expect("wrong type for agg_json_bytes")
             .expect("missing agg_json_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(7)
+            .slice::<(SegmentId, NumDeletedDocs)>(8)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
-            .object::<u32>(8)
+            .object::<u32>(9)
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
@@ -394,23 +412,29 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .expect("base_query_bytes should deserialize into SearchQueryInput");
 
         // Check if this is a JSON aggregation or filter aggregation
-        let (aggregate_types, grouping_columns, orderby_info, agg_json) = if !agg_json_bytes
-            .is_empty()
-        {
-            // JSON aggregation
-            let agg = serde_json::from_slice::<Aggregations>(agg_json_bytes)
-                .expect("agg_json_bytes should deserialize into Aggregations");
-            (Vec::new(), Vec::new(), Vec::new(), Some(agg))
-        } else {
-            // Filter aggregation
-            let agg_types = serde_json::from_slice::<Vec<AggregateType>>(aggregate_types_bytes)
-                .expect("aggregate_types_bytes should deserialize into Vec<AggregateType>");
-            let group_cols = serde_json::from_slice::<Vec<GroupingColumn>>(grouping_columns_bytes)
+        let (aggregate_types, grouping_columns, orderby_info, limit, offset, agg_json) =
+            if !agg_json_bytes.is_empty() {
+                // JSON aggregation
+                let agg = serde_json::from_slice::<Aggregations>(agg_json_bytes)
+                    .expect("agg_json_bytes should deserialize into Aggregations");
+                (Vec::new(), Vec::new(), Vec::new(), None, None, Some(agg))
+            } else {
+                // Filter aggregation
+                let agg_types = serde_json::from_slice::<Vec<AggregateType>>(aggregate_types_bytes)
+                    .expect("aggregate_types_bytes should deserialize into Vec<AggregateType>");
+                let group_cols = serde_json::from_slice::<Vec<GroupingColumn>>(
+                    grouping_columns_bytes,
+                )
                 .expect("grouping_columns_bytes should deserialize into Vec<GroupingColumn>");
-            let order_info = serde_json::from_slice::<Vec<OrderByInfo>>(orderby_info_bytes)
-                .expect("orderby_info_bytes should deserialize into Vec<OrderByInfo>");
-            (agg_types, group_cols, order_info, None)
-        };
+                let order_info = serde_json::from_slice::<Vec<OrderByInfo>>(orderby_info_bytes)
+                    .expect("orderby_info_bytes should deserialize into Vec<OrderByInfo>");
+                let (limit, offset) =
+                    serde_json::from_slice::<(Option<u32>, Option<u32>)>(limit_offset_bytes)
+                        .expect(
+                            "limit_offset_bytes should deserialize into (Option<u32>, Option<u32>)",
+                        );
+                (agg_types, group_cols, order_info, limit, offset, None)
+            };
 
         Self {
             state,
@@ -419,6 +443,8 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             aggregate_types,
             grouping_columns,
             orderby_info,
+            limit,
+            offset,
             agg_json,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
@@ -682,6 +708,8 @@ fn build_aggregation_query(
             qparams.grouping_columns,
             qparams.orderby_info,
             HashMap::new(),
+            qparams.limit,
+            qparams.offset,
         )?)
     } else {
         None
@@ -705,7 +733,13 @@ fn build_aggregation_query(
         let sub_aggs = if nested_terms.is_some() {
             // GROUP BY: filter -> grouped -> buckets -> metric
             let metric_leaf = HashMap::from([(idx.to_string(), base)]);
-            build_nested_terms(qparams.grouping_columns, qparams.orderby_info, metric_leaf)?
+            build_nested_terms(
+                qparams.grouping_columns,
+                qparams.orderby_info,
+                metric_leaf,
+                qparams.limit,
+                qparams.offset,
+            )?
         } else {
             // No GROUP BY: filter -> filtered_agg (metric)
             HashMap::from([("filtered_agg".to_string(), base)])
@@ -729,8 +763,11 @@ fn build_nested_terms(
     grouping_columns: &[GroupingColumn],
     orderby_info: &[OrderByInfo],
     leaf_aggs: HashMap<String, Aggregation>,
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
     let mut current = leaf_aggs;
+    let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
 
     for column in grouping_columns.iter().rev() {
         // Find ORDER BY info for this column
@@ -742,11 +779,22 @@ fn build_nested_terms(
             }
         });
 
+        // Calculate size based on LIMIT/OFFSET
+        let size = if let Some(limit) = limit {
+            (limit + offset.unwrap_or(0)).min(max_term_agg_buckets)
+        } else {
+            max_term_agg_buckets
+        };
+
         // Build terms aggregation JSON with optional ORDER BY
         let mut terms_json = serde_json::json!({
             "field": column.field_name,
-            "size": 65000,
-            "segment_size": 65000
+            "size": size,
+            // because we currently support ordering only by the grouping columns, the Top N
+            // of all segments is guaranteed to contain the global Top N
+            // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
+            // and we can no longer set segment_size (per segment top N) = size (global top N)
+            "segment_size": size
         });
 
         // Add order if specified

@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::{FieldName, OrderByFeature, OrderByInfo, ToTantivyJson};
+use crate::api::OrderByInfo;
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::privdat::{
     AggregateResult, AggregateType, AggregateValue, GroupingColumn, TargetListEntry,
@@ -92,115 +92,6 @@ impl AggregateScanState {
             .as_ref()
             .map(|(_, rel)| rel)
             .expect("PdbScanState: indexrel should be initialized")
-    }
-
-    pub fn aggregates_to_json(&self) -> serde_json::Value {
-        if self.grouping_columns.is_empty() {
-            // No GROUP BY - simple aggregation
-            let mut agg_map: serde_json::Map<String, serde_json::Value> = self
-                .aggregate_types
-                .iter()
-                .enumerate()
-                .map(|(idx, aggregate)| (idx.to_string(), aggregate.to_json()))
-                .collect();
-
-            // Add a document count aggregation only if we have SUM aggregates but no COUNT aggregate
-            // (to detect empty result sets for SUM)
-            let has_sum = self
-                .aggregate_types
-                .iter()
-                .any(|agg| matches!(agg, AggregateType::Sum { .. }));
-            if has_sum {
-                agg_map.insert(
-                    "_doc_count".to_string(),
-                    serde_json::json!({
-                        "value_count": {
-                            "field": "ctid"
-                        }
-                    }),
-                );
-            }
-
-            return serde_json::Value::Object(agg_map);
-        }
-        // GROUP BY - nested bucket aggregation (supports arbitrary number of grouping columns)
-        // We build the JSON bottom-up so that each grouping column nests the next one.
-        let mut current_aggs: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
-        let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
-
-        for (i, group_col) in self.grouping_columns.iter().enumerate().rev() {
-            let mut terms = serde_json::Map::new();
-            terms.insert(
-                "field".to_string(),
-                serde_json::Value::String(group_col.field_name.clone()),
-            );
-
-            let orderby_info = self.orderby_info.iter().find(|info| {
-                if let OrderByFeature::Field(field_name) = &info.feature {
-                    *field_name == FieldName::from(group_col.field_name.clone())
-                } else {
-                    false
-                }
-            });
-
-            if let Some(orderby_info) = orderby_info {
-                terms.insert(
-                    orderby_info.key(),
-                    orderby_info
-                        .json_value()
-                        .expect("ordering by score is not supported"),
-                );
-            }
-
-            if let Some(limit) = self.limit {
-                let size = (limit + self.offset.unwrap_or(0)).min(max_term_agg_buckets);
-                terms.insert("size".to_string(), serde_json::Value::Number(size.into()));
-                // because we currently support ordering only by the grouping columns, the Top N
-                // of all segments is guaranteed to contain the global Top N
-                // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
-                // and we can no longer set segment_size (per segment top N) = size (global top N)
-                terms.insert(
-                    "segment_size".to_string(),
-                    serde_json::Value::Number(size.into()),
-                );
-            } else {
-                terms.insert(
-                    "size".to_string(),
-                    serde_json::Value::Number(max_term_agg_buckets.into()),
-                );
-                terms.insert(
-                    "segment_size".to_string(),
-                    serde_json::Value::Number(max_term_agg_buckets.into()),
-                );
-            }
-
-            let mut terms_agg = serde_json::Map::new();
-            terms_agg.insert("terms".to_string(), serde_json::Value::Object(terms));
-
-            if i == self.grouping_columns.len() - 1 {
-                // Deepest level – attach metric aggregations (may be empty)
-                if !self.aggregate_types.is_empty() {
-                    let mut sub_aggs = serde_json::Map::new();
-                    for (j, aggregate) in self.aggregate_types.iter().enumerate() {
-                        if let Some((name, agg)) = aggregate.to_json_for_group(j) {
-                            sub_aggs.insert(name, agg);
-                        }
-                    }
-                    if !sub_aggs.is_empty() {
-                        terms_agg.insert("aggs".to_string(), serde_json::Value::Object(sub_aggs));
-                    }
-                }
-            } else {
-                // Not deepest – nest previously built aggs
-                terms_agg.insert("aggs".to_string(), serde_json::Value::Object(current_aggs));
-            }
-
-            let mut bucket_container = serde_json::Map::new();
-            bucket_container.insert(format!("group_{i}"), serde_json::Value::Object(terms_agg));
-            current_aggs = bucket_container;
-        }
-
-        serde_json::Value::Object(current_aggs)
     }
 
     /// Unified result processing function - handles all aggregation result types

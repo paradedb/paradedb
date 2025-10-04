@@ -40,6 +40,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::pdbscan::{
     extract_pathkey_styles_with_sortability_check, PathKeyInfo,
@@ -380,11 +381,6 @@ impl CustomScan for AggregateScan {
         // Use pre-computed filter groups from the scan state
         let filter_groups = &state.custom_state().filter_groups;
         explain_execution_strategy(state, filter_groups, explainer);
-        explainer.add_text(
-            "Aggregate Definition",
-            serde_json::to_string(&state.custom_state().aggregates_to_json())
-                .expect("Failed to serialize aggregate definition."),
-        );
     }
 
     fn begin_custom_scan(
@@ -549,22 +545,62 @@ fn explain_execution_strategy(
     filter_groups: &[(Option<SearchQueryInput>, Vec<usize>)],
     explainer: &mut Explainer,
 ) {
-    if filter_groups.is_empty() {
-        // No filters - just show the base query without mentioning execution strategy
+    // Helper to add GROUP BY information
+    let add_group_by = |explainer: &mut Explainer| {
+        if !state.custom_state().grouping_columns.is_empty() {
+            let group_by_fields: String = state
+                .custom_state()
+                .grouping_columns
+                .iter()
+                .map(|col| col.field_name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            explainer.add_text("  Group By", group_by_fields);
+        }
+    };
+
+    // Helper to add LIMIT/OFFSET information
+    let add_limit_offset = |explainer: &mut Explainer| {
+        if let Some(limit) = state.custom_state().limit {
+            let offset = state.custom_state().offset.unwrap_or(0);
+            if offset > 0 {
+                explainer.add_text("  Limit", limit.to_string());
+                explainer.add_text("  Offset", offset.to_string());
+            } else {
+                explainer.add_text("  Limit", limit.to_string());
+            }
+        }
+    };
+
+    // Helper to show base query + all aggregates (no filters case)
+    let explain_no_filters = |explainer: &mut Explainer| {
         explainer.add_query(&state.custom_state().query);
+        let all_indices: Vec<usize> = (0..state.custom_state().aggregate_types.len()).collect();
+        explainer.add_text(
+            "  Applies to Aggregates",
+            AggregateType::format_aggregates(&state.custom_state().aggregate_types, &all_indices),
+        );
+        add_group_by(explainer);
+        add_limit_offset(explainer);
+    };
+
+    if filter_groups.is_empty() {
+        explain_no_filters(explainer);
     } else if filter_groups.len() == 1 {
         // Single query
         let (filter_expr, aggregate_indices) = &filter_groups[0];
         if filter_expr.is_none() {
-            // No filters - just show the base query without mentioning execution strategy
-            explainer.add_query(&state.custom_state().query);
+            explain_no_filters(explainer);
         } else {
             // Show the combined query
             let combined_query = state
                 .custom_state()
                 .query
                 .combine_query_with_filter(filter_expr.as_ref());
-            explainer.add_text("  Combined Query", combined_query.canonical_query_string());
+            explainer.add_text("  Combined Query", combined_query.explain_format());
+            add_group_by(explainer);
+            add_limit_offset(explainer);
+
             explainer.add_text(
                 "  Applies to Aggregates",
                 AggregateType::format_aggregates(
@@ -582,6 +618,9 @@ fn explain_execution_strategy(
                 filter_groups.len()
             ),
         );
+        add_group_by(explainer);
+        add_limit_offset(explainer);
+
         for (group_idx, (filter_expr, aggregate_indices)) in filter_groups.iter().enumerate() {
             let combined_query = state
                 .custom_state()
@@ -593,7 +632,7 @@ fn explain_execution_strategy(
             } else {
                 format!("  Group {} Query (No Filter)", group_idx + 1)
             };
-            explainer.add_text(&query_label, combined_query.canonical_query_string());
+            explainer.add_text(&query_label, combined_query.explain_format());
             explainer.add_text(
                 &format!("  Group {} Aggregates", group_idx + 1),
                 AggregateType::format_aggregates(
@@ -756,7 +795,7 @@ fn extract_aggregates(
                 // Group aggregates by their filter expression during extraction
                 let filter_key = if let Some(filter_expr) = agg_type.filter_expr() {
                     // This is the most reliable way to get a deterministic filter key
-                    filter_expr.canonical_query_string()
+                    filter_expr.explain_format()
                 } else {
                     NO_FILTER_KEY.to_string()
                 };
@@ -905,6 +944,8 @@ fn execute(
         aggregate_types: &state.custom_state().aggregate_types,
         grouping_columns: &state.custom_state().grouping_columns,
         orderby_info: &state.custom_state().orderby_info,
+        limit: state.custom_state().limit,
+        offset: state.custom_state().offset,
     };
 
     let result = execute_aggregation(

@@ -30,6 +30,7 @@ pub mod aggregatescan;
 mod builders;
 mod dsm;
 mod exec;
+pub mod explain;
 mod explainer;
 mod hook;
 mod opexpr;

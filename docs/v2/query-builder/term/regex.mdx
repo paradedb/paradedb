@@ -17,6 +17,12 @@ ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex
 
 Otherwise, the full syntax of the [regex](https://docs.rs/regex/latest/regex/) crate is supported, including all Unicode support and relevant flags.
 
+A list of regex flags and grouping options can be [found here](https://docs.rs/regex/latest/regex/#grouping-and-flags), which includes:
+
+- named and numbered capture groups
+- case insensitivty flag (`i`)
+- multi-line mode (`m`)
+
 <Note>
   Regex queries operate at the token level. To execute regex over the original
   text, use the keyword tokenizer.

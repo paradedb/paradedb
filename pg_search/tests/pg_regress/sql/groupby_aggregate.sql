@@ -594,6 +594,45 @@ WHERE description @@@ 'laptop OR keyboard'
 GROUP BY category
 ORDER BY category ASC;
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
+SELECT category
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
+SELECT category
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT category, rating, avg(price) as avg_price
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
+SELECT category, rating, avg(price) as avg_price
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+GROUP BY category, rating
+ORDER BY category, rating ASC;
+
 -- Test 8.8: Multiple ORDER BY expressions (aggregate + field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT COUNT(*) as cnt

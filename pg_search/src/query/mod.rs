@@ -27,7 +27,10 @@ use heap_field_filter::HeapFieldFilter;
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
+use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::convert_pg_date_string;
+use crate::postgres::utils::ExprContextGuard;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -50,6 +53,35 @@ use tantivy::{
     Searcher, Term,
 };
 use thiserror::Error;
+
+/// Bundle of context parameters for query conversion
+///
+/// This struct owns an ExprContextGuard and provides references to the components needed
+/// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
+/// remains valid for the lifetime of this struct.
+pub struct QueryContext<'a> {
+    pub schema: &'a SearchIndexSchema,
+    pub reader: &'a SearchIndexReader,
+    pub index: &'a PgSearchRelation,
+    pub context: ExprContextGuard,
+}
+
+impl<'a> QueryContext<'a> {
+    /// Create a new QueryContext, taking ownership of the provided ExprContextGuard
+    pub fn new(
+        schema: &'a SearchIndexSchema,
+        reader: &'a SearchIndexReader,
+        index: &'a PgSearchRelation,
+        context: ExprContextGuard,
+    ) -> Self {
+        Self {
+            schema,
+            reader,
+            index,
+            context,
+        }
+    }
+}
 
 #[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -406,6 +438,60 @@ impl SearchQueryInput {
             | SearchQueryInput::PostgresExpression { .. }
             | SearchQueryInput::FieldedQuery { .. } => {}
         }
+    }
+
+    pub fn combine_query_with_filter(&self, filter_expr: Option<&Self>) -> Self {
+        match filter_expr {
+            Some(filter) => match self {
+                SearchQueryInput::All => filter.clone(),
+                _ => SearchQueryInput::Boolean {
+                    must: vec![self.clone(), filter.clone()],
+                    should: vec![],
+                    must_not: vec![],
+                },
+            },
+            None => self.clone(),
+        }
+    }
+
+    pub fn canonical_query_string(&self) -> String {
+        let mut cleaned_query = serde_json::to_value(self)
+            .unwrap_or_else(|_| serde_json::Value::String("Error serializing query".to_string()));
+        cleanup_variabilities_from_tantivy_query(&mut cleaned_query);
+        serde_json::to_string(&cleaned_query).unwrap_or_else(|_| "Error".to_string())
+    }
+}
+
+/// Remove the oid from the with_index object
+/// This helps to reduce the variability of the explain output used in regression tests
+pub fn cleanup_variabilities_from_tantivy_query(json_value: &mut serde_json::Value) {
+    match json_value {
+        serde_json::Value::Object(obj) => {
+            // Check if this is a "with_index" object and remove its "oid" if present
+            if obj.contains_key("with_index") {
+                if let Some(with_index) = obj.get_mut("with_index") {
+                    if let Some(with_index_obj) = with_index.as_object_mut() {
+                        with_index_obj.remove("oid");
+                    }
+                }
+            }
+
+            // Remove any field named "postgres_expression"
+            obj.remove("postgres_expression");
+
+            // Recursively process all values in the object
+            for (_, value) in obj.iter_mut() {
+                cleanup_variabilities_from_tantivy_query(value);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            // Recursively process all elements in the array
+            for item in arr.iter_mut() {
+                cleanup_variabilities_from_tantivy_query(item);
+            }
+        }
+        // Base cases: primitive values don't need processing
+        _ => {}
     }
 }
 
@@ -847,6 +933,30 @@ impl SearchQueryInput {
                 query.into_tantivy_query(field, schema, parser, searcher)
             }
         }
+    }
+
+    /// Convert SearchQueryInput to Tantivy Query, or AllQuery if None
+    pub fn to_tantivy_query(
+        qctx: &QueryContext,
+        filter: Option<&SearchQueryInput>,
+    ) -> Result<Box<dyn tantivy::query::Query>, Box<dyn std::error::Error>> {
+        Ok(match filter {
+            Some(query) => query.clone().into_tantivy_query(
+                qctx.schema,
+                &|| {
+                    tantivy::query::QueryParser::for_index(
+                        qctx.reader.searcher().index(),
+                        qctx.schema.fields().map(|(f, _)| f).collect(),
+                    )
+                },
+                qctx.reader.searcher(),
+                qctx.index.oid(),
+                qctx.index.heap_relation().map(|r| r.oid()),
+                std::ptr::NonNull::new(qctx.context.as_ptr()),
+                None,
+            )?,
+            None => Box::new(tantivy::query::AllQuery),
+        })
     }
 }
 

@@ -20,6 +20,9 @@ use std::ptr::NonNull;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::aggregate::vischeck::TSVisibilityChecker;
+use crate::api::OrderByInfo;
+use crate::api::{FieldName, OrderByFeature};
+use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::launch_parallel_process;
@@ -27,18 +30,34 @@ use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
+use crate::postgres::customscan::aggregatescan::privdat::{AggregateType, GroupingColumn};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::spinlock::Spinlock;
 use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::utils::ExprContextGuard;
+use crate::query::QueryContext;
 use crate::query::SearchQueryInput;
 
 use pgrx::{check_for_interrupts, pg_sys};
 use rustc_hash::FxHashSet;
+use std::collections::HashMap;
 use tantivy::aggregation::agg_req::Aggregations;
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::FilterAggregation;
 use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResults;
 use tantivy::aggregation::{AggregationLimitsGuard, DistributedAggregationCollector};
 use tantivy::collector::Collector;
 use tantivy::index::SegmentId;
+
+/// Bundle of query building parameters (SQL aggregation definition)
+pub struct AggQueryParams<'a> {
+    pub base_query: &'a SearchQueryInput,
+    pub aggregate_types: &'a [AggregateType],
+    pub grouping_columns: &'a [GroupingColumn],
+    pub orderby_info: &'a [OrderByInfo],
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -73,11 +92,25 @@ impl State {
 }
 
 type NumDeletedDocs = u32;
+
+/// Type alias for parallel aggregation result type
+type ParallelAggregationResult = Result<
+    Option<Vec<Result<IntermediateAggregationResults, tantivy::TantivyError>>>,
+    Box<dyn Error>,
+>;
+
+/// Parallel process for all aggregations (unified)
 struct ParallelAggregation {
     state: State,
     config: Config,
-    query_bytes: Vec<u8>,
-    agg_req_bytes: Vec<u8>,
+    base_query_bytes: Vec<u8>,
+    // For SQL aggregations (with heap filter support)
+    aggregate_types_bytes: Vec<u8>,
+    grouping_columns_bytes: Vec<u8>,
+    orderby_info_bytes: Vec<u8>,
+    limit_offset_bytes: Vec<u8>, // Serialized (Option<u32>, Option<u32>)
+    // For JSON aggregations (legacy API) - mutually exclusive with above
+    agg_json_bytes: Vec<u8>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
 }
@@ -91,8 +124,12 @@ impl ParallelProcess for ParallelAggregation {
         vec![
             &self.state,
             &self.config,
-            &self.agg_req_bytes,
-            &self.query_bytes,
+            &self.base_query_bytes,
+            &self.aggregate_types_bytes,
+            &self.grouping_columns_bytes,
+            &self.orderby_info_bytes,
+            &self.limit_offset_bytes,
+            &self.agg_json_bytes,
             &self.segment_ids,
             &self.ambulkdelete_epoch,
         ]
@@ -100,10 +137,45 @@ impl ParallelProcess for ParallelAggregation {
 }
 
 impl ParallelAggregation {
-    #[allow(clippy::too_many_arguments)]
+    /// Create for SQL aggregations
     pub fn new(
         indexrelid: pg_sys::Oid,
-        query: &SearchQueryInput,
+        qparams: &AggQueryParams,
+        solve_mvcc: bool,
+        memory_limit: u64,
+        bucket_limit: u32,
+        segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+        ambulkdelete_epoch: u32,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            state: State {
+                mutex: Spinlock::new(),
+                nlaunched: 0,
+                remaining_segments: segment_ids.len(),
+            },
+            config: Config {
+                indexrelid,
+                total_segments: segment_ids.len(),
+                solve_mvcc,
+                memory_limit,
+                bucket_limit,
+            },
+            base_query_bytes: serde_json::to_vec(qparams.base_query)?,
+            aggregate_types_bytes: serde_json::to_vec(qparams.aggregate_types)?,
+            grouping_columns_bytes: serde_json::to_vec(qparams.grouping_columns)?,
+            orderby_info_bytes: serde_json::to_vec(qparams.orderby_info)?,
+            limit_offset_bytes: serde_json::to_vec(&(qparams.limit, qparams.offset))?,
+            agg_json_bytes: Vec::new(), // Empty for filter aggregations
+            segment_ids,
+            ambulkdelete_epoch,
+        })
+    }
+
+    /// Create for JSON aggregations (legacy API)
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_json(
+        indexrelid: pg_sys::Oid,
+        base_query: &SearchQueryInput,
         aggregations: &Aggregations,
         solve_mvcc: bool,
         memory_limit: u64,
@@ -124,8 +196,12 @@ impl ParallelAggregation {
                 memory_limit,
                 bucket_limit,
             },
-            agg_req_bytes: serde_json::to_vec(aggregations)?,
-            query_bytes: serde_json::to_vec(query)?,
+            base_query_bytes: serde_json::to_vec(base_query)?,
+            aggregate_types_bytes: Vec::new(), // Empty for JSON aggregations
+            grouping_columns_bytes: Vec::new(), // Empty for JSON aggregations
+            orderby_info_bytes: Vec::new(),    // Empty for JSON aggregations
+            limit_offset_bytes: Vec::new(),    // Empty for JSON aggregations
+            agg_json_bytes: serde_json::to_vec(aggregations)?,
             segment_ids,
             ambulkdelete_epoch,
         })
@@ -135,14 +211,23 @@ impl ParallelAggregation {
 struct ParallelAggregationWorker<'a> {
     state: &'a mut State,
     config: Config,
-    aggregation: Aggregations,
-    query: SearchQueryInput,
+    base_query: SearchQueryInput,
+    // For filter aggregations
+    aggregate_types: Vec<AggregateType>,
+    grouping_columns: Vec<GroupingColumn>,
+    orderby_info: Vec<OrderByInfo>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    // For JSON aggregations - mutually exclusive with above
+    // (aggregate_types, grouping_columns, orderby_info, limit, offset)
+    agg_json: Option<Aggregations>,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
 }
 
 impl<'a> ParallelAggregationWorker<'a> {
+    /// Create for non-parallel local execution
     #[allow(clippy::too_many_arguments)]
     fn new_local(
         aggregation: Aggregations,
@@ -164,8 +249,13 @@ impl<'a> ParallelAggregationWorker<'a> {
                 memory_limit,
                 bucket_limit,
             },
-            aggregation,
-            query,
+            base_query: query,
+            aggregate_types: Vec::new(),
+            grouping_columns: Vec::new(),
+            orderby_info: Vec::new(),
+            limit: None,
+            offset: None,
+            agg_json: Some(aggregation),
             segment_ids,
             ambulkdelete_epoch,
         }
@@ -210,18 +300,41 @@ impl<'a> ParallelAggregationWorker<'a> {
         }
         let indexrel =
             PgSearchRelation::with_lock(self.config.indexrelid, pg_sys::AccessShareLock as _);
-        let standalone_context = unsafe { pg_sys::CreateStandaloneExprContext() };
+        let standalone_context = ExprContextGuard::new();
         let reader = SearchIndexReader::open_with_context(
             &indexrel,
-            self.query.clone(),
+            self.base_query.clone(),
             false,
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
-            NonNull::new(standalone_context),
+            NonNull::new(standalone_context.as_ptr()),
             None,
         )?;
 
+        // Build or use pre-built aggregations
+        let aggregations = if let Some(ref agg_json) = self.agg_json {
+            // JSON aggregations: use pre-built Aggregations
+            agg_json.clone()
+        } else {
+            // Filter aggregations: rebuild with Query objects in this worker
+            let schema = indexrel
+                .schema()
+                .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
+            let qctx = QueryContext::new(&schema, &reader, &indexrel, standalone_context);
+            let qparams = AggQueryParams {
+                base_query: &self.base_query,
+                aggregate_types: &self.aggregate_types,
+                grouping_columns: &self.grouping_columns,
+                orderby_info: &self.orderby_info,
+                limit: self.limit,
+                offset: self.offset,
+            };
+
+            build_aggregation_query(&qctx, &qparams)
+                .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
+        };
+
         let base_collector = DistributedAggregationCollector::from_aggs(
-            self.aggregation.clone(),
+            aggregations,
             AggregationLimitsGuard::new(
                 Some(self.config.memory_limit),
                 Some(self.config.bucket_limit),
@@ -262,32 +375,77 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .object::<Config>(1)
             .expect("wrong type for config")
             .expect("missing config value");
-        let agg_req_bytes = state_manager
+        let base_query_bytes = state_manager
             .slice::<u8>(2)
-            .expect("wrong type for agg_req_bytes")
-            .expect("missing agg_req_bytes value");
-        let query_bytes = state_manager
+            .expect("wrong type for base_query_bytes")
+            .expect("missing base_query_bytes value");
+        let aggregate_types_bytes = state_manager
             .slice::<u8>(3)
-            .expect("wrong type for query_bytes")
-            .expect("missing query_bytes value");
+            .expect("wrong type for aggregate_types_bytes")
+            .expect("missing aggregate_types_bytes value");
+        let grouping_columns_bytes = state_manager
+            .slice::<u8>(4)
+            .expect("wrong type for grouping_columns_bytes")
+            .expect("missing grouping_columns_bytes value");
+        let orderby_info_bytes = state_manager
+            .slice::<u8>(5)
+            .expect("wrong type for orderby_info_bytes")
+            .expect("missing orderby_info_bytes value");
+        let limit_offset_bytes = state_manager
+            .slice::<u8>(6)
+            .expect("wrong type for limit_offset_bytes")
+            .expect("missing limit_offset_bytes value");
+        let agg_json_bytes = state_manager
+            .slice::<u8>(7)
+            .expect("wrong type for agg_json_bytes")
+            .expect("missing agg_json_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(4)
+            .slice::<(SegmentId, NumDeletedDocs)>(8)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
-            .object::<u32>(5)
+            .object::<u32>(9)
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
-        let aggregation = serde_json::from_slice::<Aggregations>(agg_req_bytes)
-            .expect("agg_req_bytes should deserialize into an Aggregations");
-        let query = serde_json::from_slice::<SearchQueryInput>(query_bytes)
-            .expect("query_bytes should deserialize into an SearchQueryInput");
+        let base_query = serde_json::from_slice::<SearchQueryInput>(base_query_bytes)
+            .expect("base_query_bytes should deserialize into SearchQueryInput");
+
+        // Check if this is a JSON aggregation or filter aggregation
+        let (aggregate_types, grouping_columns, orderby_info, limit, offset, agg_json) =
+            if !agg_json_bytes.is_empty() {
+                // JSON aggregation
+                let agg = serde_json::from_slice::<Aggregations>(agg_json_bytes)
+                    .expect("agg_json_bytes should deserialize into Aggregations");
+                (Vec::new(), Vec::new(), Vec::new(), None, None, Some(agg))
+            } else {
+                // Filter aggregation
+                let agg_types = serde_json::from_slice::<Vec<AggregateType>>(aggregate_types_bytes)
+                    .expect("aggregate_types_bytes should deserialize into Vec<AggregateType>");
+                let group_cols = serde_json::from_slice::<Vec<GroupingColumn>>(
+                    grouping_columns_bytes,
+                )
+                .expect("grouping_columns_bytes should deserialize into Vec<GroupingColumn>");
+                let order_info = serde_json::from_slice::<Vec<OrderByInfo>>(orderby_info_bytes)
+                    .expect("orderby_info_bytes should deserialize into Vec<OrderByInfo>");
+                let (limit, offset) =
+                    serde_json::from_slice::<(Option<u32>, Option<u32>)>(limit_offset_bytes)
+                        .expect(
+                            "limit_offset_bytes should deserialize into (Option<u32>, Option<u32>)",
+                        );
+                (agg_types, group_cols, order_info, limit, offset, None)
+            };
+
         Self {
             state,
             config: *config,
-            aggregation,
-            query,
+            base_query,
+            aggregate_types,
+            grouping_columns,
+            orderby_info,
+            limit,
+            offset,
+            agg_json,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
         }
@@ -311,143 +469,415 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
     }
 }
 
-pub fn execute_aggregate(
+/// Execute aggregations (with parallelization)
+///
+/// Main entry point for SQL aggregations. Handles both simple aggregations and GROUP BY.
+/// Supports parallel execution.
+///
+/// # Arguments
+/// * `index` - Postgres relation to aggregate over
+/// * `qparams` - SQL aggregation query parameters (base_query, aggregate_types, grouping_columns, orderby_info)
+/// * `solve_mvcc` - Apply MVCC visibility filtering
+/// * `memory_limit` - Max memory for aggregation (typically work_mem)
+/// * `bucket_limit` - Max buckets for GROUP BY (default: 65000)
+///
+/// # Returns
+/// JSON with structure: `{"filter_0": {"doc_count": N, "filtered_agg": {...}}, ...}`
+pub fn execute_aggregation(
     index: &PgSearchRelation,
-    query: SearchQueryInput,
-    agg: serde_json::Value,
+    qparams: &AggQueryParams,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
 ) -> Result<serde_json::Value, Box<dyn Error>> {
-    unsafe {
-        let standalone_context = pg_sys::CreateStandaloneExprContext();
-        let reader = SearchIndexReader::open_with_context(
-            index,
-            query.clone(),
-            false,
-            MvccSatisfies::Snapshot,
-            NonNull::new(standalone_context),
-            None,
-        )?;
-        let agg_req = serde_json::from_value(agg)?;
-        let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
-        let segment_ids = reader
-            .segment_readers()
-            .iter()
-            .map(|r| (r.segment_id(), r.num_deleted_docs()))
-            .collect::<Vec<_>>();
+    let (reader, standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, qparams.base_query, MvccSatisfies::Snapshot)?;
+
+    let schema = index
+        .schema()
+        .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
+
+    let qctx = QueryContext::new(&schema, &reader, index, standalone_context);
+
+    let aggregations = build_aggregation_query(&qctx, qparams)?;
+
+    // Determine if we can use parallel execution
+    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
+
+    // Execute aggregation (parallel or sequential)
+    if can_use_parallel {
+        // Parallel execution
         let process = ParallelAggregation::new(
             index.oid(),
-            &query,
+            qparams,
+            solve_mvcc,
+            memory_limit,
+            bucket_limit,
+            segment_ids.clone(),
+            ambulkdelete_epoch,
+        )?;
+
+        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
+            return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
+        }
+        // If parallel execution failed, fall through to sequential
+    }
+
+    // Sequential execution (or fallback from parallel)
+    execute_sequential(
+        aggregations,
+        qparams.base_query,
+        ambulkdelete_epoch,
+        segment_ids,
+        index.oid(),
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    )
+}
+
+/// Execute parallel aggregation and return intermediate results
+fn execute_parallel_helper(
+    process: ParallelAggregation,
+    nworkers: usize,
+) -> ParallelAggregationResult {
+    pgrx::debug1!(
+        "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
+        unsafe { *std::ptr::addr_of!(pg_sys::parallel_leader_participation) }
+    );
+
+    if let Some(mut process) = launch_parallel_process!(
+        ParallelAggregation<ParallelAggregationWorker>,
+        process,
+        WorkerStyle::Query,
+        nworkers,
+        16384
+    ) {
+        // Signal workers with the actual number launched
+        let mut nlaunched = process.launched_workers();
+        pgrx::debug1!("launched {nlaunched} parallel workers");
+
+        if unsafe { pg_sys::parallel_leader_participation } {
+            nlaunched += 1;
+            pgrx::debug1!(
+                "with parallel_leader_participation=true, actual worker count={nlaunched}"
+            );
+        }
+
+        process
+            .state_manager_mut()
+            .object::<State>(0)?
+            .unwrap()
+            .set_launched_workers(nlaunched);
+
+        // Leader participation
+        let mut agg_results = Vec::with_capacity(nlaunched);
+        if unsafe { pg_sys::parallel_leader_participation } {
+            let mut worker =
+                ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
+            match worker.execute_aggregate(QueryWorkerStyle::ParallelLeader) {
+                Ok(Some(result)) => agg_results.push(Ok(result)),
+                Ok(None) => {}
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        // Wait for workers to finish, collecting their intermediate aggregate results
+        for (_worker_number, message) in process {
+            match postcard::from_bytes::<IntermediateAggregationResults>(&message) {
+                Ok(worker_results) => agg_results.push(Ok(worker_results)),
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        Ok(Some(agg_results))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Execute sequential aggregation using pre-built aggregations
+#[allow(clippy::too_many_arguments)]
+fn execute_sequential(
+    aggregations: Aggregations,
+    base_query: &SearchQueryInput,
+    ambulkdelete_epoch: u32,
+    segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
+    indexrelid: pg_sys::Oid,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    pgrx::debug1!("executing aggregation sequentially");
+
+    let mut state = State {
+        mutex: Spinlock::default(),
+        nlaunched: 1,
+        remaining_segments: segment_ids.len(),
+    };
+
+    let mut worker = ParallelAggregationWorker::new_local(
+        aggregations.clone(),
+        base_query.clone(),
+        segment_ids,
+        ambulkdelete_epoch,
+        indexrelid,
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+        &mut state,
+    );
+
+    if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
+        let result = agg_results.into_final_result(
+            aggregations,
+            AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+        )?;
+        Ok(serde_json::to_value(result)?)
+    } else {
+        Ok(serde_json::Value::Null)
+    }
+}
+
+/// Execute aggregations from JSON (legacy API used by aggregate() SQL function)
+///
+/// This is for raw Tantivy aggregation JSON without SQL FILTER clause support.
+/// Uses ParallelAggregation infrastructure which can serialize Aggregations directly
+/// (works because legacy JSON API doesn't contain Query objects).
+pub fn execute_aggregate_json(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    agg_json: serde_json::Value,
+    solve_mvcc: bool,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let (_reader, _standalone_context, ambulkdelete_epoch, segment_ids) =
+        open_index_for_aggregation(index, query, MvccSatisfies::Snapshot)?;
+
+    let agg_req: Aggregations = serde_json::from_value(agg_json)?;
+
+    // Determine if we can use parallel execution
+    let (can_use_parallel, nworkers) = can_parallelize(&segment_ids);
+
+    // Execute aggregation (parallel or sequential)
+    if can_use_parallel {
+        let process = ParallelAggregation::new_json(
+            index.oid(),
+            query,
             &agg_req,
             solve_mvcc,
             memory_limit,
             bucket_limit,
-            segment_ids,
+            segment_ids.clone(),
             ambulkdelete_epoch,
         )?;
 
-        // limit number of workers to the number of segments
-        let mut nworkers =
-            (pg_sys::max_parallel_workers_per_gather as usize).min(reader.segment_readers().len());
-
-        if nworkers > 0 && pg_sys::parallel_leader_participation {
-            // make sure to account for the leader being a worker too
-            nworkers -= 1;
+        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
+            return merge_parallel_results(agg_req, agg_results, memory_limit, bucket_limit);
         }
-        pgrx::debug1!(
-            "requesting {nworkers} parallel workers, with parallel_leader_participation={}",
-            *std::ptr::addr_of!(pg_sys::parallel_leader_participation)
-        );
-        if let Some(mut process) = launch_parallel_process!(
-            ParallelAggregation<ParallelAggregationWorker>,
-            process,
-            WorkerStyle::Query,
-            nworkers,
-            16384
-        ) {
-            // signal our workers with the number of workers actually launched
-            // they need this before they can begin checking out the correct segment counts
-            let mut nlaunched = process.launched_workers();
-            pgrx::debug1!("launched {nlaunched} workers");
-            if pg_sys::parallel_leader_participation {
-                nlaunched += 1;
-                pgrx::debug1!(
-                    "with parallel_leader_participation=true, actual worker count={nlaunched}"
-                );
-            }
-
-            process
-                .state_manager_mut()
-                .object::<State>(0)?
-                .unwrap()
-                .set_launched_workers(nlaunched);
-
-            // leader participation
-            let mut agg_results = Vec::with_capacity(nlaunched);
-            if pg_sys::parallel_leader_participation {
-                let mut worker =
-                    ParallelAggregationWorker::new_parallel_worker(*process.state_manager());
-                if let Some(result) = worker.execute_aggregate(QueryWorkerStyle::ParallelLeader)? {
-                    agg_results.push(Ok(result));
-                }
-            }
-
-            // wait for workers to finish, collecting their intermediate aggregate results
-            for (_worker_number, message) in process {
-                let worker_results =
-                    postcard::from_bytes::<IntermediateAggregationResults>(&message)?;
-
-                agg_results.push(Ok(worker_results));
-            }
-
-            // have tantivy finalize the intermediate results from each worker
-            let merged = {
-                let collector = DistributedAggregationCollector::from_aggs(
-                    agg_req.clone(),
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                );
-                collector.merge_fruits(agg_results)?.into_final_result(
-                    agg_req,
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?
-            };
-
-            Ok(serde_json::to_value(merged)?)
-        } else {
-            // couldn't launch any workers, so we just execute the aggregate right here in this backend
-            let segment_ids = reader
-                .segment_readers()
-                .iter()
-                .map(|r| (r.segment_id(), r.num_deleted_docs()))
-                .collect::<Vec<_>>();
-            let mut state = State {
-                mutex: Spinlock::default(),
-                nlaunched: 1,
-                remaining_segments: segment_ids.len(),
-            };
-            let mut worker = ParallelAggregationWorker::new_local(
-                agg_req.clone(),
-                query,
-                segment_ids,
-                ambulkdelete_epoch,
-                index.oid(),
-                solve_mvcc,
-                memory_limit as _,
-                bucket_limit as _,
-                &mut state,
-            );
-            if let Some(agg_results) = worker.execute_aggregate(QueryWorkerStyle::NonParallel)? {
-                let result = agg_results.into_final_result(
-                    agg_req,
-                    AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
-                )?;
-                Ok(serde_json::to_value(result)?)
-            } else {
-                Ok(serde_json::Value::Null)
-            }
-        }
+        // If parallel execution failed, fall through to sequential
     }
+
+    // Sequential execution (or fallback from parallel)
+    execute_sequential(
+        agg_req,
+        query,
+        ambulkdelete_epoch,
+        segment_ids,
+        index.oid(),
+        solve_mvcc,
+        memory_limit,
+        bucket_limit,
+    )
+}
+
+/// Build Tantivy aggregations with consistent FilterAggregation structure
+/// ALL cases use: FilterAggregation -> grouped/filtered_agg -> metrics
+/// This ensures result processing is unified and simple
+fn build_aggregation_query(
+    qctx: &QueryContext,
+    qparams: &AggQueryParams,
+) -> Result<Aggregations, Box<dyn Error>> {
+    let mut result = HashMap::new();
+    let base_query_tantivy = SearchQueryInput::to_tantivy_query(qctx, Some(qparams.base_query))?;
+
+    // Build nested terms structure if we have grouping columns
+    let nested_terms = if !qparams.grouping_columns.is_empty() {
+        Some(build_nested_terms(
+            qparams.grouping_columns,
+            qparams.orderby_info,
+            HashMap::new(),
+            qparams.limit,
+            qparams.offset,
+        )?)
+    } else {
+        None
+    };
+
+    // Sentinel filter: always present, ensures we get ALL groups (or single row for simple aggs)
+    // Uses base_query to match all documents in the WHERE clause
+    result.insert(
+        "filter_sentinel".to_string(),
+        Aggregation {
+            agg: AggregationVariants::Filter(FilterAggregation::new_with_query(base_query_tantivy)),
+            sub_aggregation: Aggregations::from(nested_terms.clone().unwrap_or_default()),
+        },
+    );
+
+    // Each aggregate: FilterAggregation(filter) -> grouped/filtered_agg -> metric
+    for (idx, agg) in qparams.aggregate_types.iter().enumerate() {
+        let query = SearchQueryInput::to_tantivy_query(qctx, agg.filter_expr().as_ref())?;
+        let base = AggregateType::to_tantivy_agg(agg)?;
+
+        let sub_aggs = if nested_terms.is_some() {
+            // GROUP BY: filter -> grouped -> buckets -> metric
+            let metric_leaf = HashMap::from([(idx.to_string(), base)]);
+            build_nested_terms(
+                qparams.grouping_columns,
+                qparams.orderby_info,
+                metric_leaf,
+                qparams.limit,
+                qparams.offset,
+            )?
+        } else {
+            // No GROUP BY: filter -> filtered_agg (metric)
+            HashMap::from([("filtered_agg".to_string(), base)])
+        };
+
+        result.insert(
+            format!("filter_{idx}"),
+            Aggregation {
+                agg: AggregationVariants::Filter(FilterAggregation::new_with_query(query)),
+                sub_aggregation: Aggregations::from(sub_aggs),
+            },
+        );
+    }
+
+    Ok(Aggregations::from(result))
+}
+
+/// Build nested TermsAggregations from innermost to outermost
+/// Returns map with "grouped" key containing the outermost terms aggregation
+fn build_nested_terms(
+    grouping_columns: &[GroupingColumn],
+    orderby_info: &[OrderByInfo],
+    leaf_aggs: HashMap<String, Aggregation>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
+    let mut current = leaf_aggs;
+    let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;
+
+    for column in grouping_columns.iter().rev() {
+        // Find ORDER BY info for this column
+        let orderby = orderby_info.iter().find(|info| {
+            if let OrderByFeature::Field(field_name) = &info.feature {
+                field_name == &FieldName::from(column.field_name.clone())
+            } else {
+                false
+            }
+        });
+
+        // Calculate size based on LIMIT/OFFSET
+        let size = if let Some(limit) = limit {
+            (limit + offset.unwrap_or(0)).min(max_term_agg_buckets)
+        } else {
+            max_term_agg_buckets
+        };
+
+        // Build terms aggregation JSON with optional ORDER BY
+        let mut terms_json = serde_json::json!({
+            "field": column.field_name,
+            "size": size,
+            // because we currently support ordering only by the grouping columns, the Top N
+            // of all segments is guaranteed to contain the global Top N
+            // once we support ordering by aggregates like COUNT, this is no longer guaranteed,
+            // and we can no longer set segment_size (per segment top N) = size (global top N)
+            "segment_size": size
+        });
+
+        // Add order if specified
+        if let Some(orderby) = orderby {
+            terms_json["order"] = serde_json::json!({ "_key": orderby.direction.as_ref() });
+        }
+
+        let terms_agg = Aggregation {
+            agg: serde_json::from_value(serde_json::json!({ "terms": terms_json }))?,
+            sub_aggregation: current,
+        };
+
+        current = HashMap::from([("grouped".to_string(), terms_agg)]);
+    }
+
+    Ok(current)
+}
+
+/// Type alias for the return value of open_index_for_aggregation
+type IndexAggregationContext = (
+    SearchIndexReader,
+    ExprContextGuard,
+    u32,
+    Vec<(SegmentId, NumDeletedDocs)>,
+);
+
+/// Helper to open index reader with standalone context
+/// Returns (reader, standalone_context, ambulkdelete_epoch, segment_ids)
+fn open_index_for_aggregation(
+    index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    mvcc_satisfies: MvccSatisfies,
+) -> Result<IndexAggregationContext, Box<dyn Error>> {
+    let standalone_context = ExprContextGuard::new();
+    let reader = SearchIndexReader::open_with_context(
+        index,
+        query.clone(),
+        false,
+        mvcc_satisfies,
+        NonNull::new(standalone_context.as_ptr()),
+        None,
+    )?;
+
+    let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
+    let segment_ids = reader
+        .segment_readers()
+        .iter()
+        .map(|r| (r.segment_id(), r.num_deleted_docs()))
+        .collect::<Vec<_>>();
+
+    Ok((reader, standalone_context, ambulkdelete_epoch, segment_ids))
+}
+
+/// Merge parallel aggregation results into final JSON
+/// Common helper for both SQL and JSON aggregations
+fn merge_parallel_results(
+    aggregations: Aggregations,
+    agg_results: Vec<tantivy::Result<IntermediateAggregationResults>>,
+    memory_limit: u64,
+    bucket_limit: u32,
+) -> Result<serde_json::Value, Box<dyn Error>> {
+    let collector = DistributedAggregationCollector::from_aggs(
+        aggregations.clone(),
+        AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+    );
+    let merged = collector.merge_fruits(agg_results)?.into_final_result(
+        aggregations,
+        AggregationLimitsGuard::new(Some(memory_limit), Some(bucket_limit)),
+    )?;
+    Ok(serde_json::to_value(merged)?)
+}
+
+/// Determine if parallel execution is possible based on available workers and segments
+fn can_parallelize(segment_ids: &[(SegmentId, NumDeletedDocs)]) -> (bool, usize) {
+    let mut nworkers =
+        unsafe { (pg_sys::max_parallel_workers_per_gather as usize).min(segment_ids.len()) };
+
+    if nworkers > 0 && unsafe { pg_sys::parallel_leader_participation } {
+        nworkers -= 1;
+    }
+
+    let can_use_parallel = nworkers > 0 && segment_ids.len() > 1;
+    (can_use_parallel, nworkers)
 }
 
 pub mod mvcc_collector {

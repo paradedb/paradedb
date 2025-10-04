@@ -500,10 +500,7 @@ impl AggregateScanState {
     ) -> bool {
         let bucket_key =
             scan_state.json_value_to_owned_value(key_json, &grouping_column.field_name);
-        matches!(
-            TantivyValue::partial_cmp(&bucket_key, target_key),
-            Some(std::cmp::Ordering::Equal)
-        )
+        bucket_key == *target_key
     }
 
     /// Extract aggregate value from a bucket at the leaf level

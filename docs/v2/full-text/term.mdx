@@ -39,6 +39,18 @@ The first query returns:
 However, the second query returns no results. This is because term queries look for exact matches, which includes
 case sensitivity, and there are no documents in the example dataset containing the token `RUNNING`.
 
+<Note>
+  All tokenizers besides the exact tokenizer
+  [lowercase](/v2/token_filters/lowercase) tokens by default. Make sure to
+  account for this when searching for a term.
+</Note>
+
+<Note>
+  If you are using `===` to do an exact string match on the original text, make
+  sure that the text uses the [exact](/v2/tokenizers/available_tokenizers/exact)
+  tokenizer.
+</Note>
+
 ### How It Works
 
 Under the hood, `===` simply finds all documents where any of their tokens are an exact string match against the query token.

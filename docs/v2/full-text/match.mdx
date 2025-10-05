@@ -98,3 +98,19 @@ These examples assume that the index uses the default tokenizer and token filter
 | Sleek run shoe      | `sleek` `run` `shoe`      | ❌    | Does not contain both `running` and `shoes`. | [Stemming](/v2/indexing)                                   |
 | Sleke ruining shoez | `sleke` `ruining` `shoez` | ❌    | Does not contain both `running` and `shoes`. | [Fuzzy](/v2/full-text/fuzzy)                               |
 | White jogging shoes | `white` `jogging` `shoes` | ❌    | Does not contain both `running` and `shoes`. | [Match conjunction](/v2/full-text/match#match-conjunction) |
+
+<Note>
+If the query string only contains one token, then `|||` and `&&&` are effectively the same:
+
+```sql
+-- These two queries produce the same results
+SELECT description, rating, category
+FROM mock_items
+WHERE description ||| 'shoes';
+
+SELECT description, rating, category
+FROM mock_items
+WHERE description &&& 'shoes';
+```
+
+</Note>

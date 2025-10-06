@@ -685,7 +685,6 @@ impl<'a, K: Ord + Copy, V: Copy, T: Copy> Iterator for AvlIter<'a, K, V, T> {
     }
 }
 
-// Optional ergonomic IntoIterator for &AvlMap
 impl<'a, K: Ord + Copy, V: Copy, T: Copy> IntoIterator for &'a AvlTreeMapView<'a, K, V, T> {
     type Item = (K, V);
     type IntoIter = AvlIter<'a, K, V, T>;
@@ -964,24 +963,6 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn test_avl_map_prop(operations: Vec<(i32, i32)>) {
-            let mut header = AvlTreeMapHeader::default();
-            let mut buf = vec![Slot::<i32, i32>::default(); 1024];
-            let mut m = AvlTreeMap::new(&mut header, &mut buf);
-
-            for (k, v) in operations {
-                if m.view().len() >= m.view().capacity() {
-                    break;
-                }
-                prop_assert_eq!(m.insert(k, v), Ok((None, ())));
-                prop_assert_eq!(m.view().get(&k), Some((v, ())));
-
-                #[cfg(debug_assertions)]
-                m.view().assert_ok();
-            }
-        }
-
         #[test]
         fn test_avl_map_random_ops(ops in prop::collection::vec((0..3i32, -100i32..100i32), 1..100)) {
             let mut header = AvlTreeMapHeader::default();

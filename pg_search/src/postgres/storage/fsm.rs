@@ -51,49 +51,30 @@ struct FSMBlockHeader {
     kind: FSMBlockKind,
 }
 
-/// The [`V1FSM`] is our version of Postgres' "free space map".  We need to track free space
-/// as whole blocks and we'd prefer to not have to mark pages as deleted when giving them to the FSM.
+/// A [`FreeSpaceManager`] provides an interface to a block-storage backed structure to track
+/// relation block numbers that can be reused at a later time.  The free blocks are associated
+/// with the earliest transaction id that can use them.
 ///
-/// We also have a requirement that blocks be recycled in the future, after the transaction which
-/// marked them free is known to no longer be overlapping with other concurrent transactions, including
-/// those from hot-standby servers.  Reusing a block before all nodes in the cluster and/or all
-/// concurrent backends are aware that it's been deleted can cause race conditions and data corruption.
-///
-/// The on-disk structure is simply a linked list of blocks where each block, a [`v1::FSMBlock`],
-/// is a fixed-sized array of ([`pg_sys::BlockNumber`], [`pg_sys::TransactionId`]) pairs.
-///
-/// Each block starts with a small [`FSMBlockHeader`] indicating the type of block (we've had a few
-/// styles so far).  This is denoted by the [`FSMBlockHeader::kind`] flag.
-///
-/// Outside per-page exclusive locking when mutating a page, no special locking requirements exist
-/// to manage concurrency.  The intent is that the [`V1FSM`]'s linked list can grow
-/// unbounded, with the hope that it actually won't grow to be very large in practice.
-///
-/// Any other kind of structure will likely need a more sophisticated approach to concurrency control.
-///
-/// The user-facing API is meant to _kinda_ mimic a `Vec` in that the [`V1FSM`] can be
+/// The user-facing API is meant to _kinda_ mimic a `Vec` in that a [`FreeSpaceManager`] can be
 /// popped, drained, and extended.
 pub trait FreeSpaceManager {
-    /// Create a new [`V1FSM`] in the block storage of the specified `indexrel`.
+    /// Create a new [`FreeSpaceManager`] in the block storage of the specified `indexrel`.
     unsafe fn create(indexrel: &PgSearchRelation) -> pg_sys::BlockNumber;
 
-    /// Open an existing [`V1FSM`] which is rooted at the specified starting block number.
+    /// Open an existing [`FreeSpaceManager`] which is rooted at the specified starting block number.
     fn open(start_blockno: pg_sys::BlockNumber) -> Self;
 
     /// Retrieve a single recyclable [`pg_sys::BlockNumber`], which can be acquired and re-initialized.
     ///
     /// Returns `None` if no recyclable blocks are available.
     ///
-    /// Upon return, the block is removed from the [`V1FSM`]'s control.  It is the caller's
+    /// Upon return, the block is removed from the [`FreeSpaceManager`]'s control.  It is the caller's
     /// responsibility to ensure the block is properly used, or else it will be lost forever as
     /// dead space in the underlying relation.
     fn pop(&mut self, bman: &mut BufferManager) -> Option<pg_sys::BlockNumber>;
 
-    /// Drain `n` recyclable blocks from this [`V1FSM`] instance, using the specified
+    /// Drain `n` recyclable blocks from this [`FreeSpaceManager`] instance, using the specified
     /// [`BufferManager`] for underlying disk access.
-    ///
-    /// As [`pg_sys::BlockNumber`]s are yielded from the returned iterator, they are removed from the
-    /// FSM.  The returned iterator will never return more than `n`, but it could return fewer.
     ///
     /// It is the caller's responsibility to ensure each yielded block is properly used, or else it will
     /// be lost forever as dead space in the underlying relation.  Unyielded blocks are unaffected.
@@ -113,7 +94,7 @@ pub trait FreeSpaceManager {
         &mut self,
         bman: &mut BufferManager,
         extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
-    ) -> bool {
+    ) {
         let current_xid = unsafe {
             pg_sys::GetCurrentFullTransactionIdIfAny()
                 .value
@@ -134,9 +115,29 @@ pub trait FreeSpaceManager {
         bman: &mut BufferManager,
         when_recyclable: pg_sys::FullTransactionId,
         extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
-    ) -> bool;
+    );
 }
 
+/// The [`v1`] is our version of Postgres' "free space map".  We need to track free space
+/// as whole blocks and we'd prefer to not have to mark pages as deleted when giving them to the FSM.
+///
+/// We also have a requirement that blocks be recycled in the future, after the transaction which
+/// marked them free is known to no longer be overlapping with other concurrent transactions, including
+/// those from hot-standby servers.  Reusing a block before all nodes in the cluster and/or all
+/// concurrent backends are aware that it's been deleted can cause race conditions and data corruption.
+///
+/// The on-disk structure is simply a linked list of blocks where each block, a [`v1::FSMBlock`],
+/// is a fixed-sized array of ([`pg_sys::BlockNumber`], [`pg_sys::TransactionId`]) pairs.
+///
+/// Each block starts with a small [`FSMBlockHeader`] indicating the type of block (we've had a few
+/// styles so far).  This is denoted by the [`FSMBlockHeader::kind`] flag.
+///
+/// Outside per-page exclusive locking when mutating a page, no special locking requirements exist
+/// to manage concurrency.  The intent is that the [`V1FSM`]'s linked list can grow
+/// unbounded, with the hope that it actually won't grow to be very large in practice.
+///
+/// Any other kind of structure will likely need a more sophisticated approach to concurrency control.
+///
 pub mod v1 {
     use crate::postgres::rel::PgSearchRelation;
     use crate::postgres::storage::block::{bm25_max_free_space, BM25PageSpecialData};
@@ -409,9 +410,8 @@ pub mod v1 {
             bman: &mut BufferManager,
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
-        ) -> bool {
+        ) {
             let mut extend_with = extend_with.peekable();
-            let has_values = extend_with.peek().is_some();
             let mut blockno = self.start_blockno;
             loop {
                 let buffer = bman.get_buffer(blockno);
@@ -463,7 +463,7 @@ pub mod v1 {
 
                     if extend_with.peek().is_none() {
                         // no more blocks to add to the FSM
-                        return has_values;
+                        return;
                     }
 
                     blockno = buffer.page().special::<BM25PageSpecialData>().next_blockno;
@@ -556,9 +556,9 @@ pub mod v1 {
 ///
 /// During an extension a share lock is acquired on the FSM's root page (the AVL tree) and the
 /// specified transaction id is searched.  If it's found, then an exclusive lock is taken on the block
-/// represented by that xid's `tag` -- the blocklist -- and the blocklist is extended from head-to-tail,
+/// represented by that xid's `tag` -- the freelist -- and the freelist is extended from head-to-tail,
 /// filling in gaps along the way.  However, if a full page is encountered, then a shortcut is taken
-/// and a new blocklist is linked into the existing list at that point.
+/// and a new freelist is linked into the existing list at that point.
 ///
 /// Concurrent extensions are allowed on the same xid, blocking one block in the block list at a time.
 /// However, in practice almost every call to [`FreeSpaceManager::extend_with_when_recyclable`] uses
@@ -571,12 +571,12 @@ pub mod v1 {
 /// If the provided transaction id is not found, then the shared lock on the FSM root is upgraded to
 /// an exclusive lock and the transaction id is inserted.  It is possible that by this time the
 /// transaction id now exists.  In either case, the `tag` value for the new (or now-existing) transaction
-/// id's slot is used as the blocklist, and it is extended.
+/// id's slot is used as the freelist, and it is extended.
 ///
 /// The upgraded exclusive lock on the tree is *not* held during extension.  It only lives long enough
 /// to ensure proper insertion of the possibly new transaction id.
 ///
-/// If, when extending a blocklist, another page is needed, it is acquired by extending the relation by
+/// If, when extending a freelist, another page is needed, it is acquired by extending the relation by
 /// a page, not by asking the FSM itself for a page.
 ///
 /// ## What happens if the tree is full?
@@ -615,19 +615,19 @@ pub mod v1 {
 ///
 /// If no such key exists, [`FreeSpaceManager::drain`] returns an empty iterator.
 ///
-/// Otherwise, the blocklist associated with that entry's slot is consumed, up to `n` blocks.  The
-/// locking through the blocklist here is conditional.  If an exclusive lock can't be acquired, the
+/// Otherwise, the freelist associated with that entry's slot is consumed, up to `n` blocks.  The
+/// locking through the freelist here is conditional.  If an exclusive lock can't be acquired, the
 /// algorithm restarts, now looking for the next smallest transaction id.  This continues until `n`
 /// blocks have been found or the tree no longer has any keys that satisfy the condition.
 ///
 /// This process of restarting with the next smallest transaction id also happens if the xid being
 /// evaluated doesn't contain enough blocks to satisfy `n`.
 ///
-/// When draining, if an individual block in the blocklist (that isn't the first block) becomes empty,
-/// it is unlinked from the blocklist and returned to the FSM to be used in a future transaction.
+/// When draining, if an individual block in the freelist (that isn't the first block) becomes empty,
+/// it is unlinked from the freelist and returned to the FSM to be used in a future transaction.
 /// This helps to keep the FSM as small as possible throughout its life.
 ///
-/// If, while draining, an entire blocklist is consumed for a transaction id, then that transaction
+/// If, while draining, an entire freelist is consumed for a transaction id, then that transaction
 /// id is removed from the tree.  This requires an exclusive lock on the tree itself and must happen
 /// outside holding any other locks.  It would be possible for two concurrent transactions to try
 /// and delete the same xid entry.  This is fine -- one will win and the other will happily think it won.
@@ -733,7 +733,7 @@ pub mod v2 {
             *contents = FSMRootBlock::default();
 
             // each slot is initially allocated a new buffer and assigned to the slot's `tag, which
-            // will eventually be used to store the blocklist for whatever key ends up in that slot.
+            // will eventually be used to store the freelist for whatever key ends up in that slot.
             // the tag value remains unchanged throughout the lifetime of the tree, except in the
             // case of removing an entry, and the tree needs to be rebalanced.  in this case the tag
             // moves with the key/value entry through the tree and tags are swapped along the way
@@ -788,14 +788,15 @@ pub mod v2 {
                     // is what it says it is
                     //
                     // the conditional lock here also ensures we're the only backend to start
-                    // draining the tree from this the head
+                    // draining the xid's freelist from its the head
                     let mut buffer = match bman.get_buffer_conditional(blockno) {
                         Some(buffer) => {
-                            root.take();
+                            drop(root.take());
                             buffer
                         }
                         None => {
-                            root.take();
+                            drop(root.take());
+
                             // move to the next candidate XID below this one.
                             xid = found_xid - 1;
                             if xid < pg_sys::FirstNormalTransactionId.into_inner() as u64 {
@@ -917,7 +918,12 @@ pub mod v2 {
             bman: &mut BufferManager,
             when_recyclable: pg_sys::FullTransactionId,
             extend_with: impl Iterator<Item = pg_sys::BlockNumber>,
-        ) -> bool {
+        ) {
+            let mut extend_with = extend_with.peekable();
+            if extend_with.peek().is_none() {
+                // caller didn't give us anything to do
+                return;
+            }
             let tag = {
                 let root = bman.get_buffer(self.start_blockno);
                 let page = root.page();
@@ -938,11 +944,8 @@ pub mod v2 {
                 }
             };
 
-            let mut extend_with = extend_with.peekable();
-            let has_values = extend_with.peek().is_some();
             let start_block = bman.get_buffer_mut(tag as pg_sys::BlockNumber);
-            Self::extend_blocklist(bman, start_block, extend_with);
-            has_values
+            Self::extend_freelist(bman, start_block, extend_with);
         }
     }
 
@@ -970,7 +973,7 @@ pub mod v2 {
             max_slot.tag
         }
 
-        fn extend_blocklist(
+        fn extend_freelist(
             bman: &mut BufferManager,
             start_block: BufferMut,
             mut extend_with: Peekable<impl Iterator<Item = pg_sys::BlockNumber>>,
@@ -987,12 +990,12 @@ pub mod v2 {
                     // this block is full.  Chances are the next block is also full.
                     // so we're going to populate a brand-new list with the rest of the iterator
                     // and then link it in between this block and the next block.  This avoids
-                    // the possible overhead of scanning the rest of the blocklist just to discover
+                    // the possible overhead of scanning the rest of the freelist just to discover
                     // all the following blocks are full
                     let new_block = AvlLeaf::init_new_page(bman);
                     let new_blockno = new_block.number();
 
-                    let mut last_block = Self::extend_blocklist(bman, new_block, extend_with);
+                    let mut last_block = Self::extend_freelist(bman, new_block, extend_with);
 
                     // link the last block we just created to the next block
                     let mut end_page = last_block.page_mut();
@@ -1283,9 +1286,10 @@ pub fn convert_v1_to_v2(bman1: &mut BufferManager, mut v1: V1FSM, mut v2: V2FSM)
 
     let mut bman2 = bman1.clone();
     loop {
-        let extended =
-            v2.extend_with_when_recyclable(&mut bman2, when_recyclable, v1.drain(bman1, 1000));
-        if !extended {
+        let mut drained = v1.drain(bman1, 1000).peekable();
+        if drained.peek().is_some() {
+            v2.extend_with_when_recyclable(&mut bman2, when_recyclable, drained);
+        } else {
             break;
         }
     }

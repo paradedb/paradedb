@@ -6,9 +6,6 @@
 name: Test pg_search Upgrade
 
 on:
-  push:
-    branches:
-      - phil/fix-upgrade
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:

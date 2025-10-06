@@ -251,8 +251,8 @@ pub unsafe fn tantivy_field_name_from_node(
         return None;
     }
     let heaprel = PgSearchRelation::open(heaprelid);
-    let indexrel =
-        locate_bm25_index_from_heaprel(&heaprel).expect("could not find bm25 index for heaprelid");
+    let indexrel = locate_bm25_index_from_heaprel(&heaprel)
+        .unwrap_or_else(|| panic!("`{}` does not contain a `USING bm25` index", heaprel.name()));
 
     let field_name =
         field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node)?;

@@ -1,6 +1,7 @@
 ---
 title: Phrase
----
+noindex: true
+canonical: https://docs.paradedb.com/documentation/full-text/phrase
 
 Phrase queries work exactly like [match conjunction](/v2/full-text/match#match-conjunction), but are more strict in that they require the
 order and position of tokens to be the same.
@@ -32,10 +33,13 @@ This query returns:
 
 ```csv
      description     | rating | category
----------------------+--------+----------
- Sleek running shoes |      5 | Footwear
+---
+
+------------------+--------+----------
+Sleek running shoes | 5 | Footwear
 (1 row)
-```
+
+````
 
 Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
 `shoes` because they appear in the wrong order or with other words in between.
@@ -68,4 +72,4 @@ To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the m
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'shoes running'::slop(2);
-```
+````

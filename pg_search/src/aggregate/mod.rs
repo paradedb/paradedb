@@ -55,8 +55,8 @@ pub struct AggQueryParams<'a> {
     pub aggregate_types: &'a [AggregateType],
     pub grouping_columns: &'a [GroupingColumn],
     pub orderby_info: &'a [OrderByInfo],
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    pub limit: &'a Option<u32>,
+    pub offset: &'a Option<u32>,
 }
 
 #[repr(C)]
@@ -99,18 +99,27 @@ type ParallelAggregationResult = Result<
     Box<dyn Error>,
 >;
 
+/// Aggregation mode for parallel execution
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+enum AggregationMode {
+    /// SQL aggregations with FILTER support
+    Sql {
+        aggregate_types: Vec<AggregateType>,
+        grouping_columns: Vec<GroupingColumn>,
+        orderby_info: Vec<OrderByInfo>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    },
+    /// JSON aggregations (direct Tantivy aggregation API)
+    Json { aggregations: Aggregations },
+}
+
 /// Parallel process for all aggregations (unified)
 struct ParallelAggregation {
     state: State,
     config: Config,
     base_query_bytes: Vec<u8>,
-    // For SQL aggregations (with heap filter support)
-    aggregate_types_bytes: Vec<u8>,
-    grouping_columns_bytes: Vec<u8>,
-    orderby_info_bytes: Vec<u8>,
-    limit_offset_bytes: Vec<u8>, // Serialized (Option<u32>, Option<u32>)
-    // For JSON aggregations (legacy API) - mutually exclusive with above
-    agg_json_bytes: Vec<u8>,
+    mode_bytes: Vec<u8>, // Serialized AggregationMode
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     ambulkdelete_epoch: u32,
 }
@@ -125,11 +134,7 @@ impl ParallelProcess for ParallelAggregation {
             &self.state,
             &self.config,
             &self.base_query_bytes,
-            &self.aggregate_types_bytes,
-            &self.grouping_columns_bytes,
-            &self.orderby_info_bytes,
-            &self.limit_offset_bytes,
-            &self.agg_json_bytes,
+            &self.mode_bytes,
             &self.segment_ids,
             &self.ambulkdelete_epoch,
         ]
@@ -147,6 +152,14 @@ impl ParallelAggregation {
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
+        let mode = AggregationMode::Sql {
+            aggregate_types: qparams.aggregate_types.to_vec(),
+            grouping_columns: qparams.grouping_columns.to_vec(),
+            orderby_info: qparams.orderby_info.to_vec(),
+            limit: *qparams.limit,
+            offset: *qparams.offset,
+        };
+
         Ok(Self {
             state: State {
                 mutex: Spinlock::new(),
@@ -161,17 +174,13 @@ impl ParallelAggregation {
                 bucket_limit,
             },
             base_query_bytes: serde_json::to_vec(qparams.base_query)?,
-            aggregate_types_bytes: serde_json::to_vec(qparams.aggregate_types)?,
-            grouping_columns_bytes: serde_json::to_vec(qparams.grouping_columns)?,
-            orderby_info_bytes: serde_json::to_vec(qparams.orderby_info)?,
-            limit_offset_bytes: serde_json::to_vec(&(qparams.limit, qparams.offset))?,
-            agg_json_bytes: Vec::new(), // Empty for filter aggregations
+            mode_bytes: serde_json::to_vec(&mode)?,
             segment_ids,
             ambulkdelete_epoch,
         })
     }
 
-    /// Create for JSON aggregations (legacy API)
+    /// Create for JSON aggregations
     #[allow(clippy::too_many_arguments)]
     pub fn new_json(
         indexrelid: pg_sys::Oid,
@@ -183,6 +192,10 @@ impl ParallelAggregation {
         segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
         ambulkdelete_epoch: u32,
     ) -> anyhow::Result<Self> {
+        let mode = AggregationMode::Json {
+            aggregations: aggregations.clone(),
+        };
+
         Ok(Self {
             state: State {
                 mutex: Spinlock::new(),
@@ -197,11 +210,7 @@ impl ParallelAggregation {
                 bucket_limit,
             },
             base_query_bytes: serde_json::to_vec(base_query)?,
-            aggregate_types_bytes: Vec::new(), // Empty for JSON aggregations
-            grouping_columns_bytes: Vec::new(), // Empty for JSON aggregations
-            orderby_info_bytes: Vec::new(),    // Empty for JSON aggregations
-            limit_offset_bytes: Vec::new(),    // Empty for JSON aggregations
-            agg_json_bytes: serde_json::to_vec(aggregations)?,
+            mode_bytes: serde_json::to_vec(&mode)?,
             segment_ids,
             ambulkdelete_epoch,
         })
@@ -212,15 +221,7 @@ struct ParallelAggregationWorker<'a> {
     state: &'a mut State,
     config: Config,
     base_query: SearchQueryInput,
-    // For filter aggregations
-    aggregate_types: Vec<AggregateType>,
-    grouping_columns: Vec<GroupingColumn>,
-    orderby_info: Vec<OrderByInfo>,
-    limit: Option<u32>,
-    offset: Option<u32>,
-    // For JSON aggregations - mutually exclusive with above
-    // (aggregate_types, grouping_columns, orderby_info, limit, offset)
-    agg_json: Option<Aggregations>,
+    mode: AggregationMode,
     segment_ids: Vec<(SegmentId, NumDeletedDocs)>,
     #[allow(dead_code)]
     ambulkdelete_epoch: u32,
@@ -250,12 +251,9 @@ impl<'a> ParallelAggregationWorker<'a> {
                 bucket_limit,
             },
             base_query: query,
-            aggregate_types: Vec::new(),
-            grouping_columns: Vec::new(),
-            orderby_info: Vec::new(),
-            limit: None,
-            offset: None,
-            agg_json: Some(aggregation),
+            mode: AggregationMode::Json {
+                aggregations: aggregation,
+            },
             segment_ids,
             ambulkdelete_epoch,
         }
@@ -311,26 +309,35 @@ impl<'a> ParallelAggregationWorker<'a> {
         )?;
 
         // Build or use pre-built aggregations
-        let aggregations = if let Some(ref agg_json) = self.agg_json {
-            // JSON aggregations: use pre-built Aggregations
-            agg_json.clone()
-        } else {
-            // Filter aggregations: rebuild with Query objects in this worker
-            let schema = indexrel
-                .schema()
-                .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
-            let qctx = QueryContext::new(&schema, &reader, &indexrel, standalone_context);
-            let qparams = AggQueryParams {
-                base_query: &self.base_query,
-                aggregate_types: &self.aggregate_types,
-                grouping_columns: &self.grouping_columns,
-                orderby_info: &self.orderby_info,
-                limit: self.limit,
-                offset: self.offset,
-            };
+        let aggregations = match &self.mode {
+            AggregationMode::Json { aggregations } => {
+                // JSON aggregations: use pre-built Aggregations
+                aggregations.clone()
+            }
+            AggregationMode::Sql {
+                aggregate_types,
+                grouping_columns,
+                orderby_info,
+                limit,
+                offset,
+            } => {
+                // SQL aggregations: rebuild with Query objects in this worker
+                let schema = indexrel
+                    .schema()
+                    .map_err(|e| anyhow::anyhow!("Failed to get schema: {}", e))?;
+                let qctx = QueryContext::new(&schema, &reader, &indexrel, standalone_context);
+                let qparams = AggQueryParams {
+                    base_query: &self.base_query,
+                    aggregate_types,
+                    grouping_columns,
+                    orderby_info,
+                    limit,
+                    offset,
+                };
 
-            build_aggregation_query(&qctx, &qparams)
-                .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
+                build_aggregation_query(&qctx, &qparams)
+                    .map_err(|e| anyhow::anyhow!("Failed to build filter aggregations: {}", e))?
+            }
         };
 
         let base_collector = DistributedAggregationCollector::from_aggs(
@@ -379,73 +386,29 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
             .slice::<u8>(2)
             .expect("wrong type for base_query_bytes")
             .expect("missing base_query_bytes value");
-        let aggregate_types_bytes = state_manager
+        let mode_bytes = state_manager
             .slice::<u8>(3)
-            .expect("wrong type for aggregate_types_bytes")
-            .expect("missing aggregate_types_bytes value");
-        let grouping_columns_bytes = state_manager
-            .slice::<u8>(4)
-            .expect("wrong type for grouping_columns_bytes")
-            .expect("missing grouping_columns_bytes value");
-        let orderby_info_bytes = state_manager
-            .slice::<u8>(5)
-            .expect("wrong type for orderby_info_bytes")
-            .expect("missing orderby_info_bytes value");
-        let limit_offset_bytes = state_manager
-            .slice::<u8>(6)
-            .expect("wrong type for limit_offset_bytes")
-            .expect("missing limit_offset_bytes value");
-        let agg_json_bytes = state_manager
-            .slice::<u8>(7)
-            .expect("wrong type for agg_json_bytes")
-            .expect("missing agg_json_bytes value");
+            .expect("wrong type for mode_bytes")
+            .expect("missing mode_bytes value");
         let segment_ids = state_manager
-            .slice::<(SegmentId, NumDeletedDocs)>(8)
+            .slice::<(SegmentId, NumDeletedDocs)>(4)
             .expect("wrong type for segment_ids")
             .expect("missing segment_ids value");
         let ambulkdelete_epoch = state_manager
-            .object::<u32>(9)
+            .object::<u32>(5)
             .expect("wrong type for ambulkdelete_epoch")
             .expect("missing ambulkdelete_epoch value");
 
         let base_query = serde_json::from_slice::<SearchQueryInput>(base_query_bytes)
             .expect("base_query_bytes should deserialize into SearchQueryInput");
-
-        // Check if this is a JSON aggregation or filter aggregation
-        let (aggregate_types, grouping_columns, orderby_info, limit, offset, agg_json) =
-            if !agg_json_bytes.is_empty() {
-                // JSON aggregation
-                let agg = serde_json::from_slice::<Aggregations>(agg_json_bytes)
-                    .expect("agg_json_bytes should deserialize into Aggregations");
-                (Vec::new(), Vec::new(), Vec::new(), None, None, Some(agg))
-            } else {
-                // Filter aggregation
-                let agg_types = serde_json::from_slice::<Vec<AggregateType>>(aggregate_types_bytes)
-                    .expect("aggregate_types_bytes should deserialize into Vec<AggregateType>");
-                let group_cols = serde_json::from_slice::<Vec<GroupingColumn>>(
-                    grouping_columns_bytes,
-                )
-                .expect("grouping_columns_bytes should deserialize into Vec<GroupingColumn>");
-                let order_info = serde_json::from_slice::<Vec<OrderByInfo>>(orderby_info_bytes)
-                    .expect("orderby_info_bytes should deserialize into Vec<OrderByInfo>");
-                let (limit, offset) =
-                    serde_json::from_slice::<(Option<u32>, Option<u32>)>(limit_offset_bytes)
-                        .expect(
-                            "limit_offset_bytes should deserialize into (Option<u32>, Option<u32>)",
-                        );
-                (agg_types, group_cols, order_info, limit, offset, None)
-            };
+        let mode = serde_json::from_slice::<AggregationMode>(mode_bytes)
+            .expect("mode_bytes should deserialize into AggregationMode");
 
         Self {
             state,
             config: *config,
             base_query,
-            aggregate_types,
-            grouping_columns,
-            orderby_info,
-            limit,
-            offset,
-            agg_json,
+            mode,
             segment_ids: segment_ids.to_vec(),
             ambulkdelete_epoch: *ambulkdelete_epoch,
         }
@@ -517,13 +480,23 @@ pub fn execute_aggregation(
             ambulkdelete_epoch,
         )?;
 
-        if let Some(agg_results) = execute_parallel_helper(process, nworkers)? {
-            return merge_parallel_results(aggregations, agg_results, memory_limit, bucket_limit);
+        match execute_parallel_helper(process, nworkers)? {
+            Some(agg_results) => {
+                return merge_parallel_results(
+                    aggregations,
+                    agg_results,
+                    memory_limit,
+                    bucket_limit,
+                );
+            }
+            None => {
+                // Parallel execution not available (not enough workers launched)
+                // Fall through to sequential execution
+            }
         }
-        // If parallel execution failed, fall through to sequential
     }
 
-    // Sequential execution (or fallback from parallel)
+    // Sequential execution
     execute_sequential(
         aggregations,
         qparams.base_query,
@@ -763,8 +736,8 @@ fn build_nested_terms(
     grouping_columns: &[GroupingColumn],
     orderby_info: &[OrderByInfo],
     leaf_aggs: HashMap<String, Aggregation>,
-    limit: Option<u32>,
-    offset: Option<u32>,
+    limit: &Option<u32>,
+    offset: &Option<u32>,
 ) -> Result<HashMap<String, Aggregation>, Box<dyn Error>> {
     let mut current = leaf_aggs;
     let max_term_agg_buckets = gucs::max_term_agg_buckets() as u32;

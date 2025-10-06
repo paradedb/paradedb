@@ -59,11 +59,15 @@ use thiserror::Error;
 /// This struct owns an ExprContextGuard and provides references to the components needed
 /// for converting SearchQueryInput to Tantivy queries. The guard ensures the context
 /// remains valid for the lifetime of this struct.
+///
+/// Note: Currently this uses ExprContextGuard which is specific to execution-time contexts
+/// (created via ExecAssignExprContext). For planner-time usage, we would need to support
+/// the planner's expression context as well.
 pub struct QueryContext<'a> {
     pub schema: &'a SearchIndexSchema,
     pub reader: &'a SearchIndexReader,
     pub index: &'a PgSearchRelation,
-    pub context: ExprContextGuard,
+    pub context: ExprContextGuard, // Execution-time expression context
 }
 
 impl<'a> QueryContext<'a> {

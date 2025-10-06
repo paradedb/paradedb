@@ -80,7 +80,7 @@ FROM filter_agg_test;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (2 Filter Groups)
+   Execution Strategy: Multi-Query (2 Filter Groups)
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
@@ -109,7 +109,7 @@ FROM filter_agg_test;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (4 Filter Groups)
+   Execution Strategy: Multi-Query (4 Filter Groups)
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"books","lenient":null,"conjunction_mode":null}}}}
@@ -144,7 +144,7 @@ WHERE status @@@ 'available';
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group 1 Query (No Filter): {"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}}
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"status","query_string":"available","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}]}}
@@ -228,7 +228,7 @@ FROM filter_agg_test;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*), SUM(price)
      Group 2 Query: {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple","lenient":null,"conjunction_mode":null}}}}
@@ -254,7 +254,7 @@ FROM filter_agg_test;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now(), now(), now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (8 Filter Groups)
+   Execution Strategy: Multi-Query (8 Filter Groups)
      Group 1 Query: {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}}
      Group 1 Aggregates: COUNT(*) FILTER (WHERE {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}})
      Group 2 Query: {"term":{"field":"in_stock","value":true,"is_datetime":false}}
@@ -290,7 +290,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: category, now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (2 Filter Groups)
+   Execution Strategy: Multi-Query (2 Filter Groups)
      Group By: category
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*)
@@ -328,7 +328,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: category, now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group By: category
      Group 1 Query: {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}}
      Group 1 Aggregates: COUNT(*) FILTER (WHERE {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}})
@@ -388,7 +388,7 @@ ORDER BY brand;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: brand, now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group By: brand
      Group 1 Query (No Filter): {"with_index":{"query":{"parse_with_field":{"field":"brand","query_string":"Apple OR Samsung OR TechPress","lenient":null,"conjunction_mode":null}}}}
      Group 1 Aggregates: COUNT(*), AVG(price)
@@ -415,7 +415,7 @@ ORDER BY category, status;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: category, status, now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (4 Filter Groups)
+   Execution Strategy: Multi-Query (4 Filter Groups)
      Group By: category, status
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*)
@@ -499,7 +499,7 @@ FROM filter_agg_test;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group 1 Query (No Filter): "all"
      Group 1 Aggregates: COUNT(*)
      Group 2 Query: {"term":{"field":"in_stock","value":true,"is_datetime":false}}
@@ -916,7 +916,7 @@ ORDER BY category;
  Custom Scan (ParadeDB Aggregate Scan) on public.filter_agg_test
    Output: category, now(), now(), now(), now(), now(), now()
    Index: filter_agg_idx
-   Execution Strategy: Optimized Multi-Query (3 Filter Groups)
+   Execution Strategy: Multi-Query (3 Filter Groups)
      Group By: category
      Group 1 Query: {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}}
      Group 1 Aggregates: MIN(price) FILTER (WHERE {"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}})

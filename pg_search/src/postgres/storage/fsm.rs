@@ -852,14 +852,11 @@ pub mod v2 {
                         let mut tree = self.avl_mut(&mut page);
 
                         if let Some(slot) = tree.get_slot_mut(&found_xid) {
-                            if slot.tag == old_head {
-                                // change the head to the next block
-                                slot.tag = next_blockno;
+                            // change the head to the next block
+                            slot.tag = next_blockno;
 
-                                // and keep local state in sync
-                                head_blockno = next_blockno;
-                            }
-                            // else: someone already changed tag — that’s fine.
+                            // and keep local state in sync
+                            head_blockno = next_blockno;
                         }
                         drop(root);
 
@@ -924,7 +921,12 @@ pub mod v2 {
                 // caller didn't give us anything to do
                 return;
             }
-            let tag = {
+
+            // find the starting block of the associated freelist while holding (at least) a share
+            // lock on the root page of the tree.  This ensures a concurrent drain that could be
+            // happening on the provided `when_recyclable` transaction id can't unlink its head block
+            // which would change the block we'd get here
+            let start_block = {
                 let root = bman.get_buffer(self.start_blockno);
                 let page = root.page();
                 let tree = self.avl_ref(&page);
@@ -936,15 +938,17 @@ pub mod v2 {
                         let mut tree = self.avl_mut(&mut page);
 
                         match tree.insert(when_recyclable.value, ()) {
-                            Ok((_, tag)) => tag,
-                            Err(Error::Full) => self.handle_full_tree(root, when_recyclable),
+                            Ok((_, tag)) => bman.get_buffer_mut(tag as pg_sys::BlockNumber),
+                            Err(Error::Full) => {
+                                let tag = self.handle_full_tree(root, when_recyclable);
+                                bman.get_buffer_mut(tag as pg_sys::BlockNumber)
+                            }
                         }
                     }
-                    Some((_, tag)) => tag,
+                    Some((_, tag)) => bman.get_buffer_mut(tag as pg_sys::BlockNumber),
                 }
             };
 
-            let start_block = bman.get_buffer_mut(tag as pg_sys::BlockNumber);
             Self::extend_freelist(bman, start_block, extend_with);
         }
     }

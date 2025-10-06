@@ -600,7 +600,6 @@ fn explain_execution_strategy(
             explainer.add_text("  Combined Query", combined_query.explain_format());
             add_group_by(explainer);
             add_limit_offset(explainer);
-
             explainer.add_text(
                 "  Applies to Aggregates",
                 AggregateType::format_aggregates(
@@ -613,10 +612,7 @@ fn explain_execution_strategy(
         // Multi-group
         explainer.add_text(
             "Execution Strategy",
-            format!(
-                "Optimized Multi-Query ({} Filter Groups)",
-                filter_groups.len()
-            ),
+            format!("Multi-Query ({} Filter Groups)", filter_groups.len()),
         );
         add_group_by(explainer);
         add_limit_offset(explainer);
@@ -944,8 +940,8 @@ fn execute(
         aggregate_types: &state.custom_state().aggregate_types,
         grouping_columns: &state.custom_state().grouping_columns,
         orderby_info: &state.custom_state().orderby_info,
-        limit: state.custom_state().limit,
-        offset: state.custom_state().offset,
+        limit: &state.custom_state().limit,
+        offset: &state.custom_state().offset,
     };
 
     let result = execute_aggregation(

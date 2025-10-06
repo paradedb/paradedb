@@ -94,8 +94,6 @@ impl AggregateScanState {
             .expect("PdbScanState: indexrel should be initialized")
     }
 
-    /// Unified result processing function - handles all aggregation result types
-    /// This replaces the multiple specialized processing functions with a single unified approach
     pub fn process_aggregation_results(
         &self,
         result: serde_json::Value,

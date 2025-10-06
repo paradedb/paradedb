@@ -38,16 +38,18 @@ WHERE id @@@ paradedb.exists('metadata.category')
 GROUP BY metadata->>'category'
 ORDER BY 1
 LIMIT 5;
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'category'::text)), (now())
    ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_single
          Output: (metadata ->> 'category'::text), now()
          Index: idx_json_single
          Tantivy Query: {"with_index":{"query":{"exists":{"field":"metadata.category"}}}}
-         Aggregate Definition: {"group_0":{"terms":{"field":"metadata.category","order":{"_key":"asc"},"size":5,"segment_size":5}}}
-(7 rows)
+           Applies to Aggregates: COUNT(*)
+           Group By: metadata.category
+           Limit: 5
+(9 rows)
 
 SELECT metadata->>'category' AS category, COUNT(*) AS count
 FROM json_test_single

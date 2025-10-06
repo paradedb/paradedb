@@ -18,7 +18,7 @@ SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"ctid"}}}
+     Applies to Aggregates: COUNT(*)
 (4 rows)
 
 SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
@@ -29,12 +29,12 @@ SELECT COUNT(*) FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
-                            QUERY PLAN                            
-------------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"rating"}}}
+     Applies to Aggregates: COUNT(rating)
 (4 rows)
 
 SELECT COUNT(rating) FROM mock_items WHERE id @@@ paradedb.all();
@@ -65,12 +65,12 @@ SELECT COUNT(metadata->>'color') FROM mock_items WHERE id @@@ paradedb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on mock_items
    Index: mock_items_id_description_rating_category_metadata_idx
    Tantivy Query: {"with_index":{"query":"all"}}
-   Aggregate Definition: {"0":{"value_count":{"field":"rating","missing":0.0}}}
+     Applies to Aggregates: COUNT(rating)
 (4 rows)
 
 SELECT COUNT(COALESCE(rating, 0)) FROM mock_items WHERE id @@@ paradedb.all();

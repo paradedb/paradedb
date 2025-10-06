@@ -51,18 +51,15 @@
                             "group": "Index Tuning",
                             "pages": [
                               "documentation/configuration/overview",
-                              "documentation/configuration/index",
-                              "documentation/configuration/index_size",
-                              "documentation/configuration/segment_count",
-                              "documentation/configuration/segment_size",
-                              "documentation/configuration/write",
-                              "documentation/configuration/parallel"
+                              "documentation/configuration/index_build",
+                              "documentation/configuration/write_throughput",
+                              "documentation/configuration/read_throughput"
                             ]
                           },
                           {
-                            "group": "Index Settings",
+                            "group": "Feature Flags",
                             "pages": [
-                              "documentation/configuration/scan"
+                              "documentation/configuration/custom_scan"
                             ]
                           }
                         ]

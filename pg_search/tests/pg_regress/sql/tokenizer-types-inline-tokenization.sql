@@ -1,0 +1,11 @@
+SELECT 'this is a test.'::paradedb.chinese_compatible::text[];
+SELECT 'this is a test.'::paradedb.exact::text[];
+SELECT 'this is a test.'::paradedb.jieba::text[];
+SELECT 'this is a test.'::paradedb.lindera(chinese)::text[];
+SELECT 'this is a test.'::paradedb.lindera(japanese)::text[];
+SELECT 'this is a test.'::paradedb.lindera(korean)::text[];
+SELECT 'this is a test.'::paradedb.ngram(3, 5)::text[];
+SELECT 'this is a test.'::paradedb.regex('is|a')::text[];
+SELECT 'this is a test.'::paradedb.simple::text[];
+SELECT 'this is a test.'::paradedb.stemmed(english)::text[];
+SELECT 'this is a test.'::paradedb.whitespace::text[];

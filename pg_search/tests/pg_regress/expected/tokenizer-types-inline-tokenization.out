@@ -1,0 +1,66 @@
+SELECT 'this is a test.'::paradedb.chinese_compatible::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.exact::text[];
+        text         
+---------------------
+ {"this is a test."}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.jieba::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.lindera(chinese)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.lindera(japanese)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.lindera(korean)::text[];
+              text              
+--------------------------------
+ {this," ",is," ",a," ",test,.}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.ngram(3, 5)::text[];
+                                                                                                                   text                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ {thi,this,"this ",his,"his ","his i","is ","is i","is is","s i","s is","s is "," is"," is "," is a","is ","is a","is a ","s a","s a ","s a t"," a "," a t"," a te","a t","a te","a tes"," te"," tes"," test",tes,test,test.,est,est.,st.}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.regex('is|a')::text[];
+   text    
+-----------
+ {is,is,a}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.simple::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.stemmed(english)::text[];
+       text       
+------------------
+ {this,is,a,test}
+(1 row)
+
+SELECT 'this is a test.'::paradedb.whitespace::text[];
+       text        
+-------------------
+ {this,is,a,test.}
+(1 row)
+

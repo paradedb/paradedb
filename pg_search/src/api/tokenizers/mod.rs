@@ -45,6 +45,7 @@ pub fn search_field_config_from_type(
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
+        "exact" => SearchTokenizer::Keyword,
         "stemmed" => SearchTokenizer::Stem {
             language: Language::English,
             filters: SearchTokenizerFilters::default(),

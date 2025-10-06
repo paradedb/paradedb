@@ -61,9 +61,7 @@
                           },
                           {
                             "group": "Index Settings",
-                            "pages": [
-                              "documentation/configuration/scan"
-                            ]
+                            "pages": ["documentation/configuration/scan"]
                           }
                         ]
                       },
@@ -97,9 +95,7 @@
                           "documentation/advanced/overview",
                           {
                             "group": "Full Text Queries",
-                            "pages": [
-                              "documentation/advanced/full-text/match"
-                            ]
+                            "pages": ["documentation/advanced/full-text/match"]
                           },
                           {
                             "group": "Term-Level Queries",
@@ -155,9 +151,7 @@
                           "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
-                            "pages": [
-                              "documentation/aggregates/bucket/terms"
-                            ]
+                            "pages": ["documentation/aggregates/bucket/terms"]
                           },
                           {
                             "group": "Metrics",
@@ -229,9 +223,7 @@
                     "pages": [
                       {
                         "group": "Indexing",
-                        "pages": [
-                          "v2/indexing/create_index"
-                        ]
+                        "pages": ["v2/indexing/create_index"]
                       },
                       {
                         "group": "Full Text Search",
@@ -277,9 +269,7 @@
                       },
                       {
                         "group": "Aggregates",
-                        "pages": [
-                          "v2/aggregates/overview"
-                        ]
+                        "pages": ["v2/aggregates/overview"]
                       }
                     ]
                   },
@@ -461,7 +451,7 @@
       "robots": "index, follow",
       "charset": "UTF-8",
       "viewport": "width=device-width, initial-scale=1.0",
-      "description": "ParadeDB documentatio: The transactional alternative to Elasticsearch built on Postgres.",
+      "description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
       "keywords": "paradedb, postgres, search, analytics, bm25, full-text search, hybrid search, faceted search, columnar, olap",
       "author": "ParadeDB",
       "googlebot": "index, follow",
@@ -491,14 +481,14 @@
       "og:type": "website",
       "og:url": "https://docs.paradedb.com",
       "og:image": "https://www.paradedb.com/opengraph-image.png",
-      "og:description": "ParadeDB documentation: The transactional alternative to Elasticsearch built on Postgres.",
+      "og:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres",
       "og:site_name": "ParadeDB Docs",
       "og:locale": "en_US",
       "twitter:card": "summary_large_image",
       "twitter:site": "@paradedb",
       "twitter:creator": "@paradedb",
       "twitter:title": "ParadeDB Docs",
-      "twitter:description": "ParadeDB documentation: The transactional alternative to Elasticsearch built on Postgres.",
+      "twitter:description": "Developer docs for ParadeDB, the transactional alternative to Elasticsearch built on Postgres.",
       "twitter:image": "https://www.paradedb.com/twitter-image.png",
       "twitter:image:alt": "ParadeDB: The transactional alternative to Elasticsearch built on Postgres."
     },

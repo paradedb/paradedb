@@ -96,7 +96,7 @@ ALTER INDEX search_idx SET (target_segment_count = 8);
 However, a `REINDEX` is required to rebalance the index to that segment count.
 
 For optimal performance, the segment count should equal the number of parallel workers that a query can receive, which is controlled by
-[`max_parallel_workers_per_gather`](/documentation/configuration/parallel#parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
+[`max_parallel_workers_per_gather`](/documentation/configuration/read_throughput#raise-parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
 performance.
 
 <Note>

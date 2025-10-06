@@ -17,7 +17,7 @@ In order for `max_parallel_maintenance_workers` to take effect, it must be less 
 ### Configure Indexing Memory
 
 The default Postgres `maintenance_work_mem` value of `64MB` is quite conservative and can slow down parallel index builds. We recommend at least `64MB` per
-[parallel indexing worker](/documentation/configuration/index#parallel-indexing-workers).
+[parallel indexing worker](#raise-parallel-indexing-workers).
 
 ```sql
 SET maintenance_work_mem = '2GB';

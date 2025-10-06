@@ -5,7 +5,7 @@ title: Read Throughput
 As a general rule of thumb, the performance of expensive search queries can be greatly improved
 if they are able to access more parallel Postgres workers and more shared buffer memory.
 
-## Parallel Workers
+## Raise Parallel Workers
 
 There are three settings that control how many parallel workers ultimately get assigned to a query.
 
@@ -33,7 +33,7 @@ query patterns, and volume of data.
   parallelism.
 </Note>
 
-## Shared Buffers
+## Raise Shared Buffers
 
 `shared_buffers` controls how much memory is available to the Postgres buffer cache. We recommend allocating no more than 40% of total memory
 to `shared_buffers`.
@@ -50,7 +50,7 @@ CREATE EXTENSION pg_prewarm;
 SELECT pg_prewarm('search_idx');
 ```
 
-## Autovacuum
+## Configure Autovacuum
 
 If an index experiences frequent writes, the search performance of some queries like [sorting](/documentation/full-text/sorting) or
 [aggregates](/documentation/aggregates) can degrade if `VACUUM` has not been recently run. This is because writes can cause parts of Postgres' visibility map
@@ -74,5 +74,36 @@ note are:
 3. `autovacuum_naptime` ensures that vacuum does not run too frequently.
 
 This means that setting `autovacuum_vacuum_scale_factor` to `0` and `autovacuum_vacuum_threshold` to `100000` will trigger an autovacuum
-for every `100000` row updates. To determine the right autovacuum settings for your table, we recommend examining the table's write volumes and
-adjusting the autovacuum threshold accordingly.
+for every `100000` row updates. As a general rule of thumb, we recommend autovacuuming at least once every `100000` single-row updates.
+
+## Adjust Target Segment Count
+
+By default, `CREATE INDEX`/`REINDEX` will create as many segments as there are CPUs on the host machine. This can be changed using the
+`target_segment_count` index option.
+
+```sql
+CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating) WITH (key_field = 'id', target_segment_count = 32, ...);
+```
+
+This property is attached to the index so that during `REINDEX`, the same value will be used.
+
+It can be changed with ALTER INDEX, like so:
+
+```sql
+ALTER INDEX search_idx SET (target_segment_count = 8);
+```
+
+However, a `REINDEX` is required to rebalance the index to that segment count.
+
+For optimal performance, the segment count should equal the number of parallel workers that a query can receive, which is controlled by
+[`max_parallel_workers_per_gather`](/documentation/configuration/parallel#parallel-workers). If `max_parallel_workers_per_gather` is greater than the number of CPUs on the host machine, then increasing the target segment count to match `max_parallel_workers_per_gather` can improve query
+performance.
+
+<Note>
+`target_segment_count` is merely a suggestion.
+
+While `pg_search` will endeavor to ensure the created index will have exactly this many segments, it is possible for it
+to have less or more. Mostly this depends on the distribution of work across parallel builder processes, memory
+constraints, and table size.
+
+</Note>

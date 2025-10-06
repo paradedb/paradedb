@@ -13,7 +13,7 @@ Segments become candidates for merging if their combined size meets or exceeds o
 segment sizes — such as `10KB`, `100KB`, `1MB`, etc. For each layer, the compactor checks if there are enough smaller segments whose total size adds up to the threshold.
 
 By default, layer sizes `1KB`, `10KB`, `100KB` and `1MB` are merged in the foreground, while layer sizes `10MB`, `100MB`, `1GB`, `10GB`, `100GB`, and `1TB`
-are merged in the background. `layer_sizes` configures the foreground layers, while `backgorund_layer_sizes` configures the background layers.
+are merged in the background. `layer_sizes` configures the foreground layers, while `background_layer_sizes` configures the background layers.
 
 ```sql
 -- Set the layer sizes at CREATE INDEX time

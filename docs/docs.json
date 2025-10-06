@@ -51,7 +51,7 @@
                             "group": "Index Tuning",
                             "pages": [
                               "documentation/configuration/overview",
-                              "documentation/configuration/index",
+                              "documentation/configuration/index_build",
                               "documentation/configuration/index_size",
                               "documentation/configuration/segment_count",
                               "documentation/configuration/segment_size",

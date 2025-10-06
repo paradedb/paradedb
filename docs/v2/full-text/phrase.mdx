@@ -40,7 +40,7 @@ This query returns:
 Sleek running shoes | 5 | Footwear
 (1 row)
 
-````
+```
 
 Note that `running sleek shoes` and `shoes running` did not match the phrase `running shoes` despite having the tokens `running` and
 `shoes` because they appear in the wrong order or with other words in between.
@@ -73,4 +73,4 @@ To apply slop to a phrase query, cast the query to `slop(n)`, where `n` is the m
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### 'shoes running'::slop(2);
-````
+```

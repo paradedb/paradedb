@@ -61,7 +61,9 @@
                           },
                           {
                             "group": "Index Settings",
-                            "pages": ["documentation/configuration/scan"]
+                            "pages": [
+                              "documentation/configuration/scan"
+                            ]
                           }
                         ]
                       },
@@ -95,7 +97,9 @@
                           "documentation/advanced/overview",
                           {
                             "group": "Full Text Queries",
-                            "pages": ["documentation/advanced/full-text/match"]
+                            "pages": [
+                              "documentation/advanced/full-text/match"
+                            ]
                           },
                           {
                             "group": "Term-Level Queries",
@@ -151,7 +155,9 @@
                           "documentation/aggregates/overview",
                           {
                             "group": "Bucket",
-                            "pages": ["documentation/aggregates/bucket/terms"]
+                            "pages": [
+                              "documentation/aggregates/bucket/terms"
+                            ]
                           },
                           {
                             "group": "Metrics",
@@ -223,7 +229,9 @@
                     "pages": [
                       {
                         "group": "Indexing",
-                        "pages": ["v2/indexing/create_index"]
+                        "pages": [
+                          "v2/indexing/create_index"
+                        ]
                       },
                       {
                         "group": "Full Text Search",
@@ -269,7 +277,9 @@
                       },
                       {
                         "group": "Aggregates",
-                        "pages": ["v2/aggregates/overview"]
+                        "pages": [
+                          "v2/aggregates/overview"
+                        ]
                       }
                     ]
                   },
